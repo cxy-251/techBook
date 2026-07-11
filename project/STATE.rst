@@ -34,7 +34,9 @@
 * 创建仓库级 ``AGENTS.md``，规定新 Agent 的读取顺序和章节准入条件。
 * 创建 ``project/STATE.rst``、``project/DECISIONS.rst`` 和 ``project/REPOSITORY_MAP.rst``。
 * 创建 ``project/CONTENT_SELECTION.rst``，规定内容在书籍开始前一次性固定。
-* 创建 ``manifests/books/linux-kernel-plan.toml``，冻结 Linux 第一卷范围、顺序、依赖和证据类型。
+* 创建 Linux 第一卷 plan 索引和三个 Part 文件，冻结 17 章的范围、顺序、依赖和证据类型。
+* 创建 ``tools/validate_book_plans.py``，检查计划总数、ID、连续顺序、首章和前置依赖。
+* 将计划验证加入 GitHub Actions，防止计划文件缺章或截断后继续生产。
 * 将 Linux 第一卷主线固定为 ARM64 启动、初始化、initcall、用户空间 init、``read()`` 与 VFS。
 * 将章节生成 Skill 改为只执行 frozen plan，不再临时选题。
 * 创建 RST 审计脚本。
