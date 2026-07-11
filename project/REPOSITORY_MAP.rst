@@ -1,91 +1,88 @@
 仓库文件职责
 ============
 
-本文件说明主要路径当前承担什么职责。新增、删除或改变职责时必须同步更新。
+本文件说明主要路径当前承担什么职责，以及哪些内容属于未来预留。新增、删除或改变文件职责时必须同步更新。
 
 状态说明
 --------
 
 ``active``
-   当前参与仓库运行或约束。
+   当前已经参与仓库运行或约束。
 
 ``incomplete``
-   已开始使用，关键内容仍未补齐。
+   当前已使用，但关键内容仍未补齐。
 
 ``reserved``
-   已确定未来会使用，当前不会主动执行。
+   为已经确定的未来流程预留，当前不会主动执行。
 
 根目录
 ------
 
 ``AGENTS.md`` — active
-   所有新对话和 Agent 的第一入口，保存仓库目的、学习规则、读取顺序和维护要求。
+   所有新对话和新 Agent 的第一入口。保存仓库目的、读取顺序、当前阶段、unit 准入条件和维护规则。
 
 ``README.rst`` — active
-   面向仓库使用者的简要说明。完整规则仍以 ``AGENTS.md`` 和 ``project/`` 为准。
+   面向仓库使用者的简要说明。它不替代 ``AGENTS.md``。
 
 ``pyproject.toml`` — active
-   固定 Python、Sphinx、doc8、pytest、ruff 和 uv 的基础依赖。
+   固定 Python 3.12、Sphinx、doc8、pytest、ruff 和 uv 的基础依赖。
 
-``sources.lock`` — incomplete
-   固定需要源码级证明的外部实现与规范。基础 unit 不要求全部使用源码锁。
+``sources.lock`` — reserved
+   只在源码级 unit 需要固定实现、版本和 commit 时使用。普通入门 unit 不要求先锁源码。
 
 ``release-manifest.toml`` — reserved
-   未来公共 release 快照白名单。当前私有仓库不发布 Pages。
+   定义未来公共 release 快照允许导出的白名单。
+
+``.gitignore`` — active
+   排除虚拟环境、缓存、Sphinx 构建输出和 release 临时目录。
 
 项目规则
 --------
 
 ``project/STATE.rst`` — active
-   当前阶段、已完成事项、blocker 和下一步。
+   保存当前阶段、完成事项、blocker 和下一步。
 
 ``project/DECISIONS.rst`` — active
-   跨对话长期决策，也记录已被取代的旧决策。
+   保存跨对话长期决策及已废止决策。
 
 ``project/LEARNING_DESIGN.rst`` — active
-   定义零基础读者模型、能力层级、学习循环、问题设计和完成标准。
+   定义预测、证据、推理、条件变化、误解修正、答案解释和迁移任务组成的学习主链。
 
 ``project/AIBOOK_LESSONS.rst`` — active
-   记录旧 ``aiBook`` 的失败模式和迁移时必须采用的修正规则。
+   记录 ``aiBook`` 的失败模式和迁移时必须避免的问题。
 
 ``project/CONTENT_SELECTION.rst`` — active
-   定义 track contract、stage batch 和每次执行之间的关系。
+   规定 track、stage batch 和 unit 的规划方式。不在开头冻结整本书全部章节。
 
 ``project/REPOSITORY_MAP.rst`` — active
-   当前文件职责和预留功能。
+   保存当前文件职责和预留功能。
 
-学习路径 manifest
------------------
+学习模型
+--------
 
 ``manifests/tracks.toml`` — active
-   登记从 ``aiBook/docs`` 继承的七条技术学习路径及其审计状态。
+   登记七条来自 ``aiBook/docs`` 的学习路径。
 
 ``manifests/tracks/<track>.toml`` — incomplete
-   保存目标读者、入口层级、最终能力、阶段顺序、范围和排除项。
-
-``manifests/tracks/linux-kernel.toml`` — incomplete
-   Linux 路径当前只固定四个学习阶段，第一批 unit 尚未设计。
-
-学习单元 manifest
------------------
+   保存每条路径的目标读者、能力层级、阶段、范围和状态。当前只有 Linux Kernel 建立了初步阶段。
 
 ``manifests/units/README.rst`` — active
-   定义 unit manifest、状态和完成条件。
+   定义 unit manifest 的字段、学习状态和完成标准。
 
 ``manifests/units/<unit>.toml`` — reserved
-   正式 unit 的学习变化、预测、证据、问题来源、评估和完成状态。
+   每个黄金 unit 或正式 unit 的目标、证据、评估和完成状态。
 
 实验与评估
 ----------
 
 ``labs/README.rst`` — active
-   定义最小示例、条件变体、测试和短输出的保存方式。
+   定义 unit 实验目录。只有需要运行、编译、trace 或其他可复现证据时才创建 lab。
 
 ``labs/<track>/<unit>/`` — reserved
-   unit 的代码、命令、测试和真实输出。
+   unit 的最小示例、脚本、测试和短输出。
 
 ``assessments/`` — reserved
-   黄金 unit 验证后，用于保存独立任务、评分标准和读者反馈记录。
+   未来保存跨 unit 的阶段性能力检查。当前 unit 内评估先保存在 unit 本身和 manifest 中。
 
 RST 内容
 --------
@@ -127,8 +124,18 @@ GitHub Actions
 --------------
 
 ``.github/workflows/verify.yml`` — active
-   每次推送 ``main`` 时验证 Python 工具、learning model、RST、已有 lab 测试和 Sphinx 构建。
-   不部署 Pages。
+   只允许在 Actions 页面通过 ``workflow_dispatch`` 手动运行。不会在普通 push 时自动执行或发送失败邮件。
+   手动运行时才执行 Python 工具检查、learning model 校验、RST 审计、可用 lab 测试和 Sphinx HTML 预览构建。
+
+RST 与构建关系
+-------------
+
+RST 是源文本，可以直接存储、审阅和修改。Sphinx 构建不是日常写作前提，只在以下情况需要：
+
+* 想查看最终 HTML 阅读效果；
+* 检查 toctree、交叉引用和 directive；
+* 准备公共 release；
+* 主动排查 RST 结构错误。
 
 已经删除的旧模型
 ----------------
