@@ -1,7 +1,9 @@
 techBook
 ========
 
-``techBook`` 是私有的技术书生产仓库。正文使用 reStructuredText，章节从可运行实验、真实输出和固定源码版本出发生成。
+``techBook`` 是一个面向零基础程序员的可执行技术学习仓库。它把 ``aiBook/docs`` 中的技术方向
+重新设计为 learning track、unit、lab 和 assessment，目标是让读者从“看懂句子”走到能够预测、
+解释、修改、排错和迁移。
 
 Agent 接续
 ----------
@@ -11,34 +13,47 @@ Agent 接续
 #. ``AGENTS.md``
 #. ``project/STATE.rst``
 #. ``project/DECISIONS.rst``
+#. ``project/LEARNING_DESIGN.rst``
+#. ``project/AIBOOK_LESSONS.rst``
+#. ``project/CONTENT_SELECTION.rst``
 #. ``project/REPOSITORY_MAP.rst``
 
-仓库不依赖聊天记录保存上下文。``AGENTS.md`` 是仓库级入口；章节生成时再读取 ``.agents/skills/source-first-technical-book/SKILL.md``。
+仓库不依赖聊天记录保存上下文。
 
 当前状态
 --------
 
-仓库处于基础设施阶段，当前内容不足以直接生成正式技术文章。Linux Kernel 的 release、exact commit、ARM64 config、toolchain、运行环境、首个 lab 和真实输出仍未确定。
+仓库处于学习模型校准阶段。当前不批量生成文章，也不把旧 ``aiBook`` 章节直接改写进来。
 
-仓库定位
+下一步是制作三个黄金学习单元：语言基础、系统行为和源码阅读各一个。样例通过实际阅读检查后，
+再为七条技术路径设计第一批 unit。
+
+学习原则
 --------
 
-* ``main`` 是唯一工作分支。
-* 当前仓库只保存技术书、实验、来源锁定和生成规则。
-* 当前阶段不启用 GitHub Pages。
-* 内容稳定后，通过白名单导出到独立公共仓库，再由公共仓库发布 Pages。
+* 一个 unit 只产生一次明确的能力变化。
+* 解释之前先让读者预测。
+* 结论必须绑定代码、对象、状态、输出或其他可定位证据。
+* 至少改变一个条件，检查读者是否真正理解边界。
+* 每个问题说明为什么要问，答案说明为什么成立。
+* 每个 unit 都需要一个不能直接照抄示例的迁移任务。
+* 不写宏大开场、重复总结和百科式铺陈。
+* 基础内容先建立行为模型，源码阅读在需要时进入。
 
-写作原则
+学习路径
 --------
 
-* 一个章节只解决一个可观察问题。
-* 没有实验、源码、命令、测试、规范或真实输出支撑时，不创建章节。
-* 示例代码存放在 ``labs/``，正文使用 ``literalinclude`` 引用。
-* Roadmap 是候选问题池，可以删除、合并和重新排序。
-* 版本敏感结论必须绑定 source、version、commit、平台和工具链。
-* 构建、实验或审计失败时，章节保持未发布状态。
+当前登记的路径来自旧仓库 ``docs``：
 
-本地命令
+* C++ STL；
+* Python；
+* Graphics；
+* Linux Kernel；
+* Compiler；
+* Mobile OS；
+* Web Architecture。
+
+本地验证
 --------
 
 项目使用 Python 3.12 与 uv：
@@ -46,36 +61,39 @@ Agent 接续
 .. code-block:: console
 
    uv sync --all-groups
+   uv run ruff check tools
+   uv run python tools/validate_learning_model.py
    uv run python tools/audit_chapter.py docs
    uv run sphinx-build -W --keep-going -n -b html docs docs/_build/html
-   uv run python tools/export_release.py
 
-目录
-----
+仓库边界
+--------
 
-``AGENTS.md``
-   新 Agent 的第一入口与仓库级硬规则。
+* ``main`` 是唯一工作分支。
+* 当前私有仓库不启用 GitHub Pages。
+* 稳定内容后续导出到独立公共仓库发布。
+* 文学、电影、电视剧和游戏编年史不进入本仓库。
+
+主要目录
+--------
 
 ``project/``
-   当前状态、长期决策和文件职责。
+   学习设计、旧仓库经验、当前状态、长期决策和文件职责。
 
-``docs/``
-   Sphinx 与 RST 正文。
+``manifests/tracks/``
+   学习路径目标、能力层级、阶段与范围。
+
+``manifests/units/``
+   unit 的学习变化、证据、问题来源、评估和完成状态。
+
+``docs/tracks/``
+   面向读者的 RST 学习路径与 unit。
 
 ``labs/``
-   与章节一一对应的最小实验、测试和保存输出。
-
-``manifests/``
-   书籍契约与章节状态。
-
-``sources.lock``
-   外部源码和规范的确定版本。
-
-``.agents/skills/``
-   章节生产的详细执行协议。
-
-``tools/``
-   内容审计与 release 快照导出工具。
+   最小示例、变体、测试和真实输出。
 
 ``templates/``
-   RST 章节模板，不参与 Sphinx 构建。
+   学习单元模板。
+
+``tools/``
+   学习模型、内容和 release 验证工具。
