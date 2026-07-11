@@ -30,8 +30,8 @@ jobs:
       - name: Lint tools
         run: uv run ruff check tools
 
-      - name: Validate frozen book plans
-        run: uv run python tools/validate_book_plans.py
+      - name: Validate learning model
+        run: uv run python tools/validate_learning_model.py
 
       - name: Audit RST
         run: uv run python tools/audit_chapter.py docs
@@ -39,7 +39,7 @@ jobs:
       - name: Check RST style
         run: >-
           uv run doc8 --max-line-length 100
-          docs README.rst labs manifests/chapters/README.rst
+          docs README.rst labs manifests/units/README.rst project
 
       - name: Run available lab tests
         shell: bash
