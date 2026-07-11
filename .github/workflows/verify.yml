@@ -30,6 +30,9 @@ jobs:
       - name: Lint tools
         run: uv run ruff check tools
 
+      - name: Validate frozen book plans
+        run: uv run python tools/validate_book_plans.py
+
       - name: Audit RST
         run: uv run python tools/audit_chapter.py docs
 
