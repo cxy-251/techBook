@@ -1,0 +1,45 @@
+format = 1
+source_repository = "cxy-251/aiBook"
+source_root = "docs"
+
+[[track]]
+id = "cpp-stl"
+title = "C++ STL"
+source_path = "docs/C++"
+status = "inventory-pending"
+
+[[track]]
+id = "python"
+title = "Python"
+source_path = "docs/Python"
+status = "inventory-pending"
+
+[[track]]
+id = "graphics"
+title = "Graphics"
+source_path = "docs/Graphic"
+status = "inventory-pending"
+
+[[track]]
+id = "linux-kernel"
+title = "Linux Kernel"
+source_path = "docs/LinuxK"
+status = "design-pending"
+
+[[track]]
+id = "compiler"
+title = "Compiler"
+source_path = "docs/Compiler"
+status = "inventory-pending"
+
+[[track]]
+id = "mobile-os"
+title = "Mobile OS"
+source_path = "docs/MobileOS"
+status = "inventory-pending"
+
+[[track]]
+id = "web-architecture"
+title = "Web Architecture"
+source_path = "docs/WebArch"
+status = "inventory-pending"
