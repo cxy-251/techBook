@@ -33,8 +33,8 @@ jobs:
       - name: Validate learning model
         run: uv run python tools/validate_learning_model.py
 
-      - name: Audit RST
-        run: uv run python tools/audit_chapter.py docs
+      - name: Audit learning content
+        run: uv run python tools/audit_learning_content.py docs
 
       - name: Check RST style
         run: >-
