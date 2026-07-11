@@ -19,6 +19,8 @@
 * 当前私有仓库不发布 GitHub Pages。
 * 未来通过独立公共仓库发布稳定 release。
 * ``AGENTS.md`` 是所有新 Agent 的第一入口。
+* ``project/`` 保存跨对话状态、决策和文件职责。
+* Skill 只负责正式章节的详细生产流程。
 * 当前仓库内容不足以直接写正式技术文章。
 * Linux Kernel 是首本候选书，首个候选问题是“用户态 ``read()`` 如何进入 VFS”。
 
@@ -27,12 +29,14 @@
 
 * 创建 Sphinx 基础配置和文档入口。
 * 创建 ``docs/books/``、``labs/``、``manifests/``、``templates/`` 和 ``tools/``。
-* 创建仓库级 ``AGENTS.md``。
+* 创建仓库级 ``AGENTS.md``，规定新 Agent 的读取顺序和章节准入条件。
+* 创建 ``project/STATE.rst``、``project/DECISIONS.rst`` 和 ``project/REPOSITORY_MAP.rst``。
 * 创建章节生成 Skill，并将其定位为 ``AGENTS.md`` 下的详细执行协议。
 * 创建 RST 审计脚本。
 * 创建 GitHub Actions 验证工作流。
 * 创建未来公共 release 的白名单导出骨架。
 * 创建 Linux Kernel 书籍 manifest 和阅读契约。
+* 在 ``README.rst`` 中明确当前仍处于基础设施阶段。
 
 当前 blocker
 ------------
