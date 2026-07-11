@@ -19,7 +19,7 @@
 ------
 
 ``AGENTS.md`` — active
-   所有新对话和新 Agent 的第一入口。保存读取顺序、当前阶段、准入条件和状态维护要求。
+   所有新对话和新 Agent 的第一入口。保存读取顺序、当前阶段、固定内容计划、准入条件和状态维护要求。
 
 ``README.rst`` — active
    面向仓库使用者的简要说明和本地命令。它不是完整的 Agent 接续文件。
@@ -40,7 +40,7 @@ Agent 规则
 ----------
 
 ``.agents/skills/source-first-technical-book/SKILL.md`` — active
-   章节生产的详细执行协议。仅在问题、实验、源码路径和 RST 生产阶段读取。项目接续仍由根 ``AGENTS.md`` 和 ``project/`` 状态文件负责。
+   章节生产的详细执行协议。它只执行 frozen plan 中已经确定的章节，不负责临时选题。项目接续仍由根 ``AGENTS.md`` 和 ``project/`` 状态文件负责。
 
 项目状态
 --------
@@ -50,6 +50,9 @@ Agent 规则
 
 ``project/DECISIONS.rst`` — active
    保存跨对话长期决策，防止新 Agent 重新推翻已经确定的仓库方向。
+
+``project/CONTENT_SELECTION.rst`` — active
+   规定一本书在开始生产前一次性固定范围、Part、章节顺序、依赖和证据类型。说明每次运行只做执行条件检查，不重新选题。
 
 ``project/REPOSITORY_MAP.rst`` — active
    保存文件职责和预留功能，解决“文件已经创建，后续 Agent 不知道为什么存在”的问题。
@@ -70,7 +73,7 @@ Sphinx 文档
    技术书目录入口。
 
 ``docs/books/linux-kernel/index.rst`` — incomplete
-   Linux Kernel 书籍入口。当前只展示 blocked 状态和首个候选问题。
+   Linux Kernel 第一卷入口。当前展示 frozen plan 主线、blocked 状态和第一章问题。
 
 ``docs/books/linux-kernel/reading-contract.rst`` — active
    规定 Linux 书的 source contract、实验规则、源码路径规则和写作顺序。它是书籍级规则，不是正式章节。
@@ -81,20 +84,26 @@ Sphinx 文档
 ``labs/README.rst`` — active
    定义每个章节实验目录的标准结构和独立运行要求。
 
-``labs/<book>/<chapter>/`` — reserved
-   正式实验位置。当前尚未创建第一个 Linux lab，因为 source contract 与验证环境还未确定。
+``labs/linux-kernel/lk-boot-001/`` — reserved
+   frozen plan 第一章的正式实验位置。当前尚未创建，因为 source contract 与验证环境还未确定。
 
 Manifest
 --------
 
 ``manifests/books/linux-kernel.toml`` — incomplete
-   保存 Linux 书籍范围、状态、首个问题和 source contract。当前 status 为 blocked。
+   保存 Linux 书籍范围、状态、frozen plan 路径、第一章和 source contract。当前 status 为 blocked。
+
+``manifests/books/linux-kernel-plan.toml`` — active
+   Linux Kernel 第一卷的 frozen plan。固定 3 个 Part、17 个章节、严格顺序、学习结果、前置依赖和证据类型。普通 Agent 不得临时修改。
 
 ``manifests/chapters/README.rst`` — active
    定义 chapter manifest 的字段和状态机。
 
+``manifests/chapters/lk-boot-001.toml`` — reserved
+   第一章的证据与验证状态。第一章 lab 建立后再创建，不提前制造空文件。
+
 ``manifests/chapters/<chapter>.toml`` — reserved
-   每篇正式章节的证据与验证状态。第一个 lab 建立后再创建，不提前制造空文件。
+   后续每篇正式章节的证据与验证状态。按照 frozen plan 顺序按需创建。
 
 模板
 ----
@@ -120,10 +129,11 @@ GitHub Actions
 未来允许新增的内容
 ------------------
 
-以下内容应当按实际需要创建，不提前堆空目录：
+以下内容应当按 frozen plan 和实际证据创建，不提前堆空目录：
 
-* ``labs/linux-kernel/read-enters-vfs/``：source contract 确定后的首个实验；
-* ``manifests/chapters/read-enters-vfs.toml``：首个实验建立后的章节状态；
-* ``docs/books/linux-kernel/chapter-*.rst``：证据齐全后的正式正文；
+* ``labs/linux-kernel/lk-boot-001/``：source contract 确定后的第一章实验；
+* ``manifests/chapters/lk-boot-001.toml``：第一章实验建立后的章节状态；
+* ``docs/books/linux-kernel/chapter-lk-boot-001.rst``：证据齐全后的第一章正文；
+* 后续章节资产：严格按照 ``linux-kernel-plan.toml`` 的 order 创建；
 * 公共 release 仓库配置：稳定内容准备发布时再创建；
 * Pages workflow：只存在于未来公共仓库。
