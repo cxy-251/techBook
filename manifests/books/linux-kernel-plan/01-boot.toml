@@ -1,0 +1,39 @@
+part_id = "BOOT"
+order = 1
+title = "ARM64 内核启动入口与地址空间切换"
+
+[[chapter]]
+id = "LK-BOOT-001"
+order = 1
+question = "ARM64 Linux 内核镜像从哪个入口开始执行？"
+outcome = "从 Image 入口定位第一段汇编路径，并区分加载地址与执行地址"
+prerequisites = []
+evidence = ["fixed symbols", "Image header or disassembly", "boot-path diagram"]
+status = "planned"
+
+[[chapter]]
+id = "LK-BOOT-002"
+order = 2
+question = "primary_entry 在开启 MMU 前建立了哪些执行条件？"
+outcome = "识别早期栈、CPU 状态、异常级别与启动参数的作用"
+prerequisites = ["LK-BOOT-001"]
+evidence = ["fixed symbols", "register-state notes", "boot or debugger output"]
+status = "planned"
+
+[[chapter]]
+id = "LK-BOOT-003"
+order = 3
+question = "早期页表如何准备，__enable_mmu 如何改变地址解释？"
+outcome = "连接页表准备、系统寄存器设置和 MMU 开启"
+prerequisites = ["LK-BOOT-002"]
+evidence = ["fixed symbols", "page-table config", "register or trace output"]
+status = "planned"
+
+[[chapter]]
+id = "LK-BOOT-004"
+order = 4
+question = "开启 MMU 后如何切换到虚拟地址并进入 start_kernel()？"
+outcome = "解释物理执行阶段结束后如何进入通用 C 初始化入口"
+prerequisites = ["LK-BOOT-003"]
+evidence = ["fixed symbols", "address-transition evidence", "boot log"]
+status = "planned"
