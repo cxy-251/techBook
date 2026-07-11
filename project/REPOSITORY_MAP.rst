@@ -1,151 +1,153 @@
 仓库文件职责
 ============
 
-本文件说明每个主要路径当前承担什么职责，以及哪些内容属于未来预留。新增、删除或改变文件职责时必须同步更新。
+本文件说明主要路径当前承担什么职责。新增、删除或改变职责时必须同步更新。
 
 状态说明
 --------
 
 ``active``
-   当前已经参与仓库运行或约束。
+   当前参与仓库运行或约束。
 
 ``incomplete``
-   当前已使用，但关键内容仍未补齐。
+   已开始使用，关键内容仍未补齐。
 
 ``reserved``
-   为已经确定的未来流程预留，当前不会主动执行。
+   已确定未来会使用，当前不会主动执行。
+
+``legacy``
+   旧模型遗留文件，等待清理或只通过 Git 历史保留。
 
 根目录
 ------
 
 ``AGENTS.md`` — active
-   所有新对话和新 Agent 的第一入口。保存读取顺序、当前阶段、固定内容计划、准入条件和状态维护要求。
+   所有新对话和 Agent 的第一入口，保存仓库目的、学习规则、读取顺序和维护要求。
 
 ``README.rst`` — active
-   面向仓库使用者的简要说明和本地命令。它不是完整的 Agent 接续文件。
+   面向仓库使用者的简要说明。完整规则仍以 ``AGENTS.md`` 和 ``project/`` 为准。
 
 ``pyproject.toml`` — active
-   固定 Python 3.12、Sphinx、doc8、pytest、ruff 和 uv 的基础依赖与工具配置。
+   固定 Python、Sphinx、doc8、pytest、ruff 和 uv 的基础依赖。
 
 ``sources.lock`` — incomplete
-   固定外部源码和规范版本。Linux 条目目前只有仓库地址，version 与 exact commit 仍为空，因此源码级文章保持 blocked。
+   固定需要源码级证明的外部实现与规范。基础学习 unit 不要求全部使用源码锁。
 
 ``release-manifest.toml`` — reserved
-   定义未来公共 release 快照允许导出的白名单。当前私有仓库不发布 Pages，该文件暂时只用于保持发布边界稳定。
+   未来公共 release 快照白名单。当前私有仓库不发布 Pages。
 
-``.gitignore`` — active
-   排除虚拟环境、缓存、Sphinx 构建输出和 release 临时目录。
-
-Agent 规则
-----------
-
-``.agents/skills/source-first-technical-book/SKILL.md`` — active
-   章节生产的详细执行协议。它只执行 frozen plan 中已经确定的章节，不负责临时选题。项目接续仍由根 ``AGENTS.md`` 和 ``project/`` 状态文件负责。
-
-项目状态
+项目规则
 --------
 
 ``project/STATE.rst`` — active
-   保存当前阶段、已完成事项、blocker 和下一步。每次有意义的工作后都要更新。
+   当前阶段、已完成事项、blocker 和下一步。
 
 ``project/DECISIONS.rst`` — active
-   保存跨对话长期决策，防止新 Agent 重新推翻已经确定的仓库方向。
+   跨对话长期决策，也记录已被取代的旧决策。
+
+``project/LEARNING_DESIGN.rst`` — active
+   定义零基础读者模型、能力层级、学习循环、问题设计和完成标准。
+
+``project/AIBOOK_LESSONS.rst`` — active
+   记录旧 ``aiBook`` 的失败模式和迁移时必须采用的修正规则。
 
 ``project/CONTENT_SELECTION.rst`` — active
-   规定一本书在开始生产前一次性固定范围、Part、章节顺序、依赖和证据类型。说明每次运行只做执行条件检查，不重新选题。
+   定义 track contract、stage batch 和每次执行之间的关系。
 
 ``project/REPOSITORY_MAP.rst`` — active
-   保存文件职责和预留功能，解决“文件已经创建，后续 Agent 不知道为什么存在”的问题。
+   当前文件职责和预留功能。
 
-Sphinx 文档
------------
+学习路径 manifest
+-----------------
 
-``docs/conf.py`` — active
-   Sphinx 基础配置。当前保持离线安全，不拉取外部 intersphinx inventory。
+``manifests/tracks.toml`` — active
+   登记从 ``aiBook/docs`` 继承的七条技术学习路径及其审计状态。
 
-``docs/index.rst`` — active
-   Sphinx 根文档和 toctree 入口。
+``manifests/tracks/<track>.toml`` — incomplete
+   保存目标读者、入口层级、最终能力、阶段顺序、范围和排除项。
 
-``docs/architecture.rst`` — active
-   说明问题、实验、来源、正文、验证和发布之间的整体关系。未来可进入公共 release。
+``manifests/tracks/linux-kernel.toml`` — incomplete
+   Linux 路径当前只固定四个学习阶段，第一批 unit 尚未设计。
 
-``docs/books/index.rst`` — active
-   技术书目录入口。
+学习单元 manifest
+-----------------
 
-``docs/books/linux-kernel/index.rst`` — incomplete
-   Linux Kernel 第一卷入口。当前展示 frozen plan 主线、blocked 状态和第一章问题。
+``manifests/units/README.rst`` — active
+   定义 unit manifest、状态和完成条件。
 
-``docs/books/linux-kernel/reading-contract.rst`` — active
-   规定 Linux 书的 source contract、实验规则、源码路径规则和写作顺序。它是书籍级规则，不是正式章节。
+``manifests/units/<unit>.toml`` — reserved
+   正式 unit 的学习变化、预测、证据、评估和完成状态。
 
-实验
-----
+实验与评估
+----------
 
 ``labs/README.rst`` — active
-   定义每个章节实验目录的标准结构和独立运行要求。
+   定义可复用代码、命令、测试和短输出的保存方式。
 
-``labs/linux-kernel/lk-boot-001/`` — reserved
-   frozen plan 第一章的正式实验位置。当前尚未创建，因为 source contract 与验证环境还未确定。
+``labs/<track>/<unit>/`` — reserved
+   unit 的最小示例、变体、测试和真实输出。
 
-Manifest
+``assessments/`` — reserved
+   当黄金 unit 验证后，用于保存独立任务、评分标准和读者反馈记录。
+
+RST 内容
 --------
 
-``manifests/books/linux-kernel.toml`` — incomplete
-   保存 Linux 书籍范围、状态、frozen plan 路径、第一章和 source contract。当前 status 为 blocked。
+``docs/conf.py`` — active
+   Sphinx 基础配置，保持离线安全。
 
-``manifests/books/linux-kernel-plan.toml`` — active
-   Linux Kernel 第一卷的计划索引。固定计划版本、状态、总章节数、范围、第一章和三个 Part 文件路径。
+``docs/index.rst`` — active
+   Sphinx 根入口。
 
-``manifests/books/linux-kernel-plan/01-boot.toml`` — active
-   固定 ``LK-BOOT-001`` 至 ``LK-BOOT-004`` 的问题、顺序、学习结果、依赖和证据类型。
+``docs/architecture.rst`` — active
+   说明学习路径、unit、证据、评估和发布之间的关系。
 
-``manifests/books/linux-kernel-plan/02-init.toml`` — active
-   固定 ``LK-INIT-001`` 至 ``LK-INIT-007`` 的问题、顺序、学习结果、依赖和证据类型。
+``docs/tracks/`` — incomplete
+   面向读者的学习路径入口。目前只建立结构，不代表已经有稳定课程内容。
 
-``manifests/books/linux-kernel-plan/03-vfs.toml`` — active
-   固定 ``LK-VFS-001`` 至 ``LK-VFS-006`` 的问题、顺序、学习结果、依赖和证据类型。
-
-``manifests/chapters/README.rst`` — active
-   定义 chapter manifest 的字段和状态机。
-
-``manifests/chapters/lk-boot-001.toml`` — reserved
-   第一章的证据与验证状态。第一章 lab 建立后再创建，不提前制造空文件。
-
-``manifests/chapters/<chapter>.toml`` — reserved
-   后续每篇正式章节的证据与验证状态。按照 frozen plan 顺序按需创建。
+``docs/books/`` — legacy
+   旧“书籍优先”模型留下的路径。内容迁移到 ``docs/tracks/`` 后删除。
 
 模板
 ----
 
-``templates/chapter.rst`` — reserved
-   正式章节的 RST 骨架。它不参与 Sphinx 构建，也不能在证据不足时直接复制生成文章。
+``templates/learning-unit.rst`` — active
+   unit 的默认教学主链。允许按内容删减标题，不能删除预测、证据、推理和迁移。
+
+``templates/chapter.rst`` — legacy
+   旧源码章节模板，将删除。
 
 工具
 ----
 
 ``tools/audit_chapter.py`` — active
-   检查正式章节中的 Markdown fenced code block、禁用铺垫语和完全重复段落，并要求章节包含代码、命令输出或 doctest 证据。
+   当前继续承担 RST 基础审计，后续需要改名并增加问题与答案可追溯检查。
 
-``tools/validate_book_plans.py`` — active
-   读取 frozen plan 索引和 Part 文件，验证章节总数、ID 唯一性、连续顺序、首章和前置依赖。防止计划文件缺章或被截断后继续生产。
+``tools/validate_learning_model.py`` — active
+   检查 track、stage 和 unit manifest 的必要字段、唯一 ID 与连续阶段顺序。
+
+``tools/validate_book_plans.py`` — legacy
+   旧 frozen plan 校验工具，将删除。
 
 ``tools/export_release.py`` — reserved
-   未来根据 ``release-manifest.toml`` 生成 ``dist/release/`` 公共快照。当前不会推送任何公共仓库。
+   未来根据白名单生成公共快照。
 
 GitHub Actions
 --------------
 
 ``.github/workflows/verify.yml`` — active
-   每次推送 ``main`` 时执行 ruff、frozen plan 验证、RST 审计、doc8、已有 lab 测试和 Sphinx warnings-as-errors 构建。它只做验证，不部署 Pages。
+   每次推送 ``main`` 时验证 Python 工具、learning model、RST、lab 测试和 Sphinx 构建。
+   不部署 Pages。
 
-未来允许新增的内容
-------------------
+已经退出活动使用
+----------------
 
-以下内容应当按 frozen plan 和实际证据创建，不提前堆空目录：
+以下内容来自被取代的“固定 17 章 Linux 书”模型，不再控制生产：
 
-* ``labs/linux-kernel/lk-boot-001/``：source contract 确定后的第一章实验；
-* ``manifests/chapters/lk-boot-001.toml``：第一章实验建立后的章节状态；
-* ``docs/books/linux-kernel/chapter-lk-boot-001.rst``：证据齐全后的第一章正文；
-* 后续章节资产：严格按照 frozen plan 的 order 创建；
-* 公共 release 仓库配置：稳定内容准备发布时再创建；
-* Pages workflow：只存在于未来公共仓库。
+* ``manifests/books/linux-kernel-plan.toml``；
+* ``manifests/books/linux-kernel-plan/``；
+* ``manifests/books/linux-kernel.toml``；
+* ``manifests/chapters/README.rst``；
+* ``.agents/skills/source-first-technical-book/SKILL.md``。
+
+这些文件应从工作树删除。其历史仍保存在 Git 中。
