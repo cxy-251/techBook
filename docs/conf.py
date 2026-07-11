@@ -6,7 +6,6 @@ language = "zh_CN"
 
 extensions = [
     "sphinx.ext.doctest",
-    "sphinx.ext.intersphinx",
     "sphinx.ext.viewcode",
 ]
 
@@ -16,7 +15,3 @@ nitpicky = True
 show_authors = False
 html_theme = "alabaster"
 html_title = "techBook"
-
-intersphinx_mapping = {
-    "python": ("https://docs.python.org/3", None),
-}
