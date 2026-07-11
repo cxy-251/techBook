@@ -9,16 +9,23 @@ roadmap_title = "Linux Kernel Roadmap"
 roadmap_introduced_commit = "3a5cc4afdbf4c6ab0d50003e38b06235f1186e40"
 legacy_docs_path = "docs/LinuxK"
 
-[target]
-reader = "会基础 C 语法，但没有稳定操作系统与内核源码阅读方法的程序员"
-outcome = "能够从可观察现象建立内核心智模型，并逐步进入真实源码"
+[source]
+architecture = "x86_64"
+firmware = "SeaBIOS"
+bootloader = "GRUB"
+kernel_image = "bzImage"
+kernel_release = "6.12.95"
+boot_protocol = "Linux/x86 Boot Protocol"
 
 [current]
-unit_id = "LK-001"
-title = "程序输出一行文字时，为什么需要内核？"
-rst = "docs/tracks/linux-kernel/01-why-program-needs-kernel.rst"
+unit_id = "LK-BOOT-001"
+title = "设备上电后，x86-64 Linux 内核怎样被装入并完成解压？"
+rst = "docs/tracks/linux-kernel/01-power-on-to-decompression.rst"
 status = "draft"
+start = "CPU reset entry"
+end = "arch/x86/kernel/head_64.S:startup_64"
 roadmap_items = [
-  "Part 1 / What Is the Linux Kernel Really Managing?",
+  "Part 5 / From Firmware to Bootloader",
+  "Part 5 / Kernel Decompression and Early Architecture Setup",
 ]
-next_action = "由用户实际阅读 LK-001，记录不清楚、失望或缺少推理的位置，再修改当前文件"
+next_action = "只审阅并修改当前 RST；当前正文稳定后再决定下一篇"
