@@ -1,7 +1,14 @@
 id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
-status = "design-pending"
+status = "control-inventory-pending"
+
+[origin]
+repository = "cxy-251/aiBook"
+legacy_docs_path = "docs/LinuxK"
+control_files = []
+control_inventory_status = "pending"
+legacy_docs_role = "failure-sample-only"
 
 [target]
 reader = "会基础 C 语法，但没有稳定操作系统与内核源码阅读方法的程序员"
@@ -10,6 +17,7 @@ target_level = "L5"
 outcome = "能够从现象提出假设，使用系统接口与观测工具验证，并在固定版本源码中定位关键路径"
 
 [scope]
+status = "provisional-until-control-inventory"
 include = [
   "操作系统与内核最小心智模型",
   "进程、内存、文件与设备的可观察行为",
@@ -30,28 +38,32 @@ id = "foundations"
 order = 1
 title = "建立内核行为模型"
 outcome = "理解内核解决什么问题，并能用进程、文件和内存现象描述用户态与内核态边界"
-status = "design-pending"
+status = "provisional"
 
 [[stage]]
 id = "observation"
 order = 2
 title = "学会观察正在运行的内核"
 outcome = "能使用 procfs、sysfs、日志和 tracefs 把抽象判断连接到系统状态"
-status = "planned"
+status = "provisional"
 
 [[stage]]
 id = "source-reading"
 order = 3
 title = "从现象进入固定源码"
 outcome = "能围绕一次真实调用提取最短路径，解释关键对象和状态变化"
-status = "planned"
+status = "provisional"
 
 [[stage]]
 id = "debugging"
 order = 4
 title = "验证、排错与迁移"
 outcome = "能为未知问题设计实验，使用 ftrace、perf 或调试器修正源码判断"
-status = "planned"
+status = "provisional"
+
+[planning]
+next_action = "定位 aiBook 中 Linux Kernel 的 Roadmap 和文章生成控制文件，提取知识库存后再确认范围与阶段"
+roadmap_items = []
 
 [legacy]
 old_plan = "removed-from-active-use"
