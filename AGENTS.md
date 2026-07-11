@@ -1,135 +1,168 @@
 # AGENTS.md
 
-## 1. 作用
+## 1. 仓库目的
 
-本文件是 `cxy-251/techBook` 的仓库级操作入口。任何新对话、新 Agent 或新自动任务都必须假设自己看不到历史聊天，并从本文件恢复上下文。
+`cxy-251/techBook` 不是技术文章批量生成器。它把 `cxy-251/aiBook` 中 `docs` 的技术方向
+重做成一套面向零基础程序员的可执行学习系统。
 
-仓库内规则的读取顺序：
+目标不是让读者“看完很多内容”，而是让读者逐步获得以下能力：
+
+- 能运行并观察；
+- 能预测结果；
+- 能解释原因；
+- 能修改条件；
+- 能识别错误模型；
+- 能排错并迁移到未见过的问题。
+
+任何新对话、新 Agent 或自动任务都必须假设自己看不到聊天历史，并从仓库恢复上下文。
+
+## 2. 读取顺序
 
 1. `AGENTS.md`
 2. `project/STATE.rst`
 3. `project/DECISIONS.rst`
-4. `project/CONTENT_SELECTION.rst`
-5. `project/REPOSITORY_MAP.rst`
-6. 当前书籍的 `manifests/books/<book>.toml`
-7. 当前书籍的 `manifests/books/<book>-plan.toml`
-8. `sources.lock`
-9. 需要生成章节时再读取 `.agents/skills/source-first-technical-book/SKILL.md`
+4. `project/LEARNING_DESIGN.rst`
+5. `project/AIBOOK_LESSONS.rst`
+6. `project/CONTENT_SELECTION.rst`
+7. `project/REPOSITORY_MAP.rst`
+8. `manifests/tracks.toml`
+9. 当前路径的 `manifests/tracks/<track>.toml`
+10. 当前 unit 的 manifest、lab 和来源文件
 
-`AGENTS.md` 是仓库行为的最高优先级。Skill 只提供章节生产的详细执行流程，不能替代仓库状态、固定内容计划和长期决策记录。
+任何 Agent 都不得依赖聊天记忆补全仓库未记录的信息。
 
-## 2. 当前阶段
+## 3. 当前阶段
 
-仓库目前处于 **基础设施与来源锁定阶段**，尚不具备直接生成正式技术文章的条件。
+仓库处于 **学习模型校准阶段**。
 
 当前已经具备：
 
 - RST 与 Sphinx 基础结构；
-- 书籍、实验、来源和章节 manifest 的目录边界；
-- 固定内容计划规则；
-- Linux Kernel 第一卷 frozen plan；
-- RST 审计脚本；
-- GitHub Actions 验证入口；
-- 未来公共 release 的白名单导出骨架。
+- 跨对话状态和决策记录；
+- 七条来自 `aiBook/docs` 的学习路径清单；
+- 学习设计、旧仓库经验和 unit manifest 规范；
+- 实验、内容审计、CI 和未来 release 边界。
 
-当前仍然缺少：
+当前还不具备：
 
-- 已锁定的 Linux release 和 exact commit；
-- 确定的 ARM64 kernel config；
-- 确定的 compiler/toolchain；
-- 可复现的运行与 trace 环境；
-- 第一个真实 lab；
-- 第一个章节 manifest；
-- 真实命令输出和源码符号验证。
+- 经过实际阅读验证的黄金学习单元；
+- 七条路径的完整能力地图；
+- 从零基础到精通的阶段性前置依赖；
+- 已验证的 unit 批次；
+- 面向读者的稳定发布内容。
 
-这些条件补齐前，不得生成完整章节正文。
+这些内容补齐前，不进行大规模迁移或自动连续生成。
 
-## 3. 工作分支
+## 4. 工作分支
 
 - 只在 `main` 分支工作。
 - 不创建功能分支和 PR，除非用户以后明确修改该规则。
-- 每次提交只包含一个清晰目标。
+- 每次提交只处理一个清晰目标。
 
-## 4. 新 Agent 启动步骤
+## 5. 新 Agent 启动步骤
 
-1. 读取本文件和 `project/STATE.rst`。
-2. 检查 `project/DECISIONS.rst`，不得重新讨论已经确定的决策。
-3. 读取 `project/CONTENT_SELECTION.rst`，理解固定计划与执行检查的区别。
-4. 查看 `project/REPOSITORY_MAP.rst`，理解当前文件与预留功能。
-5. 查看目标书籍 manifest、frozen plan 和 `sources.lock`。
-6. 按 frozen plan 找到顺序最靠前且未完成的章节。
-7. 确认当前任务属于来源锁定、实验、正文、审计或 release 中哪一类。
-8. 完成工作后更新 `project/STATE.rst`。
-9. 产生新的长期决策时更新 `project/DECISIONS.rst`。
-10. 新增、删除或改变文件职责时更新 `project/REPOSITORY_MAP.rst`。
+1. 按读取顺序恢复当前状态。
+2. 确认任务属于旧内容审计、路径设计、unit 设计、证据制作、RST、评估或 release。
+3. 确认当前工作是否需要读者反馈或真实运行证据。
+4. 不得因为目录为空就自动生成文章。
+5. 完成工作后更新 `project/STATE.rst`。
+6. 新增长期决策时更新 `project/DECISIONS.rst`。
+7. 文件职责变化时更新 `project/REPOSITORY_MAP.rst`。
+8. 路径或 unit 状态变化时更新对应 manifest。
 
-任何 Agent 都不得依赖聊天记忆补全仓库未记录的信息。
+## 6. 内容规划
 
-## 5. 内容计划
+路径开始时固定：
 
-- 一本书开始前必须建立完整 plan，并将其状态固定为 `frozen`。
-- frozen plan 固定 Part、章节 ID、问题、顺序、学习结果、前置依赖和证据类型。
-- 每次生成内容时不重新选题、不评分、不随机挑选。
-- Agent 只执行 frozen plan 中顺序最靠前且前置条件满足的章节。
-- 当前章节被 blocked 时默认停止，不得自行跳到后续章节。
-- 修改目录必须通过显式 plan revision，增加版本并记录原因。
-- 普通章节生产 Agent 没有自行修改 frozen plan 的权限。
+- 目标读者；
+- 入口能力；
+- 最终能力；
+- 阶段顺序；
+- 范围和排除项。
 
-## 6. 正式章节准入条件
+不在开头冻结整本书的全部章节数量和标题。每个阶段开始前设计一个小批次 unit。每次执行时
+处理该批次中顺序最靠前的未完成 unit，不进行随机选题。
 
-创建 `docs/books/<book>/chapter-*.rst` 前必须同时满足：
+批次完成后，根据真实阅读、实验和能力检查校准下一批。修改必须留下原因，不能由 Agent 为了
+方便写作而随意扩展主题。
 
-- 当前书籍存在 frozen plan；
-- 当前章节是 frozen plan 中规定的下一章；
-- 书籍 manifest 的 source contract 已完整填写；
-- `sources.lock` 已固定 source version 与 exact commit；
-- 对应 `labs/<book>/<chapter>/` 已存在；
-- 实验具有精确执行命令；
-- 真实输出已经保存或可重复采集；
-- 最短源码路径中的符号已经在固定 commit 中确认；
-- 对应章节 manifest 已建立；
-- 失败或边界用例已经定义。
+## 7. 正式学习单元准入条件
 
-缺少任何一项时，只能完善来源或实验，不能用解释性文字代替证据。
+创建面向读者的 RST unit 前必须同时满足：
 
-## 7. 内容规则
+- unit manifest 已定义读者前后能力变化；
+- 前置能力已在路径中建立，或已经提供补充 unit；
+- 开场问题来自真实困惑、代码、输出、错误或系统现象；
+- 解释出现前存在预测任务；
+- 核心结论有可定位证据；
+- 已设计至少一个条件变化；
+- 已记录常见错误模型；
+- 检查题说明问题来源；
+- 答案包含推理过程和错误答案分析；
+- 已设计一个不能直接照抄示例的迁移任务；
+- 完成标准描述读者能做什么，而不是页面是否写完。
 
-- 一个章节只回答 frozen plan 中规定的一个可观察问题。
-- 代码、脚本、测试和短输出放在 `labs/`。
-- RST 通过 `literalinclude` 引用代码，不复制第二份代码。
-- 旧 Roadmap 只在规划阶段作为主题库存，不控制章节生产。
-- 不写“本章将”“读完本章”“本章总结”“深入理解”。
-- 问题解决后立即结束，不设最低字数。
-- 版本敏感结论必须绑定 source、version、commit、architecture、config、toolchain 和 runtime。
-- 无法验证的内容保持 blocked 或 evidence-pending。
+缺少关键条件时，只能继续做学习设计、实验或证据，不能用更多文字代替。
 
-## 8. Skill 的定位
+## 8. 证据规则
 
-`.agents/skills/source-first-technical-book/SKILL.md` 仍然保留，作用是：
+证据形式由主题和学习阶段决定：
 
-- 按 frozen plan 执行已经确定的章节；
-- 提供从实验、源码路径、RST、审计到提交的详细步骤；
-- 让支持 Skill 的 Agent 可以直接调用统一流程；
-- 避免把大量章节生成细则全部塞进根 `AGENTS.md`。
+- 语言基础：运行结果、对象状态、官方文档；
+- 编译与类型：编译错误、警告、AST、IR；
+- Web 与系统：请求、日志、网络面板、进程状态、最小服务；
+- 源码级内容：固定实现、release、commit、源码符号和可重复观察；
+- 架构内容：具体场景、系统边界、失败路径和可定位组件。
 
-仓库接续依靠 `AGENTS.md`、`project/` 和 manifests。即使某个 Agent 不支持 Skill，也必须能依靠这些文件继续工作。
+不为了显得底层而强行加入源码。需要源码证明时，也不能使用“常见实现大致如此”代替真实实现。
 
-## 9. 私有开发与公共发布
+## 9. 内容规则
 
-- 当前仓库是私有开发仓库。
+- 一个 unit 只完成一次明确的能力变化。
+- 先让读者预测，再给解释。
+- 每个结论绑定具体代码、对象、调用、状态或输出。
+- 至少改变一个条件，防止读者只记住单个答案。
+- 问题必须能够回答“为什么现在要问它”。
+- 答案必须说明“为什么是这样”和“其他答案为什么错”。
+- 不写宏大开场、重复总结和百科式铺陈。
+- 不设置最低字数；能力变化完成后立即结束。
+- 代码、测试和短输出放入 `labs/`，需要复用时用 `literalinclude` 引用。
+
+## 10. aiBook 的使用方式
+
+`aiBook/docs` 只作为：
+
+- 技术方向和主题库存；
+- 已核实资料与源码路径的来源；
+- 可运行代码的候选来源；
+- 失败教学结构的反面样本。
+
+旧章节默认不直接改写。迁移时先提取真实困惑和能力目标，再重新设计预测、证据、推理、变化、
+答案和迁移任务。
+
+## 11. Skill
+
+当前不依赖 Skill 接续或生成内容。仓库规则、状态、路径和 unit manifest 已足以让新 Agent 继续。
+
+只有当黄金单元通过验证、重复工作流已经稳定，并且确实需要跨仓库复用时，才重新创建独立 Skill。
+在此之前，不维护一份与 `AGENTS.md` 重复的章节生产协议。
+
+## 12. 私有开发与公共发布
+
+- 当前仓库是私有学习内容开发仓库。
 - 当前不配置 GitHub Pages。
 - 未来建立独立公共 release 仓库。
-- `tools/export_release.py` 与 `release-manifest.toml` 只负责生成发布快照。
-- Skill、内部状态、决策记录、草稿和失败实验不进入公共 release。
+- 公共仓库只接收经过学习检查和自动验证的稳定内容。
+- 内部状态、决策、旧内容审计和失败实验不进入公共 release。
 
-## 10. 每次工作结束必须留下的记录
+## 13. 每次工作结束必须留下的记录
 
 至少更新以下一项：
 
 - `project/STATE.rst`：完成了什么、当前 blocker、下一步；
 - `project/DECISIONS.rst`：新增长期决策及原因；
-- `project/REPOSITORY_MAP.rst`：文件职责或预留功能发生变化；
-- 相关 book/chapter manifest：状态和证据发生变化；
-- plan revision：只有用户明确改变范围或证据证明计划错误时创建。
+- `project/REPOSITORY_MAP.rst`：文件职责发生变化；
+- track manifest：阶段、范围或状态发生变化；
+- unit manifest：学习设计、证据、评估或完成状态发生变化。
 
-这样后续对话只读取仓库即可恢复工作，不需要聊天记录。
+后续对话只读取仓库即可恢复工作，不需要聊天记录。
