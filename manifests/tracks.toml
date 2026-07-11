@@ -1,45 +1,57 @@
-format = 1
-source_repository = "cxy-251/aiBook"
-source_root = "docs"
+format = 2
+
+[origin]
+repository = "cxy-251/aiBook"
+knowledge_scope = "Roadmap and article-generation control files"
+generated_docs_role = "failure-sample-only"
+facts_policy = "rebuild-from-primary-sources-and-real-behavior"
+control_file_inventory = "pending"
 
 [[track]]
 id = "cpp-stl"
 title = "C++ STL"
-source_path = "docs/C++"
-status = "inventory-pending"
+legacy_docs_path = "docs/C++"
+control_files = []
+status = "control-inventory-pending"
 
 [[track]]
 id = "python"
 title = "Python"
-source_path = "docs/Python"
-status = "inventory-pending"
+legacy_docs_path = "docs/Python"
+control_files = []
+status = "control-inventory-pending"
 
 [[track]]
 id = "graphics"
 title = "Graphics"
-source_path = "docs/Graphic"
-status = "inventory-pending"
+legacy_docs_path = "docs/Graphic"
+control_files = []
+status = "control-inventory-pending"
 
 [[track]]
 id = "linux-kernel"
 title = "Linux Kernel"
-source_path = "docs/LinuxK"
-status = "design-pending"
+legacy_docs_path = "docs/LinuxK"
+control_files = []
+status = "control-inventory-pending"
 
 [[track]]
 id = "compiler"
 title = "Compiler"
-source_path = "docs/Compiler"
-status = "inventory-pending"
+legacy_docs_path = "docs/Compiler"
+control_files = []
+status = "control-inventory-pending"
 
 [[track]]
 id = "mobile-os"
 title = "Mobile OS"
-source_path = "docs/MobileOS"
-status = "inventory-pending"
+legacy_docs_path = "docs/MobileOS"
+control_files = []
+status = "control-inventory-pending"
 
 [[track]]
 id = "web-architecture"
 title = "Web Architecture"
-source_path = "docs/WebArch"
-status = "inventory-pending"
+legacy_docs_path = "docs/WebArch"
+control_files = []
+status = "control-inventory-pending"
