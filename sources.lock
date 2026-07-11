@@ -1,0 +1,10 @@
+format = 1
+
+[[source]]
+id = "linux"
+kind = "git"
+repository = "https://github.com/torvalds/linux.git"
+version = ""
+commit = ""
+status = "unlocked"
+notes = "Lock release, exact commit, architecture, config and toolchain before writing source-level chapters."

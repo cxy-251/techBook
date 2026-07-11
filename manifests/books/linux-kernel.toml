@@ -1,0 +1,22 @@
+id = "linux-kernel"
+title = "Linux Kernel 源码阅读"
+language = "zh-CN"
+status = "blocked"
+first_question = "用户态 read() 如何进入 VFS"
+
+[scope]
+architecture = "arm64"
+platform = "Linux"
+chapter_policy = "one-observable-question"
+
+[source]
+repository = "https://github.com/torvalds/linux.git"
+version = ""
+commit = ""
+config = ""
+toolchain = ""
+runtime = ""
+
+[blocker]
+reason = "source contract 尚未锁定"
+next_action = "选择 Linux release、exact commit、config 和验证环境"

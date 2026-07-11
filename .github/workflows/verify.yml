@@ -1,0 +1,53 @@
+name: verify
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Lint tools
+        run: uv run ruff check tools
+
+      - name: Audit RST
+        run: uv run python tools/audit_chapter.py docs
+
+      - name: Check RST style
+        run: >-
+          uv run doc8 --max-line-length 100
+          docs README.rst labs manifests/chapters/README.rst
+
+      - name: Run available lab tests
+        shell: bash
+        run: |
+          if find labs -name 'test_*.py' -print -quit | grep -q .; then
+            uv run pytest
+          else
+            echo "No lab tests yet"
+          fi
+
+      - name: Build Sphinx with warnings as errors
+        run: >-
+          uv run sphinx-build -W --keep-going -n
+          -b html docs docs/_build/html
