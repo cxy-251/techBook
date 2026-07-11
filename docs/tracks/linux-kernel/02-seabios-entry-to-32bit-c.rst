@@ -439,6 +439,13 @@ SeaBIOS 的主要 32 位 C 初始化代码：
 第二章在这里结束。下一段控制流从 ``handle_post()`` 的第一批调用继续：串口调试、启动横幅、Xen 检测、
 把 BIOS 区域改成可写，然后进入真正的 POST 初始化 ``dopost()``。
 
+章节导航
+--------
+
+* `上一章：按下电源键后，CPU 从哪里取得第一条指令？ <01-power-on-first-instruction.rst>`_
+* `下一章：SeaBIOS 怎样识别内存并把初始化代码搬到 RAM？ <03-seabios-memory-map-and-relocation.rst>`_
+* `返回 Linux Kernel 目录 <index.rst>`_
+
 资料
 ----
 
