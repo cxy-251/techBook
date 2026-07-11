@@ -15,6 +15,7 @@
 
 #. ``LK-BOOT-001``：按下电源键后，CPU 从哪里取得第一条指令？
 #. ``LK-BOOT-002``：SeaBIOS 怎样从 16 位入口进入 32 位 C 代码？
+#. ``LK-BOOT-003``：SeaBIOS 怎样识别内存并把初始化代码搬到 RAM？
 
 当前主线
 --------
@@ -31,25 +32,32 @@
 当前控制流位置
 --------------
 
-第二章结束在：
+第三章结束在：
 
 ::
 
-   post.c:handle_post()
+   relocated post.c:maininit()
 
 此刻机器状态：
 
-* 当前执行者：SeaBIOS ``handle_post()``；
+* 当前执行者：重定位后的 SeaBIOS ``maininit()``；
 * CPU：BSP；
 * 模式：32 位保护模式；
 * 分页：关闭；
-* 64 位模式：关闭；
 * A20：开启；
 * 栈：平坦地址 ``0x7000``；
-* 可屏蔽中断：关闭；
-* NMI：临时屏蔽；
+* BIOS 低地址区域：shadow RAM，可写；
+* E820：已经形成初始内存地图；
+* 临时低端区、临时高端区和永久高端区：已经建立；
+* 一次性初始化代码：已经搬到普通 RAM；
 * GRUB：尚未被搜索；
 * Linux：尚未装入内存。
+
+章节导航
+--------
+
+已完成章节末尾提供相对链接，可直接跳转上一章、下一章或 Linux Kernel 目录。尚未创建下一章时，只提供
+上一章和目录链接。
 
 完成状态
 --------
@@ -62,16 +70,12 @@
 
 * Intel x86 处理器复位与保护模式资料；
 * SeaBIOS 提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
-* ``src/romlayout.S``；
-* ``src/entryfuncs.S``；
-* ``src/config.h``；
-* ``src/x86.h``；
-* ``src/hw/rtc.h``；
-* ``src/misc.c``；
-* ``src/post.c``；
-* SeaBIOS ``Execution_and_code_flow.md``。
+* SeaBIOS ``src/romlayout.S``、``src/entryfuncs.S``、``src/post.c``；
+* SeaBIOS ``src/fw/shadow.c``、``src/fw/paravirt.c``、``src/fw/xen.c``；
+* SeaBIOS ``src/malloc.c``、``src/output.c``、``src/hw/serialio.c``；
+* SeaBIOS ``Linking_overview.md``、``Memory_Model.md`` 和 ``Execution_and_code_flow.md``。
 
 当前下一步
 ----------
 
-收到继续指令后，从 ``handle_post()`` 的第一条调用开始，沿实际控制流继续。当前不预先命名或规划后续章节。
+收到继续指令后，从重定位后的 ``maininit()`` 开始，沿实际控制流继续。
