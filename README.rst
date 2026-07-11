@@ -3,11 +3,28 @@ techBook
 
 ``techBook`` 是私有的技术书生产仓库。正文使用 reStructuredText，章节从可运行实验、真实输出和固定源码版本出发生成。
 
+Agent 接续
+----------
+
+任何新对话和新 Agent 都必须先读取：
+
+#. ``AGENTS.md``
+#. ``project/STATE.rst``
+#. ``project/DECISIONS.rst``
+#. ``project/REPOSITORY_MAP.rst``
+
+仓库不依赖聊天记录保存上下文。``AGENTS.md`` 是仓库级入口；章节生成时再读取 ``.agents/skills/source-first-technical-book/SKILL.md``。
+
+当前状态
+--------
+
+仓库处于基础设施阶段，当前内容不足以直接生成正式技术文章。Linux Kernel 的 release、exact commit、ARM64 config、toolchain、运行环境、首个 lab 和真实输出仍未确定。
+
 仓库定位
 --------
 
 * ``main`` 是唯一工作分支。
-* 当前仓库只保存技术书、实验、来源锁定和生成 Skill。
+* 当前仓库只保存技术书、实验、来源锁定和生成规则。
 * 当前阶段不启用 GitHub Pages。
 * 内容稳定后，通过白名单导出到独立公共仓库，再由公共仓库发布 Pages。
 
@@ -36,6 +53,12 @@ techBook
 目录
 ----
 
+``AGENTS.md``
+   新 Agent 的第一入口与仓库级硬规则。
+
+``project/``
+   当前状态、长期决策和文件职责。
+
 ``docs/``
    Sphinx 与 RST 正文。
 
@@ -49,7 +72,7 @@ techBook
    外部源码和规范的确定版本。
 
 ``.agents/skills/``
-   无人参与的技术书生产规则。
+   章节生产的详细执行协议。
 
 ``tools/``
    内容审计与 release 快照导出工具。
