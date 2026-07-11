@@ -36,10 +36,18 @@ status = "complete"
 start = "SeaBIOS entry_post"
 end = "post.c:handle_post() takes control"
 
+[[chapter]]
+id = "LK-BOOT-003"
+title = "SeaBIOS 怎样识别内存并把初始化代码搬到 RAM？"
+rst = "docs/tracks/linux-kernel/03-seabios-memory-map-and-relocation.rst"
+status = "complete"
+start = "post.c:handle_post()"
+end = "relocated post.c:maininit() takes control"
+
 [current]
-last_complete = "LK-BOOT-002"
-next_entry = "post.c:handle_post()"
-next_action = "收到继续指令后，从 handle_post() 的第一条 C 调用沿真实控制流继续"
+last_complete = "LK-BOOT-003"
+next_entry = "post.c:maininit()"
+next_action = "收到继续指令后，从重定位后的 maininit() 沿真实控制流继续"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
