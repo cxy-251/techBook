@@ -94,7 +94,16 @@ Manifest
    保存 Linux 书籍范围、状态、frozen plan 路径、第一章和 source contract。当前 status 为 blocked。
 
 ``manifests/books/linux-kernel-plan.toml`` — active
-   Linux Kernel 第一卷的 frozen plan。固定 3 个 Part、17 个章节、严格顺序、学习结果、前置依赖和证据类型。普通 Agent 不得临时修改。
+   Linux Kernel 第一卷的计划索引。固定计划版本、状态、总章节数、范围、第一章和三个 Part 文件路径。
+
+``manifests/books/linux-kernel-plan/01-boot.toml`` — active
+   固定 ``LK-BOOT-001`` 至 ``LK-BOOT-004`` 的问题、顺序、学习结果、依赖和证据类型。
+
+``manifests/books/linux-kernel-plan/02-init.toml`` — active
+   固定 ``LK-INIT-001`` 至 ``LK-INIT-007`` 的问题、顺序、学习结果、依赖和证据类型。
+
+``manifests/books/linux-kernel-plan/03-vfs.toml`` — active
+   固定 ``LK-VFS-001`` 至 ``LK-VFS-006`` 的问题、顺序、学习结果、依赖和证据类型。
 
 ``manifests/chapters/README.rst`` — active
    定义 chapter manifest 的字段和状态机。
@@ -117,6 +126,9 @@ Manifest
 ``tools/audit_chapter.py`` — active
    检查正式章节中的 Markdown fenced code block、禁用铺垫语和完全重复段落，并要求章节包含代码、命令输出或 doctest 证据。
 
+``tools/validate_book_plans.py`` — active
+   读取 frozen plan 索引和 Part 文件，验证章节总数、ID 唯一性、连续顺序、首章和前置依赖。防止计划文件缺章或被截断后继续生产。
+
 ``tools/export_release.py`` — reserved
    未来根据 ``release-manifest.toml`` 生成 ``dist/release/`` 公共快照。当前不会推送任何公共仓库。
 
@@ -124,7 +136,7 @@ GitHub Actions
 --------------
 
 ``.github/workflows/verify.yml`` — active
-   每次推送 ``main`` 时执行 ruff、RST 审计、doc8、已有 lab 测试和 Sphinx warnings-as-errors 构建。它只做验证，不部署 Pages。
+   每次推送 ``main`` 时执行 ruff、frozen plan 验证、RST 审计、doc8、已有 lab 测试和 Sphinx warnings-as-errors 构建。它只做验证，不部署 Pages。
 
 未来允许新增的内容
 ------------------
@@ -134,6 +146,6 @@ GitHub Actions
 * ``labs/linux-kernel/lk-boot-001/``：source contract 确定后的第一章实验；
 * ``manifests/chapters/lk-boot-001.toml``：第一章实验建立后的章节状态；
 * ``docs/books/linux-kernel/chapter-lk-boot-001.rst``：证据齐全后的第一章正文；
-* 后续章节资产：严格按照 ``linux-kernel-plan.toml`` 的 order 创建；
+* 后续章节资产：严格按照 frozen plan 的 order 创建；
 * 公共 release 仓库配置：稳定内容准备发布时再创建；
 * Pages workflow：只存在于未来公共仓库。
