@@ -16,10 +16,23 @@
 
 execution gate 只决定“现在能否执行”，不决定“下一章写什么”。
 
+计划文件
+--------
+
+每本书使用一个计划索引：
+
+``manifests/books/<book>-plan.toml``
+   保存计划版本、状态、总章节数、范围、首章和 Part 文件列表。
+
+``manifests/books/<book>-plan/*.toml``
+   按 Part 保存全部章节问题、严格顺序、学习结果、前置章节和证据类型。
+
+计划索引与所有 Part 文件共同构成一份 fixed plan。CI 必须验证章节总数、ID、顺序和前置依赖。
+
 计划必须固定的内容
 ------------------
 
-一本书进入正式生产前，必须在 ``manifests/books/<book>-plan.toml`` 中固定：
+一本书进入正式生产前，必须固定：
 
 * 书名和卷名；
 * 目标读者；
@@ -52,7 +65,7 @@ execution gate 只决定“现在能否执行”，不决定“下一章写什�
 
 Agent 每次工作必须：
 
-#. 读取当前 frozen plan。
+#. 读取当前 frozen plan 索引和全部 Part 文件。
 #. 找到顺序最靠前且状态未完成的章节。
 #. 检查其前置章节是否完成。
 #. 检查 source contract、lab、真实输出和源码符号条件。
@@ -90,7 +103,7 @@ Agent 不执行评分、随机选择、主题发散或从旧 Roadmap 中临时�
 Linux 第一卷
 ------------
 
-Linux Kernel 第一卷的固定计划位于 ``manifests/books/linux-kernel-plan.toml``。主线顺序为：
+Linux Kernel 第一卷的固定计划索引位于 ``manifests/books/linux-kernel-plan.toml``，章节分别保存在三个 Part 文件中。主线顺序为：
 
 ``ARM64 启动入口 → MMU 与虚拟地址切换 → start_kernel → initcall → 用户空间 init → read 系统调用 → VFS``。
 
