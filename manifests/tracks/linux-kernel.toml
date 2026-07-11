@@ -20,14 +20,28 @@ kernel_image = "bzImage"
 kernel_release = "6.12.95"
 boot_protocol = "Linux/x86 Boot Protocol"
 
-[current]
-unit_id = "LK-BOOT-001"
+[[chapter]]
+id = "LK-BOOT-001"
 title = "按下电源键后，CPU 从哪里取得第一条指令？"
 rst = "docs/tracks/linux-kernel/01-power-on-first-instruction.rst"
-status = "review"
+status = "complete"
 start = "platform power-on and reset assertion"
 end = "SeaBIOS reset_vector jumps to entry_post"
-roadmap_items = [
-  "Part 5 / From Firmware to Bootloader",
-]
-next_action = "由用户阅读第一章；只修改不连续、不准确、过度概括或难以理解的位置"
+
+[[chapter]]
+id = "LK-BOOT-002"
+title = "SeaBIOS 怎样从 16 位入口进入 32 位 C 代码？"
+rst = "docs/tracks/linux-kernel/02-seabios-entry-to-32bit-c.rst"
+status = "complete"
+start = "SeaBIOS entry_post"
+end = "post.c:handle_post() takes control"
+
+[current]
+last_complete = "LK-BOOT-002"
+next_entry = "post.c:handle_post()"
+next_action = "收到继续指令后，从 handle_post() 的第一条 C 调用沿真实控制流继续"
+
+[status_semantics]
+draft = "正文正在编写或事实链尚未核对完成"
+verified = "关键结论已用固定源码或规范核对，章节仍在续写"
+complete = "章节到达自然终点，关键事实已核对"
