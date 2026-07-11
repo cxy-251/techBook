@@ -9,68 +9,59 @@
 当前阶段
 --------
 
-``source-contract``：仓库基础结构和 Linux 第一卷内容计划已经固定，正式章节生产尚未开始。
+``learning-model-calibration``：仓库已经从技术书生产流水线改为可执行学习系统，正在校准
+学习单元模型，尚未开始批量迁移 ``aiBook/docs``。
 
 当前结论
 --------
 
 * 仓库只在 ``main`` 工作。
-* 正文使用 reStructuredText 与 Sphinx。
-* 当前私有仓库不发布 GitHub Pages。
-* 未来通过独立公共仓库发布稳定 release。
+* 面向读者的内容使用 reStructuredText 与 Sphinx。
 * ``AGENTS.md`` 是所有新 Agent 的第一入口。
-* ``project/`` 保存跨对话状态、决策、内容计划规则和文件职责。
-* Skill 只负责执行 frozen plan 中已经确定的章节。
-* 每次生成内容不重新选题，只检查下一章是否具备执行条件。
-* Linux Kernel 第一卷计划已经 frozen，共 17 个固定章节。
-* 第一章是 ``LK-BOOT-001``：“ARM64 Linux 内核镜像从哪个入口开始执行？”
-* 当前仓库仍不足以直接写正式技术文章。
+* 仓库的核心产物是 learning track、unit、lab 和 assessment。
+* 目标读者是希望从零基础逐步达到独立排错与迁移能力的程序员。
+* 开头固定路径目标和阶段，不再提前冻结整本书的全部章节。
+* 每个阶段设计一个小批次 unit，每次运行只执行批次中的下一项。
+* Linux 原 17 章 frozen plan 已退出活动使用。
+* 当前不依赖独立 Skill。
+* 当前不发布 GitHub Pages，未来使用独立公共 release 仓库。
 
 已经完成
 --------
 
-* 创建 Sphinx 基础配置和文档入口。
-* 创建 ``docs/books/``、``labs/``、``manifests/``、``templates/`` 和 ``tools/``。
-* 创建仓库级 ``AGENTS.md``，规定新 Agent 的读取顺序和章节准入条件。
-* 创建 ``project/STATE.rst``、``project/DECISIONS.rst`` 和 ``project/REPOSITORY_MAP.rst``。
-* 创建 ``project/CONTENT_SELECTION.rst``，规定内容在书籍开始前一次性固定。
-* 创建 Linux 第一卷 plan 索引和三个 Part 文件，冻结 17 章的范围、顺序、依赖和证据类型。
-* 创建 ``tools/validate_book_plans.py``，检查计划总数、ID、连续顺序、首章和前置依赖。
-* 将计划验证加入 GitHub Actions，防止计划文件缺章或截断后继续生产。
-* 将 Linux 第一卷主线固定为 ARM64 启动、初始化、initcall、用户空间 init、``read()`` 与 VFS。
-* 将章节生成 Skill 改为只执行 frozen plan，不再临时选题。
-* 创建 RST 审计脚本。
-* 创建 GitHub Actions 验证工作流。
-* 创建未来公共 release 的白名单导出骨架。
-* 创建 Linux Kernel 书籍 manifest 和阅读契约。
-* 在 ``README.rst`` 中明确当前仍处于基础设施阶段。
+* 建立 RST、Sphinx、实验、审计、CI 和 release 基础设施。
+* 建立跨对话 ``AGENTS.md``、状态、决策和文件职责记录。
+* 总结 ``aiBook`` 的九类主要教学失败，并形成迁移规则。
+* 建立统一学习设计：预测、证据、推理、变化、误解、答案和迁移任务。
+* 定义 ``L1 运行`` 到 ``L5 迁移`` 的能力层级。
+* 登记 ``aiBook/docs`` 的七条学习路径。
+* 建立 Linux Kernel 路径的四个阶段草案。
+* 建立 unit manifest 规范与学习单元 RST 模板。
+* 建立 learning model 自动校验工具。
+* 将“整本书全部章节提前冻结”决策标记为 superseded。
+* 将 Linux 原 17 章计划标记为历史设计，不再控制后续内容。
 
 当前 blocker
 ------------
 
-Linux Kernel 的 source contract 尚未完成：
-
-* release 或 tag 未确定；
-* exact commit 未确定；
-* ARM64 kernel config 未确定；
-* compiler/toolchain 未确定；
-* runtime 与 trace 环境未确定；
-* ``LK-BOOT-001`` lab 尚未建立；
-* ``LK-BOOT-001`` chapter manifest 尚未建立；
-* GitHub Actions 首次完整验证结果尚未记录。
+* 七条路径尚未完成旧内容库存审计。
+* 还没有经过实际阅读验证的黄金 unit。
+* unit 的篇幅、解释密度和评估难度尚未由真实样例校准。
+* Linux 路径的 ``foundations`` 阶段还没有设计第一批 unit。
+* CI 尚未记录新 learning model 的首次完整验证结果。
 
 下一阶段
 --------
 
-#. 确定 Linux Kernel 的 release、exact commit、ARM64 config、toolchain 和验证环境。
-#. 更新 ``sources.lock`` 与 ``manifests/books/linux-kernel.toml``。
-#. 建立 ``labs/linux-kernel/lk-boot-001/``。
-#. 准备 Image header、入口反汇编、固定源码符号和可重复的启动观察方法。
-#. 创建 ``manifests/chapters/lk-boot-001.toml``。
-#. 验证第一章要求的全部 evidence。
-#. 所有证据齐全后再写 ``LK-BOOT-001`` 的 RST 正文。
+#. 从 ``aiBook/docs`` 选择三个典型失败案例：语言基础、系统行为和源码级内容各一个。
+#. 为三个案例建立 unit manifest，先定义读者前后能力变化。
+#. 编写或提取最小示例、真实输出和条件变化。
+#. 生成三个黄金 RST unit，重点验证问题动机和答案推理。
+#. 实际阅读后记录哪些地方仍然让人困惑，并修订学习设计。
+#. 黄金 unit 通过后，为七条路径建立第一批 stage batch。
 
 状态维护规则
 ------------
 
-每次完成有意义的仓库工作后，更新本文件中的“已经完成”“当前 blocker”和“下一阶段”。本文件只描述当前状态，不保存已经失效的详细历史；长期决策记录在 ``project/DECISIONS.rst``。
+每次完成有意义的仓库工作后，更新“已经完成”“当前 blocker”和“下一阶段”。长期方向写入
+``project/DECISIONS.rst``；文件职责写入 ``project/REPOSITORY_MAP.rst``。
