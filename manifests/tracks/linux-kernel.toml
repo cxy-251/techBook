@@ -11,21 +11,21 @@ legacy_docs_path = "docs/LinuxK"
 
 [source]
 architecture = "x86_64"
+platform = "QEMU q35"
 firmware = "SeaBIOS"
-bootloader = "GRUB"
+bootloader = "GRUB i386-pc"
 kernel_image = "bzImage"
 kernel_release = "6.12.95"
 boot_protocol = "Linux/x86 Boot Protocol"
 
 [current]
 unit_id = "LK-BOOT-001"
-title = "设备上电后，x86-64 Linux 内核怎样被装入并完成解压？"
-rst = "docs/tracks/linux-kernel/01-power-on-to-decompression.rst"
+title = "按下电源键后，CPU 从哪里取得第一条指令？"
+rst = "docs/tracks/linux-kernel/01-power-on-first-instruction.rst"
 status = "draft"
-start = "CPU reset entry"
-end = "arch/x86/kernel/head_64.S:startup_64"
+start = "platform power-on and reset assertion"
+end = "SeaBIOS reset_vector jumps to entry_post"
 roadmap_items = [
   "Part 5 / From Firmware to Bootloader",
-  "Part 5 / Kernel Decompression and Early Architecture Setup",
 ]
-next_action = "只审阅并修改当前 RST；当前正文稳定后再决定下一篇"
+next_action = "只审阅并修改当前章节；稳定后沿 entry_post 的真实执行路径决定下一章"
