@@ -1,29 +1,34 @@
 techBook
 ========
 
-``techBook`` 当前只写 Linux Kernel 学习内容，面向会基础 C 语法、希望从零建立内核理解和源码阅读能力的程序员。
+``techBook`` 当前只写 Linux Kernel。
+
+当前正文
+--------
+
+* `Linux Kernel 入口 <docs/tracks/linux-kernel/index.rst>`_
+* `设备上电后，x86-64 Linux 内核怎样被装入并完成解压？ <docs/tracks/linux-kernel/01-power-on-to-decompression.rst>`_
+
+当前主线
+--------
+
+::
+
+   x86-64
+   → SeaBIOS
+   → GRUB
+   → bzImage
+   → Linux 6.12.95
+
+第一篇从设备上电开始，沿固件、bootloader、16 位 setup、保护模式、64 位压缩启动桩和
+``extract_kernel()`` 连续追踪，直到跳入解压后的正式内核 ``startup_64``。
 
 内容依据
 --------
 
-* ``aiBook`` 的 Linux Kernel Roadmap 和生成控制文件说明用户希望获得哪些知识；
-* 官方文档、固定版本源码和可确认的系统行为提供技术事实；
-* 旧 ``aiBook/docs/LinuxK`` 用于识别原内容为什么过长、前置不足或难以理解。
-
-Roadmap 是知识范围，不采用“一项一章”。当前只写一个学习单元，读完并修订后再决定下一篇。
-
-当前内容
---------
-
-* `Linux Kernel 学习入口 <docs/tracks/linux-kernel/index.rst>`_
-* `LK-001：程序输出一行文字时，为什么需要内核？ <docs/tracks/linux-kernel/01-why-program-needs-kernel.rst>`_
-
-学习方式
---------
-
-每篇内容从具体代码或系统现象开始：先预测，再观察证据，随后逐步解释；最后改变一个条件，检查能否把理解迁移到新场景。
-
-项目文件以 reStructuredText 为主。代码、命令、输出和引用资料直接保存在对应 RST 中。
+``aiBook`` 的 Linux Kernel Roadmap 表达希望掌握的知识范围。技术细节重新依据 Linux/x86 Boot
+Protocol、固定版本源码和可确认的启动行为。旧 ``aiBook/docs/LinuxK`` 只用于对比原内容在哪里绕远、
+重复或缺少关键交接。
 
 开始工作
 --------
@@ -32,6 +37,5 @@ Roadmap 是知识范围，不采用“一项一章”。当前只写一个学习
 
 #. ``AGENTS.md``；
 #. `当前状态 <project/STATE.rst>`_；
-#. `学习设计 <project/LEARNING_DESIGN.rst>`_；
-#. `Linux Kernel 学习入口 <docs/tracks/linux-kernel/index.rst>`_；
-#. 当前学习单元。
+#. `Linux Kernel 入口 <docs/tracks/linux-kernel/index.rst>`_；
+#. 当前正文。
