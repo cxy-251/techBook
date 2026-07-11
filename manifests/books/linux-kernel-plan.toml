@@ -5,6 +5,13 @@ title = "Linux Kernel 源码阅读：ARM64 启动、初始化与 VFS"
 architecture = "arm64"
 order_policy = "strict"
 revision_policy = "explicit-plan-revision-only"
+chapter_count = 17
+
+part_files = [
+  "manifests/books/linux-kernel-plan/01-boot.toml",
+  "manifests/books/linux-kernel-plan/02-init.toml",
+  "manifests/books/linux-kernel-plan/03-vfs.toml",
+]
 
 [target]
 reader = "会 C 和基础操作系统概念，但尚未形成稳定内核源码阅读方法的读者"
@@ -12,205 +19,18 @@ outcome = "能够从可观察现象进入固定源码，提取最短调用路径
 
 [scope]
 include = [
-  "ARM64 early boot",
-  "MMU and virtual address transition",
-  "start_kernel and rest_init",
-  "initcall registration and execution",
+  "ARM64 early boot and MMU transition",
+  "start_kernel, rest_init and initcall",
   "kernel_init to userspace init",
-  "ARM64 read syscall entry",
-  "file descriptor to struct file",
-  "VFS read dispatch",
-  "regular-file and character-device read divergence",
+  "ARM64 read syscall entry and VFS dispatch",
 ]
 exclude = [
   "完整内核目录百科",
   "逐行翻译整个 start_kernel",
-  "驱动子系统大全",
-  "完整文件系统实现",
+  "驱动和文件系统大全",
   "缺少实验支撑的架构散文",
 ]
 
-[[part]]
-id = "BOOT"
-order = 1
-title = "ARM64 内核启动入口与地址空间切换"
-
-[[part]]
-id = "INIT"
-order = 2
-title = "通用初始化、initcall 与用户空间启动"
-
-[[part]]
-id = "VFS"
-order = 3
-title = "read 系统调用进入 VFS"
-
-[[chapter]]
-id = "LK-BOOT-001"
-order = 1
-part = "BOOT"
+[first]
+chapter_id = "LK-BOOT-001"
 question = "ARM64 Linux 内核镜像从哪个入口开始执行？"
-outcome = "能够从 Image 入口定位到第一段内核汇编路径，并区分镜像加载地址与当前执行地址"
-prerequisites = []
-required_evidence = ["fixed source symbols", "Image header or disassembly", "boot-path diagram"]
-status = "planned"
-
-[[chapter]]
-id = "LK-BOOT-002"
-order = 2
-part = "BOOT"
-question = "primary_entry 在开启 MMU 前建立了哪些执行条件？"
-outcome = "能够识别早期栈、CPU 状态、异常级别与启动参数在后续路径中的作用"
-prerequisites = ["LK-BOOT-001"]
-required_evidence = ["fixed source symbols", "register-state notes", "boot output or debugger evidence"]
-status = "planned"
-
-[[chapter]]
-id = "LK-BOOT-003"
-order = 3
-part = "BOOT"
-question = "早期页表如何准备，__enable_mmu 如何改变地址解释？"
-outcome = "能够把页表准备、系统寄存器设置和 MMU 开启连接成一条最短路径"
-prerequisites = ["LK-BOOT-002"]
-required_evidence = ["fixed source symbols", "page-table configuration", "register or trace evidence"]
-status = "planned"
-
-[[chapter]]
-id = "LK-BOOT-004"
-order = 4
-part = "BOOT"
-question = "开启 MMU 后如何切换到虚拟地址并进入 start_kernel()？"
-outcome = "能够解释物理执行阶段结束后，控制流如何进入通用 C 初始化入口"
-prerequisites = ["LK-BOOT-003"]
-required_evidence = ["fixed source symbols", "address transition evidence", "boot log"]
-status = "planned"
-
-[[chapter]]
-id = "LK-INIT-001"
-order = 5
-part = "INIT"
-question = "start_kernel() 接手时哪些执行条件已经成立？"
-outcome = "能够区分 ARM64 汇编阶段已经完成的工作与通用初始化仍需建立的子系统"
-prerequisites = ["LK-BOOT-004"]
-required_evidence = ["fixed source symbols", "boot log checkpoints", "minimal dependency table"]
-status = "planned"
-
-[[chapter]]
-id = "LK-INIT-002"
-order = 6
-part = "INIT"
-question = "rest_init() 如何创建 kernel_init 和 kthreadd？"
-outcome = "能够追踪启动主线程如何建立后续内核线程与用户空间启动路径"
-prerequisites = ["LK-INIT-001"]
-required_evidence = ["fixed source symbols", "process or boot trace", "thread identity output"]
-status = "planned"
-
-[[chapter]]
-id = "LK-INIT-003"
-order = 7
-part = "INIT"
-question = "initcall 宏如何把函数注册进内核镜像？"
-outcome = "能够从宏展开追踪到专用 linker section，并说明函数指针何时进入镜像"
-prerequisites = ["LK-INIT-001"]
-required_evidence = ["macro expansion", "linker script symbols", "ELF section inspection"]
-status = "planned"
-
-[[chapter]]
-id = "LK-INIT-004"
-order = 8
-part = "INIT"
-question = "不同级别的 initcall 如何在链接阶段形成有序区间？"
-outcome = "能够从 linker script 看出各级 initcall 的排列顺序和边界符号"
-prerequisites = ["LK-INIT-003"]
-required_evidence = ["linker script", "ELF section order", "fixed boundary symbols"]
-status = "planned"
-
-[[chapter]]
-id = "LK-INIT-005"
-order = 9
-part = "INIT"
-question = "do_initcalls() 如何找到并调用各级 initcall？"
-outcome = "能够连接 linker section、边界指针和运行时函数调用循环"
-prerequisites = ["LK-INIT-004"]
-required_evidence = ["fixed source symbols", "function trace", "boot log"]
-status = "planned"
-
-[[chapter]]
-id = "LK-INIT-006"
-order = 10
-part = "INIT"
-question = "initcall_debug 如何验证 initcall 的顺序和耗时？"
-outcome = "能够用内核参数和日志验证上一章的源码判断"
-prerequisites = ["LK-INIT-005"]
-required_evidence = ["kernel command line", "real dmesg output", "timing comparison"]
-status = "planned"
-
-[[chapter]]
-id = "LK-INIT-007"
-order = 11
-part = "INIT"
-question = "kernel_init 如何选择并执行用户空间 init？"
-outcome = "能够追踪内核线程如何尝试 init 路径并完成第一次用户态程序切换"
-prerequisites = ["LK-INIT-002", "LK-INIT-005"]
-required_evidence = ["fixed source symbols", "initramfs fixture", "boot output"]
-status = "planned"
-
-[[chapter]]
-id = "LK-VFS-001"
-order = 12
-part = "VFS"
-question = "ARM64 用户态 read() 如何进入内核系统调用处理路径？"
-outcome = "能够从用户态调用、系统调用号和异常入口定位到 read 的内核实现"
-prerequisites = ["LK-INIT-007"]
-required_evidence = ["minimal userspace program", "strace output", "fixed syscall symbols"]
-status = "planned"
-
-[[chapter]]
-id = "LK-VFS-002"
-order = 13
-part = "VFS"
-question = "文件描述符如何解析成 struct file？"
-outcome = "能够追踪当前进程文件表查找、引用获取和位置状态读取"
-prerequisites = ["LK-VFS-001"]
-required_evidence = ["minimal userspace program", "fixed source symbols", "trace or debugger evidence"]
-status = "planned"
-
-[[chapter]]
-id = "LK-VFS-003"
-order = 14
-part = "VFS"
-question = "VFS 在调用具体文件操作前检查了哪些读取条件？"
-outcome = "能够识别访问模式、范围、位置和安全检查在分发前承担的责任"
-prerequisites = ["LK-VFS-002"]
-required_evidence = ["failure-case program", "errno output", "fixed source symbols"]
-status = "planned"
-
-[[chapter]]
-id = "LK-VFS-004"
-order = 15
-part = "VFS"
-question = "VFS 如何从 struct file 分发到 read 或 read_iter？"
-outcome = "能够解释 file_operations 中读取回调的选择和同步调用桥接"
-prerequisites = ["LK-VFS-003"]
-required_evidence = ["fixed source symbols", "function trace", "two operation fixtures"]
-status = "planned"
-
-[[chapter]]
-id = "LK-VFS-005"
-order = 16
-part = "VFS"
-question = "普通文件读取如何进入 buffered read 与 page cache？"
-outcome = "能够从 read_iter 继续追踪普通文件的缓存读取主路径"
-prerequisites = ["LK-VFS-004"]
-required_evidence = ["regular-file fixture", "page-cache observation", "fixed source symbols"]
-status = "planned"
-
-[[chapter]]
-id = "LK-VFS-006"
-order = 17
-part = "VFS"
-question = "字符设备读取从哪里与普通文件路径分流？"
-outcome = "能够比较相同 read 系统调用在普通文件和字符设备上的回调路径"
-prerequisites = ["LK-VFS-004", "LK-VFS-005"]
-required_evidence = ["character-device fixture", "regular-file comparison", "function trace"]
-status = "planned"
