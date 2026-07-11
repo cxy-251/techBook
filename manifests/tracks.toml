@@ -1,57 +1,15 @@
-format = 2
+format = 3
+current_track = "linux-kernel"
 
 [origin]
 repository = "cxy-251/aiBook"
-knowledge_scope = "Roadmap and article-generation control files"
-generated_docs_role = "failure-sample-only"
-facts_policy = "rebuild-from-primary-sources-and-real-behavior"
-control_file_inventory = "pending"
-
-[[track]]
-id = "cpp-stl"
-title = "C++ STL"
-legacy_docs_path = "docs/C++"
-control_files = []
-status = "control-inventory-pending"
-
-[[track]]
-id = "python"
-title = "Python"
-legacy_docs_path = "docs/Python"
-control_files = []
-status = "control-inventory-pending"
-
-[[track]]
-id = "graphics"
-title = "Graphics"
-legacy_docs_path = "docs/Graphic"
-control_files = []
-status = "control-inventory-pending"
+knowledge_scope = "Linux Kernel Roadmap and its generation controls"
+generated_docs_role = "failure-comparison"
 
 [[track]]
 id = "linux-kernel"
 title = "Linux Kernel"
-legacy_docs_path = "docs/LinuxK"
-control_files = []
-status = "control-inventory-pending"
-
-[[track]]
-id = "compiler"
-title = "Compiler"
-legacy_docs_path = "docs/Compiler"
-control_files = []
-status = "control-inventory-pending"
-
-[[track]]
-id = "mobile-os"
-title = "Mobile OS"
-legacy_docs_path = "docs/MobileOS"
-control_files = []
-status = "control-inventory-pending"
-
-[[track]]
-id = "web-architecture"
-title = "Web Architecture"
-legacy_docs_path = "docs/WebArch"
-control_files = []
-status = "control-inventory-pending"
+status = "writing"
+state_file = "manifests/tracks/linux-kernel.toml"
+entry = "docs/tracks/linux-kernel/index.rst"
+current_unit = "LK-001"
