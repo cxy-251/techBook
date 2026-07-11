@@ -1,0 +1,58 @@
+id = "linux-kernel"
+title = "Linux Kernel"
+language = "zh-CN"
+status = "design-pending"
+
+[target]
+reader = "会基础 C 语法，但没有稳定操作系统与内核源码阅读方法的程序员"
+entry_level = "L1"
+target_level = "L5"
+outcome = "能够从现象提出假设，使用系统接口与观测工具验证，并在固定版本源码中定位关键路径"
+
+[scope]
+include = [
+  "操作系统与内核最小心智模型",
+  "进程、内存、文件与设备的可观察行为",
+  "启动与初始化",
+  "系统调用与 VFS",
+  "procfs、sysfs、tracefs、ftrace 与 perf",
+  "固定版本源码阅读与验证",
+]
+exclude = [
+  "逐行翻译整个内核",
+  "按源码目录制作百科",
+  "没有现象和验证的架构散文",
+  "在读者尚未建立行为模型时直接堆叠汇编和源码符号",
+]
+
+[[stage]]
+id = "foundations"
+order = 1
+title = "建立内核行为模型"
+outcome = "理解内核解决什么问题，并能用进程、文件和内存现象描述用户态与内核态边界"
+status = "design-pending"
+
+[[stage]]
+id = "observation"
+order = 2
+title = "学会观察正在运行的内核"
+outcome = "能使用 procfs、sysfs、日志和 tracefs 把抽象判断连接到系统状态"
+status = "planned"
+
+[[stage]]
+id = "source-reading"
+order = 3
+title = "从现象进入固定源码"
+outcome = "能围绕一次真实调用提取最短路径，解释关键对象和状态变化"
+status = "planned"
+
+[[stage]]
+id = "debugging"
+order = 4
+title = "验证、排错与迁移"
+outcome = "能为未知问题设计实验，使用 ftrace、perf 或调试器修正源码判断"
+status = "planned"
+
+[legacy]
+old_plan = "removed-from-active-use"
+reason = "原 17 章计划从源码函数顺序出发，没有为零基础读者建立足够的认知台阶"
