@@ -63,7 +63,7 @@ Agent 接续
    uv sync --all-groups
    uv run ruff check tools
    uv run python tools/validate_learning_model.py
-   uv run python tools/audit_chapter.py docs
+   uv run python tools/audit_learning_content.py docs
    uv run sphinx-build -W --keep-going -n -b html docs docs/_build/html
 
 仓库边界
