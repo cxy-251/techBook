@@ -16,7 +16,9 @@
 --------
 
 * 仓库只在 ``main`` 工作。
-* 面向读者的内容使用 reStructuredText 与 Sphinx。
+* 面向读者的内容使用 reStructuredText；RST 源文件本身不要求自动构建。
+* Sphinx 只用于需要 HTML 预览、链接检查或正式发布前的手动验证。
+* GitHub Actions 已改为 ``workflow_dispatch``，普通 push 不再自动运行或发送失败邮件。
 * ``AGENTS.md`` 是所有新 Agent 的第一入口。
 * 仓库的核心产物是 learning track、unit、lab 和 assessment。
 * 目标读者是希望从零基础逐步达到独立排错与迁移能力的程序员。
@@ -29,7 +31,7 @@
 已经完成
 --------
 
-* 建立 RST、Sphinx、实验、审计、CI 和 release 基础设施。
+* 建立 RST、Sphinx、实验、审计和未来 release 基础设施。
 * 建立跨对话 ``AGENTS.md``、状态、决策和文件职责记录。
 * 总结 ``aiBook`` 的九类主要教学失败，并形成迁移规则。
 * 建立统一学习设计：预测、证据、推理、变化、误解、答案和迁移任务。
@@ -40,6 +42,7 @@
 * 建立 learning model 自动校验工具。
 * 将“整本书全部章节提前冻结”决策标记为 superseded。
 * 将 Linux 原 17 章计划标记为历史设计，不再控制后续内容。
+* 关闭 push 自动 CI，避免仓库搭建期间每个小提交触发构建和失败邮件。
 
 当前 blocker
 ------------
@@ -48,7 +51,7 @@
 * 还没有经过实际阅读验证的黄金 unit。
 * unit 的篇幅、解释密度和评估难度尚未由真实样例校准。
 * Linux 路径的 ``foundations`` 阶段还没有设计第一批 unit。
-* CI 尚未记录新 learning model 的首次完整验证结果。
+* 新 learning model 尚未进行一次人工触发的完整验证。
 
 下一阶段
 --------
@@ -59,6 +62,7 @@
 #. 生成三个黄金 RST unit，重点验证问题动机和答案推理。
 #. 实际阅读后记录哪些地方仍然让人困惑，并修订学习设计。
 #. 黄金 unit 通过后，为七条路径建立第一批 stage batch。
+#. 只有需要检查时才在 GitHub Actions 页面手动运行 ``verify-manually``。
 
 状态维护规则
 ------------
