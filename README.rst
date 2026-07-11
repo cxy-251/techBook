@@ -9,6 +9,7 @@ techBook
 * `Linux Kernel 入口 <docs/tracks/linux-kernel/index.rst>`_
 * `第一章：按下电源键后，CPU 从哪里取得第一条指令？ <docs/tracks/linux-kernel/01-power-on-first-instruction.rst>`_
 * `第二章：SeaBIOS 怎样从 16 位入口进入 32 位 C 代码？ <docs/tracks/linux-kernel/02-seabios-entry-to-32bit-c.rst>`_
+* `第三章：SeaBIOS 怎样识别内存并把初始化代码搬到 RAM？ <docs/tracks/linux-kernel/03-seabios-memory-map-and-relocation.rst>`_
 
 当前主线
 --------
@@ -25,7 +26,7 @@ techBook
 开头从设备上电后的故事进入，最终主题仍然是 Linux 内核。正文按真实发生顺序连续讲述；达到适合一次
 阅读的篇幅，并遇到自然控制权交接点时换章。
 
-当前控制流已经进入 SeaBIOS 的 ``post.c:handle_post()``。后续从这个入口继续，不提前列出整本目录。
+当前控制流已经进入重定位后的 SeaBIOS ``post.c:maininit()``。后续从这个入口继续，不提前列出整本目录。
 
 开始工作
 --------
