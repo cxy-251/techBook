@@ -39,6 +39,8 @@ techBook
 * `第三十章：GRUB 怎样自动选择菜单项并装入 linux 命令模块？ <docs/tracks/linux-kernel/30-grub-autoboots-entry-and-loads-linux-module.rst>`_
 * `第三十一章：GRUB linux 命令怎样检查并装载 Linux bzImage？ <docs/tracks/linux-kernel/31-grub-linux-command-loads-bzimage.rst>`_
 * `第三十二章：GRUB 怎样把 initramfs 放到内核允许的高地址？ <docs/tracks/linux-kernel/32-grub-initrd-placement-and-boot-parameters.rst>`_
+* `第三十三章：GRUB 怎样准备 boot_params 并把控制权交给 Linux？ <docs/tracks/linux-kernel/33-grub-boot-params-and-linux-handoff.rst>`_
+* `第三十四章：Linux startup_32 怎样建立 4 GiB 映射并进入 64 位模式？ <docs/tracks/linux-kernel/34-linux-startup32-enters-long-mode.rst>`_
 
 当前主线
 --------
@@ -54,7 +56,7 @@ techBook
 
 开头从设备上电后的故事进入，最终主题仍然是 Linux 内核。正文按真实发生顺序连续讲述；达到适合一次阅读的篇幅，并遇到自然控制权交接点时换章。
 
-当前 Linux protected-mode payload 与 initramfs 均已装入 relocator 管理的内存，boot parameters 中的 ``ramdisk_image`` 和 ``ramdisk_size`` 已建立。下一入口是 GRUB 隐式 ``boot`` 调用与 ``grub_linux_boot()``。
+当前已离开 GRUB。Linux compressed ``startup_32`` 已建立低 4 GiB identity map 并进入 ``startup_64``。下一段将处理 64 位 compressed image 重定位、BSS、identity map 扩展和 ``extract_kernel()``。
 
 开始工作
 --------
