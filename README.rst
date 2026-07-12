@@ -21,6 +21,7 @@ techBook
 * `第十二章：SeaBIOS 怎样用 INIT/SIPI 唤醒其他 CPU？ <docs/tracks/linux-kernel/12-seabios-smp-init-sipi-and-ap-startup.rst>`_
 * `第十三章：SeaBIOS 怎样把 CPU、IRQ 和内存信息写成固件表？ <docs/tracks/linux-kernel/13-seabios-pirq-mp-and-smbios-tables.rst>`_
 * `第十四章：SeaBIOS 怎样执行 QEMU 的 ACPI table-loader 并找到 RSDP？ <docs/tracks/linux-kernel/14-seabios-acpi-table-loader-and-rsdp.rst>`_
+* `第十五章：SeaBIOS 怎样沿 RSDP 读懂 ACPI 表图并解析 DSDT？ <docs/tracks/linux-kernel/15-seabios-acpi-table-graph-and-dsdt-parse.rst>`_
 
 当前主线
 --------
@@ -37,7 +38,7 @@ techBook
 开头从设备上电后的故事进入，最终主题仍然是 Linux 内核。正文按真实发生顺序连续讲述；达到适合一次
 阅读的篇幅，并遇到自然控制权交接点时换章。
 
-当前控制流仍在 SeaBIOS ``qemu_platform_setup()``。ACPI blobs 已通过 ``etc/table-loader`` 分配、链接和校验，RSDP 已在 F-segment 找到。下一入口是 ``acpi_dsdt_parse()``，GRUB 尚未被读取或执行。
+当前控制流已从 ``qemu_platform_setup()`` 返回。ACPI 表图和受限 DSDT 设备索引已经建立，下一入口是 ``platform_hardware_setup():timer_setup()``。GRUB 尚未被读取或执行。
 
 开始工作
 --------
