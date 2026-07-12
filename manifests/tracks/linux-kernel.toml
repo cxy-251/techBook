@@ -15,6 +15,8 @@ platform = "QEMU q35"
 firmware = "SeaBIOS"
 firmware_repository = "coreboot/seabios"
 firmware_commit = "c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf"
+qemu_repository = "qemu/qemu"
+qemu_commit = "a759542a2c62f0fd3b65f5a66ad9868201014669"
 bootloader = "GRUB i386-pc"
 kernel_image = "bzImage"
 kernel_release = "6.12.95"
@@ -100,10 +102,18 @@ status = "complete"
 start = "qemu_platform_setup():smm_device_setup()"
 end = "qemu_platform_setup():smm_setup() returns"
 
+[[chapter]]
+id = "LK-BOOT-011"
+title = "SeaBIOS 怎样规定物理地址的缓存类型并准备每个 CPU 的 MSR？"
+rst = "docs/tracks/linux-kernel/11-seabios-mtrr-and-feature-control.rst"
+status = "complete"
+start = "qemu_platform_setup():mtrr_setup()"
+end = "qemu_platform_setup():msr_feature_control_setup() returns"
+
 [current]
-last_complete = "LK-BOOT-010"
-next_entry = "qemu_platform_setup():mtrr_setup()"
-next_action = "收到继续指令后，从 MTRR、MSR_IA32_FEATURE_CONTROL 和 smp_setup() 开始继续"
+last_complete = "LK-BOOT-011"
+next_entry = "qemu_platform_setup():smp_setup()"
+next_action = "收到继续指令后，从 local APIC、INIT/SIPI、AP 启动跳板与 AP 重放 MSR 开始继续"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
