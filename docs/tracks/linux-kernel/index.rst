@@ -20,6 +20,7 @@ Linux Kernel
 #. `第十二章：SeaBIOS 怎样用 INIT/SIPI 唤醒其他 CPU？ <12-seabios-smp-init-sipi-and-ap-startup.rst>`_
 #. `第十三章：SeaBIOS 怎样把 CPU、IRQ 和内存信息写成固件表？ <13-seabios-pirq-mp-and-smbios-tables.rst>`_
 #. `第十四章：SeaBIOS 怎样执行 QEMU 的 ACPI table-loader 并找到 RSDP？ <14-seabios-acpi-table-loader-and-rsdp.rst>`_
+#. `第十五章：SeaBIOS 怎样沿 RSDP 读懂 ACPI 表图并解析 DSDT？ <15-seabios-acpi-table-graph-and-dsdt-parse.rst>`_
 
 当前主线
 --------
@@ -33,7 +34,7 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-正文已经追踪到 SeaBIOS 执行 QEMU ``etc/table-loader``，为 ACPI blobs 分配客户机地址、修正指针和 checksum，并在 F-segment 找到 RSDP。当前仍在 ``qemu_platform_setup()`` 中，下一步从 RSDP 展开 RSDT/XSDT、FADT、MADT 和 DSDT。
+正文已经追踪到 SeaBIOS 沿 RSDP 发现 RSDT/XSDT、FADT、MADT 与 MCFG，建立受限 DSDT 设备索引，并从 ``qemu_platform_setup()`` 返回。下一步进入 ``timer_setup()``、``clock_setup()`` 与条件 TPM 初始化。
 
 章节组织
 --------
