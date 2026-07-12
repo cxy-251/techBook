@@ -23,6 +23,7 @@ techBook
 * `第十四章：SeaBIOS 怎样执行 QEMU 的 ACPI table-loader 并找到 RSDP？ <docs/tracks/linux-kernel/14-seabios-acpi-table-loader-and-rsdp.rst>`_
 * `第十五章：SeaBIOS 怎样沿 RSDP 读懂 ACPI 表图并解析 DSDT？ <docs/tracks/linux-kernel/15-seabios-acpi-table-graph-and-dsdt-parse.rst>`_
 * `第十六章：SeaBIOS 怎样建立时间基准、18.2 Hz BIOS 时钟并初始化 TPM？ <docs/tracks/linux-kernel/16-seabios-timers-clock-and-tpm.rst>`_
+* `第十七章：SeaBIOS 为什么先运行 VGA Option ROM 再初始化其他设备？ <docs/tracks/linux-kernel/17-seabios-vga-option-rom-and-console.rst>`_
 
 当前主线
 --------
@@ -39,7 +40,7 @@ techBook
 开头从设备上电后的故事进入，最终主题仍然是 Linux 内核。正文按真实发生顺序连续讲述；达到适合一次
 阅读的篇幅，并遇到自然控制权交接点时换章。
 
-``platform_hardware_setup()`` 已返回。内部 timer、传统 PIT/RTC BIOS 时钟和条件 TPM measured boot 已建立。下一入口是 ``maininit():threads_during_optionroms()``，随后进入设备驱动与 VGA Option ROM 时序。GRUB 尚未被读取或执行。
+VGA Option ROM 已执行，``INT 10h`` 和 SeaBIOS 文字控制台已经建立。当前默认路径准备同步调用 ``device_hardware_setup()``，进入 USB、PS/2 和块设备探测。GRUB 尚未被读取或执行。
 
 开始工作
 --------
