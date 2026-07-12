@@ -13,6 +13,7 @@ Linux Kernel
 #. `第五章：SeaBIOS 怎样把自己变成可供启动软件调用的 BIOS？ <05-seabios-software-interfaces.rst>`_
 #. `第六章：SeaBIOS 怎样建立中断基础并启动内部线程？ <06-seabios-dma-pic-threads.rst>`_
 #. `第七章：SeaBIOS 怎样为 q35 编号 PCI 总线并发现设备？ <07-seabios-pci-bus-and-device-discovery.rst>`_
+#. `第八章：SeaBIOS 怎样启用 q35 MMCONFIG 并为 PCI 设备分配地址？ <08-seabios-q35-mmconfig-and-pci-bar-allocation.rst>`_
 
 当前主线
 --------
@@ -26,8 +27,9 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-正文已经从平台释放处理器复位，追踪到 SeaBIOS 为 PCI bridge 分配 bus number，并把所有已发现 function
-缓存进 ``PCIDevices``。当前仍在 ``pci_setup()`` 内，下一步从 q35 MMCONFIG 和 PCI BAR 资源分配继续。
+正文已经追踪到 SeaBIOS 启用 q35 MMCONFIG、测量 PCI BAR，并为 endpoint 与 bridge window 分配 I/O 和
+MMIO 地址。当前仍在 ``pci_setup()`` 内，下一步从 ``pci_bios_init_devices()`` 继续处理 INTx、设备专用寄存器
+和 ``PCI_COMMAND`` 地址解码。
 
 章节组织
 --------
