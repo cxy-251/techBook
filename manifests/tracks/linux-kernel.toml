@@ -25,7 +25,10 @@ grub_repository = "GitMirroring/grub"
 grub_commit = "d38d6a1a9b79427848976f53d474392cd29c2a71"
 grub_official_archive = "https://ftp.gnu.org/gnu/grub/grub-2.14.tar.xz"
 grub_disk_layout = "MBR disk; ext4 first partition at LBA 2048; /boot/grub; core.img embedded contiguously from LBA 1"
+grub_config = "set timeout=0; set default=0; menuentry Linux 6.12.95 with linux /boot/bzImage-6.12.95 root=/dev/sda1 ro console=ttyS0 and initrd /boot/initramfs-6.12.95.img"
 kernel_image = "bzImage"
+kernel_path = "/boot/bzImage-6.12.95"
+initramfs_path = "/boot/initramfs-6.12.95.img"
 kernel_release = "6.12.95"
 boot_protocol = "Linux/x86 Boot Protocol"
 
@@ -253,10 +256,18 @@ status = "complete"
 start = "GNU GRUB 2.14 grub_main():grub_load_normal_mode()"
 end = "the first non-comment config line is ready immediately before grub_normal_parse_line()"
 
+[[chapter]]
+id = "LK-BOOT-029"
+title = "GRUB 怎样解析 grub.cfg 并建立第一个 Linux 菜单项？"
+rst = "docs/tracks/linux-kernel/29-grub-parses-config-and-builds-menuentry.rst"
+status = "complete"
+start = "GNU GRUB 2.14 grub_normal_parse_line()"
+end = "grub_normal_execute() owns a one-entry menu immediately before grub_show_menu()"
+
 [current]
-last_complete = "LK-BOOT-028"
-next_entry = "GNU GRUB 2.14 grub_normal_parse_line()"
-next_action = "解析固定 grub.cfg 的脚本和 menuentry，直到 menu object 获得第一个 Linux 启动项"
+last_complete = "LK-BOOT-029"
+next_entry = "GNU GRUB 2.14 grub_normal_execute():grub_show_menu()"
+next_action = "用 timeout=0 和 default=0 自动选择第一个 entry，执行其 sourcecode，并动态加载 linux.mod，直到 grub_cmd_linux() 入口"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
