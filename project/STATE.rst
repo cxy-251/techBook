@@ -19,6 +19,7 @@
 #. ``LK-BOOT-004``：SeaBIOS 怎样在低端内存建立 IVT、BDA 和 EBDA？
 #. ``LK-BOOT-005``：SeaBIOS 怎样把自己变成可供启动软件调用的 BIOS？
 #. ``LK-BOOT-006``：SeaBIOS 怎样建立中断基础并启动内部线程？
+#. ``LK-BOOT-007``：SeaBIOS 怎样为 q35 编号 PCI 总线并发现设备？
 
 当前主线
 --------
@@ -35,29 +36,41 @@
 当前控制流位置
 --------------
 
-第六章结束在：
+第七章结束在：
 
 ::
 
-   platform_hardware_setup():qemu_platform_setup()
+   qemu_platform_setup()
+   → pci_setup()
+   → pci_probe_devices() 返回
+
+``pci_setup()`` 接下来执行：
+
+.. code-block:: c
+
+   pcimem_start = RamSize;
+   pci_bios_init_platform();
 
 此刻机器状态：
 
-* 当前执行者：重定位后的 SeaBIOS ``platform_hardware_setup()``；
+* 当前执行者：SeaBIOS ``pci_setup()``；
 * CPU：BSP；
 * 模式：32 位保护模式；
 * 分页：关闭；
-* 传统 DMA：控制器已复位，级联通道已接通，普通通道未开始传输；
-* PIC：两片 8259A 已初始化；
-* 硬件 IRQ 向量：master 使用 ``0x08``，slave 使用 ``0x70``；
-* master IRQ2 和 slave IRQ13：已解除屏蔽；
-* SeaBIOS 内部协作式线程能力：已经建立，设备线程尚未创建；
-* 数学协处理器 BIOS 标志与 ``INT 75h`` 兼容入口：已经建立；
-* PCI 枚举：尚未执行；
-* SMM、MTRR、SMP、ACPI、SMBIOS 和 MP table：尚未建立；
-* 定时器、周期时钟、PS/2 和磁盘硬件：尚未初始化；
+* 传统 DMA 与 8259A PIC：已经初始化；
+* SeaBIOS 内部协作式线程能力：已经建立；
+* PCI Configuration Mechanism #1：已经通过 ``0xcf8 / 0xcfc`` 验证；
+* PCI bridge 的 primary、secondary、subordinate bus number：已经分配；
+* ``PCIDevices``：已经保存已发现 function 的 BDF、vendor/device、class、header type 和 parent bridge；
+* PCI 配置访问：仍使用 ``0xcf8 / 0xcfc``；
+* SeaBIOS 内部 q35 MMCONFIG：尚未启用；
+* PCI BAR 大小：尚未测量；
+* PCI I/O 与 MMIO 地址：尚未分配；
+* PCI INTx routing 和 command bits：尚未完成；
+* PCI 设备驱动：尚未运行；
+* 磁盘、光驱、USB 与网络启动设备：尚未探测；
 * 具体启动设备：尚未加入 ``BootList``；
-* GRUB：尚未被搜索；
+* GRUB：尚未被读取或执行；
 * Linux：尚未装入内存。
 
 完成状态
@@ -77,11 +90,12 @@ Kernel 目录页。
 
 * Intel x86 处理器复位、实模式和保护模式资料；
 * SeaBIOS 提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
-* SeaBIOS ``src/post.c``、``src/hw/dma.c``、``src/hw/pic.c`` 和 ``src/hw/pic.h``；
-* SeaBIOS ``src/stacks.c``、``src/stacks.h`` 和 ``src/misc.c``；
-* SeaBIOS ``Memory_Model.md`` 和 ``Execution_and_code_flow.md``。
+* SeaBIOS ``src/fw/paravirt.c``、``src/fw/pciinit.c`` 和 ``src/fw/dev-q35.h``；
+* SeaBIOS ``src/hw/pci.c``、``src/hw/pci.h``、``src/hw/pcidevice.c`` 和 ``src/hw/pcidevice.h``；
+* SeaBIOS ``src/hw/pci_regs.h``。
 
 当前下一步
 ----------
 
-收到继续指令后，从 ``platform_hardware_setup():qemu_platform_setup()`` 开始，沿 QEMU q35 平台控制流继续。
+收到继续指令后，从 ``pci_setup():pcimem_start = RamSize`` 和 ``pci_bios_init_platform()`` 开始，继续追踪 q35
+MMCONFIG、BAR sizing、bridge window 与 PCI I/O/MMIO 地址分配。
