@@ -19,6 +19,7 @@ techBook
 * `第十章：SeaBIOS 怎样进入 SMM 并把处理入口藏进 SMRAM？ <docs/tracks/linux-kernel/10-seabios-smm-and-smbase-relocation.rst>`_
 * `第十一章：SeaBIOS 怎样规定物理地址的缓存类型并准备每个 CPU 的 MSR？ <docs/tracks/linux-kernel/11-seabios-mtrr-and-feature-control.rst>`_
 * `第十二章：SeaBIOS 怎样用 INIT/SIPI 唤醒其他 CPU？ <docs/tracks/linux-kernel/12-seabios-smp-init-sipi-and-ap-startup.rst>`_
+* `第十三章：SeaBIOS 怎样把 CPU、IRQ 和内存信息写成固件表？ <docs/tracks/linux-kernel/13-seabios-pirq-mp-and-smbios-tables.rst>`_
 
 当前主线
 --------
@@ -35,8 +36,8 @@ techBook
 开头从设备上电后的故事进入，最终主题仍然是 Linux 内核。正文按真实发生顺序连续讲述；达到适合一次
 阅读的篇幅，并遇到自然控制权交接点时换章。
 
-当前控制流回到 SeaBIOS ``qemu_platform_setup()``。AP 已通过 INIT/SIPI 从 ``0x10000`` 启动，重放 MSR、
-报告 APIC ID 后停在 ``HLT``。下一步建立 PIRQ table、MP table 与 SMBIOS，GRUB 尚未被读取或执行。
+当前控制流仍在 SeaBIOS ``qemu_platform_setup()``。PIRQ、MP table 与 SMBIOS 已完成，下一入口是
+``romfile_loader_execute("etc/table-loader")``，开始安装 ACPI 表。GRUB 尚未被读取或执行。
 
 开始工作
 --------
