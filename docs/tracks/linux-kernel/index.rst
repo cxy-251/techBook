@@ -14,6 +14,7 @@ Linux Kernel
 #. `第六章：SeaBIOS 怎样建立中断基础并启动内部线程？ <06-seabios-dma-pic-threads.rst>`_
 #. `第七章：SeaBIOS 怎样为 q35 编号 PCI 总线并发现设备？ <07-seabios-pci-bus-and-device-discovery.rst>`_
 #. `第八章：SeaBIOS 怎样启用 q35 MMCONFIG 并为 PCI 设备分配地址？ <08-seabios-q35-mmconfig-and-pci-bar-allocation.rst>`_
+#. `第九章：SeaBIOS 怎样接通 q35 PCI 中断并打开设备地址解码？ <09-seabios-pci-interrupt-routing-and-device-enable.rst>`_
 
 当前主线
 --------
@@ -27,9 +28,8 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-正文已经追踪到 SeaBIOS 启用 q35 MMCONFIG、测量 PCI BAR，并为 endpoint 与 bridge window 分配 I/O 和
-MMIO 地址。当前仍在 ``pci_setup()`` 内，下一步从 ``pci_bios_init_devices()`` 继续处理 INTx、设备专用寄存器
-和 ``PCI_COMMAND`` 地址解码。
+正文已经追踪到 SeaBIOS 为 PCI function 建立 INTx 路由、执行 q35/ICH9 专用配置、打开 I/O/MMIO 解码，并
+选择默认 VGA。``pci_setup()`` 已返回，下一步从 ``qemu_platform_setup():smm_device_setup()`` 进入 SMM 准备。
 
 章节组织
 --------
