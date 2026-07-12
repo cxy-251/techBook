@@ -43,6 +43,7 @@
 #. ``LK-BOOT-028``：GRUB normal 怎样找到并打开 grub.cfg？
 #. ``LK-BOOT-029``：GRUB 怎样解析 grub.cfg 并建立第一个 Linux 菜单项？
 #. ``LK-BOOT-030``：GRUB 怎样自动选择菜单项并装入 linux 命令模块？
+#. ``LK-BOOT-031``：GRUB linux 命令怎样检查并装载 Linux bzImage？
 
 当前主线
 --------
@@ -89,52 +90,54 @@
 当前控制流位置
 --------------
 
-第三十章结束在：
+第三十一章结束在：
 
 ::
 
-   grub_normal_execute()
-   → grub_show_menu()
-   → show_menu()
-   → run_menu()
-   → resolve default = entry 0
-   → resolve timeout = 0
-   → return entry 0 without drawing menu
-   → grub_menu_execute_with_fallback()
-   → grub_menu_execute_entry()
-   → chosen = Linux 6.12.95
-   → grub_script_execute_new_scope(entry->sourcecode)
-   → execute setparams
-   → reach linux command line
-   → find dynamic linux placeholder from command.lst
-   → grub_dyncmd_dispatcher()
-   → grub_dl_load("linux")
-   → open (hd0,msdos1)/boot/grub/i386-pc/linux.mod
-   → read complete module into GRUB heap
-   → parse ELF ET_REL
-   → resolve dependencies and symbols
-   → relocate allocatable sections
-   → add module and run GRUB_MOD_INIT(linux)
-   → register real linux and initrd commands
-   → unregister dynamic placeholder
-   → find real linux command
-   → stop before grub_cmd_linux()
+   grub_cmd_linux()
+   → grub_file_open("/boot/bzImage-6.12.95")
+   → use root hd0,msdos1
+   → ext2 opens file on fixed ext4 partition
+   → read linux_i386_kernel_header
+   → validate boot_flag = 0xaa55
+   → validate HdrS = 0x53726448
+   → validate protocol >= 0x0203; fixed image is 0x020f
+   → validate BIG_KERNEL / LOADED_HIGH
+   → derive setup_sects and protected payload file offset
+   → read kernel_alignment, relocatable, min_alignment, pref_address, init_size
+   → allocate relocator-backed protected-mode chunk
+   → clear linux_params
+   → copy supported setup header bytes
+   → adjust code32_start for actual target
+   → set loader id and heap fields
+   → leave ramdisk_image and ramdisk_size at zero
+   → build BOOT_IMAGE=/boot/bzImage-6.12.95 root=/dev/sda1 ro console=ttyS0
+   → seek to (setup_sects + 1) * 512
+   → read protected-mode payload into prot_mode_mem
+   → grub_loader_set(grub_linux_boot, grub_linux_unload, 0)
+   → loaded = 1
+   → close bzImage
+   → stop before returning to script executor and executing initrd
 
 此刻机器状态：
 
-* 当前执行者：GNU GRUB 2.14 dynamic command dispatcher；
+* 当前执行者：GNU GRUB 2.14 ``grub_cmd_linux()``；
 * 当前主流程 CPU：BSP；
 * 模式：32 位保护模式；
 * 分页：关闭；
-* selected entry / ``chosen``：``Linux 6.12.95``；
-* entry scope：已建立，``setparams`` 已执行；
-* dynamic ``linux`` placeholder：已注销；
-* ``linux.mod``：已从 ext4 读取、重定位并初始化；
-* 真实 ``linux`` 与 ``initrd`` 命令：已注册；
-* ``linux`` 参数：``/boot/bzImage-6.12.95 root=/dev/sda1 ro console=ttyS0``；
-* ``grub_cmd_linux()``：尚未调用；
-* ``/boot/bzImage-6.12.95``：尚未打开；
-* ``/boot/initramfs-6.12.95.img``：尚未打开；
+* kernel file：已关闭；
+* boot header：``0xaa55``、``HdrS``、protocol ``0x020f``、loaded-high 已通过检查；
+* ``linux_params``：已清零并填入 setup header 副本和 loader 字段；
+* kernel command line：已建立；
+* relocator：已建立；
+* protected-mode payload：已装入 ``prot_mode_mem``；
+* protected target：由镜像 header 对齐、``pref_address`` 与当前可用内存决定；
+* ``ramdisk_image`` / ``ramdisk_size``：仍为 0；
+* loader hook：``grub_linux_boot``；
+* loader loaded：true；
+* ``initrd`` 命令：尚未执行；
+* ``boot`` 命令：尚未执行；
+* Linux payload：尚未解压；
 * Linux：尚未取得控制权。
 
 完成状态
@@ -152,13 +155,12 @@
 ------------
 
 * GNU GRUB 2.14 官方发布包与发布提交 ``d38d6a1a9b79427848976f53d474392cd29c2a71``；
-* GRUB ``grub-core/normal/main.c``、``normal/menu.c``、``normal/dyncmd.c``、``script/execute.c``；
-* GRUB ``grub-core/kern/dl.c`` 与 ``grub-core/loader/i386/linux.c``；
+* GRUB ``grub-core/loader/i386/linux.c``、``include/grub/i386/linux.h`` 与 ``include/grub/lib/cmdline.h``；
+* Linux 6.12.95 ``Documentation/arch/x86/boot.rst`` 与 ``arch/x86/boot/header.S``；
 * SeaBIOS 提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
-* QEMU 提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669``；
-* Linux 6.12.95 与 Linux/x86 Boot Protocol。
+* QEMU 提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669``。
 
 当前下一步
 ----------
 
-从真实 ``grub_cmd_linux()`` 开始，打开固定 ``/boot/bzImage-6.12.95``，验证 Linux/x86 setup header，建立 boot parameter 副本、命令行和 relocator-backed protected-mode payload；停在 ``grub_loader_set()`` 完成后，尚不执行 ``initrd``。
+从 ``grub_cmd_linux()`` 返回脚本执行器开始，执行 ``initrd /boot/initramfs-6.12.95.img``，将 initramfs 放到 Linux header 允许的高地址，更新 ``ramdisk_image`` 与 ``ramdisk_size``；停在 entry sourcecode 执行结束、隐式 ``boot`` 即将开始的位置。
