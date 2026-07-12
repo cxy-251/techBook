@@ -37,6 +37,7 @@ Linux Kernel
 #. `第二十九章：GRUB 怎样解析 grub.cfg 并建立第一个 Linux 菜单项？ <29-grub-parses-config-and-builds-menuentry.rst>`_
 #. `第三十章：GRUB 怎样自动选择菜单项并装入 linux 命令模块？ <30-grub-autoboots-entry-and-loads-linux-module.rst>`_
 #. `第三十一章：GRUB linux 命令怎样检查并装载 Linux bzImage？ <31-grub-linux-command-loads-bzimage.rst>`_
+#. `第三十二章：GRUB 怎样把 initramfs 放到内核允许的高地址？ <32-grub-initrd-placement-and-boot-parameters.rst>`_
 
 当前主线
 --------
@@ -50,9 +51,9 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-GRUB 已打开 ``/boot/bzImage-6.12.95``，验证 ``0xaa55``、``HdrS``、protocol ``0x020f`` 与 loaded-high 标志，依据镜像头的对齐、重定位、``pref_address`` 和 ``init_size`` 分配 relocator chunk，并读入 protected-mode payload。
+GRUB 已装入 Linux protected-mode payload 与 ``/boot/initramfs-6.12.95.img``。initramfs 保持磁盘原始字节，被放到内核初始化区以上、传统 i386 loader 上界以下的 4 KiB 对齐高地址；``ramdisk_image`` 与 ``ramdisk_size`` 已写入。
 
-当前 loader hook 已设置为 ``grub_linux_boot``，内核文件已关闭。菜单项下一行 ``initrd`` 尚未执行，Linux payload 尚未解压，Linux 尚未取得控制权。
+当前菜单项 sourcecode 已执行完毕，loader hook 仍为 ``grub_linux_boot``。隐式 ``boot`` 尚未调用，Linux 尚未取得控制权。
 
 章节组织
 --------
