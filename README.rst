@@ -32,6 +32,7 @@ techBook
 * `第二十三章：GRUB boot.img 怎样从 0x7c00 读出 core.img 的第一扇区？ <docs/tracks/linux-kernel/23-grub-boot-img-loads-diskboot.rst>`_
 * `第二十四章：GRUB diskboot.img 怎样按 blocklist 读完 core.img？ <docs/tracks/linux-kernel/24-grub-diskboot-blocklist-loads-core.rst>`_
 * `第二十五章：GRUB startup_raw 怎样进入保护模式并调用 grub_main？ <docs/tracks/linux-kernel/25-grub-startup-raw-protected-mode-and-grub-main.rst>`_
+* `第二十六章：GRUB 怎样通过 BIOS E820 建立自己的堆？ <docs/tracks/linux-kernel/26-grub-machine-init-e820-and-heap.rst>`_
 
 当前主线
 --------
@@ -47,7 +48,7 @@ techBook
 
 开头从设备上电后的故事进入，最终主题仍然是 Linux 内核。正文按真实发生顺序连续讲述；达到适合一次阅读的篇幅，并遇到自然控制权交接点时换章。
 
-当前 GRUB 已完成 ``boot.img → diskboot.img → startup_raw``：完整 ``core.img`` 已装入，CPU 已进入 32 位保护模式，A20 已验证，LZMA core 已解压，正式代码已复制到 ``0x9000``，当前执行者为 ``grub_main()``。``grub.cfg`` 和 Linux ``bzImage`` 尚未读取。
+当前 GRUB 已进入 ``grub_main()`` 并完成机器初始化：早期控制台、BIOS E820、多 region 堆和 TSC 时间源已经建立。内建模块、``root/prefix``、``hd0``、``grub.cfg`` 和 Linux ``bzImage`` 尚未处理。
 
 开始工作
 --------
