@@ -32,6 +32,7 @@ Linux Kernel
 #. `第二十四章：GRUB diskboot.img 怎样按 blocklist 读完 core.img？ <24-grub-diskboot-blocklist-loads-core.rst>`_
 #. `第二十五章：GRUB startup_raw 怎样进入保护模式并调用 grub_main？ <25-grub-startup-raw-protected-mode-and-grub-main.rst>`_
 #. `第二十六章：GRUB 怎样通过 BIOS E820 建立自己的堆？ <26-grub-machine-init-e820-and-heap.rst>`_
+#. `第二十七章：GRUB 怎样加载内建模块并建立 hd0、root 和 prefix？ <27-grub-built-in-modules-root-prefix-and-hd0.rst>`_
 
 当前主线
 --------
@@ -45,9 +46,9 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-GRUB 已进入 ``grub_main()``，并完成 ``grub_machine_init()``：早期 BIOS console 已注册，E820 内存地图已通过 ``INT 15h`` 重新取得，1 MiB 以上的可用 RAM 已排除预装模块后注册为多 region 堆，TSC 已校准。
+GRUB 已完成机器初始化，并把 core.img 中的内建 ELF 模块重定位到堆中、执行模块初始化函数。``biosdisk``、``part_msdos``、``ext2`` 与 ``normal`` 已注册，启动 BIOS drive ``0x80`` 已对应为 ``hd0``。
 
-当前执行者仍是 GNU GRUB 2.14 ``grub_main()``。core.img 内建 ELF 模块、``root/prefix``、``hd0`` 和 ``grub.cfg`` 尚未处理。
+当前环境变量为 ``cmdpath=(hd0)``、``root=hd0,msdos1``、``prefix=(hd0,msdos1)/boot/grub``。磁盘上的 ``grub.cfg`` 尚未打开，Linux ``bzImage`` 尚未读取。
 
 章节组织
 --------
