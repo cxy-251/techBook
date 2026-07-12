@@ -17,6 +17,7 @@ techBook
 * `第八章：SeaBIOS 怎样启用 q35 MMCONFIG 并为 PCI 设备分配地址？ <docs/tracks/linux-kernel/08-seabios-q35-mmconfig-and-pci-bar-allocation.rst>`_
 * `第九章：SeaBIOS 怎样接通 q35 PCI 中断并打开设备地址解码？ <docs/tracks/linux-kernel/09-seabios-pci-interrupt-routing-and-device-enable.rst>`_
 * `第十章：SeaBIOS 怎样进入 SMM 并把处理入口藏进 SMRAM？ <docs/tracks/linux-kernel/10-seabios-smm-and-smbase-relocation.rst>`_
+* `第十一章：SeaBIOS 怎样规定物理地址的缓存类型并准备每个 CPU 的 MSR？ <docs/tracks/linux-kernel/11-seabios-mtrr-and-feature-control.rst>`_
 
 当前主线
 --------
@@ -33,8 +34,8 @@ techBook
 开头从设备上电后的故事进入，最终主题仍然是 Linux 内核。正文按真实发生顺序连续讲述；达到适合一次
 阅读的篇幅，并遇到自然控制权交接点时换章。
 
-当前控制流回到 SeaBIOS ``qemu_platform_setup()``。SMM 已经安装，SMBASE 已从 ``0x30000`` 迁移到
-``0xa0000``，正式入口位于 ``0xa8000``。下一入口是 ``mtrr_setup()``，GRUB 尚未被读取或执行。
+当前控制流回到 SeaBIOS ``qemu_platform_setup()``。BSP 的 MTRR 与条件 feature-control 设置已经完成，
+AP 需要重放的 MSR 序列已保存。下一入口是 ``smp_setup()``，GRUB 尚未被读取或执行。
 
 开始工作
 --------
