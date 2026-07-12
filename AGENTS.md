@@ -21,8 +21,9 @@
 #. ``LK-BOOT-007``：SeaBIOS 怎样为 q35 编号 PCI 总线并发现设备？
 #. ``LK-BOOT-008``：SeaBIOS 怎样启用 q35 MMCONFIG 并为 PCI 设备分配地址？
 #. ``LK-BOOT-009``：SeaBIOS 怎样接通 q35 PCI 中断并打开设备地址解码？
+#. ``LK-BOOT-010``：SeaBIOS 怎样进入 SMM 并把处理入口藏进 SMRAM？
 
-当前控制流停在 ``qemu_platform_setup()`` 的 ``pci_setup()`` 返回处。下一条调用是 ``smm_device_setup()``。收到继续指令后，从 q35/ICH9 SMI 设备准备、SMRAM 映射和 SeaBIOS SMM handler 安装开始追踪，不提前规划整本书。
+当前控制流停在 ``qemu_platform_setup()`` 的 ``smm_setup()`` 返回处。下一条调用是 ``mtrr_setup()``。收到继续指令后，从 MTRR、``MSR_IA32_FEATURE_CONTROL`` 和 ``smp_setup()`` 开始追踪，不提前规划整本书。
 
 ## 用户输入与技术事实
 
@@ -54,6 +55,19 @@
 章节正文不添加上一章、下一章或目录导航。章节列表统一由 ``docs/tracks/linux-kernel/index.rst`` 提供。
 
 每章末尾的“资料”必须使用可点击的 RST 链接，不能只写文件名或文档名。
+
+## 连续推进模式
+
+用户可以用一次指令要求“连续完成 N 章”或“连续推进到某个真实控制流节点”。此时不等待逐章确认，仍然严格按下面的循环逐章执行：
+
+#. 重新读取最新 ``AGENTS.md``、``project/STATE.rst``、manifest 和当前入口；
+#. 读取本章涉及的固定源码与规范；
+#. 只确定当前一章的自然边界；
+#. 写完并核对当前章节；
+#. 更新目录、状态、manifest、README 和接续入口；
+#. 再从刚写入的最新状态开始下一章。
+
+连续推进不能把多章合并成一篇，也不能先批量生成后统一核对。遇到固定源码无法确认、平台路径发生重大分叉、仓库写入失败或已达到用户指定终点时停止；已经完成的章节和断点必须保持可接续。
 
 ## 状态语义
 
