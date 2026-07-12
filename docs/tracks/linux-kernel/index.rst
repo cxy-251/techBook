@@ -43,6 +43,7 @@ Linux Kernel
 #. `第三十五章：Linux startup_64 怎样把压缩内核搬到安全解压位置？ <35-linux-startup64-relocates-compressed-image.rst>`_
 #. `第三十六章：Linux 怎样建立解压映射并选择正式内核的位置？ <36-linux-builds-identity-maps-and-chooses-output.rst>`_
 #. `第三十七章：Linux 怎样解压 ELF 内核并进入正式 startup_64？ <37-linux-decompresses-elf-and-enters-kernel-startup64.rst>`_
+#. `第三十八章：Linux common_startup_64 怎样建立 boot CPU 的最早运行上下文？ <38-linux-common-startup64-builds-boot-cpu-context.rst>`_
 
 当前主线
 --------
@@ -56,9 +57,9 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-compressed kernel 已完成安全搬迁、identity map 扩展、KASLR 条件选址、解压、ELF ``PT_LOAD`` 搬运和 relocation。控制权已经进入解压后的正式内核，``early_top_pgt`` 已修正并装入 ``CR3``。
+正式内核的 ``common_startup_64`` 已完成 CR4/PGE 清理、CPU 0 编号、per-CPU offset、``init_task`` 栈、per-CPU GDT、GSBASE、early IDT、EFER 与 CR0 设置。
 
-当前执行者是高半区虚拟地址上的 ``arch/x86/kernel/head_64.S:common_startup_64``。``start_kernel()`` 尚未到达。
+当前控制流通过 ``initial_code`` 进入 ``arch/x86/kernel/head64.c:x86_64_start_kernel()``。``start_kernel()`` 尚未调用。
 
 章节组织
 --------
