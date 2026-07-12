@@ -39,6 +39,7 @@
 #. ``LK-BOOT-024``：GRUB diskboot.img 怎样按 blocklist 读完 core.img？
 #. ``LK-BOOT-025``：GRUB startup_raw 怎样进入保护模式并调用 grub_main？
 #. ``LK-BOOT-026``：GRUB 怎样通过 BIOS E820 建立自己的堆？
+#. ``LK-BOOT-027``：GRUB 怎样加载内建模块并建立 hd0、root 和 prefix？
 
 当前主线
 --------
@@ -67,31 +68,39 @@
    boot.img         = LBA 0
    core.img         = contiguous from LBA 1
 
-GNU 官方发布包是 ``grub-2.14.tar.xz``；源码引用使用 ``GitMirroring/grub`` 的固定发布提交。
+当前固定 ``core.img`` 至少嵌入 ``biosdisk``、``part_msdos``、``ext2``、``normal`` 及自动依赖；embedded prefix 为 ``(,msdos1)/boot/grub``，简单同盘路径不嵌入额外 config 对象。
 
 当前控制流位置
 --------------
 
-第二十六章结束在：
+第二十七章结束在：
 
 ::
 
    grub_main()
-   → grub_machine_init()
-   → conditional VIA cache workaround
-   → grub_modbase = 0x100000 + (_edata - _start)
-   → grub_console_init()
-   → grub_machine_mmap_iterate()
-   → protected-mode / real-mode BIOS bridge
-   → INT 15h E820 through scratch area 0x68000
-   → keep E820 available regions only
-   → skip memory below 1 MiB
-   → ignore physical memory above the 32-bit addressable range
-   → sort and merge memory regions
-   → exclude grub_modules_get_end()
-   → grub_mm_init_region() for each remaining region
-   → grub_tsc_init()
    → grub_machine_init() returns
+   → grub_verifiers_init()
+   → no OBJ_TYPE_CONFIG in the fixed simple path
+   → grub_register_exported_symbols()
+   → grub_load_modules()
+   → iterate gmim preload objects
+   → validate ET_REL modules
+   → allocate module sections from the GRUB heap
+   → resolve dependencies and exported symbols
+   → apply i386 relocations
+   → grub_dl_init() / GRUB_MOD_INIT
+   → biosdisk registers the BIOS disk backend
+   → part_msdos registers the MBR partition map
+   → ext2 registers ext2/ext3/ext4 filesystem reading
+   → normal registers normal mode and menu/script facilities
+   → grub_machine_get_bootlocation()
+   → grub_boot_device 0x80ffffff becomes fwdevice hd0
+   → embedded prefix (,msdos1)/boot/grub
+   → cmdpath = (hd0)
+   → root = hd0,msdos1
+   → prefix = (hd0,msdos1)/boot/grub
+   → reclaim_module_space()
+   → grub_register_core_commands()
 
 此刻机器状态：
 
@@ -99,18 +108,20 @@ GNU 官方发布包是 ``grub-2.14.tar.xz``；源码引用使用 ``GitMirroring/
 * 当前主流程 CPU：BSP；
 * 模式：32 位保护模式；
 * 分页：关闭；
-* 早期 BIOS 字符控制台：已注册；
-* BIOS 实模式服务：仍可通过模式转换桥调用；
-* E820：已由 GRUB 通过 SeaBIOS ``INT 15h`` 重新取得；
-* GRUB heap：已由 1 MiB 以上、4 GiB 以下的 E820 available RAM 建立；
-* 低端内存：未加入普通堆；
-* 预装模块区域：已由 ``grub_modbase`` 和 ``modend`` 排除；
-* allocator：支持多个不连续 region；
-* 时间源：TSC 已使用 PIT 校准；
-* core.img 内建 ELF 模块：尚未加载执行；
-* ``root`` / ``prefix``：尚未设置；
-* ``hd0``：尚未作为 GRUB BIOS disk backend 建立；
-* ``grub.cfg``：尚未读取；
+* GRUB heap：已建立，原始预装模块输入区已经回收；
+* core exported symbols：已注册；
+* core.img 内建 ELF：已重定位并执行初始化函数；
+* ``biosdisk``：已注册到通用磁盘层；
+* BIOS drive ``0x80``：可按 GRUB 名称 ``hd0`` 打开；
+* ``part_msdos``：已注册；
+* ``ext2``：已注册，可读取固定 ext4 分区；
+* ``normal``：已注册；
+* ``cmdpath``：``(hd0)``；
+* ``root``：``hd0,msdos1``；
+* ``prefix``：``(hd0,msdos1)/boot/grub``；
+* embedded config：固定简单路径中不存在；
+* 磁盘 ``grub.cfg``：尚未打开；
+* GRUB 菜单：尚未建立；
 * Linux ``bzImage``：尚未读取；
 * Linux：尚未取得控制权。
 
@@ -128,9 +139,9 @@ GNU 官方发布包是 ``grub-2.14.tar.xz``；源码引用使用 ``GitMirroring/
 固定事实来源
 ------------
 
-* GNU GRUB 2.14 官方发布包；
-* GRUB 发布提交 ``d38d6a1a9b79427848976f53d474392cd29c2a71``；
-* GRUB ``grub-core/kern/main.c``、``grub-core/kern/i386/pc/init.c``、``grub-core/kern/i386/pc/mmap.c``、``grub-core/kern/mm.c``、``grub-core/kern/i386/tsc.c`` 与相关头文件；
+* GNU GRUB 2.14 官方发布包与发布提交 ``d38d6a1a9b79427848976f53d474392cd29c2a71``；
+* GRUB ``grub-core/kern/main.c``、``grub-core/kern/dl.c``、``grub-core/kern/i386/pc/init.c``、``grub-core/disk/i386/pc/biosdisk.c``；
+* GRUB ``util/grub-install.c``、``util/grub-install-common.c``、``util/mkimage.c`` 与 ``include/grub/kernel.h``；
 * SeaBIOS 提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
 * QEMU 提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669``；
 * Linux 6.12.95 与 Linux/x86 Boot Protocol。
@@ -138,4 +149,4 @@ GNU 官方发布包是 ``grub-2.14.tar.xz``；源码引用使用 ``GitMirroring/
 当前下一步
 ----------
 
-从 ``grub_main()`` 返回 ``grub_machine_init()`` 后开始，追踪 verifier、core.img 预装对象、ELF 模块构造函数、``biosdisk``、MBR 分区模块、ext4 所用 ``ext2`` 文件系统模块，以及 ``root/prefix`` 怎样组合成 ``hd0,msdos1`` 和 ``(hd0,msdos1)/boot/grub``。
+从 ``grub_main():grub_load_normal_mode()`` 开始，追踪 ``normal`` 命令怎样由 ``prefix`` 构造 ``(hd0,msdos1)/boot/grub/grub.cfg``，并沿 ``biosdisk → part_msdos → ext2`` 打开该文件，停在第一条有效配置行交给 ``grub_normal_parse_line()`` 之前。
