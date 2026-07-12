@@ -11,6 +11,7 @@ Linux Kernel
 #. `第三章：SeaBIOS 怎样识别内存并把初始化代码搬到 RAM？ <03-seabios-memory-map-and-relocation.rst>`_
 #. `第四章：SeaBIOS 怎样在低端内存建立 IVT、BDA 和 EBDA？ <04-seabios-ivt-bda-ebda.rst>`_
 #. `第五章：SeaBIOS 怎样把自己变成可供启动软件调用的 BIOS？ <05-seabios-software-interfaces.rst>`_
+#. `第六章：SeaBIOS 怎样建立中断基础并启动内部线程？ <06-seabios-dma-pic-threads.rst>`_
 
 当前主线
 --------
@@ -24,9 +25,9 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-正文已经从平台释放处理器复位，追踪到 SeaBIOS 建立低端内存结构、启动优先级、BIOS32、PMM、PnP、
-键盘队列和鼠标 BIOS 状态。当前控制流回到 ``maininit()``，下一入口是
-``platform_hardware_setup()``。
+正文已经从平台释放处理器复位，追踪到 SeaBIOS 复位传统 DMA、初始化两片 8259A、建立内部协作式线程
+能力，并为 IRQ13 安装数学协处理器兼容入口。当前控制流仍在 ``platform_hardware_setup()`` 内，下一入口是
+``qemu_platform_setup()``。
 
 章节组织
 --------
