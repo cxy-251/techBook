@@ -37,6 +37,7 @@ techBook
 * `第二十八章：GRUB normal 怎样找到并打开 grub.cfg？ <docs/tracks/linux-kernel/28-grub-normal-opens-grub-cfg.rst>`_
 * `第二十九章：GRUB 怎样解析 grub.cfg 并建立第一个 Linux 菜单项？ <docs/tracks/linux-kernel/29-grub-parses-config-and-builds-menuentry.rst>`_
 * `第三十章：GRUB 怎样自动选择菜单项并装入 linux 命令模块？ <docs/tracks/linux-kernel/30-grub-autoboots-entry-and-loads-linux-module.rst>`_
+* `第三十一章：GRUB linux 命令怎样检查并装载 Linux bzImage？ <docs/tracks/linux-kernel/31-grub-linux-command-loads-bzimage.rst>`_
 
 当前主线
 --------
@@ -52,7 +53,7 @@ techBook
 
 开头从设备上电后的故事进入，最终主题仍然是 Linux 内核。正文按真实发生顺序连续讲述；达到适合一次阅读的篇幅，并遇到自然控制权交接点时换章。
 
-当前第一个 GRUB 菜单项已由 ``timeout=0`` 自动选中，``linux.mod`` 已从 ext4 读取、重定位并初始化，真实 ``linux`` 与 ``initrd`` 命令已经注册。控制流停在 ``grub_cmd_linux()`` 入口，Linux ``bzImage`` 尚未打开。
+当前 Linux 6.12.95 ``bzImage`` 已通过 setup header 检查，protected-mode payload 已装入 relocator-backed 内存，``grub_linux_boot`` 已注册为 loader hook。initramfs 尚未装入，Linux 尚未解压或取得控制权。
 
 开始工作
 --------
