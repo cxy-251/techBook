@@ -15,6 +15,7 @@ Linux Kernel
 #. `第七章：SeaBIOS 怎样为 q35 编号 PCI 总线并发现设备？ <07-seabios-pci-bus-and-device-discovery.rst>`_
 #. `第八章：SeaBIOS 怎样启用 q35 MMCONFIG 并为 PCI 设备分配地址？ <08-seabios-q35-mmconfig-and-pci-bar-allocation.rst>`_
 #. `第九章：SeaBIOS 怎样接通 q35 PCI 中断并打开设备地址解码？ <09-seabios-pci-interrupt-routing-and-device-enable.rst>`_
+#. `第十章：SeaBIOS 怎样进入 SMM 并把处理入口藏进 SMRAM？ <10-seabios-smm-and-smbase-relocation.rst>`_
 
 当前主线
 --------
@@ -28,13 +29,14 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-正文已经追踪到 SeaBIOS 为 PCI function 建立 INTx 路由、执行 q35/ICH9 专用配置、打开 I/O/MMIO 解码，并
-选择默认 VGA。``pci_setup()`` 已返回，下一步从 ``qemu_platform_setup():smm_device_setup()`` 进入 SMM 准备。
+正文已经追踪到 SeaBIOS 通过 ICH9/q35 临时打开 SMRAM、触发第一次 SMI，把 SMBASE 从 ``0x30000``
+迁移到 ``0xa0000``，并在 ``0xa8000`` 安装正式 SMI 入口。当前回到 ``qemu_platform_setup()``，下一步从
+``mtrr_setup()``、feature-control MSR 和多处理器启动继续。
 
 章节组织
 --------
 
 正文沿时间线连续讲述。故事达到适合一次阅读的篇幅，并遇到执行者、CPU 模式、运行环境或控制入口的
-自然交接点时换章。每章末尾记录当前执行者、当前状态和下一入口。
+自然交接点时换章。每章结尾记录当前执行者、当前状态和下一入口。
 
 章节完成状态由固定源码和规范核对决定。读者反馈用于指出哪里难懂、希望展开或阅读不连续，不承担技术审稿。
