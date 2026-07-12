@@ -35,6 +35,7 @@ Linux Kernel
 #. `第二十七章：GRUB 怎样加载内建模块并建立 hd0、root 和 prefix？ <27-grub-built-in-modules-root-prefix-and-hd0.rst>`_
 #. `第二十八章：GRUB normal 怎样找到并打开 grub.cfg？ <28-grub-normal-opens-grub-cfg.rst>`_
 #. `第二十九章：GRUB 怎样解析 grub.cfg 并建立第一个 Linux 菜单项？ <29-grub-parses-config-and-builds-menuentry.rst>`_
+#. `第三十章：GRUB 怎样自动选择菜单项并装入 linux 命令模块？ <30-grub-autoboots-entry-and-loads-linux-module.rst>`_
 
 当前主线
 --------
@@ -48,9 +49,9 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-GRUB normal 已执行固定 ``grub.cfg`` 中的两个 ``set`` 命令，并把花括号中的 ``linux`` 与 ``initrd`` 源码保存为第一个 ``grub_menu_entry``。当前 ``menu->size`` 为 1，``timeout=0``，``default=0``。
+``timeout=0`` 与 ``default=0`` 已让 GRUB 直接选择第一个菜单项。entry sourcecode 已进入新作用域，``setparams`` 已执行，dynamic command placeholder 已装入、重定位并初始化 ``(hd0,msdos1)/boot/grub/i386-pc/linux.mod``。
 
-当前停在 ``grub_normal_execute()`` 准备调用 ``grub_show_menu()`` 的位置。菜单项尚未执行，``linux.mod`` 和 Linux ``bzImage`` 均尚未读取。
+当前停在真实 ``grub_cmd_linux()`` 调用之前。``/boot/bzImage-6.12.95`` 和 initramfs 均尚未打开。
 
 章节组织
 --------
