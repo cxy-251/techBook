@@ -40,6 +40,9 @@ Linux Kernel
 #. `第三十二章：GRUB 怎样把 initramfs 放到内核允许的高地址？ <32-grub-initrd-placement-and-boot-parameters.rst>`_
 #. `第三十三章：GRUB 怎样准备 boot_params 并把控制权交给 Linux？ <33-grub-boot-params-and-linux-handoff.rst>`_
 #. `第三十四章：Linux startup_32 怎样建立 4 GiB 映射并进入 64 位模式？ <34-linux-startup32-enters-long-mode.rst>`_
+#. `第三十五章：Linux startup_64 怎样把压缩内核搬到安全解压位置？ <35-linux-startup64-relocates-compressed-image.rst>`_
+#. `第三十六章：Linux 怎样建立解压映射并选择正式内核的位置？ <36-linux-builds-identity-maps-and-chooses-output.rst>`_
+#. `第三十七章：Linux 怎样解压 ELF 内核并进入正式 startup_64？ <37-linux-decompresses-elf-and-enters-kernel-startup64.rst>`_
 
 当前主线
 --------
@@ -53,9 +56,9 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-GRUB 已完成控制权交接。Linux compressed ``startup_32`` 已验证 CPU、建立 6 页初始页表，以 2048 个 2 MiB entry 对低 4 GiB 做 identity mapping，并通过 ``CR4.PAE``、``EFER.LME``、``CR0.PG`` 和 far return 进入 ``startup_64``。
+compressed kernel 已完成安全搬迁、identity map 扩展、KASLR 条件选址、解压、ELF ``PT_LOAD`` 搬运和 relocation。控制权已经进入解压后的正式内核，``early_top_pgt`` 已修正并装入 ``CR3``。
 
-当前执行者是 Linux compressed ``startup_64``。kernel payload 尚未解压，``start_kernel()`` 尚未到达。
+当前执行者是高半区虚拟地址上的 ``arch/x86/kernel/head_64.S:common_startup_64``。``start_kernel()`` 尚未到达。
 
 章节组织
 --------
