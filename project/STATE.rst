@@ -40,6 +40,7 @@
 #. ``LK-BOOT-025``：GRUB startup_raw 怎样进入保护模式并调用 grub_main？
 #. ``LK-BOOT-026``：GRUB 怎样通过 BIOS E820 建立自己的堆？
 #. ``LK-BOOT-027``：GRUB 怎样加载内建模块并建立 hd0、root 和 prefix？
+#. ``LK-BOOT-028``：GRUB normal 怎样找到并打开 grub.cfg？
 
 当前主线
 --------
@@ -73,55 +74,57 @@
 当前控制流位置
 --------------
 
-第二十七章结束在：
+第二十八章结束在：
 
 ::
 
    grub_main()
-   → grub_machine_init() returns
-   → grub_verifiers_init()
-   → no OBJ_TYPE_CONFIG in the fixed simple path
-   → grub_register_exported_symbols()
-   → grub_load_modules()
-   → iterate gmim preload objects
-   → validate ET_REL modules
-   → allocate module sections from the GRUB heap
-   → resolve dependencies and exported symbols
-   → apply i386 relocations
-   → grub_dl_init() / GRUB_MOD_INIT
-   → biosdisk registers the BIOS disk backend
-   → part_msdos registers the MBR partition map
-   → ext2 registers ext2/ext3/ext4 filesystem reading
-   → normal registers normal mode and menu/script facilities
-   → grub_machine_get_bootlocation()
-   → grub_boot_device 0x80ffffff becomes fwdevice hd0
-   → embedded prefix (,msdos1)/boot/grub
-   → cmdpath = (hd0)
-   → root = hd0,msdos1
-   → prefix = (hd0,msdos1)/boot/grub
-   → reclaim_module_space()
-   → grub_register_core_commands()
+   → grub_load_normal_mode()
+   → grub_dl_load("normal") returns the already-loaded module
+   → grub_command_execute("normal", 0, 0)
+   → grub_cmd_normal()
+   → prefix + /grub.cfg
+   → config = (hd0,msdos1)/boot/grub/grub.cfg
+   → grub_enter_normal_mode()
+   → grub_normal_execute(config, nested=0, batch=0)
+   → read command.lst / fs.lst / crypto.lst / terminal.lst
+   → create empty grub_menu object
+   → grub_file_open(config)
+   → split device hd0,msdos1 and path /boot/grub/grub.cfg
+   → grub_device_open()
+   → grub_disk_open("hd0,msdos1")
+   → biosdisk opens hd0 as BIOS drive 0x80
+   → part_msdos probes msdos1
+   → MBR partition 1 start = physical LBA 2048
+   → grub_fs_probe()
+   → ext2 module reads ext4 superblock at partition offset 1024 bytes
+   → walk inode 2 /boot/grub/grub.cfg
+   → raw config file opened
+   → grub_bufio_open()
+   → export config_file and config_directory
+   → grub_file_getline()
+   → skip lines whose first byte is #
+   → first line to parse is stored in memory
+   → stop before grub_normal_parse_line()
 
 此刻机器状态：
 
-* 当前执行者：GNU GRUB 2.14 ``grub_main()``；
+* 当前执行者：GNU GRUB 2.14 normal mode；
 * 当前主流程 CPU：BSP；
 * 模式：32 位保护模式；
 * 分页：关闭；
-* GRUB heap：已建立，原始预装模块输入区已经回收；
-* core exported symbols：已注册；
-* core.img 内建 ELF：已重定位并执行初始化函数；
-* ``biosdisk``：已注册到通用磁盘层；
-* BIOS drive ``0x80``：可按 GRUB 名称 ``hd0`` 打开；
-* ``part_msdos``：已注册；
-* ``ext2``：已注册，可读取固定 ext4 分区；
-* ``normal``：已注册；
-* ``cmdpath``：``(hd0)``；
-* ``root``：``hd0,msdos1``；
 * ``prefix``：``(hd0,msdos1)/boot/grub``；
-* embedded config：固定简单路径中不存在；
-* 磁盘 ``grub.cfg``：尚未打开；
-* GRUB 菜单：尚未建立；
+* 配置路径：``(hd0,msdos1)/boot/grub/grub.cfg``；
+* BIOS disk：``hd0`` 对应 ``INT 13h`` drive ``0x80``；
+* partition：``msdos1``，物理起点 LBA 2048；
+* filesystem：``ext2`` 模块读取固定 ext4 文件系统；
+* 配置原始文件：已打开；
+* bufio：已包装；
+* ``config_file``：已导出；
+* ``config_directory``：已导出；
+* menu object：已创建，仍无 ``menuentry``；
+* 第一条不以 ``#`` 开头的配置行：已读入内存；
+* ``grub_normal_parse_line()``：尚未调用；
 * Linux ``bzImage``：尚未读取；
 * Linux：尚未取得控制权。
 
@@ -140,8 +143,9 @@
 ------------
 
 * GNU GRUB 2.14 官方发布包与发布提交 ``d38d6a1a9b79427848976f53d474392cd29c2a71``；
-* GRUB ``grub-core/kern/main.c``、``grub-core/kern/dl.c``、``grub-core/kern/i386/pc/init.c``、``grub-core/disk/i386/pc/biosdisk.c``；
-* GRUB ``util/grub-install.c``、``util/grub-install-common.c``、``util/mkimage.c`` 与 ``include/grub/kernel.h``；
+* GRUB ``grub-core/kern/main.c``、``grub-core/normal/main.c``、``grub-core/normal/dyncmd.c``；
+* GRUB ``grub-core/kern/file.c``、``device.c``、``disk.c``、``partition.c``；
+* GRUB ``grub-core/partmap/msdos.c``、``grub-core/fs/ext2.c``、``grub-core/disk/i386/pc/biosdisk.c``；
 * SeaBIOS 提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
 * QEMU 提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669``；
 * Linux 6.12.95 与 Linux/x86 Boot Protocol。
@@ -149,4 +153,4 @@
 当前下一步
 ----------
 
-从 ``grub_main():grub_load_normal_mode()`` 开始，追踪 ``normal`` 命令怎样由 ``prefix`` 构造 ``(hd0,msdos1)/boot/grub/grub.cfg``，并沿 ``biosdisk → part_msdos → ext2`` 打开该文件，停在第一条有效配置行交给 ``grub_normal_parse_line()`` 之前。
+从 ``grub_normal_parse_line()`` 开始，追踪 GRUB 脚本词法分析、命令查找、动态模块装载和 ``menuentry`` 定义，直到 menu object 获得固定配置中的第一个 Linux 启动项；尚不执行该启动项。
