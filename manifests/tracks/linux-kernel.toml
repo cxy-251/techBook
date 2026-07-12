@@ -2,7 +2,10 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-037"
+completed_range = "LK-BOOT-001..LK-BOOT-040"
+chapter_catalog = "docs/tracks/linux-kernel/index.rst"
+state_document = "project/STATE.rst"
+agent_handoff = "AGENTS.md"
 
 [origin]
 repository = "cxy-251/aiBook"
@@ -36,246 +39,38 @@ initramfs_path = "/boot/initramfs-6.12.95.img"
 boot_protocol = "Linux/x86 32-bit Boot Protocol"
 
 [[chapter]]
-id = "LK-BOOT-001"
-title = "按下电源键后，CPU 从哪里取得第一条指令？"
-rst = "docs/tracks/linux-kernel/01-power-on-first-instruction.rst"
+id = "LK-BOOT-038"
+title = "Linux common_startup_64 怎样建立 boot CPU 的最早运行上下文？"
+rst = "docs/tracks/linux-kernel/38-linux-common-startup64-builds-boot-cpu-context.rst"
 status = "complete"
+start = "Linux 6.12.95 arch/x86/kernel/head_64.S:common_startup_64"
+end = "initial_code calls x86_64_start_kernel with boot_params in RDI"
 
 [[chapter]]
-id = "LK-BOOT-002"
-title = "SeaBIOS 怎样从 16 位入口进入 32 位 C 代码？"
-rst = "docs/tracks/linux-kernel/02-seabios-entry-to-32bit-c.rst"
+id = "LK-BOOT-039"
+title = "x86_64_start_kernel 怎样清理临时环境并保存启动数据？"
+rst = "docs/tracks/linux-kernel/39-linux-x86-64-start-kernel-cleans-early-environment.rst"
 status = "complete"
+start = "Linux 6.12.95 arch/x86/kernel/head64.c:x86_64_start_kernel"
+end = "x86_64_start_reservations takes control"
 
 [[chapter]]
-id = "LK-BOOT-003"
-title = "SeaBIOS 怎样识别内存并把初始化代码搬到 RAM？"
-rst = "docs/tracks/linux-kernel/03-seabios-memory-map-and-relocation.rst"
+id = "LK-BOOT-040"
+title = "Linux 怎样进入 start_kernel 并建立最早的通用内核状态？"
+rst = "docs/tracks/linux-kernel/40-linux-start-kernel-establishes-earliest-generic-state.rst"
 status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-004"
-title = "SeaBIOS 怎样在低端内存建立 IVT、BDA 和 EBDA？"
-rst = "docs/tracks/linux-kernel/04-seabios-ivt-bda-ebda.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-005"
-title = "SeaBIOS 怎样把自己变成可供启动软件调用的 BIOS？"
-rst = "docs/tracks/linux-kernel/05-seabios-software-interfaces.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-006"
-title = "SeaBIOS 怎样建立中断基础并启动内部线程？"
-rst = "docs/tracks/linux-kernel/06-seabios-dma-pic-threads.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-007"
-title = "SeaBIOS 怎样为 q35 编号 PCI 总线并发现设备？"
-rst = "docs/tracks/linux-kernel/07-seabios-pci-bus-and-device-discovery.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-008"
-title = "SeaBIOS 怎样启用 q35 MMCONFIG 并为 PCI 设备分配地址？"
-rst = "docs/tracks/linux-kernel/08-seabios-q35-mmconfig-and-pci-bar-allocation.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-009"
-title = "SeaBIOS 怎样接通 q35 PCI 中断并打开设备地址解码？"
-rst = "docs/tracks/linux-kernel/09-seabios-pci-interrupt-routing-and-device-enable.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-010"
-title = "SeaBIOS 怎样进入 SMM 并把处理入口藏进 SMRAM？"
-rst = "docs/tracks/linux-kernel/10-seabios-smm-and-smbase-relocation.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-011"
-title = "SeaBIOS 怎样规定物理地址的缓存类型并准备每个 CPU 的 MSR？"
-rst = "docs/tracks/linux-kernel/11-seabios-mtrr-and-feature-control.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-012"
-title = "SeaBIOS 怎样用 INIT/SIPI 唤醒其他 CPU？"
-rst = "docs/tracks/linux-kernel/12-seabios-smp-init-sipi-and-ap-startup.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-013"
-title = "SeaBIOS 怎样把 CPU、IRQ 和内存信息写成固件表？"
-rst = "docs/tracks/linux-kernel/13-seabios-pirq-mp-and-smbios-tables.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-014"
-title = "SeaBIOS 怎样执行 QEMU 的 ACPI table-loader 并找到 RSDP？"
-rst = "docs/tracks/linux-kernel/14-seabios-acpi-table-loader-and-rsdp.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-015"
-title = "SeaBIOS 怎样沿 RSDP 读懂 ACPI 表图并解析 DSDT？"
-rst = "docs/tracks/linux-kernel/15-seabios-acpi-table-graph-and-dsdt-parse.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-016"
-title = "SeaBIOS 怎样建立时间基准、18.2 Hz BIOS 时钟并初始化 TPM？"
-rst = "docs/tracks/linux-kernel/16-seabios-timers-clock-and-tpm.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-017"
-title = "SeaBIOS 为什么先运行 VGA Option ROM 再初始化其他设备？"
-rst = "docs/tracks/linux-kernel/17-seabios-vga-option-rom-and-console.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-018"
-title = "SeaBIOS 怎样枚举 USB 设备并初始化 PS/2 键盘？"
-rst = "docs/tracks/linux-kernel/18-seabios-usb-and-ps2-input.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-019"
-title = "SeaBIOS 怎样发现 q35 的 AHCI 磁盘并把它加入启动列表？"
-rst = "docs/tracks/linux-kernel/19-seabios-ahci-disk-and-bootlist.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-020"
-title = "SeaBIOS 怎样扫描普通 Option ROM 并把 BCV、BEV 加入启动列表？"
-rst = "docs/tracks/linux-kernel/20-seabios-option-rom-bcv-bev.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-021"
-title = "SeaBIOS 怎样执行 BCV 并把启动盘映射成 BIOS 0x80？"
-rst = "docs/tracks/linux-kernel/21-seabios-bcv-drive-mapping-and-prepareboot.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-022"
-title = "SeaBIOS 怎样把硬盘第一扇区读到 0x7c00 并交给 GRUB？"
-rst = "docs/tracks/linux-kernel/22-seabios-int19-mbr-handoff.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-023"
-title = "GRUB boot.img 怎样从 0x7c00 读出 core.img 的第一扇区？"
-rst = "docs/tracks/linux-kernel/23-grub-boot-img-loads-diskboot.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-024"
-title = "GRUB diskboot.img 怎样按 blocklist 读完 core.img？"
-rst = "docs/tracks/linux-kernel/24-grub-diskboot-blocklist-loads-core.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-025"
-title = "GRUB startup_raw 怎样进入保护模式并调用 grub_main？"
-rst = "docs/tracks/linux-kernel/25-grub-startup-raw-protected-mode-and-grub-main.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-026"
-title = "GRUB 怎样通过 BIOS E820 建立自己的堆？"
-rst = "docs/tracks/linux-kernel/26-grub-machine-init-e820-and-heap.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-027"
-title = "GRUB 怎样加载内建模块并建立 hd0、root 和 prefix？"
-rst = "docs/tracks/linux-kernel/27-grub-built-in-modules-root-prefix-and-hd0.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-028"
-title = "GRUB normal 怎样找到并打开 grub.cfg？"
-rst = "docs/tracks/linux-kernel/28-grub-normal-opens-grub-cfg.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-029"
-title = "GRUB 怎样解析 grub.cfg 并建立第一个 Linux 菜单项？"
-rst = "docs/tracks/linux-kernel/29-grub-parses-config-and-builds-menuentry.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-030"
-title = "GRUB 怎样自动选择菜单项并装入 linux 命令模块？"
-rst = "docs/tracks/linux-kernel/30-grub-autoboots-entry-and-loads-linux-module.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-031"
-title = "GRUB linux 命令怎样检查并装载 Linux bzImage？"
-rst = "docs/tracks/linux-kernel/31-grub-linux-command-loads-bzimage.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-BOOT-032"
-title = "GRUB 怎样把 initramfs 放到内核允许的高地址？"
-rst = "docs/tracks/linux-kernel/32-grub-initrd-placement-and-boot-parameters.rst"
-status = "complete"
-start = "GNU GRUB 2.14 grub_cmd_initrd()"
-end = "entry sourcecode finishes immediately before implicit boot"
-
-[[chapter]]
-id = "LK-BOOT-033"
-title = "GRUB 怎样准备 boot_params 并把控制权交给 Linux？"
-rst = "docs/tracks/linux-kernel/33-grub-boot-params-and-linux-handoff.rst"
-status = "complete"
-start = "grub_menu_execute_entry() implicit boot"
-end = "GRUB relocator far-jumps to Linux compressed startup_32"
-
-[[chapter]]
-id = "LK-BOOT-034"
-title = "Linux startup_32 怎样建立 4 GiB 映射并进入 64 位模式？"
-rst = "docs/tracks/linux-kernel/34-linux-startup32-enters-long-mode.rst"
-status = "complete"
-start = "Linux 6.12.95 compressed startup_32"
-end = "compressed startup_64 takes control in long mode"
-
-[[chapter]]
-id = "LK-BOOT-035"
-title = "Linux startup_64 怎样把压缩内核搬到安全解压位置？"
-rst = "docs/tracks/linux-kernel/35-linux-startup64-relocates-compressed-image.rst"
-status = "complete"
-start = "Linux 6.12.95 compressed startup_64"
-end = "relocated compressed .Lrelocated takes control"
-
-[[chapter]]
-id = "LK-BOOT-036"
-title = "Linux 怎样建立解压映射并选择正式内核的位置？"
-rst = "docs/tracks/linux-kernel/36-linux-builds-identity-maps-and-chooses-output.rst"
-status = "complete"
-start = "Linux compressed .Lrelocated"
-end = "extract_kernel has selected and validated output immediately before decompress_kernel()"
-
-[[chapter]]
-id = "LK-BOOT-037"
-title = "Linux 怎样解压 ELF 内核并进入正式 startup_64？"
-rst = "docs/tracks/linux-kernel/37-linux-decompresses-elf-and-enters-kernel-startup64.rst"
-status = "complete"
-start = "Linux compressed decompress_kernel()"
-end = "decompressed kernel reaches high-half common_startup_64"
+start = "Linux 6.12.95 x86_64_start_reservations"
+end = "start_kernel immediately before setup_arch(&command_line)"
 
 [current]
-last_complete = "LK-BOOT-037"
-executor = "Linux 6.12.95 arch/x86/kernel/head_64.S:common_startup_64"
+last_complete = "LK-BOOT-040"
+executor = "Linux 6.12.95 init/main.c:start_kernel()"
 cpu_mode = "64-bit long mode"
-paging = "enabled; formal early_top_pgt active with high-half kernel mapping and temporary identity mappings"
-next_entry = "Linux 6.12.95 common_startup_64"
-next_action = "清理 CR4/PGE，建立 boot CPU 编号、percpu offset、TSS、stack 和 early IDT，追到 x86_64_start_kernel()"
+paging = "enabled; early_top_pgt high-half mapping active; temporary identity mappings removed"
+interrupts = "disabled"
+current_task = "init_task on Linux CPU 0"
+next_entry = "Linux 6.12.95 arch/x86/kernel/setup.c:setup_arch(&command_line)"
+next_action = "接管命令行和 boot_params，导入 setup_data/E820，保留 BIOS、kernel、initrd 与 boot data 区域，建立 memblock 和 x86 early direct map"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
