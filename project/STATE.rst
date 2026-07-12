@@ -28,6 +28,7 @@
 #. ``LK-BOOT-013``：SeaBIOS 怎样把 CPU、IRQ 和内存信息写成固件表？
 #. ``LK-BOOT-014``：SeaBIOS 怎样执行 QEMU 的 ACPI table-loader 并找到 RSDP？
 #. ``LK-BOOT-015``：SeaBIOS 怎样沿 RSDP 读懂 ACPI 表图并解析 DSDT？
+#. ``LK-BOOT-016``：SeaBIOS 怎样建立时间基准、18.2 Hz BIOS 时钟并初始化 TPM？
 
 当前主线
 --------
@@ -44,49 +45,45 @@
 当前控制流位置
 --------------
 
-第十五章结束在：
+第十六章结束在：
 
 ::
 
-   qemu_platform_setup()
-   → RsdpAddr 已找到
-   → XSDT/RSDT 表图可用
-   → FADT/MADT/MCFG 等核心表已安装
-   → acpi_dsdt_parse()
-   → 建立受限 AML 设备索引
-   → 条件 virtio_mmio_setup_acpi()
-   → qemu_platform_setup() 返回
+   platform_hardware_setup()
+   → timer_setup()
+   → clock_setup()
+   → 条件 tpm_setup()
+   → platform_hardware_setup() 返回
+   → maininit()
 
-``platform_hardware_setup()`` 接下来执行：
+``maininit()`` 接下来执行：
 
 .. code-block:: c
 
-   coreboot_platform_setup();
-   timer_setup();
-   clock_setup();
-   tpm_setup();
+   if (threads_during_optionroms())
+       device_hardware_setup();
 
-当前 QEMU/SeaBIOS 主线的有效下一入口是 ``timer_setup()``。
+   vgarom_setup();
+
+设备探测是在 VGA Option ROM 前启动，还是在 VGA 之后同步执行，由 ``ThreadControl`` 和 ``threads_during_optionroms()`` 决定。
 
 此刻机器状态：
 
-* 当前执行者：SeaBIOS ``platform_hardware_setup()``；
+* 当前执行者：SeaBIOS ``maininit()``；
 * 当前主流程 CPU：BSP；
 * 模式：32 位保护模式；
 * 分页：关闭；
-* AP：已经完成固件报到并停在 ``HLT``；
-* ACPI RSDP、RSDT/XSDT 与核心表：已经安装；
-* FADT：已描述 ICH9 PM、SCI、PM timer 与 reset interface；
-* MADT：已描述 CPU、local APIC、I/O APIC 和 interrupt override；
-* MCFG：已描述 q35 MMCONFIG；
-* DSDT：已由 SeaBIOS 建立受限设备索引；
-* 条件 virtio-mmio block/SCSI：可能已经创建探测线程；
-* qemu_platform_setup：已经返回；
-* SeaBIOS 内部最终时间源：尚待 ``timer_setup()`` 确认；
-* PIT IRQ0、RTC 与 BDA timer counter：尚待 ``clock_setup()``；
-* TPM：尚未初始化；
-* 普通存储、USB 与网络驱动：尚未进入 ``device_hardware_setup()``；
-* ``BootList``：尚无完整启动设备集合；
+* SeaBIOS 内部 deadline timer：已经选定；
+* PIT channel 0：已经配置为约 18.2 Hz；
+* BDA ``timer_counter``：已由 RTC 当前时间初始化；
+* IRQ0 / INT 08h、INT 1Ch 与 INT 1Ah：已经建立；
+* 条件 RTC IRQ8 / INT 70h：已经建立；
+* 条件 TPM：已启动并建立 event log；
+* 条件 measured boot：已测量 SMBIOS 并标记 option ROM scan 起点；
+* USB、PS/2、ATA/AHCI/NVMe 与普通 virtio-pci 驱动：尚未完成 ``device_hardware_setup()``；
+* VGA Option ROM：尚未执行；
+* 普通 option ROM：尚未扫描；
+* ``BootList``：尚未形成最终启动设备集合；
 * GRUB：尚未被读取或执行；
 * Linux：尚未装入内存。
 
@@ -105,13 +102,11 @@ Kernel 目录页。
 固定事实来源
 ------------
 
-* ACPI Specification、AML、MADT、FADT 与 MCFG；
+* PIT、RTC、BDA timer、INT 08h/1Ah/70h 与 TCG TPM 资料；
 * SeaBIOS 提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
-* QEMU 提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669``；
-* SeaBIOS ``src/fw/biostables.c``、``src/fw/dsdt_parser.c``、``src/hw/virtio-mmio.c`` 与 ``src/fw/paravirt.c``；
-* QEMU ``hw/i386/acpi-build.c`` 与 ``hw/acpi/aml-build.c``。
+* SeaBIOS ``src/hw/timer.c``、``src/clock.c``、``src/hw/rtc.c``、``src/std/bda.h``、``src/stacks.c`` 与 ``src/tcgbios.c``。
 
 当前下一步
 ----------
 
-收到继续指令后，从 ``platform_hardware_setup():timer_setup()`` 开始，追踪内部时间源、PIT IRQ0、RTC/BDA 时钟与条件 TPM measured boot 初始化。
+收到继续指令后，从 ``maininit():threads_during_optionroms()`` 开始，确认设备探测与 option ROM 的时序，再进入 ``device_hardware_setup()``、USB、PS/2 和 block driver 初始化。
