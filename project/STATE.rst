@@ -34,6 +34,7 @@
 #. ``LK-BOOT-019``：SeaBIOS 怎样发现 q35 的 AHCI 磁盘并把它加入启动列表？
 #. ``LK-BOOT-020``：SeaBIOS 怎样扫描普通 Option ROM 并把 BCV、BEV 加入启动列表？
 #. ``LK-BOOT-021``：SeaBIOS 怎样执行 BCV 并把启动盘映射成 BIOS 0x80？
+#. ``LK-BOOT-022``：SeaBIOS 怎样把硬盘第一扇区读到 0x7c00 并交给 GRUB？
 
 当前主线
 --------
@@ -50,57 +51,51 @@
 当前控制流位置
 --------------
 
-第二十一章结束在：
+第二十二章结束在：
 
 ::
 
    maininit()
-   → interactive_bootmenu()
-   → 条件调整 BootList 头部
-   → wait_threads()
-   → prepareboot()
-   → tpm_prepboot()
-   → bcv_prepboot()
-   → 执行 BCV
-   → map_hd_drive(AHCI port 0)
-   → IDMap[HD][0]
-   → BDA hdcount = 1
-   → logical CHS / EBDA FDPT / IVT 0x41
-   → 构造最终 BEV[]
-   → cdrom_prepboot()
-   → pmm_prepboot()
-   → malloc_prepboot()
-   → e820_prepboot()
-   → HaveRunPost = 2
-   → BIOS checksum
-   → prepareboot() 返回
-
-``maininit()`` 接下来执行：
-
-.. code-block:: c
-
-   make_bios_readonly();
-   startBoot();
+   → make_bios_readonly()
+   → wbinvd
+   → q35 PAM write-protect
+   → startBoot()
+   → 清理 0x7000..0x8ffff
+   → call16_int(0x19)
+   → handle_19()
+   → BootSequence = 0
+   → do_boot(0)
+   → boot_disk(0x80)
+   → INT 13h AH=02h, CHS 0/0/1
+   → IDMap[EXTTYPE_HD][0]
+   → q35 AHCI port 0 drive_s
+   → CHS 转 LBA 0
+   → 32 位 AHCI CMD_READ
+   → DMA 512 bytes 到物理地址 0x7c00
+   → Carry Flag 清零
+   → 检查 0x55aa
+   → 条件 TPM 测量 boot sector
+   → AX=0xaa55, DL=0x80, IF=1
+   → farcall16 / iretw
+   → CS:IP = 0000:7c00
 
 此刻机器状态：
 
-* 当前执行者：SeaBIOS ``maininit()``；
-* 当前主流程 CPU：BSP；
-* 模式：32 位保护模式；
+* 当前执行者：GRUB i386-pc ``boot.img``；
+* 当前 CPU：BSP；
+* 模式：16 位实模式；
 * 分页：关闭；
-* BCV：已经执行；
-* 固定 AHCI port 0 硬盘：已经映射为 BIOS 第一块硬盘；
-* ``DL=0x80``：将解析到 ``IDMap[EXTTYPE_HD][0]``；
-* BDA ``hdcount``：固定单盘路径为 1；
-* logical CHS / FDPT：已经建立；
-* 最终 ``BEV[]``：已经形成；
-* PMM：已经关闭；
-* E820：已经冻结；
-* BIOS checksum：已经更新；
-* MBR sector 0：尚未读取；
-* ``0x7c00``：尚未写入启动扇区；
-* GRUB：尚未执行；
-* Linux：尚未装入内存。
+* ``CS:IP``：``0000:7c00``；
+* ``DL``：``0x80``；
+* ``AX``：``0xaa55``；
+* FLAGS.IF：1；
+* 物理 ``0x7c00..0x7dff``：启动盘 LBA 0 的 512 字节；
+* MBR signature：已通过 ``0x55aa`` 检查；
+* SeaBIOS AHCI/INT 13h 服务：仍可供 GRUB 调用；
+* GRUB ``core.img``：尚未读取；
+* GRUB 32 位 core：尚未执行；
+* Linux bzImage：尚未读取；
+* Linux：尚未取得控制权。
 
 完成状态
 --------
@@ -117,11 +112,11 @@ Kernel 目录页。
 固定事实来源
 ------------
 
-* BIOS drive numbering、CHS translation、FDPT、EDD 与 PMM 资料；
+* BIOS ``INT 19h``、``INT 13h``、MBR、实模式调用约定与 q35 PAM 资料；
 * SeaBIOS 提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
-* SeaBIOS ``src/post.c``、``src/boot.c``、``src/block.c``、``src/disk.c``、``src/pmm.c``、``src/malloc.c`` 和 ``src/e820map.c``。
+* SeaBIOS ``src/post.c``、``src/fw/shadow.c``、``src/boot.c``、``src/disk.c``、``src/block.c``、``src/hw/ahci.c``、``src/stacks.c``、``src/romlayout.S`` 和 ``src/std/disk.h``。
 
 当前下一步
 ----------
 
-从 ``maininit():make_bios_readonly()`` 开始，追踪 q35 PAM shadow write-protect、``startBoot():INT 19h``、``do_boot():boot_disk(0x80)`` 和 ``INT 13h AH=02h`` 怎样把第一扇区读到物理地址 ``0x7c00``。
+先固定 GRUB i386-pc 的准确源码 release/commit 和磁盘安装布局，再从 ``boot.img`` 在 ``0000:7c00`` 的第一条汇编指令开始，追踪它怎样保留启动驱动号并读取 ``core.img``。
