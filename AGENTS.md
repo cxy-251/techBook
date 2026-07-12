@@ -30,10 +30,11 @@
 #. ``LK-BOOT-016``：SeaBIOS 怎样建立时间基准、18.2 Hz BIOS 时钟并初始化 TPM？
 #. ``LK-BOOT-017``：SeaBIOS 为什么先运行 VGA Option ROM 再初始化其他设备？
 #. ``LK-BOOT-018``：SeaBIOS 怎样枚举 USB 设备并初始化 PS/2 键盘？
+#. ``LK-BOOT-019``：SeaBIOS 怎样发现 q35 的 AHCI 磁盘并把它加入启动列表？
 
-当前位于默认同步 ``device_hardware_setup()``。q35 EHCI/UHCI 已启动 controller 与 per-port 线程，USB device 经过地址分配、descriptor 和 hub/MSC/UAS/HID boot class 分流；i8042 IRQ1/IRQ12 与 PS/2 keyboard setup thread 已建立。USB 与 PS/2 输入最终汇合到 ``process_key()``、BDA keyboard ring 和 ``INT 16h``。下一入口是 ``block_setup()``。
+当前固定存储路径为 QEMU q35 内置 ICH9 AHCI SATA，启动盘位于 port 0。SeaBIOS 已经完成 BAR5、bus master、HBA reset、AHCI enable、port link、IDENTIFY、LBA capacity、transfer mode、persistent command/FIS buffers 和 ``boot_add_hd()``；``wait_threads()`` 已经等待 USB、PS/2、AHCI 与其他当前设备线程全部结束。
 
-为保持存储路径可复现，从本章之后固定启动磁盘为 QEMU q35 内置 ICH9 AHCI SATA，不在同一条主线混入 virtio-blk、NVMe 或额外 SCSI controller。下一章追踪 HBA reset、BAR5、command list/FIS、port link、IDENTIFY、LBA 容量、transfer mode、``boot_add_hd()``，并在 ``device_hardware_setup()`` 返回后的 ``wait_threads()`` 完成处停止。
+当前仍在 SeaBIOS ``maininit()``，下一入口是 ``optionrom_setup()``。BIOS ``0x80`` mapping 尚未由 ``bcv_prepboot()`` 建立，MBR sector 0 尚未读取，GRUB 尚未执行。下一章扫描普通 PCI/CBFS Option ROM，追踪 ``have_driver``、PnP expansion header、BCV、BEV 和 PXE 怎样继续扩充 BootList。
 
 ## 用户输入与技术事实
 
@@ -95,7 +96,7 @@
 ## 当前内容依据
 
 * x86-64 处理器复位状态、保护模式、SMM、MTRR、MSR、APIC 与 INIT/SIPI 资料；
-* PIRQ、Intel MP Specification、SMBIOS、ACPI、PIT、RTC、TPM、PCI Option ROM、PnP BIOS、VGA BIOS、USB、HID boot protocol、i8042 与 AHCI 资料；
+* PIRQ、Intel MP Specification、SMBIOS、ACPI、PIT、RTC、TPM、PCI Option ROM、PnP BIOS、VGA BIOS、USB、HID boot protocol、i8042、AHCI 与 ATA/ATAPI 资料；
 * SeaBIOS 固定源码提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
 * QEMU 固定参考提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669``；
 * GRUB i386-pc 固定源码；
