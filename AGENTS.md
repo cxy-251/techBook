@@ -17,8 +17,9 @@
 #. ``LK-BOOT-003``：SeaBIOS 怎样识别内存并把初始化代码搬到 RAM？
 #. ``LK-BOOT-004``：SeaBIOS 怎样在低端内存建立 IVT、BDA 和 EBDA？
 #. ``LK-BOOT-005``：SeaBIOS 怎样把自己变成可供启动软件调用的 BIOS？
+#. ``LK-BOOT-006``：SeaBIOS 怎样建立中断基础并启动内部线程？
 
-当前控制流停在 ``maininit():platform_hardware_setup()``。收到继续指令后，从这个函数开始追踪，不提前规划整本书。
+当前控制流停在 ``platform_hardware_setup():qemu_platform_setup()``。收到继续指令后，从这个函数开始追踪，不提前规划整本书。
 
 ## 用户输入与技术事实
 
