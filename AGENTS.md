@@ -23,8 +23,9 @@
 #. ``LK-BOOT-009``：SeaBIOS 怎样接通 q35 PCI 中断并打开设备地址解码？
 #. ``LK-BOOT-010``：SeaBIOS 怎样进入 SMM 并把处理入口藏进 SMRAM？
 #. ``LK-BOOT-011``：SeaBIOS 怎样规定物理地址的缓存类型并准备每个 CPU 的 MSR？
+#. ``LK-BOOT-012``：SeaBIOS 怎样用 INIT/SIPI 唤醒其他 CPU？
 
-当前控制流停在 ``qemu_platform_setup()`` 的 ``msr_feature_control_setup()`` 返回处。下一条调用是 ``smp_setup()``。收到继续指令后，从 local APIC、INIT/SIPI、``0x10000`` AP 启动跳板、共享栈锁和 AP 重放 MSR 开始追踪，不提前规划整本书。
+当前控制流停在 ``qemu_platform_setup()`` 的 ``smp_setup()`` 返回处。下一段先在 ``MaxCountCPUs <= 255`` 条件下建立 PIRQ table 与 MP table，再执行 ``smbios_setup()``。收到继续指令后，从这些固件表如何描述 PCI IRQ、CPU/APIC、系统与内存信息开始追踪，不提前规划整本书。
 
 ## 用户输入与技术事实
 
@@ -85,7 +86,7 @@
 
 ## 当前内容依据
 
-* x86-64 处理器复位状态、保护模式、SMM、MTRR、MSR 与 APIC/SMP 资料；
+* x86-64 处理器复位状态、保护模式、SMM、MTRR、MSR、APIC 与 INIT/SIPI 资料；
 * SeaBIOS 固定源码提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
 * QEMU 固定参考提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669``；
 * GRUB i386-pc 固定源码；
