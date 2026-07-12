@@ -10,9 +10,9 @@
 
 ``x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 6.12.95``。
 
-当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-030``。最新章节是：
+当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-031``。最新章节是：
 
-``LK-BOOT-030``：GRUB 怎样自动选择菜单项并装入 linux 命令模块？
+``LK-BOOT-031``：GRUB linux 命令怎样检查并装载 Linux bzImage？
 
 ## 当前固定 GRUB 路径
 
@@ -47,32 +47,32 @@ menuentry 'Linux 6.12.95' {
 
 ## 当前控制流
 
-SeaBIOS 固件阶段以及 GRUB ``boot.img → diskboot.img → startup_raw``、机器初始化、内建模块初始化、配置文件打开、菜单项构造与自动选择阶段已经完成。
+SeaBIOS 固件阶段以及 GRUB ``boot.img → diskboot.img → startup_raw``、机器初始化、内建模块初始化、配置文件打开、菜单项构造、自动选择、``linux.mod`` 动态装载和 ``bzImage`` 读取阶段已经完成。
 
 GRUB 当前已经执行：
 
 ```
-grub_normal_execute()
-→ grub_show_menu()
-→ timeout=0 selects default entry 0 without drawing
-→ grub_menu_execute_entry()
-→ chosen = Linux 6.12.95
-→ grub_script_execute_new_scope(entry->sourcecode)
-→ setparams
-→ execute linux command line
-→ find dynamic linux placeholder from command.lst
-→ grub_dyncmd_dispatcher()
-→ grub_dl_load("linux")
-→ open (hd0,msdos1)/boot/grub/i386-pc/linux.mod
-→ read, relocate and initialize ELF module
-→ GRUB_MOD_INIT(linux) registers real linux and initrd commands
-→ unregister placeholder and find real linux command
-→ stop immediately before grub_cmd_linux()
+grub_cmd_linux()
+→ open /boot/bzImage-6.12.95 through root=hd0,msdos1
+→ validate 0xaa55
+→ validate HdrS
+→ validate protocol 0x020f and loaded-high
+→ derive setup and protected payload sizes
+→ process kernel_alignment, relocatable, min_alignment, pref_address, init_size
+→ allocate relocator-backed protected-mode chunk
+→ clear and fill linux_params setup-header copy
+→ adjust code32_start for actual target
+→ create BOOT_IMAGE=/boot/bzImage-6.12.95 root=/dev/sda1 ro console=ttyS0
+→ read protected-mode payload into prot_mode_mem
+→ grub_loader_set(grub_linux_boot, grub_linux_unload, 0)
+→ loaded = 1
+→ close bzImage
+→ stop before script executes initrd
 ```
 
-当前执行者是 GNU GRUB 2.14 dynamic command dispatcher。CPU 处于 32 位保护模式，分页关闭。``linux.mod`` 已经装入；真实 ``grub_cmd_linux()`` 尚未调用，``/boot/bzImage-6.12.95`` 与 initramfs 尚未打开。
+当前执行者是 GNU GRUB 2.14 ``grub_cmd_linux()`` 返回路径。CPU 处于 32 位保护模式，分页关闭。protected-mode Linux payload 已在 relocator chunk 中，``linux_params.hdr.ramdisk_image`` 与 ``ramdisk_size`` 仍为 0；Linux payload 尚未解压，控制权仍在 GRUB。
 
-下一任务从 ``grub-core/loader/i386/linux.c:grub_cmd_linux()`` 开始，追踪固定 ``bzImage`` 的文件打开、setup header 验证、alignment/relocatable 字段处理、boot parameter 副本、命令行和 protected-mode payload 装载。章节停在 ``grub_loader_set(grub_linux_boot, ...)`` 完成后，尚不执行菜单项下一行 ``initrd``，不提前进入 Linux。
+下一任务从菜单项第二条命令 ``initrd /boot/initramfs-6.12.95.img`` 开始，进入 ``grub_cmd_initrd()``，计算 header 允许的地址上限与 kernel 初始化区下界，将 initramfs 尽可能高地放置并写入 ``ramdisk_image`` / ``ramdisk_size``。章节停在 entry sourcecode 执行结束、``grub_menu_execute_entry()`` 即将隐式执行 ``boot`` 的位置。
 
 ## 用户输入与技术事实
 
