@@ -8,7 +8,7 @@
 
 固定主线：
 
-``x86-64 → QEMU q35 → SeaBIOS → GRUB i386-pc → bzImage → Linux 6.12.95``。
+``x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 6.12.95``。
 
 当前已经完成：
 
@@ -34,18 +34,55 @@
 #. ``LK-BOOT-020``：SeaBIOS 怎样扫描普通 Option ROM 并把 BCV、BEV 加入启动列表？
 #. ``LK-BOOT-021``：SeaBIOS 怎样执行 BCV 并把启动盘映射成 BIOS 0x80？
 #. ``LK-BOOT-022``：SeaBIOS 怎样把硬盘第一扇区读到 0x7c00 并交给 GRUB？
+#. ``LK-BOOT-023``：GRUB boot.img 怎样从 0x7c00 读出 core.img 的第一扇区？
+#. ``LK-BOOT-024``：GRUB diskboot.img 怎样按 blocklist 读完 core.img？
+#. ``LK-BOOT-025``：GRUB startup_raw 怎样进入保护模式并调用 grub_main？
 
-SeaBIOS 固件主流程已经完成。它通过 ``INT 19h`` 选择硬盘启动项，再通过 ``INT 13h AH=02h`` 将 q35 AHCI port 0 启动盘的 LBA 0 读到物理地址 ``0x7c00``，校验 ``0x55aa``，并以 ``AX=0xaa55``、``DL=0x80``、``IF=1`` 跳转到 ``CS:IP=0000:7c00``。
+## 当前固定 GRUB 路径
 
-当前执行者已经切换为 GRUB i386-pc ``boot.img``。CPU 处于 16 位实模式，分页关闭；GRUB ``core.img`` 尚未读取，Linux bzImage 尚未读取。
+```
+GNU GRUB release = 2.14
+release commit   = d38d6a1a9b79427848976f53d474392cd29c2a71
+target           = i386-pc
+partition table  = MBR
+first partition  = LBA 2048
+boot.img         = LBA 0
+core.img         = contiguous from LBA 1
+```
 
-下一任务必须先固定 GRUB i386-pc 的准确 release/commit、构建配置和磁盘安装布局。未完成这些核对前，不得猜测 ``boot.img`` 中的嵌入字段、``core.img`` 扇区位置或具体源码符号。版本固定后，再从 ``0000:7c00`` 的第一条汇编指令继续。
+权威发布物是 GNU 官方 ``grub-2.14.tar.xz``。源码引用使用 ``GitMirroring/grub`` 的固定发布提交。
+
+## 当前控制流
+
+SeaBIOS 已经完成固件阶段并把 LBA 0 交给 ``0000:7c00`` 的 GRUB ``boot.img``。
+
+GRUB 已经完成：
+
+```
+boot.img at 0000:7c00
+→ EDD/LBA probe
+→ read diskboot.img to 0x8000
+→ diskboot blocklist loads remaining core.img to 0x8200...
+→ startup_raw
+→ 32-bit protected mode
+→ A20 verification
+→ optional Reed–Solomon recovery
+→ LZMA decompress to 0x100000
+→ startup.S copies formal core to link address 0x9000
+→ clear BSS
+→ grub_boot_device = 0x80ffffff
+→ grub_main()
+```
+
+当前执行者是 GNU GRUB 2.14 ``grub_main()``。CPU 处于 32 位保护模式，分页关闭；``grub.cfg``、GRUB 菜单和 Linux ``bzImage`` 尚未读取。
+
+下一任务从 ``grub_main()`` 开始，追踪 ``grub_machine_init()``、控制台、BIOS memory map、GRUB heap、内建模块和启动设备 ``hd0`` 的建立。不得直接概括成“GRUB 初始化后读取配置”。
 
 ## 用户输入与技术事实
 
 用户提供的是关注方向、已知线索和阅读感受，不直接作为完整或正确的技术事实。
 
-正文根据硬件规范、固定固件源码、启动协议、固定 Linux 源码和真实状态变化补全中间过程。用户不知道后续流程时，Agent 继续沿当前控制流调查和写作。
+正文根据硬件规范、固定固件源码、启动协议、固定 GRUB/Linux 源码和真实状态变化补全中间过程。用户不知道后续流程时，Agent 继续沿当前控制流调查和写作。
 
 ``aiBook`` 的 Linux Kernel Roadmap 只用于确认希望掌握的知识范围。旧 Roadmap 的章节顺序和篇幅不作为新书结构。
 
@@ -70,7 +107,7 @@ SeaBIOS 固件主流程已经完成。它通过 ``INT 19h`` 选择硬盘启动�
 
 章节正文不添加上一章、下一章或目录导航。章节列表统一由 ``docs/tracks/linux-kernel/index.rst`` 提供。
 
-每章末尾的“资料”必须使用可点击的 RST 链接，不能只写文件名或文档名。
+每章末尾的“资料”必须使用可点击的 RST 链接，不能只写文件名或文档名。技术事实优先使用规范、官方发布物和固定源码等一手资料。
 
 ## 连续推进模式
 
@@ -104,7 +141,8 @@ SeaBIOS 固件主流程已经完成。它通过 ``INT 19h`` 选择硬盘启动�
 * PIRQ、Intel MP Specification、SMBIOS、ACPI、PIT、RTC、TPM、PCI Option ROM、PnP BIOS、VGA BIOS、USB、HID boot protocol、i8042、AHCI、ATA/ATAPI、BIOS drive mapping、FDPT、PMM、``INT 19h``、``INT 13h`` 与 MBR 资料；
 * SeaBIOS 固定源码提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
 * QEMU 固定参考提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669``；
-* 待固定的 GRUB i386-pc 源码 release/commit 与安装布局；
+* GNU GRUB 2.14 官方发布物和发布提交 ``d38d6a1a9b79427848976f53d474392cd29c2a71``；
+* GRUB ``boot.S``、``diskboot.S``、``startup_raw.S``、``realmode.S``、``startup.S``、``init.c``、``util/setup.c``、``util/mkimage.c``；
 * Linux 6.12.95 固定源码；
 * Linux/x86 Boot Protocol；
 * 能从源码、寄存器、CPU 模式和内存布局确认的状态变化。
@@ -122,4 +160,4 @@ SeaBIOS 固件主流程已经完成。它通过 ``INT 19h`` 选择硬盘启动�
 
 ## 工作结束
 
-完成章节后更新正文、目录、``project/STATE.rst`` 和 Linux 路径状态。
+完成章节后更新正文、目录、``project/STATE.rst``、manifest、README 和 Linux 路径状态。
