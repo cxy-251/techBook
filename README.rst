@@ -13,6 +13,7 @@ techBook
 * `第四章：SeaBIOS 怎样在低端内存建立 IVT、BDA 和 EBDA？ <docs/tracks/linux-kernel/04-seabios-ivt-bda-ebda.rst>`_
 * `第五章：SeaBIOS 怎样把自己变成可供启动软件调用的 BIOS？ <docs/tracks/linux-kernel/05-seabios-software-interfaces.rst>`_
 * `第六章：SeaBIOS 怎样建立中断基础并启动内部线程？ <docs/tracks/linux-kernel/06-seabios-dma-pic-threads.rst>`_
+* `第七章：SeaBIOS 怎样为 q35 编号 PCI 总线并发现设备？ <docs/tracks/linux-kernel/07-seabios-pci-bus-and-device-discovery.rst>`_
 
 当前主线
 --------
@@ -29,8 +30,8 @@ techBook
 开头从设备上电后的故事进入，最终主题仍然是 Linux 内核。正文按真实发生顺序连续讲述；达到适合一次
 阅读的篇幅，并遇到自然控制权交接点时换章。
 
-当前控制流仍在 SeaBIOS ``platform_hardware_setup()`` 内，下一入口是 ``qemu_platform_setup()``。GRUB
-尚未被搜索；后续从 QEMU q35 的 PCI 与平台初始化继续，不提前列出整本目录。
+当前控制流仍在 SeaBIOS ``pci_setup()`` 内。PCI bus number 和设备拓扑已经发现，下一步从 q35 MMCONFIG、
+BAR sizing 与 PCI I/O/MMIO 地址分配继续。GRUB 尚未被读取或执行。
 
 开始工作
 --------
