@@ -31,10 +31,11 @@
 #. ``LK-BOOT-017``：SeaBIOS 为什么先运行 VGA Option ROM 再初始化其他设备？
 #. ``LK-BOOT-018``：SeaBIOS 怎样枚举 USB 设备并初始化 PS/2 键盘？
 #. ``LK-BOOT-019``：SeaBIOS 怎样发现 q35 的 AHCI 磁盘并把它加入启动列表？
+#. ``LK-BOOT-020``：SeaBIOS 怎样扫描普通 Option ROM 并把 BCV、BEV 加入启动列表？
 
-当前固定存储路径为 QEMU q35 内置 ICH9 AHCI SATA，启动盘位于 port 0。SeaBIOS 已经完成 BAR5、bus master、HBA reset、AHCI enable、port link、IDENTIFY、LBA capacity、transfer mode、persistent command/FIS buffers 和 ``boot_add_hd()``；``wait_threads()`` 已经等待 USB、PS/2、AHCI 与其他当前设备线程全部结束。
+普通 PCI/CBFS Option ROM 已经完成部署、校验和 PnP header 解析。内建设备的 ``have_driver`` 状态已用于跳过重复 ROM 初始化；条件 legacy/PnP BCV 与 BEV 已登记进 ``BootList``。
 
-当前仍在 SeaBIOS ``maininit()``，下一入口是 ``optionrom_setup()``。BIOS ``0x80`` mapping 尚未由 ``bcv_prepboot()`` 建立，MBR sector 0 尚未读取，GRUB 尚未执行。下一章扫描普通 PCI/CBFS Option ROM，追踪 ``have_driver``、PnP expansion header、BCV、BEV 和 PXE 怎样继续扩充 BootList。
+当前仍在 SeaBIOS ``maininit()``，下一入口是 ``interactive_bootmenu()``。随后执行 ``wait_threads()`` 和 ``prepareboot():bcv_prepboot()``。BCV 尚未执行，BIOS ``0x80`` mapping 尚未建立，MBR sector 0 尚未读取，GRUB 尚未执行。
 
 ## 用户输入与技术事实
 
