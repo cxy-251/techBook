@@ -150,10 +150,18 @@ status = "complete"
 start = "platform_hardware_setup():timer_setup()"
 end = "platform_hardware_setup() returns after clock_setup and conditional tpm_setup"
 
+[[chapter]]
+id = "LK-BOOT-017"
+title = "SeaBIOS 为什么先运行 VGA Option ROM 再初始化其他设备？"
+rst = "docs/tracks/linux-kernel/17-seabios-vga-option-rom-and-console.rst"
+status = "complete"
+start = "maininit():threads_during_optionroms()"
+end = "maininit():enable_vga_console() returns on the default non-overlapped path"
+
 [current]
-last_complete = "LK-BOOT-016"
-next_entry = "maininit():threads_during_optionroms(); device_hardware_setup(); vgarom_setup()"
-next_action = "确认设备探测与 option ROM 时序，并进入 USB、PS/2 和 block driver 初始化"
+last_complete = "LK-BOOT-017"
+next_entry = "maininit():device_hardware_setup() on the default synchronous path"
+next_action = "追踪 USB controller/device、PS/2 keyboard 与 block_setup 前的实际初始化"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
