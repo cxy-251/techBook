@@ -38,6 +38,7 @@
 #. ``LK-BOOT-023``：GRUB boot.img 怎样从 0x7c00 读出 core.img 的第一扇区？
 #. ``LK-BOOT-024``：GRUB diskboot.img 怎样按 blocklist 读完 core.img？
 #. ``LK-BOOT-025``：GRUB startup_raw 怎样进入保护模式并调用 grub_main？
+#. ``LK-BOOT-026``：GRUB 怎样通过 BIOS E820 建立自己的堆？
 
 当前主线
 --------
@@ -61,6 +62,8 @@
    target           = i386-pc
    partition table  = MBR
    first partition  = LBA 2048
+   first filesystem = ext4
+   GRUB directory   = /boot/grub
    boot.img         = LBA 0
    core.img         = contiguous from LBA 1
 
@@ -69,39 +72,26 @@ GNU 官方发布包是 ``grub-2.14.tar.xz``；源码引用使用 ``GitMirroring/
 当前控制流位置
 --------------
 
-第二十五章结束在：
+第二十六章结束在：
 
 ::
 
-   SeaBIOS → 0000:7c00
-   → GRUB boot.img
-   → canonicalize CS=0
-   → DS=SS=0, SP=0x2000
-   → preserve DL=0x80
-   → INT 13h EDD probe
-   → INT 13h AH=42h read LBA 1 to 0x70000
-   → copy diskboot.img to 0x8000
-   → jump 0000:8000
-   → diskboot.img reads blocklist
-   → load core.img LBA 2..N through 0x70000 bounce buffer
-   → copy remaining core to 0x8200...
-   → jump 0000:8200
-   → startup_raw
-   → real stack = 0x1ff0
-   → save encoded boot device 0x80ffffff
-   → real_to_prot()
-   → load GDT
-   → CR0.PE = 1
-   → CS=0x08, data selectors=0x10
-   → protected stack = 0x7fff0
-   → verify A20
-   → optional Reed–Solomon recovery
-   → LZMA decompress to 0x100000
-   → enter decompressed startup.S
-   → copy formal GRUB core code to link address 0x9000
-   → clear BSS
-   → grub_boot_device = 0x80ffffff
-   → call grub_main()
+   grub_main()
+   → grub_machine_init()
+   → conditional VIA cache workaround
+   → grub_modbase = 0x100000 + (_edata - _start)
+   → grub_console_init()
+   → grub_machine_mmap_iterate()
+   → protected-mode / real-mode BIOS bridge
+   → INT 15h E820 through scratch area 0x68000
+   → keep E820 available regions only
+   → skip memory below 1 MiB
+   → ignore physical memory above the 32-bit addressable range
+   → sort and merge memory regions
+   → exclude grub_modules_get_end()
+   → grub_mm_init_region() for each remaining region
+   → grub_tsc_init()
+   → grub_machine_init() returns
 
 此刻机器状态：
 
@@ -109,20 +99,18 @@ GNU 官方发布包是 ``grub-2.14.tar.xz``；源码引用使用 ``GitMirroring/
 * 当前主流程 CPU：BSP；
 * 模式：32 位保护模式；
 * 分页：关闭；
-* A20：已经开启并由 GRUB 重新验证；
-* flat code/data segments：已经建立；
-* protected-mode stack：位于低端 GRUB 保留区，栈顶约 ``0x7fff0``；
-* 正式 GRUB core 代码：位于链接地址 ``0x9000``；
-* 解压和模块区域：从 ``0x100000`` 附近开始；
-* BSS：已经清零；
-* ``grub_boot_device``：``0x80ffffff``；
-* 启动 BIOS drive：``0x80``，后续会推导为 ``hd0``；
-* BIOS 实模式服务：仍可通过 ``prot_to_real`` / ``real_to_prot`` 桥调用；
-* GRUB machine initialization：尚未展开；
-* GRUB heap：尚未在正文中建立；
-* 内建模块：尚未在正文中初始化；
+* 早期 BIOS 字符控制台：已注册；
+* BIOS 实模式服务：仍可通过模式转换桥调用；
+* E820：已由 GRUB 通过 SeaBIOS ``INT 15h`` 重新取得；
+* GRUB heap：已由 1 MiB 以上、4 GiB 以下的 E820 available RAM 建立；
+* 低端内存：未加入普通堆；
+* 预装模块区域：已由 ``grub_modbase`` 和 ``modend`` 排除；
+* allocator：支持多个不连续 region；
+* 时间源：TSC 已使用 PIT 校准；
+* core.img 内建 ELF 模块：尚未加载执行；
+* ``root`` / ``prefix``：尚未设置；
+* ``hd0``：尚未作为 GRUB BIOS disk backend 建立；
 * ``grub.cfg``：尚未读取；
-* GRUB 菜单：尚未建立；
 * Linux ``bzImage``：尚未读取；
 * Linux：尚未取得控制权。
 
@@ -142,7 +130,7 @@ GNU 官方发布包是 ``grub-2.14.tar.xz``；源码引用使用 ``GitMirroring/
 
 * GNU GRUB 2.14 官方发布包；
 * GRUB 发布提交 ``d38d6a1a9b79427848976f53d474392cd29c2a71``；
-* GRUB ``boot.S``、``diskboot.S``、``startup_raw.S``、``realmode.S``、``startup.S``、``init.c``、``util/setup.c`` 和 ``util/mkimage.c``；
+* GRUB ``grub-core/kern/main.c``、``grub-core/kern/i386/pc/init.c``、``grub-core/kern/i386/pc/mmap.c``、``grub-core/kern/mm.c``、``grub-core/kern/i386/tsc.c`` 与相关头文件；
 * SeaBIOS 提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
 * QEMU 提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669``；
 * Linux 6.12.95 与 Linux/x86 Boot Protocol。
@@ -150,4 +138,4 @@ GNU 官方发布包是 ``grub-2.14.tar.xz``；源码引用使用 ``GitMirroring/
 当前下一步
 ----------
 
-从 GNU GRUB 2.14 ``grub_main()`` 开始，追踪 ``grub_machine_init()``、控制台、BIOS memory map、GRUB heap、内建模块和启动设备 ``hd0`` 的建立。只在到达读取 ``grub.cfg`` 前的自然交接点后换章。
+从 ``grub_main()`` 返回 ``grub_machine_init()`` 后开始，追踪 verifier、core.img 预装对象、ELF 模块构造函数、``biosdisk``、MBR 分区模块、ext4 所用 ``ext2`` 文件系统模块，以及 ``root/prefix`` 怎样组合成 ``hd0,msdos1`` 和 ``(hd0,msdos1)/boot/grub``。
