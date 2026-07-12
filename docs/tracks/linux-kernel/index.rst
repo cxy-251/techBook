@@ -19,6 +19,7 @@ Linux Kernel
 #. `第十一章：SeaBIOS 怎样规定物理地址的缓存类型并准备每个 CPU 的 MSR？ <11-seabios-mtrr-and-feature-control.rst>`_
 #. `第十二章：SeaBIOS 怎样用 INIT/SIPI 唤醒其他 CPU？ <12-seabios-smp-init-sipi-and-ap-startup.rst>`_
 #. `第十三章：SeaBIOS 怎样把 CPU、IRQ 和内存信息写成固件表？ <13-seabios-pirq-mp-and-smbios-tables.rst>`_
+#. `第十四章：SeaBIOS 怎样执行 QEMU 的 ACPI table-loader 并找到 RSDP？ <14-seabios-acpi-table-loader-and-rsdp.rst>`_
 
 当前主线
 --------
@@ -32,13 +33,12 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-正文已经追踪到 SeaBIOS 安装 PIRQ、MP table 与 SMBIOS。当前仍在 ``qemu_platform_setup()`` 中，
-下一步从 QEMU ``etc/table-loader`` 安装 ACPI 表并寻找 RSDP。
+正文已经追踪到 SeaBIOS 执行 QEMU ``etc/table-loader``，为 ACPI blobs 分配客户机地址、修正指针和 checksum，并在 F-segment 找到 RSDP。当前仍在 ``qemu_platform_setup()`` 中，下一步从 RSDP 展开 RSDT/XSDT、FADT、MADT 和 DSDT。
 
 章节组织
 --------
 
 正文沿时间线连续讲述。故事达到适合一次阅读的篇幅，并遇到执行者、CPU 模式、运行环境或控制入口的
-自然交接点时换章。每章结尾记录当前执行者、当前状态和下一入口。
+自然交接点时换章。每章末尾记录当前执行者、当前状态和下一入口。
 
 章节完成状态由固定源码和规范核对决定。读者反馈用于指出哪里难懂、希望展开或阅读不连续，不承担技术审稿。
