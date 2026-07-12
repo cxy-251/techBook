@@ -34,6 +34,7 @@ techBook
 * `第二十五章：GRUB startup_raw 怎样进入保护模式并调用 grub_main？ <docs/tracks/linux-kernel/25-grub-startup-raw-protected-mode-and-grub-main.rst>`_
 * `第二十六章：GRUB 怎样通过 BIOS E820 建立自己的堆？ <docs/tracks/linux-kernel/26-grub-machine-init-e820-and-heap.rst>`_
 * `第二十七章：GRUB 怎样加载内建模块并建立 hd0、root 和 prefix？ <docs/tracks/linux-kernel/27-grub-built-in-modules-root-prefix-and-hd0.rst>`_
+* `第二十八章：GRUB normal 怎样找到并打开 grub.cfg？ <docs/tracks/linux-kernel/28-grub-normal-opens-grub-cfg.rst>`_
 
 当前主线
 --------
@@ -49,7 +50,7 @@ techBook
 
 开头从设备上电后的故事进入，最终主题仍然是 Linux 内核。正文按真实发生顺序连续讲述；达到适合一次阅读的篇幅，并遇到自然控制权交接点时换章。
 
-当前 GRUB 已建立 heap 和模块系统，``biosdisk``、``part_msdos``、``ext2``、``normal`` 已注册；``root=hd0,msdos1``，``prefix=(hd0,msdos1)/boot/grub``。磁盘上的 ``grub.cfg`` 和 Linux ``bzImage`` 尚未读取。
+当前 GRUB normal 已打开 ``(hd0,msdos1)/boot/grub/grub.cfg``，并读出第一条待解析配置行。``grub_normal_parse_line()`` 尚未调用，菜单启动项和 Linux ``bzImage`` 尚未建立。
 
 开始工作
 --------
