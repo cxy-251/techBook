@@ -68,10 +68,18 @@ status = "complete"
 start = "maininit():platform_hardware_setup()"
 end = "platform_hardware_setup():qemu_platform_setup()"
 
+[[chapter]]
+id = "LK-BOOT-007"
+title = "SeaBIOS 怎样为 q35 编号 PCI 总线并发现设备？"
+rst = "docs/tracks/linux-kernel/07-seabios-pci-bus-and-device-discovery.rst"
+status = "complete"
+start = "platform_hardware_setup():qemu_platform_setup()"
+end = "pci_setup():pci_probe_devices() returns"
+
 [current]
-last_complete = "LK-BOOT-006"
-next_entry = "platform_hardware_setup():qemu_platform_setup()"
-next_action = "收到继续指令后，从 qemu_platform_setup() 沿 QEMU q35 平台控制流继续"
+last_complete = "LK-BOOT-007"
+next_entry = "pci_setup():pcimem_start = RamSize; pci_bios_init_platform()"
+next_action = "收到继续指令后，从 q35 MMCONFIG 和 PCI BAR 资源分配开始继续"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
