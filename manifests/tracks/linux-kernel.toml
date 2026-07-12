@@ -237,10 +237,18 @@ status = "complete"
 start = "GNU GRUB 2.14 grub_main():grub_machine_init()"
 end = "grub_machine_init() returns after console, E820 heap, and TSC initialization"
 
+[[chapter]]
+id = "LK-BOOT-027"
+title = "GRUB 怎样加载内建模块并建立 hd0、root 和 prefix？"
+rst = "docs/tracks/linux-kernel/27-grub-built-in-modules-root-prefix-and-hd0.rst"
+status = "complete"
+start = "GNU GRUB 2.14 grub_main() after grub_machine_init()"
+end = "root and prefix are established after embedded module loading and preload-space reclamation"
+
 [current]
-last_complete = "LK-BOOT-026"
-next_entry = "GNU GRUB 2.14 grub_main() after grub_machine_init()"
-next_action = "加载 core.img 内建对象和 ELF 模块，建立 biosdisk、hd0、root 与 prefix"
+last_complete = "LK-BOOT-027"
+next_entry = "GNU GRUB 2.14 grub_main():grub_load_normal_mode()"
+next_action = "由 prefix 构造并打开 (hd0,msdos1)/boot/grub/grub.cfg，停在第一条有效配置行解析之前"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
