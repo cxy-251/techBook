@@ -10,9 +10,9 @@
 
 ``x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 6.12.95``。
 
-当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-034``。最新章节是：
+当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-037``。最新章节是：
 
-``LK-BOOT-034``：Linux startup_32 怎样建立 4 GiB 映射并进入 64 位模式？
+``LK-BOOT-037``：Linux 怎样解压 ELF 内核并进入正式 startup_64？
 
 ## 固定实现
 
@@ -23,7 +23,8 @@ GNU GRUB release  = 2.14
 GRUB commit       = d38d6a1a9b79427848976f53d474392cd29c2a71
 GRUB target       = i386-pc
 Linux release     = 6.12.95
-Linux source      = gregkh/linux tag v6.12.95
+Linux source tag  = gregkh/linux v6.12.95
+Linux commit      = 7404ce51637231382873d0b55edabc2f3b841a9d
 partition table   = MBR
 first partition   = LBA 2048, ext4
 kernel            = /boot/bzImage-6.12.95
@@ -42,44 +43,45 @@ menuentry 'Linux 6.12.95' {
 }
 ```
 
-GRUB 资料使用 GNU 官方 ``grub-2.14.tar.xz`` 和 ``GitMirroring/grub`` 固定提交。Linux 资料使用 ``gregkh/linux`` 的 ``v6.12.95`` tag。
+GRUB 资料使用 GNU 官方 ``grub-2.14.tar.xz`` 和 ``GitMirroring/grub`` 固定提交。Linux 资料使用 ``gregkh/linux`` 的 ``v6.12.95`` tag 和对应 commit。
 
 ## 当前控制流
 
-SeaBIOS 和 GNU GRUB 阶段已经完成。GRUB 已按 Linux/x86 32-bit Boot Protocol 交接：
+SeaBIOS、GNU GRUB 与 Linux compressed boot 阶段已经完成。
+
+当前已经执行：
 
 ```text
-ESI = boot_params physical address
-EIP = code32_start
-CS  = 0x10
-DS/ES/SS = 0x18
-paging = off
-interrupts = off
+compressed startup_32
+→ enter long mode
+→ compressed startup_64
+→ calculate RBP decompression target and RBX relocated compressed base
+→ configure 4-level or 5-level paging
+→ copy compressed image backwards to safe high location
+→ jump to .Lrelocated
+→ clear compressed BSS
+→ load stage2 IDT
+→ initialize extendable identity maps
+→ map compressed image, boot_params, command line and setup_data
+→ sanitize boot_params and initialize compressed early console
+→ calculate needed_size
+→ select fixed or KASLR physical/virtual output
+→ decompress payload
+→ parse ELF and move PT_LOAD segments
+→ apply kernel relocations
+→ remove compressed exception handling
+→ jump to decompressed arch/x86/kernel/head_64.S:startup_64
+→ switch to formal initial stack and early GS base
+→ set up formal GDT/IDT
+→ call __startup_64()
+→ calculate phys_base and fix early page tables
+→ load early_top_pgt into CR3
+→ jump to high-half common_startup_64
 ```
 
-Linux compressed ``startup_32`` 已执行：
+当前执行者是 Linux 6.12.95 ``arch/x86/kernel/head_64.S:common_startup_64``。CPU 处于 64 位 long mode，interrupts 关闭，RIP 已位于正式内核高半区虚拟地址。``R15`` 保留 ``boot_params``，栈是 ``__top_init_kernel_stack``，``CR3`` 指向修正后的 ``early_top_pgt``。临时 identity mapping 尚未全部清理，``x86_64_start_kernel()`` 和 ``start_kernel()`` 尚未调用。
 
-```text
-cld / cli
-→ use boot_params.scratch for call/pop runtime-base calculation
-→ EBP = actual startup_32 address
-→ load Linux GDT and boot stack
-→ verify CPUID, long mode and SSE
-→ calculate safe compressed-image relocation base
-→ CR4.PAE = 1
-→ build 6-page initial page tables
-→ identity-map low 4 GiB with 2048 × 2 MiB entries
-→ CR3 = initial PML4
-→ EFER.LME = 1
-→ load early TSS
-→ CR0.PG = 1
-→ far return through 64-bit code descriptor
-→ startup_64
-```
-
-当前执行者是 Linux 6.12.95 ``arch/x86/boot/compressed/head_64.S:startup_64``。CPU 已进入 64 位 long mode；低 4 GiB identity mapping 已开启。compressed image 尚未搬到安全解压位置，BSS 尚未清零，``extract_kernel()`` 尚未调用，最终内核尚未解压。
-
-下一任务从 ``startup_64`` 第一条指令开始，追踪 boot_params 指针保存、输出地址计算、5-level paging 配置、compressed image 倒序复制、GDT 重定位、BSS 清零、identity map 扩展和 ``extract_kernel()`` 调用。
+下一任务从 ``common_startup_64`` 第一条指令开始，追踪 CR4/PGE、boot CPU 编号、percpu offset、TSS、stack、early IDT 和 ``initial_code``，停在 ``x86_64_start_kernel()`` 的自然入口；不要直接跳到 ``start_kernel()``。
 
 ## 用户输入与技术事实
 
@@ -98,7 +100,7 @@ cld / cli
 * 控制权下一步交给哪个入口；
 * 对应哪个规范、源码文件、符号、寄存器或协议字段。
 
-不能用“固件初始化硬件”“GRUB 加载内核”“Linux 进入 64 位”这样的概括跳过中间主流程。
+不能用“固件初始化硬件”“GRUB 加载内核”“Linux 进入 64 位”“内核完成解压”这样的概括跳过中间主流程。
 
 ## 章节边界
 
