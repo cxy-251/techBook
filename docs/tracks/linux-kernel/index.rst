@@ -10,6 +10,7 @@ Linux Kernel
 #. `第二章：SeaBIOS 怎样从 16 位入口进入 32 位 C 代码？ <02-seabios-entry-to-32bit-c.rst>`_
 #. `第三章：SeaBIOS 怎样识别内存并把初始化代码搬到 RAM？ <03-seabios-memory-map-and-relocation.rst>`_
 #. `第四章：SeaBIOS 怎样在低端内存建立 IVT、BDA 和 EBDA？ <04-seabios-ivt-bda-ebda.rst>`_
+#. `第五章：SeaBIOS 怎样把自己变成可供启动软件调用的 BIOS？ <05-seabios-software-interfaces.rst>`_
 
 当前主线
 --------
@@ -23,8 +24,9 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-正文已经从平台释放处理器复位，追踪到 SeaBIOS 建立 IVT、BDA、EBDA 和额外中断栈。当前控制流仍在
-``interface_init()`` 内，下一入口是 ``boot_init()``。
+正文已经从平台释放处理器复位，追踪到 SeaBIOS 建立低端内存结构、启动优先级、BIOS32、PMM、PnP、
+键盘队列和鼠标 BIOS 状态。当前控制流回到 ``maininit()``，下一入口是
+``platform_hardware_setup()``。
 
 章节组织
 --------
