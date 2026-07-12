@@ -124,7 +124,7 @@ PAM 决定相应地址范围的读取来自固件 ROM 还是 shadow RAM，以及
 所谓 shadow RAM，是在与传统 ROM 相同的 CPU 地址上提供一份 RAM 后备。对 CPU 来说地址仍然是
 ``0xf0000`` 附近，底层存储已经可以修改。
 
-handle_post 调用：
+``handle_post()`` 调用：
 
 .. code-block:: c
 
@@ -309,7 +309,7 @@ QEMU 通过 ``fw_cfg`` 接口向固件提供配置数据。``qemu_early_e820()``
 如果较老的 QEMU 没有提供 ``etc/e820``，SeaBIOS 才退回 CMOS 中的内存容量字段，构造一条基础 RAM
 记录。当前路径优先使用 ``fw_cfg`` 提供的完整地图。
 
-最后，SeaBIOS额外保留 4 GiB 顶部的 256 KiB：
+最后，SeaBIOS 额外保留 4 GiB 顶部的 256 KiB：
 
 .. code-block:: c
 
@@ -392,7 +392,7 @@ SeaBIOS 建立：
 
 ::
 
-   BUILD_STACK_ADDR  = 0x7000
+   BUILD_STACK_ADDR   = 0x7000
    BUILD_EBDA_MINIMUM = 0x90000
 
 第二章建立的早期栈位于这一区域起点。后续初始化代码可以从临时低端区分配小块内存。
@@ -581,12 +581,6 @@ maininit 的函数指针也要跟着移动
 
 下一段控制流从 ``maininit()`` 开始。它将初始化 SeaBIOS 内部接口、IVT、BDA、EBDA、平台设备和计时
 设施，随后才逐步获得访问磁盘、键盘、显示设备和其他启动资源的能力。
-
-章节导航
---------
-
-* `上一章：SeaBIOS 怎样从 16 位入口进入 32 位 C 代码？ <02-seabios-entry-to-32bit-c.rst>`_
-* `返回 Linux Kernel 目录 <index.rst>`_
 
 资料
 ----
