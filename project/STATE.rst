@@ -11,11 +11,11 @@
 
 仓库当前只写 Linux Kernel。
 
-已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-032``。最新章节：
+已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-034``。最新章节：
 
-``LK-BOOT-032``：GRUB 怎样把 initramfs 放到内核允许的高地址？
+``LK-BOOT-034``：Linux startup_32 怎样建立 4 GiB 映射并进入 64 位模式？
 
-完整章节列表见 ``docs/tracks/linux-kernel/index.rst``，各章起止入口见 ``manifests/tracks/linux-kernel.toml``。
+完整章节列表见 ``docs/tracks/linux-kernel/index.rst``，机器可读接续信息见 ``manifests/tracks/linux-kernel.toml``。
 
 当前主线
 --------
@@ -40,68 +40,57 @@
    GRUB commit       = d38d6a1a9b79427848976f53d474392cd29c2a71
    Linux release     = 6.12.95
    Linux source tag  = gregkh/linux v6.12.95
-   target            = i386-pc
-   partition table   = MBR
-   first partition   = LBA 2048
-   filesystem        = ext4
-   GRUB directory    = /boot/grub
    kernel            = /boot/bzImage-6.12.95
    initramfs         = /boot/initramfs-6.12.95.img
-
-固定 grub.cfg
--------------
-
-.. code-block:: cfg
-
-   set timeout=0
-   set default=0
-
-   menuentry 'Linux 6.12.95' {
-       linux /boot/bzImage-6.12.95 root=/dev/sda1 ro console=ttyS0
-       initrd /boot/initramfs-6.12.95.img
-   }
 
 当前控制流位置
 --------------
 
-第三十二章结束在：
+第三十四章结束在：
 
 ::
 
-   grub_cmd_initrd()
-   → verify kernel loader is already present
-   → open /boot/initramfs-6.12.95.img with NO_DECOMPRESS
-   → size = true file size
-   → aligned_size = ALIGN_UP(size, 4096)
-   → addr_max = min(initrd_addr_max, 0x37ffffff, optional mem=)
-   → addr_max -= 0x10000
-   → addr_min = prot_mode_target + prot_init_space
-   → choose high 4 KiB-aligned target
-   → allocate relocator chunk
-   → copy original initramfs bytes
-   → ramdisk_image = initrd_mem_target
-   → ramdisk_size = size
-   → close initrd components
-   → finish entry sourcecode
-   → stop before implicit grub_command_execute("boot")
+   Linux compressed startup_32
+   → cld / cli
+   → temporary 4-byte stack in boot_params.scratch
+   → call/pop computes actual startup_32 address into EBP
+   → load Linux GDT
+   → switch to Linux __KERNEL32_CS
+   → switch to 16 KiB boot stack
+   → verify_cpu checks CPUID, long mode and SSE
+   → compute safe relocation base in EBX
+   → CR4.PAE = 1
+   → clear six initial page-table pages
+   → PML4[0] points to PDPT
+   → four PDPT entries point to four page directories
+   → 2048 two-megabyte PDEs identity-map low 4 GiB
+   → CR3 = initial PML4
+   → EFER.LME = 1
+   → invalidate LDT and load early TSS
+   → push __KERNEL_CS and startup_64
+   → CR0.PG = 1 activates long mode
+   → lret loads 64-bit code segment
+   → startup_64
 
 此刻机器状态：
 
-* 当前执行者：GNU GRUB 2.14 菜单项执行路径；
+* 当前执行者：Linux 6.12.95 ``arch/x86/boot/compressed/head_64.S:startup_64``；
 * 当前主流程 CPU：BSP；
-* CPU 模式：32 位保护模式；
-* 分页：关闭；
-* Linux protected-mode payload：已装入 relocator chunk；
-* initramfs：已装入另一个 relocator chunk；
-* initramfs 内容：保持磁盘原始字节，GRUB 未解压；
-* ``linux_params.hdr.ramdisk_image``：已填写；
-* ``linux_params.hdr.ramdisk_size``：已填写；
-* kernel command line：``BOOT_IMAGE=/boot/bzImage-6.12.95 root=/dev/sda1 ro console=ttyS0``；
-* loader hook：``grub_linux_boot``；
-* entry sourcecode：执行完成；
-* 隐式 ``boot``：尚未调用；
-* Linux payload：尚未解压；
-* Linux：尚未取得控制权。
+* CPU 模式：64 位 long mode；
+* paging：开启；
+* 初始 paging level：4；
+* 初始映射：低 4 GiB identity mapped；
+* 初始大页：2 MiB；
+* ``CR4.PAE``：1；
+* ``EFER.LME`` / ``EFER.LMA``：1；
+* interrupts：关闭；
+* boot_params 指针：由 32 位入口寄存器继续携带；
+* compressed image：尚未搬到安全解压位置；
+* BSS：尚未清零；
+* ``extract_kernel()``：尚未调用；
+* initramfs：尚未解析；
+* 最终内核 image：尚未解压；
+* ``start_kernel()``：尚未到达。
 
 完成状态
 --------
@@ -116,4 +105,4 @@
 当前下一步
 ----------
 
-从 ``grub_menu_execute_entry()`` 的隐式 ``grub_command_execute("boot")`` 开始，追踪 loader hook 调用、video 信息、低端 ``boot_params``、命令行、E820、relocator 最终搬运和 32 位寄存器状态，直到 ``EIP=code32_start``、``ESI=boot_params`` 进入 Linux compressed ``startup_32``。
+从 compressed ``startup_64`` 第一条指令开始，追踪 boot_params 保存、解压输出地址计算、5-level paging 配置、compressed image 向安全高端倒序复制、GDT 重定位、跳入 ``.Lrelocated``、清 BSS、建立更完整 identity maps 和调用 ``extract_kernel()``。
