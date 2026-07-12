@@ -17,6 +17,7 @@ firmware_repository = "coreboot/seabios"
 firmware_commit = "c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf"
 qemu_repository = "qemu/qemu"
 qemu_commit = "a759542a2c62f0fd3b65f5a66ad9868201014669"
+storage_controller = "QEMU q35 built-in ICH9 AHCI SATA"
 bootloader = "GRUB i386-pc"
 kernel_image = "bzImage"
 kernel_release = "6.12.95"
@@ -158,10 +159,18 @@ status = "complete"
 start = "maininit():threads_during_optionroms()"
 end = "maininit():enable_vga_console() returns on the default non-overlapped path"
 
+[[chapter]]
+id = "LK-BOOT-018"
+title = "SeaBIOS 怎样枚举 USB 设备并初始化 PS/2 键盘？"
+rst = "docs/tracks/linux-kernel/18-seabios-usb-and-ps2-input.rst"
+status = "complete"
+start = "maininit():device_hardware_setup():usb_setup()"
+end = "device_hardware_setup() reaches block_setup() after ps2port_setup()"
+
 [current]
-last_complete = "LK-BOOT-017"
-next_entry = "maininit():device_hardware_setup() on the default synchronous path"
-next_action = "追踪 USB controller/device、PS/2 keyboard 与 block_setup 前的实际初始化"
+last_complete = "LK-BOOT-018"
+next_entry = "device_hardware_setup():block_setup()"
+next_action = "沿 QEMU q35 内置 ICH9 AHCI SATA 路径探测启动磁盘，并等待全部设备线程完成"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
