@@ -26,8 +26,9 @@
 #. ``LK-BOOT-012``：SeaBIOS 怎样用 INIT/SIPI 唤醒其他 CPU？
 #. ``LK-BOOT-013``：SeaBIOS 怎样把 CPU、IRQ 和内存信息写成固件表？
 #. ``LK-BOOT-014``：SeaBIOS 怎样执行 QEMU 的 ACPI table-loader 并找到 RSDP？
+#. ``LK-BOOT-015``：SeaBIOS 怎样沿 RSDP 读懂 ACPI 表图并解析 DSDT？
 
-当前控制流停在 ``qemu_platform_setup()`` 的 ``find_acpi_rsdp()`` 成功返回处。ACPI blobs 已经分配到客户机内存，表间指针和 checksum 已经修正，``RsdpAddr`` 已保存。下一段从 RSDP 展开 RSDT/XSDT、FADT、MADT、MCFG 和 DSDT，追踪 ``acpi_dsdt_parse()``、``virtio_mmio_setup_acpi()`` 与 ``qemu_platform_setup()`` 返回。
+当前控制流已经从 ``qemu_platform_setup()`` 返回到 ``platform_hardware_setup()``。RSDP、RSDT/XSDT、FADT、MADT、MCFG 与受限 DSDT 设备索引已经建立。下一段从 ``timer_setup()``、``clock_setup()`` 和 ``tpm_setup()`` 继续，结束后进入 ``maininit()`` 的 ``device_hardware_setup()`` / ``vgarom_setup()`` 分流。
 
 ## 用户输入与技术事实
 
@@ -89,7 +90,7 @@
 ## 当前内容依据
 
 * x86-64 处理器复位状态、保护模式、SMM、MTRR、MSR、APIC 与 INIT/SIPI 资料；
-* PIRQ、Intel MP Specification、SMBIOS 与 ACPI 资料；
+* PIRQ、Intel MP Specification、SMBIOS、ACPI、PIT、RTC 与 TPM 资料；
 * SeaBIOS 固定源码提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
 * QEMU 固定参考提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669``；
 * GRUB i386-pc 固定源码；
