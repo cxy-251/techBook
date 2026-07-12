@@ -27,6 +27,7 @@ techBook
 * `第十八章：SeaBIOS 怎样枚举 USB 设备并初始化 PS/2 键盘？ <docs/tracks/linux-kernel/18-seabios-usb-and-ps2-input.rst>`_
 * `第十九章：SeaBIOS 怎样发现 q35 的 AHCI 磁盘并把它加入启动列表？ <docs/tracks/linux-kernel/19-seabios-ahci-disk-and-bootlist.rst>`_
 * `第二十章：SeaBIOS 怎样扫描普通 Option ROM 并把 BCV、BEV 加入启动列表？ <docs/tracks/linux-kernel/20-seabios-option-rom-bcv-bev.rst>`_
+* `第二十一章：SeaBIOS 怎样执行 BCV 并把启动盘映射成 BIOS 0x80？ <docs/tracks/linux-kernel/21-seabios-bcv-drive-mapping-and-prepareboot.rst>`_
 
 当前主线
 --------
@@ -43,7 +44,7 @@ techBook
 开头从设备上电后的故事进入，最终主题仍然是 Linux 内核。正文按真实发生顺序连续讲述；达到适合一次
 阅读的篇幅，并遇到自然控制权交接点时换章。
 
-普通 PCI/CBFS Option ROM 已经完成部署和解析，条件 BCV/BEV 已加入 ``BootList``。下一入口是 ``interactive_bootmenu()``，随后由 ``prepareboot():bcv_prepboot()`` 执行 BCV 并建立 BIOS 驱动映射。GRUB 尚未被读取或执行。
+BCV 已执行，AHCI port 0 已映射为 BIOS 第一块硬盘 ``0x80``，最终 ``BEV[]`` 启动序列和 E820/PMM 收尾已经完成。下一入口是 ``make_bios_readonly()``，随后 ``startBoot()`` 进入 ``INT 19h``。MBR 尚未读取，GRUB 尚未执行。
 
 开始工作
 --------
