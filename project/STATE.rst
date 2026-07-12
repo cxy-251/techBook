@@ -42,6 +42,7 @@
 #. ``LK-BOOT-027``：GRUB 怎样加载内建模块并建立 hd0、root 和 prefix？
 #. ``LK-BOOT-028``：GRUB normal 怎样找到并打开 grub.cfg？
 #. ``LK-BOOT-029``：GRUB 怎样解析 grub.cfg 并建立第一个 Linux 菜单项？
+#. ``LK-BOOT-030``：GRUB 怎样自动选择菜单项并装入 linux 命令模块？
 
 当前主线
 --------
@@ -88,41 +89,50 @@
 当前控制流位置
 --------------
 
-第二十九章结束在：
+第三十章结束在：
 
 ::
 
-   read_config_file()
-   → grub_normal_parse_line()
-   → grub_script_parse()
-   → execute set timeout=0
-   → execute set default=0
-   → parse multi-line menuentry block
-   → retain raw block source and parsed child script
-   → grub_script_execute_cmdline()
-   → find already-registered menuentry extended command
-   → grub_cmd_menuentry()
-   → prepend setparams
-   → grub_normal_add_menu_entry()
-   → append first grub_menu_entry
-   → menu->size = 1
-   → finish reading grub.cfg
-   → return menu to grub_normal_execute()
-   → stop before grub_show_menu()
+   grub_normal_execute()
+   → grub_show_menu()
+   → show_menu()
+   → run_menu()
+   → resolve default = entry 0
+   → resolve timeout = 0
+   → return entry 0 without drawing menu
+   → grub_menu_execute_with_fallback()
+   → grub_menu_execute_entry()
+   → chosen = Linux 6.12.95
+   → grub_script_execute_new_scope(entry->sourcecode)
+   → execute setparams
+   → reach linux command line
+   → find dynamic linux placeholder from command.lst
+   → grub_dyncmd_dispatcher()
+   → grub_dl_load("linux")
+   → open (hd0,msdos1)/boot/grub/i386-pc/linux.mod
+   → read complete module into GRUB heap
+   → parse ELF ET_REL
+   → resolve dependencies and symbols
+   → relocate allocatable sections
+   → add module and run GRUB_MOD_INIT(linux)
+   → register real linux and initrd commands
+   → unregister dynamic placeholder
+   → find real linux command
+   → stop before grub_cmd_linux()
 
 此刻机器状态：
 
-* 当前执行者：GNU GRUB 2.14 normal mode；
+* 当前执行者：GNU GRUB 2.14 dynamic command dispatcher；
 * 当前主流程 CPU：BSP；
 * 模式：32 位保护模式；
 * 分页：关闭；
-* ``timeout``：``0``；
-* ``default``：``0``；
-* menu object：已有一个 entry；
-* 第一个 entry title/id：``Linux 6.12.95``；
-* entry sourcecode：``setparams``、``linux``、``initrd``；
-* 菜单项 body：尚未执行；
-* ``linux.mod``：尚未动态加载；
+* selected entry / ``chosen``：``Linux 6.12.95``；
+* entry scope：已建立，``setparams`` 已执行；
+* dynamic ``linux`` placeholder：已注销；
+* ``linux.mod``：已从 ext4 读取、重定位并初始化；
+* 真实 ``linux`` 与 ``initrd`` 命令：已注册；
+* ``linux`` 参数：``/boot/bzImage-6.12.95 root=/dev/sda1 ro console=ttyS0``；
+* ``grub_cmd_linux()``：尚未调用；
 * ``/boot/bzImage-6.12.95``：尚未打开；
 * ``/boot/initramfs-6.12.95.img``：尚未打开；
 * Linux：尚未取得控制权。
@@ -142,8 +152,8 @@
 ------------
 
 * GNU GRUB 2.14 官方发布包与发布提交 ``d38d6a1a9b79427848976f53d474392cd29c2a71``；
-* GRUB ``grub-core/normal/main.c``、``script/main.c``、``script/parser.y``、``script/execute.c``；
-* GRUB ``grub-core/commands/menuentry.c`` 与 ``grub-core/kern/corecmd.c``；
+* GRUB ``grub-core/normal/main.c``、``normal/menu.c``、``normal/dyncmd.c``、``script/execute.c``；
+* GRUB ``grub-core/kern/dl.c`` 与 ``grub-core/loader/i386/linux.c``；
 * SeaBIOS 提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
 * QEMU 提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669``；
 * Linux 6.12.95 与 Linux/x86 Boot Protocol。
@@ -151,4 +161,4 @@
 当前下一步
 ----------
 
-从 ``grub_normal_execute():grub_show_menu()`` 开始，追踪 ``default=0`` 与 ``timeout=0`` 怎样选择第一个菜单项、建立 ``chosen``、执行 entry sourcecode，并通过 dynamic command placeholder 装入 ``linux.mod``；停在真实 ``grub_cmd_linux()`` 入口。
+从真实 ``grub_cmd_linux()`` 开始，打开固定 ``/boot/bzImage-6.12.95``，验证 Linux/x86 setup header，建立 boot parameter 副本、命令行和 relocator-backed protected-mode payload；停在 ``grub_loader_set()`` 完成后，尚不执行 ``initrd``。
