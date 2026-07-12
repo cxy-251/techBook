@@ -28,8 +28,9 @@
 #. ``LK-BOOT-014``：SeaBIOS 怎样执行 QEMU 的 ACPI table-loader 并找到 RSDP？
 #. ``LK-BOOT-015``：SeaBIOS 怎样沿 RSDP 读懂 ACPI 表图并解析 DSDT？
 #. ``LK-BOOT-016``：SeaBIOS 怎样建立时间基准、18.2 Hz BIOS 时钟并初始化 TPM？
+#. ``LK-BOOT-017``：SeaBIOS 为什么先运行 VGA Option ROM 再初始化其他设备？
 
-当前控制流已经从 ``platform_hardware_setup()`` 返回到 ``maininit()``。SeaBIOS 内部时间源、PIT/RTC/BDA 传统 BIOS 时钟和条件 TPM measured-boot 初始化已经完成。下一段从 ``threads_during_optionroms()`` 的时序分支开始，继续追踪 ``device_hardware_setup()``、``vgarom_setup()``、USB、PS/2 与 block driver 初始化。
+当前默认 QEMU 路径没有 ``etc/threads=2`` 覆盖，``threads_during_optionroms()`` 返回 false。VGA Option ROM 已从 fw_cfg 或 PCI ROM BAR 部署到 ``0xc0000`` 起始区域，经过 header/PCIR/checksum 验证和条件 TPM measurement 后以 ``farcall16big`` 执行；``INT 10h`` 与 mode 3 文字控制台已经建立。下一段从同步 ``maininit():device_hardware_setup()`` 开始，先追踪 USB controller/port 枚举、USB HID/存储分流和 i8042 PS/2 keyboard 初始化，再进入 ``block_setup()``。
 
 ## 用户输入与技术事实
 
@@ -91,7 +92,7 @@
 ## 当前内容依据
 
 * x86-64 处理器复位状态、保护模式、SMM、MTRR、MSR、APIC 与 INIT/SIPI 资料；
-* PIRQ、Intel MP Specification、SMBIOS、ACPI、PIT、RTC 与 TPM 资料；
+* PIRQ、Intel MP Specification、SMBIOS、ACPI、PIT、RTC、TPM、PCI Option ROM、PnP BIOS 与 VGA BIOS 资料；
 * SeaBIOS 固定源码提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
 * QEMU 固定参考提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669``；
 * GRUB i386-pc 固定源码；
