@@ -10,13 +10,13 @@
 
 ``x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 6.12.95``。
 
-当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-031``。最新章节是：
+当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-032``。最新章节是：
 
-``LK-BOOT-031``：GRUB linux 命令怎样检查并装载 Linux bzImage？
+``LK-BOOT-032``：GRUB 怎样把 initramfs 放到内核允许的高地址？
 
-## 当前固定 GRUB 路径
+## 当前固定路径
 
-```
+```text
 GNU GRUB release = 2.14
 release commit   = d38d6a1a9b79427848976f53d474392cd29c2a71
 target           = i386-pc
@@ -28,7 +28,8 @@ boot.img         = LBA 0
 core.img         = contiguous from LBA 1
 built-in modules = biosdisk part_msdos ext2 normal + dependencies
 embedded prefix  = (,msdos1)/boot/grub
-embedded config  = absent in the fixed simple same-disk path
+Linux release    = 6.12.95
+Linux source     = gregkh/linux tag v6.12.95
 ```
 
 固定 ``/boot/grub/grub.cfg``：
@@ -43,44 +44,37 @@ menuentry 'Linux 6.12.95' {
 }
 ```
 
-权威发布物是 GNU 官方 ``grub-2.14.tar.xz``。源码引用使用 ``GitMirroring/grub`` 的固定发布提交。
+权威 GRUB 发布物是 GNU 官方 ``grub-2.14.tar.xz``。源码引用使用 ``GitMirroring/grub`` 的固定发布提交。Linux 源码固定为 ``gregkh/linux`` 的 ``v6.12.95`` tag。
 
 ## 当前控制流
 
-SeaBIOS 固件阶段以及 GRUB ``boot.img → diskboot.img → startup_raw``、机器初始化、内建模块初始化、配置文件打开、菜单项构造、自动选择、``linux.mod`` 动态装载和 ``bzImage`` 读取阶段已经完成。
+SeaBIOS、GRUB 磁盘阶段、``grub_main()``、配置解析、菜单选择、``linux.mod`` 动态装载、``bzImage`` 与 initramfs 读取已经完成。
 
-GRUB 当前已经执行：
+当前已经执行：
 
-```
-grub_cmd_linux()
-→ open /boot/bzImage-6.12.95 through root=hd0,msdos1
-→ validate 0xaa55
-→ validate HdrS
-→ validate protocol 0x020f and loaded-high
-→ derive setup and protected payload sizes
-→ process kernel_alignment, relocatable, min_alignment, pref_address, init_size
-→ allocate relocator-backed protected-mode chunk
-→ clear and fill linux_params setup-header copy
-→ adjust code32_start for actual target
-→ create BOOT_IMAGE=/boot/bzImage-6.12.95 root=/dev/sda1 ro console=ttyS0
-→ read protected-mode payload into prot_mode_mem
-→ grub_loader_set(grub_linux_boot, grub_linux_unload, 0)
-→ loaded = 1
-→ close bzImage
-→ stop before script executes initrd
+```text
+grub_cmd_initrd()
+→ open /boot/initramfs-6.12.95.img with NO_DECOMPRESS
+→ calculate true size and 4 KiB aligned size
+→ addr_max = min(initrd_addr_max, 0x37ffffff, optional mem=) - 0x10000
+→ addr_min = prot_mode_target + prot_init_space
+→ allocate high-preference relocator chunk
+→ copy original initramfs bytes
+→ ramdisk_image = initrd_mem_target
+→ ramdisk_size = true file size
+→ finish entry sourcecode
+→ stop immediately before implicit boot
 ```
 
-当前执行者是 GNU GRUB 2.14 ``grub_cmd_linux()`` 返回路径。CPU 处于 32 位保护模式，分页关闭。protected-mode Linux payload 已在 relocator chunk 中，``linux_params.hdr.ramdisk_image`` 与 ``ramdisk_size`` 仍为 0；Linux payload 尚未解压，控制权仍在 GRUB。
+当前执行者是 GNU GRUB 2.14 菜单项执行路径。CPU 处于 32 位保护模式，分页关闭。Linux protected-mode payload 与 initramfs 都已装入 relocator 管理的内存；loader hook 是 ``grub_linux_boot``；Linux 尚未取得控制权。
 
-下一任务从菜单项第二条命令 ``initrd /boot/initramfs-6.12.95.img`` 开始，进入 ``grub_cmd_initrd()``，计算 header 允许的地址上限与 kernel 初始化区下界，将 initramfs 尽可能高地放置并写入 ``ramdisk_image`` / ``ramdisk_size``。章节停在 entry sourcecode 执行结束、``grub_menu_execute_entry()`` 即将隐式执行 ``boot`` 的位置。
+下一任务从 ``grub_menu_execute_entry()`` 的隐式 ``grub_command_execute("boot")`` 开始，进入 ``grub_linux_boot()``，完成 video、低端 boot_params、命令行、E820 和 relocator 状态，随后以 ``ESI=boot_params``、``EIP=code32_start`` 把控制权交给 Linux compressed ``startup_32``。
 
 ## 用户输入与技术事实
 
 用户提供的是关注方向、已知线索和阅读感受，不直接作为完整或正确的技术事实。
 
 正文根据硬件规范、固定固件源码、启动协议、固定 GRUB/Linux 源码和真实状态变化补全中间过程。用户不知道后续流程时，Agent 继续沿当前控制流调查和写作。
-
-``aiBook`` 的 Linux Kernel Roadmap 只用于确认希望掌握的知识范围。旧 Roadmap 的章节顺序和篇幅不作为新书结构。
 
 ## 连续叙事
 
@@ -103,57 +97,40 @@ grub_cmd_linux()
 
 章节正文不添加上一章、下一章或目录导航。章节列表统一由 ``docs/tracks/linux-kernel/index.rst`` 提供。
 
-每章末尾的“资料”必须使用可点击的 RST 链接，不能只写文件名或文档名。技术事实优先使用规范、官方发布物和固定源码等一手资料。
+每章末尾的“资料”必须使用可点击的 RST 链接。技术事实优先使用规范、官方发布物和固定源码等一手资料。
 
 ## 连续推进模式
 
-用户可以用一次指令要求“连续完成 N 章”或“连续推进到某个真实控制流节点”。此时不等待逐章确认，仍然严格按下面的循环逐章执行：
+用户可以用一次指令要求“连续完成 N 章”或“连续推进到某个真实控制流节点”。此时仍严格逐章执行：
 
-#. 重新读取最新 ``AGENTS.md``、``project/STATE.rst``、manifest 和当前入口；
-#. 读取本章涉及的固定源码与规范；
-#. 只确定当前一章的自然边界；
-#. 写完并核对当前章节；
-#. 更新目录、状态、manifest、README 和接续入口；
-#. 再从刚写入的最新状态开始下一章。
+1. 重新读取最新 ``AGENTS.md``、``project/STATE.rst``、manifest 和当前入口；
+2. 读取本章涉及的固定源码与规范；
+3. 只确定当前一章的自然边界；
+4. 写完并核对当前章节；
+5. 更新目录、状态、manifest、README 和接续入口；
+6. 再从刚写入的最新状态开始下一章。
 
-连续推进不能把多章合并成一篇，也不能先批量生成后统一核对。遇到固定源码无法确认、平台路径发生重大分叉、仓库写入失败或已达到用户指定终点时停止；已经完成的章节和断点必须保持可接续。
+连续推进不能把多章合并成一篇，也不能先批量生成后统一核对。遇到固定源码无法确认、平台路径发生重大分叉、仓库写入失败或达到指定终点时停止。
 
 ## 状态语义
 
-``draft``
-   正文正在编写，或者关键事实链尚未核对完成。
+``draft``：正文正在编写，或者关键事实链尚未核对完成。
 
-``verified``
-   关键结论已经依据固定源码或规范核对，章节仍在续写。
+``verified``：关键结论已经依据固定源码或规范核对，章节仍在续写。
 
-``complete``
-   章节到达自然终点，关键事实已经核对。
+``complete``：章节到达自然终点，关键事实已经核对。
 
 读者不承担技术审稿。用户反馈只用于指出哪里难懂、希望展开或阅读不连续。
-
-## 当前内容依据
-
-* x86-64 处理器复位状态、保护模式、SMM、MTRR、MSR、APIC 与 INIT/SIPI 资料；
-* PIRQ、Intel MP Specification、SMBIOS、ACPI、PIT、RTC、TPM、PCI Option ROM、PnP BIOS、VGA BIOS、USB、HID boot protocol、i8042、AHCI、ATA/ATAPI、BIOS drive mapping、FDPT、PMM、``INT 19h``、``INT 13h`` 与 MBR 资料；
-* SeaBIOS 固定源码提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
-* QEMU 固定参考提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669``；
-* GNU GRUB 2.14 官方发布物和发布提交 ``d38d6a1a9b79427848976f53d474392cd29c2a71``；
-* GRUB ``boot.S``、``diskboot.S``、``startup_raw.S``、``realmode.S``、``startup.S``、``main.c``、``normal/main.c``、``normal/menu.c``、``normal/dyncmd.c``、``script/main.c``、``script/parser.y``、``script/execute.c``、``commands/menuentry.c``、``kern/corecmd.c``、``kern/dl.c``、``loader/i386/linux.c``、``file.c``、``device.c``、``disk.c``、``partition.c``、``partmap/msdos.c``、``fs/ext2.c``；
-* Linux 6.12.95 ``Documentation/arch/x86/boot.rst`` 与 ``arch/x86/boot/header.S``；
-* Linux/x86 Boot Protocol；
-* 能从源码、寄存器、CPU 模式和内存布局确认的状态变化。
 
 ## 接手顺序
 
 开始工作前依次读取：
 
-#. ``AGENTS.md``；
-#. ``project/STATE.rst``；
-#. ``docs/tracks/linux-kernel/index.rst``；
-#. 已完成章节；
-#. ``manifests/tracks/linux-kernel.toml``；
-#. ``main`` 最近的相关提交。
-
-## 工作结束
+1. ``AGENTS.md``；
+2. ``project/STATE.rst``；
+3. ``docs/tracks/linux-kernel/index.rst``；
+4. 已完成章节；
+5. ``manifests/tracks/linux-kernel.toml``；
+6. ``main`` 最近的相关提交。
 
 完成章节后更新正文、目录、``project/STATE.rst``、manifest、README 和 Linux 路径状态。
