@@ -192,10 +192,18 @@ status = "complete"
 start = "maininit():interactive_bootmenu()"
 end = "prepareboot() returns after BCV execution, drive mapping, BEV construction, and memory finalization"
 
+[[chapter]]
+id = "LK-BOOT-022"
+title = "SeaBIOS 怎样把硬盘第一扇区读到 0x7c00 并交给 GRUB？"
+rst = "docs/tracks/linux-kernel/22-seabios-int19-mbr-handoff.rst"
+status = "complete"
+start = "maininit():make_bios_readonly()"
+end = "farcall16 transfers control to the boot sector at 0000:7c00 with DL=0x80"
+
 [current]
-last_complete = "LK-BOOT-021"
-next_entry = "maininit():make_bios_readonly()"
-next_action = "锁定 q35 BIOS shadow RAM，并沿 INT 19h / INT 13h 读取硬盘第一扇区到 0x7c00"
+last_complete = "LK-BOOT-022"
+next_entry = "GRUB i386-pc boot.img at 0000:7c00"
+next_action = "固定 GRUB i386-pc 源码版本与磁盘安装布局，追踪 boot.img 怎样读取 core.img"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
