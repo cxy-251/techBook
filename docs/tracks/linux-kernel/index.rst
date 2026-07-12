@@ -33,6 +33,7 @@ Linux Kernel
 #. `第二十五章：GRUB startup_raw 怎样进入保护模式并调用 grub_main？ <25-grub-startup-raw-protected-mode-and-grub-main.rst>`_
 #. `第二十六章：GRUB 怎样通过 BIOS E820 建立自己的堆？ <26-grub-machine-init-e820-and-heap.rst>`_
 #. `第二十七章：GRUB 怎样加载内建模块并建立 hd0、root 和 prefix？ <27-grub-built-in-modules-root-prefix-and-hd0.rst>`_
+#. `第二十八章：GRUB normal 怎样找到并打开 grub.cfg？ <28-grub-normal-opens-grub-cfg.rst>`_
 
 当前主线
 --------
@@ -46,13 +47,13 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-GRUB 已完成机器初始化，并把 core.img 中的内建 ELF 模块重定位到堆中、执行模块初始化函数。``biosdisk``、``part_msdos``、``ext2`` 与 ``normal`` 已注册，启动 BIOS drive ``0x80`` 已对应为 ``hd0``。
+GRUB normal 已通过 ``biosdisk → part_msdos → ext2`` 打开 ``(hd0,msdos1)/boot/grub/grub.cfg``，并在其上建立 bufio。``config_file`` 与 ``config_directory`` 已导出，第一条不以 ``#`` 开头的配置行已经读入内存。
 
-当前环境变量为 ``cmdpath=(hd0)``、``root=hd0,msdos1``、``prefix=(hd0,msdos1)/boot/grub``。磁盘上的 ``grub.cfg`` 尚未打开，Linux ``bzImage`` 尚未读取。
+当前停在 ``grub_normal_parse_line()`` 调用之前。菜单仍无 ``menuentry``，Linux ``bzImage`` 尚未读取。
 
 章节组织
 --------
 
-正文沿时间线连续讲述。故事达到适合一次阅读的篇幅，并遇到执行者、CPU 模式、运行环境或控制入口的自然交接点时换章。每章末尾记录当前执行者、当前状态和下一入口。
+正文沿时间线连续讲述。故事达到适合一次阅读的篇幅，并遇到执行者、CPU 模式、运行环境或控制入口交接时换章。每章末尾记录当前执行者、当前状态和下一入口。
 
 章节完成状态由固定源码和规范核对决定。读者反馈用于指出哪里难懂、希望展开或阅读不连续，不承担技术审稿。
