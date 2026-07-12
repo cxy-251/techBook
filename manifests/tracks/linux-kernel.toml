@@ -92,10 +92,18 @@ status = "complete"
 start = "pci_setup():pci_bios_init_devices()"
 end = "pci_setup() returns to qemu_platform_setup()"
 
+[[chapter]]
+id = "LK-BOOT-010"
+title = "SeaBIOS 怎样进入 SMM 并把处理入口藏进 SMRAM？"
+rst = "docs/tracks/linux-kernel/10-seabios-smm-and-smbase-relocation.rst"
+status = "complete"
+start = "qemu_platform_setup():smm_device_setup()"
+end = "qemu_platform_setup():smm_setup() returns"
+
 [current]
-last_complete = "LK-BOOT-009"
-next_entry = "qemu_platform_setup():smm_device_setup()"
-next_action = "收到继续指令后，从 q35/ICH9 SMI 设备准备和 SMM handler 安装开始继续"
+last_complete = "LK-BOOT-010"
+next_entry = "qemu_platform_setup():mtrr_setup()"
+next_action = "收到继续指令后，从 MTRR、MSR_IA32_FEATURE_CONTROL 和 smp_setup() 开始继续"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
