@@ -10,9 +10,9 @@
 
 ``x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 6.12.95``。
 
-当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-037``。最新章节是：
+当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-040``。最新章节是：
 
-``LK-BOOT-037``：Linux 怎样解压 ELF 内核并进入正式 startup_64？
+``LK-BOOT-040``：Linux 怎样进入 start_kernel 并建立最早的通用内核状态？
 
 ## 固定实现
 
@@ -47,41 +47,39 @@ GRUB 资料使用 GNU 官方 ``grub-2.14.tar.xz`` 和 ``GitMirroring/grub`` 固�
 
 ## 当前控制流
 
-SeaBIOS、GNU GRUB 与 Linux compressed boot 阶段已经完成。
+SeaBIOS、GNU GRUB、Linux compressed boot 和正式内核最早汇编入口已经完成。
 
 当前已经执行：
 
 ```text
-compressed startup_32
-→ enter long mode
-→ compressed startup_64
-→ calculate RBP decompression target and RBX relocated compressed base
-→ configure 4-level or 5-level paging
-→ copy compressed image backwards to safe high location
-→ jump to .Lrelocated
-→ clear compressed BSS
-→ load stage2 IDT
-→ initialize extendable identity maps
-→ map compressed image, boot_params, command line and setup_data
-→ sanitize boot_params and initialize compressed early console
-→ calculate needed_size
-→ select fixed or KASLR physical/virtual output
-→ decompress payload
-→ parse ELF and move PT_LOAD segments
-→ apply kernel relocations
-→ remove compressed exception handling
-→ jump to decompressed arch/x86/kernel/head_64.S:startup_64
-→ switch to formal initial stack and early GS base
-→ set up formal GDT/IDT
-→ call __startup_64()
-→ calculate phys_base and fix early page tables
-→ load early_top_pgt into CR3
-→ jump to high-half common_startup_64
+common_startup_64
+→ sanitize CR4 and toggle PGE to flush stale global identity translations
+→ determine BSP as Linux CPU 0
+→ load CPU0 per-cpu offset
+→ switch to init_task stack
+→ load per-cpu GDT and GSBASE
+→ install early IDT
+→ enable EFER.SCE and conditional NXE
+→ initial_code calls x86_64_start_kernel
+→ reset early identity page tables
+→ clear kernel BSS and brk
+→ initialize conditional SME/KASAN/TDX early state
+→ copy boot_params and command line
+→ load BSP microcode
+→ x86_64_start_reservations
+→ initialize ordinary-PC legacy platform quirks
+→ start_kernel
+→ set init_task stack-end magic
+→ generic processor-id hook
+→ early debug objects, build ID and cgroup relation
+→ force local IRQs disabled
+→ mark CPU0 possible/present/online/active
+→ print linux_banner
 ```
 
-当前执行者是 Linux 6.12.95 ``arch/x86/kernel/head_64.S:common_startup_64``。CPU 处于 64 位 long mode，interrupts 关闭，RIP 已位于正式内核高半区虚拟地址。``R15`` 保留 ``boot_params``，栈是 ``__top_init_kernel_stack``，``CR3`` 指向修正后的 ``early_top_pgt``。临时 identity mapping 尚未全部清理，``x86_64_start_kernel()`` 和 ``start_kernel()`` 尚未调用。
+当前执行者是 Linux 6.12.95 ``init/main.c:start_kernel()``。精确停点是下一条调用 ``setup_arch(&command_line)``。CPU 0 正在执行，interrupts 关闭，``boot_params`` 和命令行已经复制到内核静态对象，BSP microcode 已完成早期加载。x86 E820/memblock/direct-map 架构初始化尚未开始，initramfs 尚未展开，scheduler/VFS/initcall 尚未初始化。
 
-下一任务从 ``common_startup_64`` 第一条指令开始，追踪 CR4/PGE、boot CPU 编号、percpu offset、TSS、stack、early IDT 和 ``initial_code``，停在 ``x86_64_start_kernel()`` 的自然入口；不要直接跳到 ``start_kernel()``。
+下一任务从 ``arch/x86/kernel/setup.c:setup_arch()`` 第一条真实调用开始，追踪命令行、``boot_params``、setup_data、E820、低端 BIOS 保留区、kernel/initrd 保留、memblock 和 early page tables。不要直接跳到 ``start_kernel()`` 后面的通用初始化，也不要用“setup_arch 完成架构初始化”概括中间过程。
 
 ## 用户输入与技术事实
 
@@ -100,7 +98,7 @@ compressed startup_32
 * 控制权下一步交给哪个入口；
 * 对应哪个规范、源码文件、符号、寄存器或协议字段。
 
-不能用“固件初始化硬件”“GRUB 加载内核”“Linux 进入 64 位”“内核完成解压”这样的概括跳过中间主流程。
+不能用“固件初始化硬件”“GRUB 加载内核”“Linux 初始化内存”这样的概括跳过中间主流程。
 
 ## 章节边界
 
