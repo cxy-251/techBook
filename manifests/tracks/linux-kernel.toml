@@ -184,10 +184,18 @@ status = "complete"
 start = "maininit():optionrom_setup()"
 end = "optionrom_setup() returns after non-VGA ROM deployment and BCV/BEV registration"
 
+[[chapter]]
+id = "LK-BOOT-021"
+title = "SeaBIOS 怎样执行 BCV 并把启动盘映射成 BIOS 0x80？"
+rst = "docs/tracks/linux-kernel/21-seabios-bcv-drive-mapping-and-prepareboot.rst"
+status = "complete"
+start = "maininit():interactive_bootmenu()"
+end = "prepareboot() returns after BCV execution, drive mapping, BEV construction, and memory finalization"
+
 [current]
-last_complete = "LK-BOOT-020"
-next_entry = "maininit():interactive_bootmenu()"
-next_action = "追踪启动菜单、bcv_prepboot、BIOS drive mapping 与最终 BEV 序列"
+last_complete = "LK-BOOT-021"
+next_entry = "maininit():make_bios_readonly()"
+next_action = "锁定 q35 BIOS shadow RAM，并沿 INT 19h / INT 13h 读取硬盘第一扇区到 0x7c00"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
