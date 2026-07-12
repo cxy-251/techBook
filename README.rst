@@ -15,6 +15,7 @@ techBook
 * `第六章：SeaBIOS 怎样建立中断基础并启动内部线程？ <docs/tracks/linux-kernel/06-seabios-dma-pic-threads.rst>`_
 * `第七章：SeaBIOS 怎样为 q35 编号 PCI 总线并发现设备？ <docs/tracks/linux-kernel/07-seabios-pci-bus-and-device-discovery.rst>`_
 * `第八章：SeaBIOS 怎样启用 q35 MMCONFIG 并为 PCI 设备分配地址？ <docs/tracks/linux-kernel/08-seabios-q35-mmconfig-and-pci-bar-allocation.rst>`_
+* `第九章：SeaBIOS 怎样接通 q35 PCI 中断并打开设备地址解码？ <docs/tracks/linux-kernel/09-seabios-pci-interrupt-routing-and-device-enable.rst>`_
 
 当前主线
 --------
@@ -31,8 +32,8 @@ techBook
 开头从设备上电后的故事进入，最终主题仍然是 Linux 内核。正文按真实发生顺序连续讲述；达到适合一次
 阅读的篇幅，并遇到自然控制权交接点时换章。
 
-当前控制流仍在 SeaBIOS ``pci_setup()`` 内。q35 MMCONFIG、endpoint BAR 和 bridge window 地址已经建立，
-下一步从 ``pci_bios_init_devices()`` 继续处理 INTx、q35/ICH9 专用初始化和 ``PCI_COMMAND``。GRUB 尚未被读取或执行。
+当前控制流回到 SeaBIOS ``qemu_platform_setup()``。PCI 地址、中断路由、q35/ICH9 专用配置和设备地址解码
+已经建立，下一入口是 ``smm_device_setup()``。GRUB 尚未被读取或执行。
 
 开始工作
 --------
