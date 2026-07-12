@@ -36,6 +36,7 @@ techBook
 * `第二十七章：GRUB 怎样加载内建模块并建立 hd0、root 和 prefix？ <docs/tracks/linux-kernel/27-grub-built-in-modules-root-prefix-and-hd0.rst>`_
 * `第二十八章：GRUB normal 怎样找到并打开 grub.cfg？ <docs/tracks/linux-kernel/28-grub-normal-opens-grub-cfg.rst>`_
 * `第二十九章：GRUB 怎样解析 grub.cfg 并建立第一个 Linux 菜单项？ <docs/tracks/linux-kernel/29-grub-parses-config-and-builds-menuentry.rst>`_
+* `第三十章：GRUB 怎样自动选择菜单项并装入 linux 命令模块？ <docs/tracks/linux-kernel/30-grub-autoboots-entry-and-loads-linux-module.rst>`_
 
 当前主线
 --------
@@ -51,7 +52,7 @@ techBook
 
 开头从设备上电后的故事进入，最终主题仍然是 Linux 内核。正文按真实发生顺序连续讲述；达到适合一次阅读的篇幅，并遇到自然控制权交接点时换章。
 
-当前固定 ``grub.cfg`` 已解析完成，menu object 已获得 ``Linux 6.12.95`` 启动项。``timeout=0``、``default=0`` 已建立；菜单项 body、``linux.mod`` 和 Linux ``bzImage`` 尚未执行或读取。
+当前第一个 GRUB 菜单项已由 ``timeout=0`` 自动选中，``linux.mod`` 已从 ext4 读取、重定位并初始化，真实 ``linux`` 与 ``initrd`` 命令已经注册。控制流停在 ``grub_cmd_linux()`` 入口，Linux ``bzImage`` 尚未打开。
 
 开始工作
 --------
