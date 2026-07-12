@@ -35,6 +35,7 @@ techBook
 * `第二十六章：GRUB 怎样通过 BIOS E820 建立自己的堆？ <docs/tracks/linux-kernel/26-grub-machine-init-e820-and-heap.rst>`_
 * `第二十七章：GRUB 怎样加载内建模块并建立 hd0、root 和 prefix？ <docs/tracks/linux-kernel/27-grub-built-in-modules-root-prefix-and-hd0.rst>`_
 * `第二十八章：GRUB normal 怎样找到并打开 grub.cfg？ <docs/tracks/linux-kernel/28-grub-normal-opens-grub-cfg.rst>`_
+* `第二十九章：GRUB 怎样解析 grub.cfg 并建立第一个 Linux 菜单项？ <docs/tracks/linux-kernel/29-grub-parses-config-and-builds-menuentry.rst>`_
 
 当前主线
 --------
@@ -50,7 +51,7 @@ techBook
 
 开头从设备上电后的故事进入，最终主题仍然是 Linux 内核。正文按真实发生顺序连续讲述；达到适合一次阅读的篇幅，并遇到自然控制权交接点时换章。
 
-当前 GRUB normal 已打开 ``(hd0,msdos1)/boot/grub/grub.cfg``，并读出第一条待解析配置行。``grub_normal_parse_line()`` 尚未调用，菜单启动项和 Linux ``bzImage`` 尚未建立。
+当前固定 ``grub.cfg`` 已解析完成，menu object 已获得 ``Linux 6.12.95`` 启动项。``timeout=0``、``default=0`` 已建立；菜单项 body、``linux.mod`` 和 Linux ``bzImage`` 尚未执行或读取。
 
 开始工作
 --------
