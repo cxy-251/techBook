@@ -28,6 +28,9 @@ Linux Kernel
 #. `第二十章：SeaBIOS 怎样扫描普通 Option ROM 并把 BCV、BEV 加入启动列表？ <20-seabios-option-rom-bcv-bev.rst>`_
 #. `第二十一章：SeaBIOS 怎样执行 BCV 并把启动盘映射成 BIOS 0x80？ <21-seabios-bcv-drive-mapping-and-prepareboot.rst>`_
 #. `第二十二章：SeaBIOS 怎样把硬盘第一扇区读到 0x7c00 并交给 GRUB？ <22-seabios-int19-mbr-handoff.rst>`_
+#. `第二十三章：GRUB boot.img 怎样从 0x7c00 读出 core.img 的第一扇区？ <23-grub-boot-img-loads-diskboot.rst>`_
+#. `第二十四章：GRUB diskboot.img 怎样按 blocklist 读完 core.img？ <24-grub-diskboot-blocklist-loads-core.rst>`_
+#. `第二十五章：GRUB startup_raw 怎样进入保护模式并调用 grub_main？ <25-grub-startup-raw-protected-mode-and-grub-main.rst>`_
 
 当前主线
 --------
@@ -37,16 +40,17 @@ Linux Kernel
    x86-64
    → QEMU q35
    → SeaBIOS
-   → GRUB i386-pc
+   → GNU GRUB 2.14 i386-pc
    → bzImage
    → Linux 6.12.95
 
-SeaBIOS 已经通过 ``INT 19h`` 和 ``INT 13h`` 把 AHCI 启动盘的 LBA 0 读到物理地址 ``0x7c00``，校验 ``0x55aa``，并以 ``DL=0x80`` 跳转到 ``0000:7c00``。当前执行者已经切换为 GRUB i386-pc ``boot.img``；``core.img`` 尚未读取。下一章先固定 GRUB 的准确源码版本和磁盘安装布局，再从 ``boot.img`` 的第一条指令继续。
+SeaBIOS 已将 LBA 0 交给 ``boot.img``；``boot.img`` 已读取 ``diskboot.img``，``diskboot.img`` 已按 blocklist 装入完整 ``core.img``。GRUB 随后进入 32 位保护模式，验证 A20，将 LZMA 压缩 core 解压到 ``0x100000``，把正式核心复制到链接地址 ``0x9000``，清零 BSS，并调用 ``grub_main()``。
+
+当前执行者是 GNU GRUB 2.14 ``grub_main()``。``grub.cfg``、GRUB 菜单和 Linux ``bzImage`` 均尚未读取。
 
 章节组织
 --------
 
-正文沿时间线连续讲述。故事达到适合一次阅读的篇幅，并遇到执行者、CPU 模式、运行环境或控制入口的
-自然交接点时换章。每章末尾记录当前执行者、当前状态和下一入口。
+正文沿时间线连续讲述。故事达到适合一次阅读的篇幅，并遇到执行者、CPU 模式、运行环境或控制入口的自然交接点时换章。每章末尾记录当前执行者、当前状态和下一入口。
 
 章节完成状态由固定源码和规范核对决定。读者反馈用于指出哪里难懂、希望展开或阅读不连续，不承担技术审稿。
