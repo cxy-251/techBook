@@ -76,10 +76,18 @@ status = "complete"
 start = "platform_hardware_setup():qemu_platform_setup()"
 end = "pci_setup():pci_probe_devices() returns"
 
+[[chapter]]
+id = "LK-BOOT-008"
+title = "SeaBIOS 怎样启用 q35 MMCONFIG 并为 PCI 设备分配地址？"
+rst = "docs/tracks/linux-kernel/08-seabios-q35-mmconfig-and-pci-bar-allocation.rst"
+status = "complete"
+start = "pci_setup():pcimem_start = RamSize; pci_bios_init_platform()"
+end = "pci_setup():pci_bios_map_devices() returns"
+
 [current]
-last_complete = "LK-BOOT-007"
-next_entry = "pci_setup():pcimem_start = RamSize; pci_bios_init_platform()"
-next_action = "收到继续指令后，从 q35 MMCONFIG 和 PCI BAR 资源分配开始继续"
+last_complete = "LK-BOOT-008"
+next_entry = "pci_setup():pci_bios_init_devices()"
+next_action = "收到继续指令后，从 PCI INTx、q35/ICH9 设备专用初始化和 PCI_COMMAND 地址解码开始继续"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
