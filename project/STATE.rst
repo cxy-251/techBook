@@ -21,6 +21,7 @@
 #. ``LK-BOOT-006``：SeaBIOS 怎样建立中断基础并启动内部线程？
 #. ``LK-BOOT-007``：SeaBIOS 怎样为 q35 编号 PCI 总线并发现设备？
 #. ``LK-BOOT-008``：SeaBIOS 怎样启用 q35 MMCONFIG 并为 PCI 设备分配地址？
+#. ``LK-BOOT-009``：SeaBIOS 怎样接通 q35 PCI 中断并打开设备地址解码？
 
 当前主线
 --------
@@ -37,39 +38,42 @@
 当前控制流位置
 --------------
 
-第八章结束在：
+第九章结束在：
 
 ::
 
    qemu_platform_setup()
    → pci_setup()
-   → pci_bios_map_devices() 返回
+   → pci_bios_init_devices()
+   → pci_enable_default_vga()
+   → pci_setup() 返回
 
-``pci_setup()`` 接下来执行：
+``qemu_platform_setup()`` 接下来执行：
 
 .. code-block:: c
 
-   pci_bios_init_devices();
+   smm_device_setup();
 
 此刻机器状态：
 
-* 当前执行者：SeaBIOS ``pci_setup()``；
+* 当前执行者：SeaBIOS ``qemu_platform_setup()``；
 * CPU：BSP；
 * 模式：32 位保护模式；
 * 分页：关闭；
-* PCI bus number 与 parent bridge 拓扑：已经建立；
-* q35 MMCONFIG：``0xb0000000-0xbfffffff``，已经启用并标记为 ``E820_RESERVED``；
-* 32 位 PCI MMIO 候选窗口：从 ``0xc0000000`` 到 ``0xfec00000`` 之前；
-* endpoint BAR 大小、类型与对齐：已经测量；
-* endpoint BAR 地址：已经写入；
-* PCI bridge I/O、MEM 与 PREFMEM window：已经写入；
-* 可迁移的 64 位 BAR：可能已经分配到 4 GiB 以上；
-* PCI INTx routing：尚未统一写入；
-* ``PCI_COMMAND`` I/O decode、memory decode 与 SERR：尚未统一开启；
-* q35/ICH9 设备专用初始化：尚未全部执行；
-* PCI 设备驱动：尚未运行；
-* 磁盘、光驱、USB 与网络启动设备：尚未探测；
-* 具体启动设备：尚未加入 ``BootList``；
+* q35 MMCONFIG：已经启用并标记为 ``E820_RESERVED``；
+* PCI bus number、BAR 与 bridge window：已经配置；
+* PCI INTx line：已经计算并写入；
+* ICH9 PIRQA-H：已经路由到 IRQ10/IRQ11；
+* IRQ10/IRQ11：已经设置为 level-triggered；
+* ICH9 LPC PMBASE、SCI、RCBA 与 PM timer 地址：已经建立；
+* PCI I/O 与 memory decode：已经打开；
+* PCI SERR 与 bridge SERR forwarding：已经打开；
+* bus mastering：尚未统一开启，由具体驱动按需设置；
+* 默认 VGA 路径：已经选择并保证可达；
+* VGA Option ROM：尚未执行；
+* SMM：尚未安装；
+* ATA、AHCI、NVMe、USB、virtio 与网络驱动：尚未开始设备探测；
+* 磁盘、光驱与网络启动项：尚未加入 ``BootList``；
 * GRUB：尚未被读取或执行；
 * Linux：尚未装入内存。
 
@@ -88,15 +92,15 @@ Kernel 目录页。
 固定事实来源
 ------------
 
-* Intel x86 处理器复位、实模式和保护模式资料；
+* Intel x86 处理器复位、实模式、保护模式与 SMM 资料；
 * SeaBIOS 提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
 * SeaBIOS ``src/fw/pciinit.c`` 和 ``src/fw/dev-q35.h``；
-* SeaBIOS ``src/hw/pci.c``、``src/hw/pci.h`` 和 ``src/hw/pci_regs.h``；
-* SeaBIOS ``src/config.h`` 和 ``src/e820map.c``；
+* SeaBIOS ``src/hw/pci.c``、``src/hw/pci.h``、``src/hw/pcidevice.c`` 和 ``src/hw/pci_regs.h``；
+* SeaBIOS ``src/hw/ata.h`` 和 ``src/optionroms.c``；
 * PCI Firmware Specification。
 
 当前下一步
 ----------
 
-收到继续指令后，从 ``pci_setup():pci_bios_init_devices()`` 开始，继续追踪 PCI INTx line、q35/ICH9 设备专用
-初始化、``PCI_COMMAND`` 地址解码与默认 VGA 路径。
+收到继续指令后，从 ``qemu_platform_setup():smm_device_setup()`` 开始，继续追踪 q35/ICH9 SMI 设备准备、SMRAM
+映射与 SeaBIOS SMM handler 安装。
