@@ -134,10 +134,18 @@ status = "complete"
 start = "qemu_platform_setup():romfile_loader_execute(etc/table-loader)"
 end = "qemu_platform_setup():find_acpi_rsdp() returns RsdpAddr"
 
+[[chapter]]
+id = "LK-BOOT-015"
+title = "SeaBIOS 怎样沿 RSDP 读懂 ACPI 表图并解析 DSDT？"
+rst = "docs/tracks/linux-kernel/15-seabios-acpi-table-graph-and-dsdt-parse.rst"
+status = "complete"
+start = "qemu_platform_setup():RsdpAddr available"
+end = "qemu_platform_setup() returns after acpi_dsdt_parse and virtio_mmio_setup_acpi"
+
 [current]
-last_complete = "LK-BOOT-014"
-next_entry = "qemu_platform_setup():acpi_dsdt_parse(); virtio_mmio_setup_acpi()"
-next_action = "从 RSDP 展开 ACPI 表图，并追踪 SeaBIOS DSDT 轻量解析与 qemu_platform_setup 返回"
+last_complete = "LK-BOOT-015"
+next_entry = "platform_hardware_setup():timer_setup()"
+next_action = "追踪内部时间源、PIT/RTC/BDA 时钟和条件 TPM 初始化"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
