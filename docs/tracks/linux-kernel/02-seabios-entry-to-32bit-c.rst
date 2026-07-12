@@ -10,9 +10,9 @@
    源码入口 = src/romlayout.S:entry_post
 
 CPU 仍在 16 位启动环境中。分页没有开启，64 位模式没有开启，固件的主要 C 代码也还不能直接运行。
-SeaBIOS 接下来要做的，是建立一个可供 32 位 C 代码使用的最小执行环境。
+SeaBIOS 接下来要做的，是建立一个可以安全执行 32 位 C 代码的最小环境。
 
-本章继续使用固定源码：
+本章固定使用：
 
 ::
 
@@ -22,7 +22,7 @@ SeaBIOS 接下来要做的，是建立一个可供 32 位 C 代码使用的最�
 entry_post 先判断这是不是第一次启动
 -----------------------------------
 
-``entry_post`` 在 ``src/romlayout.S`` 中只有三行核心逻辑：
+``entry_post`` 位于 ``src/romlayout.S`` 的固定偏移 ``0xe05b``：
 
 .. code-block:: asm
 
@@ -38,27 +38,40 @@ entry_post 先判断这是不是第一次启动
 
    int HaveRunPost VARFSEG;
 
-它不是在判断 Linux 是否启动过，而是在判断 SeaBIOS 的 POST 初始化阶段是否已经运行过。
+这个变量表示 SeaBIOS 的 POST 阶段是否已经运行。它不表示 Linux 是否启动过。
 
-同一个复位入口不只会在机器第一次开机时到达。软件请求重启、某些恢复路径以及故障处理，也可能重新把
-CPU 带到 BIOS 复位向量。SeaBIOS 因此不能看到 ``reset_vector`` 就无条件重做一次完整冷启动。
+同一个复位入口可能由多种情况到达：
 
-当前故事选择正常首次启动路径。此时：
+* 机器第一次冷启动；
+* 软件请求重启；
+* 某些恢复路径重新进入固件；
+* 固件自身触发复位。
+
+所以 SeaBIOS 不能看见 ``reset_vector`` 就无条件再做一遍完整 POST。
+
+当前故事跟随正常首次启动路径。此时：
 
 ::
 
    HaveRunPost == 0
 
-所以 ``jnz entry_resume`` 不跳转，执行继续落入 ``ENTRY_INTO32``。
+``jnz entry_resume`` 不发生跳转，执行落到 ``ENTRY_INTO32``。
 
-这里使用 ``%cs:HaveRunPost``，是因为固件此刻还没有建立新的数据段环境。``CS`` 已经由上一章的远跳转
-装载为 SeaBIOS 确定的 ``0xf000``，使用 ``CS`` 段覆盖前缀可以直接从当前固件段访问这个状态变量，
-不必先假设 ``DS`` 指向哪里。
+为什么使用 ``%cs:HaveRunPost``
+-----------------------------
 
-ENTRY_INTO32 不是一个函数
--------------------------
+当前代码刚从复位向量跳到 ``f000:e05b``。SeaBIOS 还没有重新建立自己的数据段，``DS`` 当前指向哪里不能
+作为可靠前提。
 
-``ENTRY_INTO32`` 定义在 ``src/entryfuncs.S``。它是汇编宏，构建时会直接展开到调用位置：
+``CS`` 已经被上一章的远跳转明确装入 ``0xf000``。使用 ``%cs:`` 段覆盖前缀，CPU 会从当前固件代码段
+读取 ``HaveRunPost``，不需要先依赖 ``DS``。
+
+这里体现了早期启动代码的一个特点：每次内存访问都必须知道当前段寄存器是否已经处于可依赖状态。
+
+ENTRY_INTO32 是汇编宏
+--------------------
+
+``ENTRY_INTO32`` 定义在 ``src/entryfuncs.S``：
 
 .. code-block:: asm
 
@@ -70,17 +83,43 @@ ENTRY_INTO32 不是一个函数
            jmp transition32
            .endm
 
-把 ``cfunc`` 替换成当前参数以后，``entry_post`` 实际执行的逻辑相当于：
+它不是运行时调用的函数。汇编器会在构建 SeaBIOS 时，把宏中的指令直接展开到 ``entry_post`` 所在位置。
+
+把当前参数 ``_cfunc32flat_handle_post`` 代入后，实际逻辑相当于：
 
 .. code-block:: asm
 
-           xorw %dx, %dx
-           movw %dx, %ss
-           movl $0x7000, %esp
-           movl $_cfunc32flat_handle_post, %edx
-           jmp transition32
+   xorw %dx, %dx
+   movw %dx, %ss
+   movl $0x7000, %esp
+   movl $_cfunc32flat_handle_post, %edx
+   jmp transition32
 
-这几条指令分别准备栈、保存最终目的地，然后进入统一的模式切换代码。
+这几条指令完成三件事：
+
+#. 建立早期栈；
+#. 保存最终 32 位 C 入口；
+#. 跳入通用的 16 位到 32 位模式转换代码。
+
+为什么先把 DX 清零
+-----------------
+
+第一条：
+
+.. code-block:: asm
+
+   xorw %dx, %dx
+
+把 ``DX`` 变为 ``0``。随后：
+
+.. code-block:: asm
+
+   movw %dx, %ss
+
+把栈段 ``SS`` 设为 ``0``。
+
+这里使用 ``xor``，因为它不需要从内存读取常量，而且可以产生确定的零值。接下来所有早期栈地址都以线性
+地址零为段基址。
 
 为什么栈放在 0x7000
 -------------------
@@ -91,46 +130,50 @@ SeaBIOS 的 ``src/config.h`` 定义：
 
    #define BUILD_STACK_ADDR 0x7000
 
-宏先把 ``SS`` 设置为 ``0``，再把 ``ESP`` 设置为 ``0x7000``。在当前 16 位分段环境中，栈顶对应的线性
-地址是：
+宏设置：
+
+::
+
+   SS  = 0x0000
+   ESP = 0x00007000
+
+当前线性栈顶是：
 
 ::
 
    SS.base + ESP
-   = 0x0000 + 0x7000
-   = 0x7000
+   = 0x00000000 + 0x00007000
+   = 0x00007000
 
-这里需要区分真实主板和当前固定平台。
+真实裸机固件通常需要先初始化内存控制器并完成 DRAM 训练，才能把普通 DRAM 当成栈使用。当前固定平台是
+``QEMU q35 + SeaBIOS``：QEMU 在虚拟 CPU 开始执行前已经创建客户机 RAM，所以 SeaBIOS 可以按照平台
+约定直接使用低端客户机内存 ``0x7000``。
 
-真实裸机固件在使用普通 DRAM 前，通常要先完成内存控制器初始化和 DRAM 训练。当前主线是
-``QEMU q35 + SeaBIOS``：QEMU 在启动虚拟 CPU 之前已经创建客户机 RAM，SeaBIOS 可以按约定使用低端
-客户机内存。因此它能够直接把 ``0x7000`` 作为早期栈位置。
+这不表示全部内存已经完成固件层面的识别和分类。这里只能得出一个较小的结论：当前平台已经提供一块可用
+低端 RAM，可以承载早期 C 调用所需的返回地址和局部变量。
 
-这个选择没有让整个内存系统“初始化完成”。它只说明在当前虚拟平台上，SeaBIOS 已经有一小块确定的低端
-RAM 可以承载返回地址、局部变量和 C 函数调用栈。
-
-为什么目的函数地址放进 EDX
+为什么目标函数地址放在 EDX
 -------------------------
 
-下面这条指令把最终要执行的 32 位 C 入口保存到 ``EDX``：
+下面的指令保存最终目标：
 
 .. code-block:: asm
 
    movl $_cfunc32flat_handle_post, %edx
 
-紧接着执行的是：
+紧接着执行：
 
 .. code-block:: asm
 
    jmp transition32
 
-这里使用 ``jmp``，不是 ``call``。模式切换代码不会返回到 16 位的 ``entry_post``。它完成转换后，直接
-通过 ``EDX`` 跳到指定的 C 入口。
+这里使用 ``jmp``，不是 ``call``。``entry_post`` 不等待模式转换代码返回。``transition32`` 完成转换后，会
+直接通过 ``EDX`` 跳到目标函数。
 
-``transition32`` 是一个通用跳板，SeaBIOS 的其他入口也可以把不同目标地址放进 ``EDX``，然后复用同一套
-16 位到 32 位的转换过程。
+这样，``transition32`` 可以成为通用跳板：不同入口只需要把不同的 32 位目标地址装入 ``EDX``，然后复用
+同一套模式切换过程。
 
-transition32 先冻结不稳定的外部事件
+transition32 先阻止外部事件打断切换
 ---------------------------------
 
 ``transition32`` 位于 ``src/romlayout.S``：
@@ -141,13 +184,20 @@ transition32 先冻结不稳定的外部事件
            cli
            cld
 
-``cli`` 清除 ``RFLAGS.IF``，阻止可屏蔽硬件中断进入。此时还没有安装可工作的保护模式中断处理环境；
-如果键盘、定时器或其他设备中断恰好进入，CPU 找不到正确处理入口，模式切换就可能中断在半完成状态。
+``cli`` 清除 ``EFLAGS.IF``，暂时阻止可屏蔽硬件中断。
 
-``cld`` 清除方向标志 ``DF``。当 ``DF=0`` 时，字符串指令从低地址向高地址移动。C 编译器和后面的内存
-操作通常把 ``DF=0`` 当作调用约定的一部分，所以进入 C 环境前要把它恢复为确定状态。
+此时保护模式中断环境还没有建立完成。如果键盘、定时器或其他设备中断在模式切换中途进入，CPU 可能使用
+不完整的 IDT，控制流会落到错误位置。
 
-``cli`` 只能屏蔽普通可屏蔽中断，不能屏蔽 NMI。SeaBIOS 随后通过 CMOS/RTC 索引端口处理 NMI：
+``cld`` 清除方向标志 ``DF``。清零后，``movs``、``stos`` 等字符串指令默认从低地址向高地址移动。C 编译器
+通常要求函数入口处 ``DF=0``，所以 SeaBIOS 在进入 C 环境前把它设为确定状态。
+
+cli 不能屏蔽 NMI
+---------------
+
+``cli`` 只影响可屏蔽中断。NMI，即 Non-Maskable Interrupt，不受 ``IF`` 控制。
+
+SeaBIOS 接着操作 CMOS/RTC 索引端口：
 
 .. code-block:: asm
 
@@ -161,27 +211,27 @@ transition32 先冻结不稳定的外部事件
 
 .. code-block:: c
 
-   #define PORT_CMOS_INDEX   0x0070
-   #define PORT_CMOS_DATA    0x0071
-   #define NMI_DISABLE_BIT   0x80
-   #define CMOS_RESET_CODE   0x0f
+   #define PORT_CMOS_INDEX  0x0070
+   #define PORT_CMOS_DATA   0x0071
+   #define NMI_DISABLE_BIT  0x80
+   #define CMOS_RESET_CODE  0x0f
 
-向端口 ``0x70`` 写入的最高位控制 NMI 屏蔽。SeaBIOS 暂时阻止 NMI，在新的 IDT 和执行环境稳定前，不让
-不可屏蔽中断把控制流带到未知位置。
+向端口 ``0x70`` 写入的最高位用于控制 NMI 屏蔽。SeaBIOS 暂时阻止 NMI，在新的执行环境稳定前，不让它把
+控制流带入尚未准备好的处理路径。
 
-这段代码先把 ``EAX`` 保存到 ``ECX``，操作端口后再恢复 ``EAX``。模式切换跳板可以改变内部临时状态，
-仍尽量不无故破坏调用方可能保留的寄存器值。
+代码先把 ``EAX`` 保存到 ``ECX``，完成端口访问后再恢复 ``EAX``，避免通用跳板无故破坏调用入口可能保留
+的寄存器值。
 
-A20：地址的第 20 位必须真正生效
--------------------------------
+A20 必须打开
+-----------
 
-接下来是：
+接下来执行：
 
 .. code-block:: asm
 
-           inb $PORT_A20, %al
-           orb $A20_ENABLE_BIT, %al
-           outb %al, $PORT_A20
+   inb $PORT_A20, %al
+   orb $A20_ENABLE_BIT, %al
+   outb %al, $PORT_A20
 
 SeaBIOS 定义：
 
@@ -190,24 +240,29 @@ SeaBIOS 定义：
    #define PORT_A20        0x0092
    #define A20_ENABLE_BIT  0x02
 
-A20 是地址总线的第 20 位，从位 0 开始计数。它决定地址是否能够越过 1 MiB 边界。
+A20 是地址的第 20 位，从位 0 开始计数。它决定地址能否真正越过 1 MiB 边界。
 
-早期 IBM PC 为了兼容 8086 的 20 位地址回绕行为，允许强制关闭 A20。关闭时，地址 ``0x100000`` 会把
-第 20 位丢掉，别名到 ``0x000000``。这种回绕行为对旧软件有兼容价值，对即将建立的 32 位平坦地址空间
-却是错误的。
-
-SeaBIOS 通过系统控制端口 ``0x92`` 打开 A20，让：
+为了兼容 8086 的 20 位地址回绕行为，早期 PC 允许关闭 A20。A20 关闭时：
 
 ::
 
-   0x000000 和 0x100000
+   0x00100000
 
-成为真正不同的地址。否则后面访问 1 MiB 以上内存时，数据可能悄悄覆盖低端内存。
+可能回绕到：
 
-lgdt 和 lidt 装入的不是整张表
+::
+
+   0x00000000
+
+这对某些旧软件有兼容意义，对即将使用的 32 位平坦地址空间却是错误行为。SeaBIOS 通过端口 ``0x92``
+打开 A20，让低端地址和 1 MiB 以上地址真正分离。
+
+如果不完成这一步，后面访问高于 1 MiB 的内存可能悄悄覆盖最低端的 IVT、BDA 或其他关键数据。
+
+lidt 和 lgdt 装入的是描述符位置
 -----------------------------
 
-接下来执行：
+模式转换继续执行：
 
 .. code-block:: asm
 
@@ -215,12 +270,12 @@ lgdt 和 lidt 装入的不是整张表
            lidtw %cs:pmode_IDT_info
            lgdtw %cs:rombios32_gdt_48
 
-``lidt`` 和 ``lgdt`` 的操作数不是 IDT、GDT 表本身，而是一个描述表位置的结构。这个结构包含：
+``lidt`` 和 ``lgdt`` 的操作数不是整张 IDT 或 GDT，而是一个描述表位置结构，其中保存：
 
-* 表的长度减一；
+* 表长度减一；
 * 表的线性基地址。
 
-SeaBIOS 在 ``src/misc.c`` 中定义保护模式 IDT 描述符：
+SeaBIOS 在 ``src/misc.c`` 中定义临时保护模式 IDT：
 
 .. code-block:: c
 
@@ -231,81 +286,82 @@ SeaBIOS 在 ``src/misc.c`` 中定义保护模式 IDT 描述符：
        .addr = (u32)&dummy_IDT,
    };
 
-它目前不是一张完整的中断门表，而是故意极小的占位 IDT。源码注释说明：如果保护模式切换阶段真的发生
-中断，这个 dummy IDT 会使机器停止，而不是让 CPU 跳进一段未经准备的处理代码。
+这不是一张完整的中断门表。它只是一个故意极小的占位 IDT。
 
-这也是前面同时执行 ``cli`` 和 NMI 屏蔽的原因：当前阶段的目标是无干扰地穿过模式边界，不是开始正常
-处理中断。
+如果切换期间真的发生没有被屏蔽的异常或中断，CPU 无法从这张表取得正常门描述符，机器会停止，而不是
+跳入一段随机代码。当前阶段追求的是可预测失败，不是正常处理中断。
 
-GDT 描述 32 位代码和数据怎样解释地址
-----------------------------------
+GDT 建立 32 位平坦段
+------------------
 
-SeaBIOS 的 ``rombios32_gdt`` 至少包含这几项：
+SeaBIOS 的 ``rombios32_gdt`` 包含多组描述符，其中前几项是：
 
 .. code-block:: c
 
    u64 rombios32_gdt[] = {
        0x0000000000000000LL,
-       /* 32 位平坦代码段 */
        GDT_GRANLIMIT(0xffffffff) | GDT_CODE | GDT_B,
-       /* 32 位平坦数据段 */
        GDT_GRANLIMIT(0xffffffff) | GDT_DATA | GDT_B,
-       /* 后面还有供 16 位兼容路径使用的描述符 */
+       /* 后面还有 16 位兼容段 */
    };
 
-第一项是不能使用的空描述符。第二项是 32 位平坦代码段，第三项是 32 位平坦数据段。
+第一项是不可使用的空描述符。第二项是 32 位平坦代码段，第三项是 32 位平坦数据段。
 
-``src/config.h`` 把它们对应的选择子定义为：
+``src/config.h`` 定义选择子：
 
 .. code-block:: c
 
    #define SEG32_MODE32_CS (1 << 3)
    #define SEG32_MODE32_DS (2 << 3)
 
-因此：
+所以：
 
 ::
 
-   32 位代码段选择子 = 0x08
-   32 位数据段选择子 = 0x10
+   代码段选择子 = 0x08
+   数据段选择子 = 0x10
 
-选择子的高位保存描述符索引，低三位保存 TI 和 RPL。每个 GDT 描述符占 8 字节，所以索引左移三位就
-得到选择子值。
+每个 GDT 描述符占 8 字节，选择子中的索引需要左移 3 位。低三位用于 TI 和 RPL，不属于描述符索引。
 
-这里的“平坦”表示代码段和数据段基址都为 ``0``，范围覆盖 32 位线性地址空间。进入这个环境后，程序
-使用的地址不再需要像实模式那样反复计算 ``segment × 16 + offset``。段寄存器仍然存在，段描述符把它们
-配置成接近普通 32 位线性地址的用法。
+这里的“平坦”表示段基址为 ``0``，段范围覆盖整个 32 位地址空间。段寄存器仍然存在，只是地址使用方式
+不再像实模式那样频繁计算 ``segment × 16 + offset``。
 
-CR0.PE：打开保护模式开关
------------------------
+CR0.PE 打开保护模式
+-----------------
 
 GDT 和临时 IDT 的位置已经装入 CPU 后，SeaBIOS 修改 ``CR0``：
 
 .. code-block:: asm
 
-           movl %cr0, %ecx
-           andl $~(CR0_PG|CR0_CD|CR0_NW), %ecx
-           orl $CR0_PE, %ecx
-           movl %ecx, %cr0
+   movl %cr0, %ecx
+   andl $~(CR0_PG|CR0_CD|CR0_NW), %ecx
+   orl $CR0_PE, %ecx
+   movl %ecx, %cr0
 
-这些位的含义是：
+几个位的作用是：
 
 ``CR0.PE``
-   Protection Enable。设置后启用保护模式的分段规则。
+   Protection Enable。设置为 1 后启用保护模式分段规则。
 
 ``CR0.PG``
-   Paging。SeaBIOS 此刻没有建立页表，因此把它清零。
+   Paging。SeaBIOS 此时没有建立页表，因此明确清零。
 
-``CR0.CD`` 与 ``CR0.NW``
-   缓存相关控制位。这里被清除，让接下来的环境不继承异常的禁用缓存状态。
+``CR0.CD``
+   Cache Disable。清零后不再全局禁用缓存。
 
-真正触发模式变化的是 ``CR0.PE = 1``。
+``CR0.NW``
+   Not Write-through。这里也清零，避免继承异常缓存控制状态。
 
-写入 ``CR0`` 后，处理器已经打开保护模式规则，当前 ``CS`` 缓存里仍然保留着进入前的代码段状态。
-所以代码不能把下一条普通指令当作整个切换已经结束，还必须重新装载 ``CS``。
+真正改变处理器模式的是：
 
-为什么设置 PE 后必须远跳转
-------------------------
+::
+
+   CR0.PE = 1
+
+写入以后，CPU 已经启用保护模式规则。当前 ``CS`` 的隐藏缓存仍然保留切换前状态，模式转换还没有完成。
+
+为什么还必须远跳转
+----------------
 
 SeaBIOS 立刻执行：
 
@@ -313,75 +369,80 @@ SeaBIOS 立刻执行：
 
    ljmpl $SEG32_MODE32_CS, $(BUILD_BIOS_ADDR + 1f)
 
-这里装入：
+远跳转同时装入：
 
 ::
 
-   CS = 0x08
+   CS  = 0x08
+   EIP = BUILD_BIOS_ADDR + 局部标签 1
 
-CPU 使用 ``0x08`` 作为 GDT 选择子，取出第一个可用的 32 位平坦代码段描述符。远跳转还把新的指令地址
-装入 ``EIP``，并清理掉模式切换边界上的旧取指状态。
+CPU 使用 ``0x08`` 查询 GDT，加载 32 位平坦代码段描述符。新的 ``CS`` 隐藏缓存由这项描述符重新建立。
 
-跳转目标使用 ``BUILD_BIOS_ADDR + 1f``。``BUILD_BIOS_ADDR`` 是 ``0x000f0000``；``1f`` 表示当前汇编
-文件中后方编号为 ``1`` 的局部标签。这样，进入基址为零的 32 位代码段后，``EIP`` 仍然指向 BIOS 映像中
-正确的线性地址。
+``BUILD_BIOS_ADDR`` 是：
 
-源文件随后切换汇编器解释模式：
+::
+
+   0x000f0000
+
+``1f`` 表示当前汇编文件中后方编号为 ``1`` 的局部标签。进入基址为零的代码段后，``EIP`` 必须是完整的
+线性代码地址，因此目标要加上 BIOS 低地址基址。
+
+源码随后出现：
 
 .. code-block:: asm
 
-           .code32
+   .code32
    1:
 
-``.code32`` 不会在运行时改变 CPU。它告诉汇编器，从这里开始按 32 位指令编码；真正让 CPU 进入保护模式
-并装载 32 位代码段的是前面的 ``CR0.PE`` 和远跳转。
+``.code32`` 只是告诉汇编器从这里开始使用 32 位指令编码。运行时真正改变 CPU 状态的是前面的
+``CR0.PE`` 和远跳转。
 
-数据段也要全部换成 32 位描述符
-----------------------------
+数据段也要重新装载
+----------------
 
-进入局部标签 ``1`` 后，SeaBIOS 设置数据段：
+进入局部标签 ``1`` 后，SeaBIOS 设置所有常用数据段：
 
 .. code-block:: asm
 
-   1:      movl $SEG32_MODE32_DS, %ecx
-           movw %cx, %ds
-           movw %cx, %es
-           movw %cx, %ss
-           movw %cx, %fs
-           movw %cx, %gs
+   movl $SEG32_MODE32_DS, %ecx
+   movw %cx, %ds
+   movw %cx, %es
+   movw %cx, %ss
+   movw %cx, %fs
+   movw %cx, %gs
 
-``SEG32_MODE32_DS`` 是 ``0x10``。加载这些段寄存器后：
+``SEG32_MODE32_DS`` 是 ``0x10``。装载完成后：
 
-* ``DS`` 和 ``ES`` 使用基址为零的 32 位数据段；
-* ``SS`` 让前面位于 ``0x7000`` 的栈继续以平坦地址工作；
-* ``FS`` 和 ``GS`` 也先进入同一基础数据段环境。
+* ``DS``、``ES`` 使用基址为零的 32 位数据段；
+* ``SS`` 使用同一个平坦数据段；
+* ``FS``、``GS`` 先进入相同的基础数据环境。
 
-此时栈指针仍然是：
+栈指针仍然是：
 
 ::
 
    ESP = 0x00007000
 
-区别在于，进入保护模式后 ``SS`` 不再表示实模式段基址 ``SS × 16``，而是选择 GDT 中基址为零的数据段。
-由于切换前 ``SS`` 本来就是零，栈的线性位置在切换前后都保持为 ``0x7000``，不会因为模式变化突然移动。
+切换前 ``SS=0``，切换后 ``SS`` 指向基址为零的数据段，所以栈的线性位置在模式转换前后都保持
+``0x7000``，没有突然移动。
 
-最后一跳进入 C
--------------
+最后一跳进入 handle_post
+-----------------------
 
-模式转换代码的最后一条核心指令是：
+模式转换代码最后执行：
 
 .. code-block:: asm
 
    jmpl *%edx
 
-``EDX`` 仍保存：
+``EDX`` 从 ``entry_post`` 开始一直保存：
 
 ::
 
    _cfunc32flat_handle_post
 
-这是链接器为 ``post.c:handle_post()`` 生成的 32 位平坦入口符号。间接跳转执行后，CPU 第一次进入
-SeaBIOS 的主要 32 位 C 初始化代码：
+这个链接器符号指向 ``post.c:handle_post()`` 的 32 位平坦入口。间接跳转后，CPU 第一次进入 SeaBIOS 的
+主要 32 位 C 初始化代码：
 
 .. code-block:: c
 
@@ -398,8 +459,14 @@ SeaBIOS 的主要 32 位 C 初始化代码：
        dopost();
    }
 
-本章不继续展开这些函数。此处发生了清晰的运行环境交接：前两章一直依靠少量固定位置的 16 位汇编代码，
-现在 SeaBIOS 已经拥有栈、平坦段、受控中断状态和 32 位 C 执行入口，可以开始大规模初始化平台。
+前两章一直依靠固定位置的少量 16 位汇编。现在 SeaBIOS 已经拥有：
+
+* 可用的早期栈；
+* 32 位平坦代码段；
+* 32 位平坦数据段；
+* 已开启的 A20；
+* 被控制住的中断状态；
+* 可以直接运行编译器生成 C 代码的环境。
 
 第二章结束时的机器状态
 ----------------------
@@ -423,7 +490,7 @@ SeaBIOS 的主要 32 位 C 初始化代码：
 
 此刻：
 
-* 当前执行者：SeaBIOS 的 ``handle_post()``；
+* 当前执行者：SeaBIOS ``handle_post()``；
 * 当前 CPU：BSP；
 * CPU 模式：32 位保护模式；
 * 分页：关闭；
@@ -436,25 +503,19 @@ SeaBIOS 的主要 32 位 C 初始化代码：
 * GRUB：尚未被搜索；
 * Linux：尚未装入内存。
 
-第二章在这里结束。下一段控制流从 ``handle_post()`` 的第一批调用继续：串口调试、启动横幅、Xen 检测、
-把 BIOS 区域改成可写，然后进入真正的 POST 初始化 ``dopost()``。
-
-章节导航
---------
-
-* `上一章：按下电源键后，CPU 从哪里取得第一条指令？ <01-power-on-first-instruction.rst>`_
-* `下一章：SeaBIOS 怎样识别内存并把初始化代码搬到 RAM？ <03-seabios-memory-map-and-relocation.rst>`_
-* `返回 Linux Kernel 目录 <index.rst>`_
+下一段控制流从 ``handle_post()`` 的第一批调用继续：建立早期调试输出、检查 Xen 路径、把 BIOS 低地址
+映射改成可写，然后进入真正的 POST 初始化 ``dopost()``。
 
 资料
 ----
 
-* SeaBIOS ``src/romlayout.S``；
-* SeaBIOS ``src/entryfuncs.S``；
-* SeaBIOS ``src/config.h``；
-* SeaBIOS ``src/x86.h``；
-* SeaBIOS ``src/hw/rtc.h``；
-* SeaBIOS ``src/misc.c``；
-* SeaBIOS ``src/post.c``；
-* SeaBIOS ``docs/Execution_and_code_flow.md``；
-* Intel® 64 and IA-32 Architectures Software Developer’s Manual，保护模式、分段、控制寄存器与中断相关章节。
+* `SeaBIOS src/romlayout.S <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/romlayout.S>`_；
+* `SeaBIOS src/entryfuncs.S <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/entryfuncs.S>`_；
+* `SeaBIOS src/config.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/config.h>`_；
+* `SeaBIOS src/x86.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/x86.h>`_；
+* `SeaBIOS src/hw/rtc.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/rtc.h>`_；
+* `SeaBIOS src/misc.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/misc.c>`_；
+* `SeaBIOS src/post.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/post.c>`_；
+* `SeaBIOS execution and code flow <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/docs/Execution_and_code_flow.md>`_；
+* `SeaBIOS memory model <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/docs/Memory_Model.md>`_；
+* `Intel® 64 and IA-32 Architectures Software Developer’s Manual <https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html>`_。
