@@ -23,6 +23,7 @@ Linux Kernel
 #. `第十五章：SeaBIOS 怎样沿 RSDP 读懂 ACPI 表图并解析 DSDT？ <15-seabios-acpi-table-graph-and-dsdt-parse.rst>`_
 #. `第十六章：SeaBIOS 怎样建立时间基准、18.2 Hz BIOS 时钟并初始化 TPM？ <16-seabios-timers-clock-and-tpm.rst>`_
 #. `第十七章：SeaBIOS 为什么先运行 VGA Option ROM 再初始化其他设备？ <17-seabios-vga-option-rom-and-console.rst>`_
+#. `第十八章：SeaBIOS 怎样枚举 USB 设备并初始化 PS/2 键盘？ <18-seabios-usb-and-ps2-input.rst>`_
 
 当前主线
 --------
@@ -36,7 +37,7 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-正文已经追踪到 SeaBIOS 按默认非并行路径执行 VGA Option ROM、安装 ``INT 10h`` 并打开 mode 3 文字控制台。下一步从同步 ``device_hardware_setup()`` 进入 USB、PS/2 和 block driver 探测。
+正文已经进入同步 ``device_hardware_setup()``：q35 EHCI/UHCI、USB port/class 枚举和 i8042 PS/2 keyboard 初始化已经启动。下一步从 ``block_setup()`` 进入 q35 内置 ICH9 AHCI SATA 启动磁盘探测。
 
 章节组织
 --------
