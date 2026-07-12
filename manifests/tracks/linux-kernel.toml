@@ -245,10 +245,18 @@ status = "complete"
 start = "GNU GRUB 2.14 grub_main() after grub_machine_init()"
 end = "root and prefix are established after embedded module loading and preload-space reclamation"
 
+[[chapter]]
+id = "LK-BOOT-028"
+title = "GRUB normal 怎样找到并打开 grub.cfg？"
+rst = "docs/tracks/linux-kernel/28-grub-normal-opens-grub-cfg.rst"
+status = "complete"
+start = "GNU GRUB 2.14 grub_main():grub_load_normal_mode()"
+end = "the first non-comment config line is ready immediately before grub_normal_parse_line()"
+
 [current]
-last_complete = "LK-BOOT-027"
-next_entry = "GNU GRUB 2.14 grub_main():grub_load_normal_mode()"
-next_action = "由 prefix 构造并打开 (hd0,msdos1)/boot/grub/grub.cfg，停在第一条有效配置行解析之前"
+last_complete = "LK-BOOT-028"
+next_entry = "GNU GRUB 2.14 grub_normal_parse_line()"
+next_action = "解析固定 grub.cfg 的脚本和 menuentry，直到 menu object 获得第一个 Linux 启动项"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
