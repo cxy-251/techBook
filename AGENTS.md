@@ -20,8 +20,9 @@
 #. ``LK-BOOT-006``：SeaBIOS 怎样建立中断基础并启动内部线程？
 #. ``LK-BOOT-007``：SeaBIOS 怎样为 q35 编号 PCI 总线并发现设备？
 #. ``LK-BOOT-008``：SeaBIOS 怎样启用 q35 MMCONFIG 并为 PCI 设备分配地址？
+#. ``LK-BOOT-009``：SeaBIOS 怎样接通 q35 PCI 中断并打开设备地址解码？
 
-当前控制流停在 ``pci_setup()`` 的 ``pci_bios_map_devices()`` 返回处。下一条调用是 ``pci_bios_init_devices()``。收到继续指令后，从 PCI INTx 路由、q35/ICH9 设备专用初始化和 ``PCI_COMMAND`` 地址解码使能开始追踪，不提前规划整本书。
+当前控制流停在 ``qemu_platform_setup()`` 的 ``pci_setup()`` 返回处。下一条调用是 ``smm_device_setup()``。收到继续指令后，从 q35/ICH9 SMI 设备准备、SMRAM 映射和 SeaBIOS SMM handler 安装开始追踪，不提前规划整本书。
 
 ## 用户输入与技术事实
 
@@ -69,7 +70,7 @@
 
 ## 当前内容依据
 
-* x86-64 处理器复位状态与启动架构资料；
+* x86-64 处理器复位状态、保护模式与 SMM 资料；
 * SeaBIOS 固定源码提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
 * GRUB i386-pc 固定源码；
 * Linux 6.12.95 固定源码；
