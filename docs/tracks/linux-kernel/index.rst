@@ -25,6 +25,7 @@ Linux Kernel
 #. `第十七章：SeaBIOS 为什么先运行 VGA Option ROM 再初始化其他设备？ <17-seabios-vga-option-rom-and-console.rst>`_
 #. `第十八章：SeaBIOS 怎样枚举 USB 设备并初始化 PS/2 键盘？ <18-seabios-usb-and-ps2-input.rst>`_
 #. `第十九章：SeaBIOS 怎样发现 q35 的 AHCI 磁盘并把它加入启动列表？ <19-seabios-ahci-disk-and-bootlist.rst>`_
+#. `第二十章：SeaBIOS 怎样扫描普通 Option ROM 并把 BCV、BEV 加入启动列表？ <20-seabios-option-rom-bcv-bev.rst>`_
 
 当前主线
 --------
@@ -38,7 +39,7 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-正文已经完成 q35 ICH9 AHCI port 0 启动盘探测，并在 ``wait_threads()`` 处等待 USB、PS/2、AHCI 和其他设备线程全部结束。下一步从 ``optionrom_setup()`` 扫描普通非 VGA Option ROM，继续扩充 BootList。
+正文已经完成普通 PCI/CBFS Option ROM 部署、验证和 BCV/BEV 登记。下一步从 ``interactive_bootmenu()`` 进入 ``prepareboot():bcv_prepboot()``，执行 BCV、建立 BIOS 驱动映射并形成最终启动尝试序列。
 
 章节组织
 --------
