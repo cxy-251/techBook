@@ -272,10 +272,18 @@ status = "complete"
 start = "GNU GRUB 2.14 grub_normal_execute():grub_show_menu()"
 end = "linux.mod has registered the real linux command immediately before grub_cmd_linux()"
 
+[[chapter]]
+id = "LK-BOOT-031"
+title = "GRUB linux 命令怎样检查并装载 Linux bzImage？"
+rst = "docs/tracks/linux-kernel/31-grub-linux-command-loads-bzimage.rst"
+status = "complete"
+start = "GNU GRUB 2.14 grub_cmd_linux()"
+end = "protected-mode payload is loaded and grub_loader_set() has registered grub_linux_boot before initrd execution"
+
 [current]
-last_complete = "LK-BOOT-030"
-next_entry = "GNU GRUB 2.14 grub_cmd_linux()"
-next_action = "打开 /boot/bzImage-6.12.95，验证 Linux/x86 setup header，装入 protected-mode payload 并注册 loader，停在 initrd 命令之前"
+last_complete = "LK-BOOT-031"
+next_entry = "GNU GRUB 2.14 grub_cmd_initrd()"
+next_action = "装入 /boot/initramfs-6.12.95.img，填写 ramdisk_image 和 ramdisk_size，停在 entry sourcecode 完成、隐式 boot 之前"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
