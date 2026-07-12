@@ -31,6 +31,7 @@ Linux Kernel
 #. `第二十三章：GRUB boot.img 怎样从 0x7c00 读出 core.img 的第一扇区？ <23-grub-boot-img-loads-diskboot.rst>`_
 #. `第二十四章：GRUB diskboot.img 怎样按 blocklist 读完 core.img？ <24-grub-diskboot-blocklist-loads-core.rst>`_
 #. `第二十五章：GRUB startup_raw 怎样进入保护模式并调用 grub_main？ <25-grub-startup-raw-protected-mode-and-grub-main.rst>`_
+#. `第二十六章：GRUB 怎样通过 BIOS E820 建立自己的堆？ <26-grub-machine-init-e820-and-heap.rst>`_
 
 当前主线
 --------
@@ -44,9 +45,9 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-SeaBIOS 已将 LBA 0 交给 ``boot.img``；``boot.img`` 已读取 ``diskboot.img``，``diskboot.img`` 已按 blocklist 装入完整 ``core.img``。GRUB 随后进入 32 位保护模式，验证 A20，将 LZMA 压缩 core 解压到 ``0x100000``，把正式核心复制到链接地址 ``0x9000``，清零 BSS，并调用 ``grub_main()``。
+GRUB 已进入 ``grub_main()``，并完成 ``grub_machine_init()``：早期 BIOS console 已注册，E820 内存地图已通过 ``INT 15h`` 重新取得，1 MiB 以上的可用 RAM 已排除预装模块后注册为多 region 堆，TSC 已校准。
 
-当前执行者是 GNU GRUB 2.14 ``grub_main()``。``grub.cfg``、GRUB 菜单和 Linux ``bzImage`` 均尚未读取。
+当前执行者仍是 GNU GRUB 2.14 ``grub_main()``。core.img 内建 ELF 模块、``root/prefix``、``hd0`` 和 ``grub.cfg`` 尚未处理。
 
 章节组织
 --------
