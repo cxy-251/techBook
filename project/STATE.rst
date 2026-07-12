@@ -22,6 +22,7 @@
 #. ``LK-BOOT-007``：SeaBIOS 怎样为 q35 编号 PCI 总线并发现设备？
 #. ``LK-BOOT-008``：SeaBIOS 怎样启用 q35 MMCONFIG 并为 PCI 设备分配地址？
 #. ``LK-BOOT-009``：SeaBIOS 怎样接通 q35 PCI 中断并打开设备地址解码？
+#. ``LK-BOOT-010``：SeaBIOS 怎样进入 SMM 并把处理入口藏进 SMRAM？
 
 当前主线
 --------
@@ -38,40 +39,44 @@
 当前控制流位置
 --------------
 
-第九章结束在：
+第十章结束在：
 
 ::
 
    qemu_platform_setup()
-   → pci_setup()
-   → pci_bios_init_devices()
-   → pci_enable_default_vga()
-   → pci_setup() 返回
+   → smm_device_setup()
+   → smm_setup()
+   → 第一次 SMI
+   → SMBASE 迁移到 0xa0000
+   → 正式 SMI 入口安装在 0xa8000
+   → SMRAM 普通窗口关闭
+   → smm_setup() 返回
 
 ``qemu_platform_setup()`` 接下来执行：
 
 .. code-block:: c
 
-   smm_device_setup();
+   mtrr_setup();
 
 此刻机器状态：
 
 * 当前执行者：SeaBIOS ``qemu_platform_setup()``；
 * CPU：BSP；
-* 模式：32 位保护模式；
+* 普通执行模式：32 位保护模式；
 * 分页：关闭；
+* PCI bus number、BAR、bridge window、INTx 路由与地址解码：已经配置；
 * q35 MMCONFIG：已经启用并标记为 ``E820_RESERVED``；
-* PCI bus number、BAR 与 bridge window：已经配置；
-* PCI INTx line：已经计算并写入；
-* ICH9 PIRQA-H：已经路由到 IRQ10/IRQ11；
-* IRQ10/IRQ11：已经设置为 level-triggered；
-* ICH9 LPC PMBASE、SCI、RCBA 与 PM timer 地址：已经建立；
-* PCI I/O 与 memory decode：已经打开；
-* PCI SERR 与 bridge SERR forwarding：已经打开；
-* bus mastering：尚未统一开启，由具体驱动按需设置；
-* 默认 VGA 路径：已经选择并保证可达；
-* VGA Option ROM：尚未执行；
-* SMM：尚未安装；
+* SMM：已经完成一次真实进入与退出；
+* 默认 SMBASE ``0x30000``：只用于迁移，默认低端 RAM 内容已经恢复；
+* 正式 SMBASE：``0xa0000``；
+* 正式 SMI entry：``0xa8000``；
+* SMRAM：普通执行环境窗口已经关闭；
+* APMC port ``0xb2``：已经能够产生 SMI；
+* SMI 使能配置：已经锁定；
+* MTRR：尚未配置；
+* ``MSR_IA32_FEATURE_CONTROL``：尚未由当前步骤写入；
+* 其他 CPU：尚未由 SeaBIOS 启动；
+* ACPI、SMBIOS、MP table：尚未建立；
 * ATA、AHCI、NVMe、USB、virtio 与网络驱动：尚未开始设备探测；
 * 磁盘、光驱与网络启动项：尚未加入 ``BootList``；
 * GRUB：尚未被读取或执行；
@@ -94,13 +99,11 @@ Kernel 目录页。
 
 * Intel x86 处理器复位、实模式、保护模式与 SMM 资料；
 * SeaBIOS 提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
-* SeaBIOS ``src/fw/pciinit.c`` 和 ``src/fw/dev-q35.h``；
-* SeaBIOS ``src/hw/pci.c``、``src/hw/pci.h``、``src/hw/pcidevice.c`` 和 ``src/hw/pci_regs.h``；
-* SeaBIOS ``src/hw/ata.h`` 和 ``src/optionroms.c``；
-* PCI Firmware Specification。
+* SeaBIOS ``src/fw/smm.c``、``src/romlayout.S`` 和 ``src/fw/paravirt.h``；
+* SeaBIOS ``src/fw/dev-q35.h`` 和 ``src/config.h``。
 
 当前下一步
 ----------
 
-收到继续指令后，从 ``qemu_platform_setup():smm_device_setup()`` 开始，继续追踪 q35/ICH9 SMI 设备准备、SMRAM
-映射与 SeaBIOS SMM handler 安装。
+收到继续指令后，从 ``qemu_platform_setup():mtrr_setup()`` 开始，继续追踪 MTRR、
+``MSR_IA32_FEATURE_CONTROL`` 与 ``smp_setup()``。
