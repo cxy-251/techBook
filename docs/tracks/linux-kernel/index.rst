@@ -21,6 +21,7 @@ Linux Kernel
 #. `第十三章：SeaBIOS 怎样把 CPU、IRQ 和内存信息写成固件表？ <13-seabios-pirq-mp-and-smbios-tables.rst>`_
 #. `第十四章：SeaBIOS 怎样执行 QEMU 的 ACPI table-loader 并找到 RSDP？ <14-seabios-acpi-table-loader-and-rsdp.rst>`_
 #. `第十五章：SeaBIOS 怎样沿 RSDP 读懂 ACPI 表图并解析 DSDT？ <15-seabios-acpi-table-graph-and-dsdt-parse.rst>`_
+#. `第十六章：SeaBIOS 怎样建立时间基准、18.2 Hz BIOS 时钟并初始化 TPM？ <16-seabios-timers-clock-and-tpm.rst>`_
 
 当前主线
 --------
@@ -34,7 +35,7 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-正文已经追踪到 SeaBIOS 沿 RSDP 发现 RSDT/XSDT、FADT、MADT 与 MCFG，建立受限 DSDT 设备索引，并从 ``qemu_platform_setup()`` 返回。下一步进入 ``timer_setup()``、``clock_setup()`` 与条件 TPM 初始化。
+正文已经追踪到 SeaBIOS 选择内部时间源、建立 PIT/RTC/BDA 时钟，并完成条件 TPM measured-boot 初始化。``platform_hardware_setup()`` 已返回，下一步进入设备驱动探测与 VGA Option ROM 前后的线程分流。
 
 章节组织
 --------
