@@ -60,10 +60,18 @@ status = "complete"
 start = "interface_init():boot_init()"
 end = "maininit():platform_hardware_setup()"
 
+[[chapter]]
+id = "LK-BOOT-006"
+title = "SeaBIOS 怎样建立中断基础并启动内部线程？"
+rst = "docs/tracks/linux-kernel/06-seabios-dma-pic-threads.rst"
+status = "complete"
+start = "maininit():platform_hardware_setup()"
+end = "platform_hardware_setup():qemu_platform_setup()"
+
 [current]
-last_complete = "LK-BOOT-005"
-next_entry = "maininit():platform_hardware_setup()"
-next_action = "收到继续指令后，从 platform_hardware_setup() 沿真实控制流继续"
+last_complete = "LK-BOOT-006"
+next_entry = "platform_hardware_setup():qemu_platform_setup()"
+next_action = "收到继续指令后，从 qemu_platform_setup() 沿 QEMU q35 平台控制流继续"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
