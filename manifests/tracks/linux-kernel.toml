@@ -176,10 +176,18 @@ status = "complete"
 start = "device_hardware_setup():block_setup()"
 end = "maininit():wait_threads() returns after all built-in device probes"
 
+[[chapter]]
+id = "LK-BOOT-020"
+title = "SeaBIOS 怎样扫描普通 Option ROM 并把 BCV、BEV 加入启动列表？"
+rst = "docs/tracks/linux-kernel/20-seabios-option-rom-bcv-bev.rst"
+status = "complete"
+start = "maininit():optionrom_setup()"
+end = "optionrom_setup() returns after non-VGA ROM deployment and BCV/BEV registration"
+
 [current]
-last_complete = "LK-BOOT-019"
-next_entry = "maininit():optionrom_setup()"
-next_action = "扫描普通 PCI/CBFS Option ROM，追踪 BCV、BEV、PXE 与 BootList 扩充"
+last_complete = "LK-BOOT-020"
+next_entry = "maininit():interactive_bootmenu()"
+next_action = "追踪启动菜单、bcv_prepboot、BIOS drive mapping 与最终 BEV 序列"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
