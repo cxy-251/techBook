@@ -27,6 +27,7 @@ Linux Kernel
 #. `第十九章：SeaBIOS 怎样发现 q35 的 AHCI 磁盘并把它加入启动列表？ <19-seabios-ahci-disk-and-bootlist.rst>`_
 #. `第二十章：SeaBIOS 怎样扫描普通 Option ROM 并把 BCV、BEV 加入启动列表？ <20-seabios-option-rom-bcv-bev.rst>`_
 #. `第二十一章：SeaBIOS 怎样执行 BCV 并把启动盘映射成 BIOS 0x80？ <21-seabios-bcv-drive-mapping-and-prepareboot.rst>`_
+#. `第二十二章：SeaBIOS 怎样把硬盘第一扇区读到 0x7c00 并交给 GRUB？ <22-seabios-int19-mbr-handoff.rst>`_
 
 当前主线
 --------
@@ -40,7 +41,7 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-正文已经完成启动菜单调整、BCV 执行、BIOS ``0x80`` 驱动映射、最终 ``BEV[]`` 序列以及 PMM/E820 收尾。下一步从 ``make_bios_readonly()`` 和 ``startBoot()`` 进入 ``INT 19h``，读取硬盘第一扇区到 ``0x7c00``。
+SeaBIOS 已经通过 ``INT 19h`` 和 ``INT 13h`` 把 AHCI 启动盘的 LBA 0 读到物理地址 ``0x7c00``，校验 ``0x55aa``，并以 ``DL=0x80`` 跳转到 ``0000:7c00``。当前执行者已经切换为 GRUB i386-pc ``boot.img``；``core.img`` 尚未读取。下一章先固定 GRUB 的准确源码版本和磁盘安装布局，再从 ``boot.img`` 的第一条指令继续。
 
 章节组织
 --------
