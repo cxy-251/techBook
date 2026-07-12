@@ -18,6 +18,7 @@ firmware_commit = "c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf"
 qemu_repository = "qemu/qemu"
 qemu_commit = "a759542a2c62f0fd3b65f5a66ad9868201014669"
 storage_controller = "QEMU q35 built-in ICH9 AHCI SATA"
+boot_disk = "one boot disk attached to AHCI SATA port 0"
 bootloader = "GRUB i386-pc"
 kernel_image = "bzImage"
 kernel_release = "6.12.95"
@@ -167,10 +168,18 @@ status = "complete"
 start = "maininit():device_hardware_setup():usb_setup()"
 end = "device_hardware_setup() reaches block_setup() after ps2port_setup()"
 
+[[chapter]]
+id = "LK-BOOT-019"
+title = "SeaBIOS 怎样发现 q35 的 AHCI 磁盘并把它加入启动列表？"
+rst = "docs/tracks/linux-kernel/19-seabios-ahci-disk-and-bootlist.rst"
+status = "complete"
+start = "device_hardware_setup():block_setup()"
+end = "maininit():wait_threads() returns after all built-in device probes"
+
 [current]
-last_complete = "LK-BOOT-018"
-next_entry = "device_hardware_setup():block_setup()"
-next_action = "沿 QEMU q35 内置 ICH9 AHCI SATA 路径探测启动磁盘，并等待全部设备线程完成"
+last_complete = "LK-BOOT-019"
+next_entry = "maininit():optionrom_setup()"
+next_action = "扫描普通 PCI/CBFS Option ROM，追踪 BCV、BEV、PXE 与 BootList 扩充"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
