@@ -37,6 +37,7 @@
 #. ``LK-BOOT-023``：GRUB boot.img 怎样从 0x7c00 读出 core.img 的第一扇区？
 #. ``LK-BOOT-024``：GRUB diskboot.img 怎样按 blocklist 读完 core.img？
 #. ``LK-BOOT-025``：GRUB startup_raw 怎样进入保护模式并调用 grub_main？
+#. ``LK-BOOT-026``：GRUB 怎样通过 BIOS E820 建立自己的堆？
 
 ## 当前固定 GRUB 路径
 
@@ -46,6 +47,8 @@ release commit   = d38d6a1a9b79427848976f53d474392cd29c2a71
 target           = i386-pc
 partition table  = MBR
 first partition  = LBA 2048
+first filesystem = ext4
+GRUB directory   = /boot/grub
 boot.img         = LBA 0
 core.img         = contiguous from LBA 1
 ```
@@ -54,29 +57,27 @@ core.img         = contiguous from LBA 1
 
 ## 当前控制流
 
-SeaBIOS 已经完成固件阶段并把 LBA 0 交给 ``0000:7c00`` 的 GRUB ``boot.img``。
+SeaBIOS 固件阶段以及 GRUB ``boot.img → diskboot.img → startup_raw`` 阶段已经完成。
 
-GRUB 已经完成：
+GRUB 当前已经执行：
 
 ```
-boot.img at 0000:7c00
-→ EDD/LBA probe
-→ read diskboot.img to 0x8000
-→ diskboot blocklist loads remaining core.img to 0x8200...
-→ startup_raw
-→ 32-bit protected mode
-→ A20 verification
-→ optional Reed–Solomon recovery
-→ LZMA decompress to 0x100000
-→ startup.S copies formal core to link address 0x9000
-→ clear BSS
-→ grub_boot_device = 0x80ffffff
-→ grub_main()
+grub_main()
+→ grub_machine_init()
+→ conditional VIA cache workaround
+→ grub_modbase points into preload area above 0x100000
+→ grub_console_init()
+→ INT 15h E820 through protected/real-mode bridge
+→ filter available RAM above 1 MiB and below 4 GiB
+→ exclude preloaded module area
+→ grub_mm_init_region() for each usable region
+→ grub_tsc_init()
+→ grub_machine_init() returns
 ```
 
-当前执行者是 GNU GRUB 2.14 ``grub_main()``。CPU 处于 32 位保护模式，分页关闭；``grub.cfg``、GRUB 菜单和 Linux ``bzImage`` 尚未读取。
+当前执行者仍是 GNU GRUB 2.14 ``grub_main()``。CPU 处于 32 位保护模式，分页关闭；早期 console、E820 heap 和 TSC 时间源已经建立。core.img 内建 ELF 模块、``root/prefix``、``hd0``、``grub.cfg``、GRUB 菜单和 Linux ``bzImage`` 尚未处理。
 
-下一任务从 ``grub_main()`` 开始，追踪 ``grub_machine_init()``、控制台、BIOS memory map、GRUB heap、内建模块和启动设备 ``hd0`` 的建立。不得直接概括成“GRUB 初始化后读取配置”。
+下一任务从 ``grub_machine_init()`` 返回后开始，追踪 verifier、core.img 预装对象、``grub_load_modules()``、模块构造函数、``biosdisk``、``part_msdos``、ext4 所用 ``ext2`` 模块，以及 embedded prefix ``(,msdos1)/boot/grub`` 怎样与启动盘 ``hd0`` 合并为最终 ``root`` 和 ``prefix``。
 
 ## 用户输入与技术事实
 
@@ -142,7 +143,7 @@ boot.img at 0000:7c00
 * SeaBIOS 固定源码提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
 * QEMU 固定参考提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669``；
 * GNU GRUB 2.14 官方发布物和发布提交 ``d38d6a1a9b79427848976f53d474392cd29c2a71``；
-* GRUB ``boot.S``、``diskboot.S``、``startup_raw.S``、``realmode.S``、``startup.S``、``init.c``、``util/setup.c``、``util/mkimage.c``；
+* GRUB ``boot.S``、``diskboot.S``、``startup_raw.S``、``realmode.S``、``startup.S``、``main.c``、``init.c``、``mmap.c``、``mm.c``、``tsc.c``、``util/setup.c``、``util/mkimage.c``、``util/grub-install.c``；
 * Linux 6.12.95 固定源码；
 * Linux/x86 Boot Protocol；
 * 能从源码、寄存器、CPU 模式和内存布局确认的状态变化。
