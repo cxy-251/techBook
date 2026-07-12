@@ -19,8 +19,9 @@
 #. ``LK-BOOT-005``：SeaBIOS 怎样把自己变成可供启动软件调用的 BIOS？
 #. ``LK-BOOT-006``：SeaBIOS 怎样建立中断基础并启动内部线程？
 #. ``LK-BOOT-007``：SeaBIOS 怎样为 q35 编号 PCI 总线并发现设备？
+#. ``LK-BOOT-008``：SeaBIOS 怎样启用 q35 MMCONFIG 并为 PCI 设备分配地址？
 
-当前控制流停在 ``pci_setup()`` 的 ``pci_probe_devices()`` 返回处。下一条语句是 ``pcimem_start = RamSize``，随后进入 ``pci_bios_init_platform()``。收到继续指令后，从 q35 MMCONFIG 与 PCI BAR 资源分配开始追踪，不提前规划整本书。
+当前控制流停在 ``pci_setup()`` 的 ``pci_bios_map_devices()`` 返回处。下一条调用是 ``pci_bios_init_devices()``。收到继续指令后，从 PCI INTx 路由、q35/ICH9 设备专用初始化和 ``PCI_COMMAND`` 地址解码使能开始追踪，不提前规划整本书。
 
 ## 用户输入与技术事实
 
