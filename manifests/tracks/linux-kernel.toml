@@ -84,10 +84,18 @@ status = "complete"
 start = "pci_setup():pcimem_start = RamSize; pci_bios_init_platform()"
 end = "pci_setup():pci_bios_map_devices() returns"
 
+[[chapter]]
+id = "LK-BOOT-009"
+title = "SeaBIOS 怎样接通 q35 PCI 中断并打开设备地址解码？"
+rst = "docs/tracks/linux-kernel/09-seabios-pci-interrupt-routing-and-device-enable.rst"
+status = "complete"
+start = "pci_setup():pci_bios_init_devices()"
+end = "pci_setup() returns to qemu_platform_setup()"
+
 [current]
-last_complete = "LK-BOOT-008"
-next_entry = "pci_setup():pci_bios_init_devices()"
-next_action = "收到继续指令后，从 PCI INTx、q35/ICH9 设备专用初始化和 PCI_COMMAND 地址解码开始继续"
+last_complete = "LK-BOOT-009"
+next_entry = "qemu_platform_setup():smm_device_setup()"
+next_action = "收到继续指令后，从 q35/ICH9 SMI 设备准备和 SMM handler 安装开始继续"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
