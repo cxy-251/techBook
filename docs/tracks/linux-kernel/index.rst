@@ -38,6 +38,7 @@ Linux Kernel
 #. `第三十章：GRUB 怎样自动选择菜单项并装入 linux 命令模块？ <30-grub-autoboots-entry-and-loads-linux-module.rst>`_
 #. `第三十一章：GRUB linux 命令怎样检查并装载 Linux bzImage？ <31-grub-linux-command-loads-bzimage.rst>`_
 #. `第三十二章：GRUB 怎样把 initramfs 放到内核允许的高地址？ <32-grub-initrd-placement-and-boot-parameters.rst>`_
+#. `第三十三章：GRUB 怎样准备 boot_params 并把控制权交给 Linux？ <33-grub-boot-params-and-linux-handoff.rst>`_
 
 当前主线
 --------
@@ -51,9 +52,7 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-GRUB 已装入 Linux protected-mode payload 与 ``/boot/initramfs-6.12.95.img``。initramfs 保持磁盘原始字节，被放到内核初始化区以上、传统 i386 loader 上界以下的 4 KiB 对齐高地址；``ramdisk_image`` 与 ``ramdisk_size`` 已写入。
-
-当前菜单项 sourcecode 已执行完毕，loader hook 仍为 ``grub_linux_boot``。隐式 ``boot`` 尚未调用，Linux 尚未取得控制权。
+GRUB 已完成最终低端 ``boot_params``、命令行、E820 与 relocator 搬运，并按 32-bit Boot Protocol 设置 GDT 和寄存器。当前执行者是 Linux compressed ``startup_32``；CPU 仍为 32 位保护模式，paging 与 long mode 尚未开启。
 
 章节组织
 --------
