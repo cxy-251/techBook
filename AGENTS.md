@@ -29,8 +29,11 @@
 #. ``LK-BOOT-015``：SeaBIOS 怎样沿 RSDP 读懂 ACPI 表图并解析 DSDT？
 #. ``LK-BOOT-016``：SeaBIOS 怎样建立时间基准、18.2 Hz BIOS 时钟并初始化 TPM？
 #. ``LK-BOOT-017``：SeaBIOS 为什么先运行 VGA Option ROM 再初始化其他设备？
+#. ``LK-BOOT-018``：SeaBIOS 怎样枚举 USB 设备并初始化 PS/2 键盘？
 
-当前默认 QEMU 路径没有 ``etc/threads=2`` 覆盖，``threads_during_optionroms()`` 返回 false。VGA Option ROM 已从 fw_cfg 或 PCI ROM BAR 部署到 ``0xc0000`` 起始区域，经过 header/PCIR/checksum 验证和条件 TPM measurement 后以 ``farcall16big`` 执行；``INT 10h`` 与 mode 3 文字控制台已经建立。下一段从同步 ``maininit():device_hardware_setup()`` 开始，先追踪 USB controller/port 枚举、USB HID/存储分流和 i8042 PS/2 keyboard 初始化，再进入 ``block_setup()``。
+当前位于默认同步 ``device_hardware_setup()``。q35 EHCI/UHCI 已启动 controller 与 per-port 线程，USB device 经过地址分配、descriptor 和 hub/MSC/UAS/HID boot class 分流；i8042 IRQ1/IRQ12 与 PS/2 keyboard setup thread 已建立。USB 与 PS/2 输入最终汇合到 ``process_key()``、BDA keyboard ring 和 ``INT 16h``。下一入口是 ``block_setup()``。
+
+为保持存储路径可复现，从本章之后固定启动磁盘为 QEMU q35 内置 ICH9 AHCI SATA，不在同一条主线混入 virtio-blk、NVMe 或额外 SCSI controller。下一章追踪 HBA reset、BAR5、command list/FIS、port link、IDENTIFY、LBA 容量、transfer mode、``boot_add_hd()``，并在 ``device_hardware_setup()`` 返回后的 ``wait_threads()`` 完成处停止。
 
 ## 用户输入与技术事实
 
@@ -92,7 +95,7 @@
 ## 当前内容依据
 
 * x86-64 处理器复位状态、保护模式、SMM、MTRR、MSR、APIC 与 INIT/SIPI 资料；
-* PIRQ、Intel MP Specification、SMBIOS、ACPI、PIT、RTC、TPM、PCI Option ROM、PnP BIOS 与 VGA BIOS 资料；
+* PIRQ、Intel MP Specification、SMBIOS、ACPI、PIT、RTC、TPM、PCI Option ROM、PnP BIOS、VGA BIOS、USB、HID boot protocol、i8042 与 AHCI 资料；
 * SeaBIOS 固定源码提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
 * QEMU 固定参考提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669``；
 * GRUB i386-pc 固定源码；
