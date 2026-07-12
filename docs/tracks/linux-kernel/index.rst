@@ -18,6 +18,7 @@ Linux Kernel
 #. `第十章：SeaBIOS 怎样进入 SMM 并把处理入口藏进 SMRAM？ <10-seabios-smm-and-smbase-relocation.rst>`_
 #. `第十一章：SeaBIOS 怎样规定物理地址的缓存类型并准备每个 CPU 的 MSR？ <11-seabios-mtrr-and-feature-control.rst>`_
 #. `第十二章：SeaBIOS 怎样用 INIT/SIPI 唤醒其他 CPU？ <12-seabios-smp-init-sipi-and-ap-startup.rst>`_
+#. `第十三章：SeaBIOS 怎样把 CPU、IRQ 和内存信息写成固件表？ <13-seabios-pirq-mp-and-smbios-tables.rst>`_
 
 当前主线
 --------
@@ -31,8 +32,8 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-正文已经追踪到 SeaBIOS 通过 local APIC 广播 INIT/SIPI，让 AP 从 ``0x10000`` 进入
-``entry_smp``，重放每 CPU MSR 并报告 APIC ID。AP 当前停在 ``HLT``，下一步建立 PIRQ table、MP table 与 SMBIOS。
+正文已经追踪到 SeaBIOS 安装 PIRQ、MP table 与 SMBIOS。当前仍在 ``qemu_platform_setup()`` 中，
+下一步从 QEMU ``etc/table-loader`` 安装 ACPI 表并寻找 RSDP。
 
 章节组织
 --------
