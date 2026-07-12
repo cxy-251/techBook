@@ -27,6 +27,7 @@
 #. ``LK-BOOT-012``：SeaBIOS 怎样用 INIT/SIPI 唤醒其他 CPU？
 #. ``LK-BOOT-013``：SeaBIOS 怎样把 CPU、IRQ 和内存信息写成固件表？
 #. ``LK-BOOT-014``：SeaBIOS 怎样执行 QEMU 的 ACPI table-loader 并找到 RSDP？
+#. ``LK-BOOT-015``：SeaBIOS 怎样沿 RSDP 读懂 ACPI 表图并解析 DSDT？
 
 当前主线
 --------
@@ -43,44 +44,49 @@
 当前控制流位置
 --------------
 
-第十四章结束在：
+第十五章结束在：
 
 ::
 
    qemu_platform_setup()
-   → romfile_loader_execute("etc/table-loader")
-   → ALLOCATE ACPI blobs
-   → ADD_POINTER
-   → ADD_CHECKSUM
-   → 条件 WRITE_POINTER
-   → find_acpi_rsdp()
-   → RsdpAddr 保存成功
+   → RsdpAddr 已找到
+   → XSDT/RSDT 表图可用
+   → FADT/MADT/MCFG 等核心表已安装
+   → acpi_dsdt_parse()
+   → 建立受限 AML 设备索引
+   → 条件 virtio_mmio_setup_acpi()
+   → qemu_platform_setup() 返回
 
-``qemu_platform_setup()`` 接下来执行：
+``platform_hardware_setup()`` 接下来执行：
 
 .. code-block:: c
 
-   acpi_dsdt_parse();
-   virtio_mmio_setup_acpi();
-   return;
+   coreboot_platform_setup();
+   timer_setup();
+   clock_setup();
+   tpm_setup();
+
+当前 QEMU/SeaBIOS 主线的有效下一入口是 ``timer_setup()``。
 
 此刻机器状态：
 
-* 当前执行者：SeaBIOS ``qemu_platform_setup()``；
+* 当前执行者：SeaBIOS ``platform_hardware_setup()``；
 * 当前主流程 CPU：BSP；
 * 模式：32 位保护模式；
 * 分页：关闭；
 * AP：已经完成固件报到并停在 ``HLT``；
-* ACPI table blob：已经复制到最终客户机内存；
-* ACPI 表间地址：已经完成重定位；
-* ACPI checksum：已经在重定位后重新计算；
-* RSDP：已经在 F-segment 找到并保存；
-* RSDT/XSDT、FADT、MADT、MCFG：尚未在正文中展开；
-* DSDT AML：尚未由 SeaBIOS 轻量解析；
-* 平台定时器与周期 IRQ0：尚未完成最后初始化；
+* ACPI RSDP、RSDT/XSDT 与核心表：已经安装；
+* FADT：已描述 ICH9 PM、SCI、PM timer 与 reset interface；
+* MADT：已描述 CPU、local APIC、I/O APIC 和 interrupt override；
+* MCFG：已描述 q35 MMCONFIG；
+* DSDT：已由 SeaBIOS 建立受限设备索引；
+* 条件 virtio-mmio block/SCSI：可能已经创建探测线程；
+* qemu_platform_setup：已经返回；
+* SeaBIOS 内部最终时间源：尚待 ``timer_setup()`` 确认；
+* PIT IRQ0、RTC 与 BDA timer counter：尚待 ``clock_setup()``；
 * TPM：尚未初始化；
-* 存储、USB 与网络驱动：尚未开始介质探测；
-* ``BootList``：尚无具体启动设备；
+* 普通存储、USB 与网络驱动：尚未进入 ``device_hardware_setup()``；
+* ``BootList``：尚无完整启动设备集合；
 * GRUB：尚未被读取或执行；
 * Linux：尚未装入内存。
 
@@ -99,13 +105,13 @@ Kernel 目录页。
 固定事实来源
 ------------
 
-* ACPI Specification 与 QEMU bios-linker-loader 接口；
+* ACPI Specification、AML、MADT、FADT 与 MCFG；
 * SeaBIOS 提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
 * QEMU 提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669``；
-* SeaBIOS ``src/fw/romfile_loader.c``、``src/fw/paravirt.c`` 与 ``src/fw/biostables.c``；
-* QEMU ``hw/acpi/bios-linker-loader.c``、``include/hw/acpi/aml-build.h`` 与 ``hw/i386/acpi-build.c``。
+* SeaBIOS ``src/fw/biostables.c``、``src/fw/dsdt_parser.c``、``src/hw/virtio-mmio.c`` 与 ``src/fw/paravirt.c``；
+* QEMU ``hw/i386/acpi-build.c`` 与 ``hw/acpi/aml-build.c``。
 
 当前下一步
 ----------
 
-收到继续指令后，从 ``RsdpAddr`` 进入 RSDT/XSDT、FADT、MADT、MCFG 和 DSDT，并追踪 ``acpi_dsdt_parse()`` 与 ``virtio_mmio_setup_acpi()``。
+收到继续指令后，从 ``platform_hardware_setup():timer_setup()`` 开始，追踪内部时间源、PIT IRQ0、RTC/BDA 时钟与条件 TPM measured boot 初始化。
