@@ -10,29 +10,27 @@
 
 ``x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 6.12.95``。
 
-当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-032``。最新章节是：
+当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-034``。最新章节是：
 
-``LK-BOOT-032``：GRUB 怎样把 initramfs 放到内核允许的高地址？
+``LK-BOOT-034``：Linux startup_32 怎样建立 4 GiB 映射并进入 64 位模式？
 
-## 当前固定路径
+## 固定实现
 
 ```text
-GNU GRUB release = 2.14
-release commit   = d38d6a1a9b79427848976f53d474392cd29c2a71
-target           = i386-pc
-partition table  = MBR
-first partition  = LBA 2048
-first filesystem = ext4
-GRUB directory   = /boot/grub
-boot.img         = LBA 0
-core.img         = contiguous from LBA 1
-built-in modules = biosdisk part_msdos ext2 normal + dependencies
-embedded prefix  = (,msdos1)/boot/grub
-Linux release    = 6.12.95
-Linux source     = gregkh/linux tag v6.12.95
+SeaBIOS commit    = c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
+QEMU commit       = a759542a2c62f0fd3b65f5a66ad9868201014669
+GNU GRUB release  = 2.14
+GRUB commit       = d38d6a1a9b79427848976f53d474392cd29c2a71
+GRUB target       = i386-pc
+Linux release     = 6.12.95
+Linux source      = gregkh/linux tag v6.12.95
+partition table   = MBR
+first partition   = LBA 2048, ext4
+kernel            = /boot/bzImage-6.12.95
+initramfs         = /boot/initramfs-6.12.95.img
 ```
 
-固定 ``/boot/grub/grub.cfg``：
+固定 ``grub.cfg``：
 
 ```cfg
 set timeout=0
@@ -44,31 +42,44 @@ menuentry 'Linux 6.12.95' {
 }
 ```
 
-权威 GRUB 发布物是 GNU 官方 ``grub-2.14.tar.xz``。源码引用使用 ``GitMirroring/grub`` 的固定发布提交。Linux 源码固定为 ``gregkh/linux`` 的 ``v6.12.95`` tag。
+GRUB 资料使用 GNU 官方 ``grub-2.14.tar.xz`` 和 ``GitMirroring/grub`` 固定提交。Linux 资料使用 ``gregkh/linux`` 的 ``v6.12.95`` tag。
 
 ## 当前控制流
 
-SeaBIOS、GRUB 磁盘阶段、``grub_main()``、配置解析、菜单选择、``linux.mod`` 动态装载、``bzImage`` 与 initramfs 读取已经完成。
-
-当前已经执行：
+SeaBIOS 和 GNU GRUB 阶段已经完成。GRUB 已按 Linux/x86 32-bit Boot Protocol 交接：
 
 ```text
-grub_cmd_initrd()
-→ open /boot/initramfs-6.12.95.img with NO_DECOMPRESS
-→ calculate true size and 4 KiB aligned size
-→ addr_max = min(initrd_addr_max, 0x37ffffff, optional mem=) - 0x10000
-→ addr_min = prot_mode_target + prot_init_space
-→ allocate high-preference relocator chunk
-→ copy original initramfs bytes
-→ ramdisk_image = initrd_mem_target
-→ ramdisk_size = true file size
-→ finish entry sourcecode
-→ stop immediately before implicit boot
+ESI = boot_params physical address
+EIP = code32_start
+CS  = 0x10
+DS/ES/SS = 0x18
+paging = off
+interrupts = off
 ```
 
-当前执行者是 GNU GRUB 2.14 菜单项执行路径。CPU 处于 32 位保护模式，分页关闭。Linux protected-mode payload 与 initramfs 都已装入 relocator 管理的内存；loader hook 是 ``grub_linux_boot``；Linux 尚未取得控制权。
+Linux compressed ``startup_32`` 已执行：
 
-下一任务从 ``grub_menu_execute_entry()`` 的隐式 ``grub_command_execute("boot")`` 开始，进入 ``grub_linux_boot()``，完成 video、低端 boot_params、命令行、E820 和 relocator 状态，随后以 ``ESI=boot_params``、``EIP=code32_start`` 把控制权交给 Linux compressed ``startup_32``。
+```text
+cld / cli
+→ use boot_params.scratch for call/pop runtime-base calculation
+→ EBP = actual startup_32 address
+→ load Linux GDT and boot stack
+→ verify CPUID, long mode and SSE
+→ calculate safe compressed-image relocation base
+→ CR4.PAE = 1
+→ build 6-page initial page tables
+→ identity-map low 4 GiB with 2048 × 2 MiB entries
+→ CR3 = initial PML4
+→ EFER.LME = 1
+→ load early TSS
+→ CR0.PG = 1
+→ far return through 64-bit code descriptor
+→ startup_64
+```
+
+当前执行者是 Linux 6.12.95 ``arch/x86/boot/compressed/head_64.S:startup_64``。CPU 已进入 64 位 long mode；低 4 GiB identity mapping 已开启。compressed image 尚未搬到安全解压位置，BSS 尚未清零，``extract_kernel()`` 尚未调用，最终内核尚未解压。
+
+下一任务从 ``startup_64`` 第一条指令开始，追踪 boot_params 指针保存、输出地址计算、5-level paging 配置、compressed image 倒序复制、GDT 重定位、BSS 清零、identity map 扩展和 ``extract_kernel()`` 调用。
 
 ## 用户输入与技术事实
 
@@ -87,7 +98,7 @@ grub_cmd_initrd()
 * 控制权下一步交给哪个入口；
 * 对应哪个规范、源码文件、符号、寄存器或协议字段。
 
-不能用“固件初始化硬件”“GRUB 加载内核”这样的概括跳过中间主流程。概念在流程第一次需要时直接解释。
+不能用“固件初始化硬件”“GRUB 加载内核”“Linux 进入 64 位”这样的概括跳过中间主流程。
 
 ## 章节边界
 
@@ -101,30 +112,28 @@ grub_cmd_initrd()
 
 ## 连续推进模式
 
-用户可以用一次指令要求“连续完成 N 章”或“连续推进到某个真实控制流节点”。此时仍严格逐章执行：
+用户可要求连续完成 N 章。仍严格逐章执行：
 
 1. 重新读取最新 ``AGENTS.md``、``project/STATE.rst``、manifest 和当前入口；
 2. 读取本章涉及的固定源码与规范；
 3. 只确定当前一章的自然边界；
 4. 写完并核对当前章节；
 5. 更新目录、状态、manifest、README 和接续入口；
-6. 再从刚写入的最新状态开始下一章。
+6. 再从最新状态开始下一章。
 
-连续推进不能把多章合并成一篇，也不能先批量生成后统一核对。遇到固定源码无法确认、平台路径发生重大分叉、仓库写入失败或达到指定终点时停止。
+连续推进不能把多章合并成一篇，也不能先批量生成后统一核对。遇到固定源码无法确认、平台路径重大分叉、仓库写入失败或达到指定终点时停止。
 
 ## 状态语义
 
-``draft``：正文正在编写，或者关键事实链尚未核对完成。
+``draft``：正文正在编写，或者关键事实链尚未核对完整。
 
-``verified``：关键结论已经依据固定源码或规范核对，章节仍在续写。
+``verified``：关键结论已依据固定源码或规范核对，章节仍在续写。
 
 ``complete``：章节到达自然终点，关键事实已经核对。
 
 读者不承担技术审稿。用户反馈只用于指出哪里难懂、希望展开或阅读不连续。
 
 ## 接手顺序
-
-开始工作前依次读取：
 
 1. ``AGENTS.md``；
 2. ``project/STATE.rst``；
