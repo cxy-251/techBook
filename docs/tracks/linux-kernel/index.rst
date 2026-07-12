@@ -44,6 +44,8 @@ Linux Kernel
 #. `第三十六章：Linux 怎样建立解压映射并选择正式内核的位置？ <36-linux-builds-identity-maps-and-chooses-output.rst>`_
 #. `第三十七章：Linux 怎样解压 ELF 内核并进入正式 startup_64？ <37-linux-decompresses-elf-and-enters-kernel-startup64.rst>`_
 #. `第三十八章：Linux common_startup_64 怎样建立 boot CPU 的最早运行上下文？ <38-linux-common-startup64-builds-boot-cpu-context.rst>`_
+#. `第三十九章：x86_64_start_kernel 怎样清理临时环境并保存启动数据？ <39-linux-x86-64-start-kernel-cleans-early-environment.rst>`_
+#. `第四十章：Linux 怎样进入 start_kernel 并建立最早的通用内核状态？ <40-linux-start-kernel-establishes-earliest-generic-state.rst>`_
 
 当前主线
 --------
@@ -57,9 +59,9 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-正式内核的 ``common_startup_64`` 已完成 CR4/PGE 清理、CPU 0 编号、per-CPU offset、``init_task`` 栈、per-CPU GDT、GSBASE、early IDT、EFER 与 CR0 设置。
+正式内核已建立 CPU 0 的 per-CPU/GDT/IDT/栈环境，清除临时 identity mapping，复制 ``boot_params`` 与命令行，加载 BSP microcode，并进入通用 ``start_kernel()``。
 
-当前控制流通过 ``initial_code`` 进入 ``arch/x86/kernel/head64.c:x86_64_start_kernel()``。``start_kernel()`` 尚未调用。
+当前停在 ``start_kernel():setup_arch(&command_line)`` 调用前。下一段进入 x86 架构内存图、保留区、memblock 与早期页表初始化。
 
 章节组织
 --------
