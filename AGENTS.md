@@ -10,9 +10,9 @@
 
 ``x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 6.12.95``。
 
-当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-028``。最新章节是：
+当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-029``。最新章节是：
 
-``LK-BOOT-028``：GRUB normal 怎样找到并打开 grub.cfg？
+``LK-BOOT-029``：GRUB 怎样解析 grub.cfg 并建立第一个 Linux 菜单项？
 
 ## 当前固定 GRUB 路径
 
@@ -31,35 +31,45 @@ embedded prefix  = (,msdos1)/boot/grub
 embedded config  = absent in the fixed simple same-disk path
 ```
 
+固定 ``/boot/grub/grub.cfg``：
+
+```cfg
+set timeout=0
+set default=0
+
+menuentry 'Linux 6.12.95' {
+    linux /boot/bzImage-6.12.95 root=/dev/sda1 ro console=ttyS0
+    initrd /boot/initramfs-6.12.95.img
+}
+```
+
 权威发布物是 GNU 官方 ``grub-2.14.tar.xz``。源码引用使用 ``GitMirroring/grub`` 的固定发布提交。
 
 ## 当前控制流
 
-SeaBIOS 固件阶段以及 GRUB ``boot.img → diskboot.img → startup_raw``、机器初始化和内建模块初始化阶段已经完成。
+SeaBIOS 固件阶段以及 GRUB ``boot.img → diskboot.img → startup_raw``、机器初始化、内建模块初始化、配置文件打开与菜单项构造阶段已经完成。
 
 GRUB 当前已经执行：
 
 ```
 grub_main()
-→ grub_load_normal_mode()
-→ execute already-loaded normal command
-→ config = (hd0,msdos1)/boot/grub/grub.cfg
-→ grub_normal_execute()
-→ read command.lst / fs.lst / crypto.lst / terminal.lst
-→ create empty menu object
-→ grub_file_open(config)
-→ biosdisk opens hd0 as BIOS drive 0x80
-→ part_msdos resolves msdos1 at physical LBA 2048
-→ ext2 module reads the ext4 superblock and walks /boot/grub/grub.cfg
-→ wrap raw file with bufio
-→ export config_file and config_directory
-→ read first line not beginning with #
-→ stop immediately before grub_normal_parse_line()
+→ normal mode
+→ open (hd0,msdos1)/boot/grub/grub.cfg
+→ grub_normal_parse_line()
+→ execute set timeout=0
+→ execute set default=0
+→ parse multi-line menuentry block
+→ preserve setparams + linux + initrd as entry sourcecode
+→ grub_normal_add_menu_entry()
+→ menu->size = 1
+→ finish read_config_file()
+→ return menu to grub_normal_execute()
+→ stop before grub_show_menu()
 ```
 
-当前执行者是 GNU GRUB 2.14 normal mode。CPU 处于 32 位保护模式，分页关闭。配置文件已经打开，menu object 已创建但仍没有 ``menuentry``；Linux ``bzImage`` 尚未读取。
+当前执行者是 GNU GRUB 2.14 normal mode。CPU 处于 32 位保护模式，分页关闭。menu object 已有一个 ``Linux 6.12.95`` entry；entry body 尚未执行，``linux.mod``、``bzImage`` 和 initramfs 尚未读取。
 
-下一任务从 ``grub_normal_parse_line()`` 开始，追踪 GRUB 脚本词法分析、命令查找、动态模块自动加载和固定配置中的 ``menuentry`` 定义。章节停在 menu object 获得第一个 Linux 启动项后，不执行该启动项，不提前读取 ``bzImage``。
+下一任务从 ``grub_normal_execute():grub_show_menu()`` 开始，追踪 ``default=0`` 与 ``timeout=0`` 怎样选择第一个 entry、设置 ``chosen``、执行 ``entry->sourcecode``，并通过 ``command.lst`` 的 dynamic placeholder 装入 ``(hd0,msdos1)/boot/grub/i386-pc/linux.mod``。章节停在真实 ``grub_cmd_linux()`` 入口，不提前读取 ``bzImage``。
 
 ## 用户输入与技术事实
 
@@ -125,7 +135,7 @@ grub_main()
 * SeaBIOS 固定源码提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
 * QEMU 固定参考提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669``；
 * GNU GRUB 2.14 官方发布物和发布提交 ``d38d6a1a9b79427848976f53d474392cd29c2a71``；
-* GRUB ``boot.S``、``diskboot.S``、``startup_raw.S``、``realmode.S``、``startup.S``、``main.c``、``init.c``、``mmap.c``、``mm.c``、``tsc.c``、``dl.c``、``biosdisk.c``、``normal/main.c``、``normal/dyncmd.c``、``file.c``、``device.c``、``disk.c``、``partition.c``、``partmap/msdos.c``、``fs/ext2.c``；
+* GRUB ``boot.S``、``diskboot.S``、``startup_raw.S``、``realmode.S``、``startup.S``、``main.c``、``init.c``、``mmap.c``、``mm.c``、``tsc.c``、``dl.c``、``biosdisk.c``、``normal/main.c``、``normal/menu.c``、``normal/dyncmd.c``、``script/main.c``、``script/parser.y``、``script/execute.c``、``commands/menuentry.c``、``kern/corecmd.c``、``file.c``、``device.c``、``disk.c``、``partition.c``、``partmap/msdos.c``、``fs/ext2.c``；
 * Linux 6.12.95 固定源码；
 * Linux/x86 Boot Protocol；
 * 能从源码、寄存器、CPU 模式和内存布局确认的状态变化。
