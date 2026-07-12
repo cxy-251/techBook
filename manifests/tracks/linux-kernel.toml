@@ -264,10 +264,18 @@ status = "complete"
 start = "GNU GRUB 2.14 grub_normal_parse_line()"
 end = "grub_normal_execute() owns a one-entry menu immediately before grub_show_menu()"
 
+[[chapter]]
+id = "LK-BOOT-030"
+title = "GRUB 怎样自动选择菜单项并装入 linux 命令模块？"
+rst = "docs/tracks/linux-kernel/30-grub-autoboots-entry-and-loads-linux-module.rst"
+status = "complete"
+start = "GNU GRUB 2.14 grub_normal_execute():grub_show_menu()"
+end = "linux.mod has registered the real linux command immediately before grub_cmd_linux()"
+
 [current]
-last_complete = "LK-BOOT-029"
-next_entry = "GNU GRUB 2.14 grub_normal_execute():grub_show_menu()"
-next_action = "用 timeout=0 和 default=0 自动选择第一个 entry，执行其 sourcecode，并动态加载 linux.mod，直到 grub_cmd_linux() 入口"
+last_complete = "LK-BOOT-030"
+next_entry = "GNU GRUB 2.14 grub_cmd_linux()"
+next_action = "打开 /boot/bzImage-6.12.95，验证 Linux/x86 setup header，装入 protected-mode payload 并注册 loader，停在 initrd 命令之前"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
