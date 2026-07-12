@@ -27,8 +27,9 @@
 #. ``LK-BOOT-013``：SeaBIOS 怎样把 CPU、IRQ 和内存信息写成固件表？
 #. ``LK-BOOT-014``：SeaBIOS 怎样执行 QEMU 的 ACPI table-loader 并找到 RSDP？
 #. ``LK-BOOT-015``：SeaBIOS 怎样沿 RSDP 读懂 ACPI 表图并解析 DSDT？
+#. ``LK-BOOT-016``：SeaBIOS 怎样建立时间基准、18.2 Hz BIOS 时钟并初始化 TPM？
 
-当前控制流已经从 ``qemu_platform_setup()`` 返回到 ``platform_hardware_setup()``。RSDP、RSDT/XSDT、FADT、MADT、MCFG 与受限 DSDT 设备索引已经建立。下一段从 ``timer_setup()``、``clock_setup()`` 和 ``tpm_setup()`` 继续，结束后进入 ``maininit()`` 的 ``device_hardware_setup()`` / ``vgarom_setup()`` 分流。
+当前控制流已经从 ``platform_hardware_setup()`` 返回到 ``maininit()``。SeaBIOS 内部时间源、PIT/RTC/BDA 传统 BIOS 时钟和条件 TPM measured-boot 初始化已经完成。下一段从 ``threads_during_optionroms()`` 的时序分支开始，继续追踪 ``device_hardware_setup()``、``vgarom_setup()``、USB、PS/2 与 block driver 初始化。
 
 ## 用户输入与技术事实
 
