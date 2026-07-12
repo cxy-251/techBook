@@ -32,10 +32,11 @@
 #. ``LK-BOOT-018``：SeaBIOS 怎样枚举 USB 设备并初始化 PS/2 键盘？
 #. ``LK-BOOT-019``：SeaBIOS 怎样发现 q35 的 AHCI 磁盘并把它加入启动列表？
 #. ``LK-BOOT-020``：SeaBIOS 怎样扫描普通 Option ROM 并把 BCV、BEV 加入启动列表？
+#. ``LK-BOOT-021``：SeaBIOS 怎样执行 BCV 并把启动盘映射成 BIOS 0x80？
 
-普通 PCI/CBFS Option ROM 已经完成部署、校验和 PnP header 解析。内建设备的 ``have_driver`` 状态已用于跳过重复 ROM 初始化；条件 legacy/PnP BCV 与 BEV 已登记进 ``BootList``。
+启动菜单和 ``prepareboot()`` 已完成。BCV 已执行，固定 AHCI port 0 ``drive_s`` 已进入 ``IDMap[EXTTYPE_HD][0]``，BDA ``hdcount=1``，逻辑 CHS、EBDA FDPT、最终 ``BEV[]``、PMM/E820 收尾和 BIOS checksum 已建立。
 
-当前仍在 SeaBIOS ``maininit()``，下一入口是 ``interactive_bootmenu()``。随后执行 ``wait_threads()`` 和 ``prepareboot():bcv_prepboot()``。BCV 尚未执行，BIOS ``0x80`` mapping 尚未建立，MBR sector 0 尚未读取，GRUB 尚未执行。
+当前仍在 SeaBIOS ``maininit()``，下一入口是 ``make_bios_readonly()``，随后执行 ``startBoot()``。MBR sector 0 尚未读取，物理地址 ``0x7c00`` 尚未写入启动扇区，GRUB 尚未执行。
 
 ## 用户输入与技术事实
 
@@ -97,7 +98,7 @@
 ## 当前内容依据
 
 * x86-64 处理器复位状态、保护模式、SMM、MTRR、MSR、APIC 与 INIT/SIPI 资料；
-* PIRQ、Intel MP Specification、SMBIOS、ACPI、PIT、RTC、TPM、PCI Option ROM、PnP BIOS、VGA BIOS、USB、HID boot protocol、i8042、AHCI 与 ATA/ATAPI 资料；
+* PIRQ、Intel MP Specification、SMBIOS、ACPI、PIT、RTC、TPM、PCI Option ROM、PnP BIOS、VGA BIOS、USB、HID boot protocol、i8042、AHCI、ATA/ATAPI、BIOS drive mapping、FDPT 与 PMM 资料；
 * SeaBIOS 固定源码提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
 * QEMU 固定参考提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669``；
 * GRUB i386-pc 固定源码；
