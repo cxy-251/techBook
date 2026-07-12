@@ -33,10 +33,13 @@
 #. ``LK-BOOT-019``：SeaBIOS 怎样发现 q35 的 AHCI 磁盘并把它加入启动列表？
 #. ``LK-BOOT-020``：SeaBIOS 怎样扫描普通 Option ROM 并把 BCV、BEV 加入启动列表？
 #. ``LK-BOOT-021``：SeaBIOS 怎样执行 BCV 并把启动盘映射成 BIOS 0x80？
+#. ``LK-BOOT-022``：SeaBIOS 怎样把硬盘第一扇区读到 0x7c00 并交给 GRUB？
 
-启动菜单和 ``prepareboot()`` 已完成。BCV 已执行，固定 AHCI port 0 ``drive_s`` 已进入 ``IDMap[EXTTYPE_HD][0]``，BDA ``hdcount=1``，逻辑 CHS、EBDA FDPT、最终 ``BEV[]``、PMM/E820 收尾和 BIOS checksum 已建立。
+SeaBIOS 固件主流程已经完成。它通过 ``INT 19h`` 选择硬盘启动项，再通过 ``INT 13h AH=02h`` 将 q35 AHCI port 0 启动盘的 LBA 0 读到物理地址 ``0x7c00``，校验 ``0x55aa``，并以 ``AX=0xaa55``、``DL=0x80``、``IF=1`` 跳转到 ``CS:IP=0000:7c00``。
 
-当前仍在 SeaBIOS ``maininit()``，下一入口是 ``make_bios_readonly()``，随后执行 ``startBoot()``。MBR sector 0 尚未读取，物理地址 ``0x7c00`` 尚未写入启动扇区，GRUB 尚未执行。
+当前执行者已经切换为 GRUB i386-pc ``boot.img``。CPU 处于 16 位实模式，分页关闭；GRUB ``core.img`` 尚未读取，Linux bzImage 尚未读取。
+
+下一任务必须先固定 GRUB i386-pc 的准确 release/commit、构建配置和磁盘安装布局。未完成这些核对前，不得猜测 ``boot.img`` 中的嵌入字段、``core.img`` 扇区位置或具体源码符号。版本固定后，再从 ``0000:7c00`` 的第一条汇编指令继续。
 
 ## 用户输入与技术事实
 
@@ -98,10 +101,10 @@
 ## 当前内容依据
 
 * x86-64 处理器复位状态、保护模式、SMM、MTRR、MSR、APIC 与 INIT/SIPI 资料；
-* PIRQ、Intel MP Specification、SMBIOS、ACPI、PIT、RTC、TPM、PCI Option ROM、PnP BIOS、VGA BIOS、USB、HID boot protocol、i8042、AHCI、ATA/ATAPI、BIOS drive mapping、FDPT 与 PMM 资料；
+* PIRQ、Intel MP Specification、SMBIOS、ACPI、PIT、RTC、TPM、PCI Option ROM、PnP BIOS、VGA BIOS、USB、HID boot protocol、i8042、AHCI、ATA/ATAPI、BIOS drive mapping、FDPT、PMM、``INT 19h``、``INT 13h`` 与 MBR 资料；
 * SeaBIOS 固定源码提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
 * QEMU 固定参考提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669``；
-* GRUB i386-pc 固定源码；
+* 待固定的 GRUB i386-pc 源码 release/commit 与安装布局；
 * Linux 6.12.95 固定源码；
 * Linux/x86 Boot Protocol；
 * 能从源码、寄存器、CPU 模式和内存布局确认的状态变化。
