@@ -52,10 +52,18 @@ status = "complete"
 start = "relocated post.c:maininit()"
 end = "interface_init():boot_init()"
 
+[[chapter]]
+id = "LK-BOOT-005"
+title = "SeaBIOS 怎样把自己变成可供启动软件调用的 BIOS？"
+rst = "docs/tracks/linux-kernel/05-seabios-software-interfaces.rst"
+status = "complete"
+start = "interface_init():boot_init()"
+end = "maininit():platform_hardware_setup()"
+
 [current]
-last_complete = "LK-BOOT-004"
-next_entry = "interface_init():boot_init()"
-next_action = "收到继续指令后，从 boot_init() 沿真实控制流继续"
+last_complete = "LK-BOOT-005"
+next_entry = "maininit():platform_hardware_setup()"
+next_action = "收到继续指令后，从 platform_hardware_setup() 沿真实控制流继续"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
