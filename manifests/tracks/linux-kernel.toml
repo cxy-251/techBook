@@ -126,10 +126,18 @@ status = "complete"
 start = "qemu_platform_setup():pirtable_setup(); mptable_setup(); smbios_setup()"
 end = "qemu_platform_setup():smbios_setup() returns"
 
+[[chapter]]
+id = "LK-BOOT-014"
+title = "SeaBIOS 怎样执行 QEMU 的 ACPI table-loader 并找到 RSDP？"
+rst = "docs/tracks/linux-kernel/14-seabios-acpi-table-loader-and-rsdp.rst"
+status = "complete"
+start = "qemu_platform_setup():romfile_loader_execute(etc/table-loader)"
+end = "qemu_platform_setup():find_acpi_rsdp() returns RsdpAddr"
+
 [current]
-last_complete = "LK-BOOT-013"
-next_entry = "qemu_platform_setup():romfile_loader_execute(\"etc/table-loader\")"
-next_action = "收到继续指令后，从 ACPI table-loader、RSDP 查找和 q35 ACPI 表安装开始继续"
+last_complete = "LK-BOOT-014"
+next_entry = "qemu_platform_setup():acpi_dsdt_parse(); virtio_mmio_setup_acpi()"
+next_action = "从 RSDP 展开 ACPI 表图，并追踪 SeaBIOS DSDT 轻量解析与 qemu_platform_setup 返回"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
