@@ -110,10 +110,18 @@ status = "complete"
 start = "qemu_platform_setup():mtrr_setup()"
 end = "qemu_platform_setup():msr_feature_control_setup() returns"
 
+[[chapter]]
+id = "LK-BOOT-012"
+title = "SeaBIOS 怎样用 INIT/SIPI 唤醒其他 CPU？"
+rst = "docs/tracks/linux-kernel/12-seabios-smp-init-sipi-and-ap-startup.rst"
+status = "complete"
+start = "qemu_platform_setup():smp_setup()"
+end = "qemu_platform_setup():smp_setup() returns"
+
 [current]
-last_complete = "LK-BOOT-011"
-next_entry = "qemu_platform_setup():smp_setup()"
-next_action = "收到继续指令后，从 local APIC、INIT/SIPI、AP 启动跳板与 AP 重放 MSR 开始继续"
+last_complete = "LK-BOOT-012"
+next_entry = "qemu_platform_setup():pirtable_setup(); mptable_setup(); smbios_setup()"
+next_action = "收到继续指令后，从 PIRQ table、MP table 与 SMBIOS 建立开始继续"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
