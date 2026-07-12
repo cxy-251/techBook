@@ -28,6 +28,7 @@ techBook
 * `第十九章：SeaBIOS 怎样发现 q35 的 AHCI 磁盘并把它加入启动列表？ <docs/tracks/linux-kernel/19-seabios-ahci-disk-and-bootlist.rst>`_
 * `第二十章：SeaBIOS 怎样扫描普通 Option ROM 并把 BCV、BEV 加入启动列表？ <docs/tracks/linux-kernel/20-seabios-option-rom-bcv-bev.rst>`_
 * `第二十一章：SeaBIOS 怎样执行 BCV 并把启动盘映射成 BIOS 0x80？ <docs/tracks/linux-kernel/21-seabios-bcv-drive-mapping-and-prepareboot.rst>`_
+* `第二十二章：SeaBIOS 怎样把硬盘第一扇区读到 0x7c00 并交给 GRUB？ <docs/tracks/linux-kernel/22-seabios-int19-mbr-handoff.rst>`_
 
 当前主线
 --------
@@ -44,7 +45,7 @@ techBook
 开头从设备上电后的故事进入，最终主题仍然是 Linux 内核。正文按真实发生顺序连续讲述；达到适合一次
 阅读的篇幅，并遇到自然控制权交接点时换章。
 
-BCV 已执行，AHCI port 0 已映射为 BIOS 第一块硬盘 ``0x80``，最终 ``BEV[]`` 启动序列和 E820/PMM 收尾已经完成。下一入口是 ``make_bios_readonly()``，随后 ``startBoot()`` 进入 ``INT 19h``。MBR 尚未读取，GRUB 尚未执行。
+SeaBIOS 固件阶段的主流程已经完成：硬盘 LBA 0 已读入 ``0x7c00``，签名已经校验，控制权已以 ``DL=0x80`` 交给 ``0000:7c00`` 的 GRUB i386-pc ``boot.img``。当前仍是 16 位实模式，``core.img`` 尚未读取，Linux 尚未装入内存。
 
 开始工作
 --------
