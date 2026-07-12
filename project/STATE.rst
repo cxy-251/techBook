@@ -41,6 +41,7 @@
 #. ``LK-BOOT-026``：GRUB 怎样通过 BIOS E820 建立自己的堆？
 #. ``LK-BOOT-027``：GRUB 怎样加载内建模块并建立 hd0、root 和 prefix？
 #. ``LK-BOOT-028``：GRUB normal 怎样找到并打开 grub.cfg？
+#. ``LK-BOOT-029``：GRUB 怎样解析 grub.cfg 并建立第一个 Linux 菜单项？
 
 当前主线
 --------
@@ -71,41 +72,43 @@
 
 当前固定 ``core.img`` 至少嵌入 ``biosdisk``、``part_msdos``、``ext2``、``normal`` 及自动依赖；embedded prefix 为 ``(,msdos1)/boot/grub``，简单同盘路径不嵌入额外 config 对象。
 
+固定 grub.cfg
+-------------
+
+.. code-block:: cfg
+
+   set timeout=0
+   set default=0
+
+   menuentry 'Linux 6.12.95' {
+       linux /boot/bzImage-6.12.95 root=/dev/sda1 ro console=ttyS0
+       initrd /boot/initramfs-6.12.95.img
+   }
+
 当前控制流位置
 --------------
 
-第二十八章结束在：
+第二十九章结束在：
 
 ::
 
-   grub_main()
-   → grub_load_normal_mode()
-   → grub_dl_load("normal") returns the already-loaded module
-   → grub_command_execute("normal", 0, 0)
-   → grub_cmd_normal()
-   → prefix + /grub.cfg
-   → config = (hd0,msdos1)/boot/grub/grub.cfg
-   → grub_enter_normal_mode()
-   → grub_normal_execute(config, nested=0, batch=0)
-   → read command.lst / fs.lst / crypto.lst / terminal.lst
-   → create empty grub_menu object
-   → grub_file_open(config)
-   → split device hd0,msdos1 and path /boot/grub/grub.cfg
-   → grub_device_open()
-   → grub_disk_open("hd0,msdos1")
-   → biosdisk opens hd0 as BIOS drive 0x80
-   → part_msdos probes msdos1
-   → MBR partition 1 start = physical LBA 2048
-   → grub_fs_probe()
-   → ext2 module reads ext4 superblock at partition offset 1024 bytes
-   → walk inode 2 /boot/grub/grub.cfg
-   → raw config file opened
-   → grub_bufio_open()
-   → export config_file and config_directory
-   → grub_file_getline()
-   → skip lines whose first byte is #
-   → first line to parse is stored in memory
-   → stop before grub_normal_parse_line()
+   read_config_file()
+   → grub_normal_parse_line()
+   → grub_script_parse()
+   → execute set timeout=0
+   → execute set default=0
+   → parse multi-line menuentry block
+   → retain raw block source and parsed child script
+   → grub_script_execute_cmdline()
+   → find already-registered menuentry extended command
+   → grub_cmd_menuentry()
+   → prepend setparams
+   → grub_normal_add_menu_entry()
+   → append first grub_menu_entry
+   → menu->size = 1
+   → finish reading grub.cfg
+   → return menu to grub_normal_execute()
+   → stop before grub_show_menu()
 
 此刻机器状态：
 
@@ -113,19 +116,15 @@
 * 当前主流程 CPU：BSP；
 * 模式：32 位保护模式；
 * 分页：关闭；
-* ``prefix``：``(hd0,msdos1)/boot/grub``；
-* 配置路径：``(hd0,msdos1)/boot/grub/grub.cfg``；
-* BIOS disk：``hd0`` 对应 ``INT 13h`` drive ``0x80``；
-* partition：``msdos1``，物理起点 LBA 2048；
-* filesystem：``ext2`` 模块读取固定 ext4 文件系统；
-* 配置原始文件：已打开；
-* bufio：已包装；
-* ``config_file``：已导出；
-* ``config_directory``：已导出；
-* menu object：已创建，仍无 ``menuentry``；
-* 第一条不以 ``#`` 开头的配置行：已读入内存；
-* ``grub_normal_parse_line()``：尚未调用；
-* Linux ``bzImage``：尚未读取；
+* ``timeout``：``0``；
+* ``default``：``0``；
+* menu object：已有一个 entry；
+* 第一个 entry title/id：``Linux 6.12.95``；
+* entry sourcecode：``setparams``、``linux``、``initrd``；
+* 菜单项 body：尚未执行；
+* ``linux.mod``：尚未动态加载；
+* ``/boot/bzImage-6.12.95``：尚未打开；
+* ``/boot/initramfs-6.12.95.img``：尚未打开；
 * Linux：尚未取得控制权。
 
 完成状态
@@ -143,9 +142,8 @@
 ------------
 
 * GNU GRUB 2.14 官方发布包与发布提交 ``d38d6a1a9b79427848976f53d474392cd29c2a71``；
-* GRUB ``grub-core/kern/main.c``、``grub-core/normal/main.c``、``grub-core/normal/dyncmd.c``；
-* GRUB ``grub-core/kern/file.c``、``device.c``、``disk.c``、``partition.c``；
-* GRUB ``grub-core/partmap/msdos.c``、``grub-core/fs/ext2.c``、``grub-core/disk/i386/pc/biosdisk.c``；
+* GRUB ``grub-core/normal/main.c``、``script/main.c``、``script/parser.y``、``script/execute.c``；
+* GRUB ``grub-core/commands/menuentry.c`` 与 ``grub-core/kern/corecmd.c``；
 * SeaBIOS 提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
 * QEMU 提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669``；
 * Linux 6.12.95 与 Linux/x86 Boot Protocol。
@@ -153,4 +151,4 @@
 当前下一步
 ----------
 
-从 ``grub_normal_parse_line()`` 开始，追踪 GRUB 脚本词法分析、命令查找、动态模块装载和 ``menuentry`` 定义，直到 menu object 获得固定配置中的第一个 Linux 启动项；尚不执行该启动项。
+从 ``grub_normal_execute():grub_show_menu()`` 开始，追踪 ``default=0`` 与 ``timeout=0`` 怎样选择第一个菜单项、建立 ``chosen``、执行 entry sourcecode，并通过 dynamic command placeholder 装入 ``linux.mod``；停在真实 ``grub_cmd_linux()`` 入口。
