@@ -12,6 +12,7 @@ techBook
 * `第三章：SeaBIOS 怎样识别内存并把初始化代码搬到 RAM？ <docs/tracks/linux-kernel/03-seabios-memory-map-and-relocation.rst>`_
 * `第四章：SeaBIOS 怎样在低端内存建立 IVT、BDA 和 EBDA？ <docs/tracks/linux-kernel/04-seabios-ivt-bda-ebda.rst>`_
 * `第五章：SeaBIOS 怎样把自己变成可供启动软件调用的 BIOS？ <docs/tracks/linux-kernel/05-seabios-software-interfaces.rst>`_
+* `第六章：SeaBIOS 怎样建立中断基础并启动内部线程？ <docs/tracks/linux-kernel/06-seabios-dma-pic-threads.rst>`_
 
 当前主线
 --------
@@ -28,8 +29,8 @@ techBook
 开头从设备上电后的故事进入，最终主题仍然是 Linux 内核。正文按真实发生顺序连续讲述；达到适合一次
 阅读的篇幅，并遇到自然控制权交接点时换章。
 
-当前控制流回到 SeaBIOS ``maininit()``，下一入口是 ``platform_hardware_setup()``。后续从这里继续，
-不提前列出整本目录。
+当前控制流仍在 SeaBIOS ``platform_hardware_setup()`` 内，下一入口是 ``qemu_platform_setup()``。GRUB
+尚未被搜索；后续从 QEMU q35 的 PCI 与平台初始化继续，不提前列出整本目录。
 
 开始工作
 --------
