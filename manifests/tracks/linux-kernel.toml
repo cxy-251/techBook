@@ -24,7 +24,7 @@ grub_release = "2.14"
 grub_repository = "GitMirroring/grub"
 grub_commit = "d38d6a1a9b79427848976f53d474392cd29c2a71"
 grub_official_archive = "https://ftp.gnu.org/gnu/grub/grub-2.14.tar.xz"
-grub_disk_layout = "MBR disk; first partition at LBA 2048; core.img embedded contiguously from LBA 1"
+grub_disk_layout = "MBR disk; ext4 first partition at LBA 2048; /boot/grub; core.img embedded contiguously from LBA 1"
 kernel_image = "bzImage"
 kernel_release = "6.12.95"
 boot_protocol = "Linux/x86 Boot Protocol"
@@ -229,10 +229,18 @@ status = "complete"
 start = "GRUB startup_raw at 0000:8200"
 end = "GRUB core calls grub_main() in 32-bit protected mode"
 
+[[chapter]]
+id = "LK-BOOT-026"
+title = "GRUB 怎样通过 BIOS E820 建立自己的堆？"
+rst = "docs/tracks/linux-kernel/26-grub-machine-init-e820-and-heap.rst"
+status = "complete"
+start = "GNU GRUB 2.14 grub_main():grub_machine_init()"
+end = "grub_machine_init() returns after console, E820 heap, and TSC initialization"
+
 [current]
-last_complete = "LK-BOOT-025"
-next_entry = "GNU GRUB 2.14 grub_main()"
-next_action = "追踪 grub_main、grub_machine_init、内存管理、内建模块和启动设备 hd0 的建立，直到读取 grub.cfg 前的自然交接点"
+last_complete = "LK-BOOT-026"
+next_entry = "GNU GRUB 2.14 grub_main() after grub_machine_init()"
+next_action = "加载 core.img 内建对象和 ELF 模块，建立 biosdisk、hd0、root 与 prefix"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
