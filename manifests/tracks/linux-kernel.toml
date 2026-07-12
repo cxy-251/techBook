@@ -19,7 +19,12 @@ qemu_repository = "qemu/qemu"
 qemu_commit = "a759542a2c62f0fd3b65f5a66ad9868201014669"
 storage_controller = "QEMU q35 built-in ICH9 AHCI SATA"
 boot_disk = "one boot disk attached to AHCI SATA port 0"
-bootloader = "GRUB i386-pc"
+bootloader = "GNU GRUB 2.14 i386-pc"
+grub_release = "2.14"
+grub_repository = "GitMirroring/grub"
+grub_commit = "d38d6a1a9b79427848976f53d474392cd29c2a71"
+grub_official_archive = "https://ftp.gnu.org/gnu/grub/grub-2.14.tar.xz"
+grub_disk_layout = "MBR disk; first partition at LBA 2048; core.img embedded contiguously from LBA 1"
 kernel_image = "bzImage"
 kernel_release = "6.12.95"
 boot_protocol = "Linux/x86 Boot Protocol"
@@ -200,10 +205,34 @@ status = "complete"
 start = "maininit():make_bios_readonly()"
 end = "farcall16 transfers control to the boot sector at 0000:7c00 with DL=0x80"
 
+[[chapter]]
+id = "LK-BOOT-023"
+title = "GRUB boot.img 怎样从 0x7c00 读出 core.img 的第一扇区？"
+rst = "docs/tracks/linux-kernel/23-grub-boot-img-loads-diskboot.rst"
+status = "complete"
+start = "GRUB 2.14 boot.img at 0000:7c00"
+end = "boot.img jumps to diskboot.img at 0000:8000"
+
+[[chapter]]
+id = "LK-BOOT-024"
+title = "GRUB diskboot.img 怎样按 blocklist 读完 core.img？"
+rst = "docs/tracks/linux-kernel/24-grub-diskboot-blocklist-loads-core.rst"
+status = "complete"
+start = "GRUB diskboot.img at 0000:8000"
+end = "diskboot.img jumps to startup_raw at 0000:8200"
+
+[[chapter]]
+id = "LK-BOOT-025"
+title = "GRUB startup_raw 怎样进入保护模式并调用 grub_main？"
+rst = "docs/tracks/linux-kernel/25-grub-startup-raw-protected-mode-and-grub-main.rst"
+status = "complete"
+start = "GRUB startup_raw at 0000:8200"
+end = "GRUB core calls grub_main() in 32-bit protected mode"
+
 [current]
-last_complete = "LK-BOOT-022"
-next_entry = "GRUB i386-pc boot.img at 0000:7c00"
-next_action = "固定 GRUB i386-pc 源码版本与磁盘安装布局，追踪 boot.img 怎样读取 core.img"
+last_complete = "LK-BOOT-025"
+next_entry = "GNU GRUB 2.14 grub_main()"
+next_action = "追踪 grub_main、grub_machine_init、内存管理、内建模块和启动设备 hd0 的建立，直到读取 grub.cfg 前的自然交接点"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
