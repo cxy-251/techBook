@@ -12,6 +12,7 @@ Linux Kernel
 #. `第四章：SeaBIOS 怎样在低端内存建立 IVT、BDA 和 EBDA？ <04-seabios-ivt-bda-ebda.rst>`_
 #. `第五章：SeaBIOS 怎样把自己变成可供启动软件调用的 BIOS？ <05-seabios-software-interfaces.rst>`_
 #. `第六章：SeaBIOS 怎样建立中断基础并启动内部线程？ <06-seabios-dma-pic-threads.rst>`_
+#. `第七章：SeaBIOS 怎样为 q35 编号 PCI 总线并发现设备？ <07-seabios-pci-bus-and-device-discovery.rst>`_
 
 当前主线
 --------
@@ -25,9 +26,8 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-正文已经从平台释放处理器复位，追踪到 SeaBIOS 复位传统 DMA、初始化两片 8259A、建立内部协作式线程
-能力，并为 IRQ13 安装数学协处理器兼容入口。当前控制流仍在 ``platform_hardware_setup()`` 内，下一入口是
-``qemu_platform_setup()``。
+正文已经从平台释放处理器复位，追踪到 SeaBIOS 为 PCI bridge 分配 bus number，并把所有已发现 function
+缓存进 ``PCIDevices``。当前仍在 ``pci_setup()`` 内，下一步从 q35 MMCONFIG 和 PCI BAR 资源分配继续。
 
 章节组织
 --------
