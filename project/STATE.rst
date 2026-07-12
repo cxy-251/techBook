@@ -32,6 +32,7 @@
 #. ``LK-BOOT-017``：SeaBIOS 为什么先运行 VGA Option ROM 再初始化其他设备？
 #. ``LK-BOOT-018``：SeaBIOS 怎样枚举 USB 设备并初始化 PS/2 键盘？
 #. ``LK-BOOT-019``：SeaBIOS 怎样发现 q35 的 AHCI 磁盘并把它加入启动列表？
+#. ``LK-BOOT-020``：SeaBIOS 怎样扫描普通 Option ROM 并把 BCV、BEV 加入启动列表？
 
 当前主线
 --------
@@ -48,33 +49,33 @@
 当前控制流位置
 --------------
 
-第十九章结束在：
+第二十章结束在：
 
 ::
 
    maininit()
-   → synchronous device_hardware_setup()
-   → block_setup()
-   → q35 ICH9 AHCI function 00:1f.2
-   → BAR5 / bus master
-   → HBA reset / AHCI enable
-   → per-port threads
-   → fixed boot disk on SATA port 0
-   → command list / received FIS / command table
-   → link DET=3 and device ready
-   → IDENTIFY DEVICE
-   → model / LBA capacity / transfer mode
-   → persistent AHCI structures
-   → boot_add_hd()
-   → device_hardware_setup() 返回
-   → wait_threads()
-   → 所有当前 USB、PS/2、AHCI 与其他设备线程完成
+   → optionrom_setup()
+   → 记录 post_vga 边界
+   → 跳过 VGA/display 与 have_driver 设备
+   → 部署 PCI 或 fw_cfg ROM
+   → 选择匹配的 x86 image
+   → 复制到 0xc0000..0xeffff
+   → 验证 0xaa55 / size / checksum
+   → 条件执行 PnP init vector
+   → 条件恢复被错误捕获的 INT 19h
+   → 部署 genroms/
+   → 第二遍扫描最终 ROM 布局
+   → legacy ROM 登记为 BCV
+   → PnP header 登记为 BCV 或 BEV
+   → optionrom_setup() 返回
 
 ``maininit()`` 接下来执行：
 
 .. code-block:: c
 
-   optionrom_setup();
+   interactive_bootmenu();
+   wait_threads();
+   prepareboot();
 
 此刻机器状态：
 
@@ -82,17 +83,15 @@
 * 当前主流程 CPU：BSP；
 * 模式：32 位保护模式；
 * 分页：关闭；
-* 固定 storage controller：QEMU q35 内置 ICH9 AHCI，典型 BDF ``00:1f.2``；
-* 固定启动盘：SATA port 0；
-* AHCI HBA/port engine：已经初始化；
-* IDENTIFY、LBA capacity、model、transfer mode：已经记录；
-* persistent command/FIS DMA structures：已经建立；
-* ``BootList``：已经包含 AHCI hard-disk entry，以及条件 USB/CD/其他内建设备；
-* 当前设备线程：全部完成；
-* BIOS ``0x80`` drive mapping：尚未由 ``bcv_prepboot()`` 建立；
+* 普通 PCI/CBFS Option ROM：已经部署和解析；
+* ``have_driver`` 设备：已跳过普通 ROM 扫描；
+* PnP init vector：已经条件执行；
+* legacy/PnP BCV：已经登记，尚未执行；
+* BEV：已经登记，尚未调用；
+* ``BootList``：包含内建设备和条件 BCV/BEV/CBFS 条目；
+* BIOS ``0x80`` drive mapping：尚未建立；
 * MBR sector 0：尚未读取；
-* 普通非 VGA Option ROM：尚未扫描；
-* GRUB：尚未被读取或执行；
+* GRUB：尚未执行；
 * Linux：尚未装入内存。
 
 完成状态
@@ -110,12 +109,11 @@ Kernel 目录页。
 固定事实来源
 ------------
 
-* AHCI 1.3.1、ATA/ATAPI 与 PCI Firmware 资料；
+* PCI Expansion ROM、PnP BIOS、BCV、BEV 与 QEMU fw_cfg 资料；
 * SeaBIOS 提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
-* SeaBIOS ``src/block.c``、``src/hw/ahci.c``、``src/boot.c``、``src/stacks.c`` 和 ``src/post.c``；
-* QEMU 提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669`` 的 ``hw/i386/pc_q35.c`` 与 ``include/hw/southbridge/ich9.h``。
+* SeaBIOS ``src/optionroms.c``、``src/std/optionrom.h``、``src/hw/pcidevice.c``、``src/boot.c`` 和 ``src/post.c``。
 
 当前下一步
 ----------
 
-从 ``maininit():optionrom_setup()`` 开始，扫描普通 PCI/CBFS Option ROM，解释 ``have_driver``、PnP expansion header、BCV、BEV 和 PXE 怎样继续扩充 BootList。
+从 ``maininit():interactive_bootmenu()`` 开始，追踪用户选择怎样调整 BootList，然后进入 ``prepareboot():bcv_prepboot()`` 执行 BCV、分配 BIOS 驱动号并生成最终 BEV 启动序列。
