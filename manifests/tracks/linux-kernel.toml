@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-034"
+completed_range = "LK-BOOT-001..LK-BOOT-037"
 
 [origin]
 repository = "cxy-251/aiBook"
@@ -29,6 +29,7 @@ grub_config = "set timeout=0; set default=0; menuentry Linux 6.12.95 with linux 
 kernel_repository = "gregkh/linux"
 kernel_release = "6.12.95"
 kernel_ref = "v6.12.95"
+kernel_commit = "7404ce51637231382873d0b55edabc2f3b841a9d"
 kernel_image = "bzImage"
 kernel_path = "/boot/bzImage-6.12.95"
 initramfs_path = "/boot/initramfs-6.12.95.img"
@@ -242,15 +243,39 @@ title = "Linux startup_32 怎样建立 4 GiB 映射并进入 64 位模式？"
 rst = "docs/tracks/linux-kernel/34-linux-startup32-enters-long-mode.rst"
 status = "complete"
 start = "Linux 6.12.95 compressed startup_32"
-end = "startup_64 takes control in long mode"
+end = "compressed startup_64 takes control in long mode"
+
+[[chapter]]
+id = "LK-BOOT-035"
+title = "Linux startup_64 怎样把压缩内核搬到安全解压位置？"
+rst = "docs/tracks/linux-kernel/35-linux-startup64-relocates-compressed-image.rst"
+status = "complete"
+start = "Linux 6.12.95 compressed startup_64"
+end = "relocated compressed .Lrelocated takes control"
+
+[[chapter]]
+id = "LK-BOOT-036"
+title = "Linux 怎样建立解压映射并选择正式内核的位置？"
+rst = "docs/tracks/linux-kernel/36-linux-builds-identity-maps-and-chooses-output.rst"
+status = "complete"
+start = "Linux compressed .Lrelocated"
+end = "extract_kernel has selected and validated output immediately before decompress_kernel()"
+
+[[chapter]]
+id = "LK-BOOT-037"
+title = "Linux 怎样解压 ELF 内核并进入正式 startup_64？"
+rst = "docs/tracks/linux-kernel/37-linux-decompresses-elf-and-enters-kernel-startup64.rst"
+status = "complete"
+start = "Linux compressed decompress_kernel()"
+end = "decompressed kernel reaches high-half common_startup_64"
 
 [current]
-last_complete = "LK-BOOT-034"
-executor = "Linux 6.12.95 arch/x86/boot/compressed/head_64.S:startup_64"
+last_complete = "LK-BOOT-037"
+executor = "Linux 6.12.95 arch/x86/kernel/head_64.S:common_startup_64"
 cpu_mode = "64-bit long mode"
-paging = "enabled; initial 4-level low-4-GiB identity map with 2-MiB pages"
-next_entry = "Linux 6.12.95 compressed startup_64"
-next_action = "保存 boot_params，计算输出和 relocation 地址，处理 5-level paging，倒序复制 compressed image，重定位 GDT，清 BSS，建立 identity maps 并调用 extract_kernel()"
+paging = "enabled; formal early_top_pgt active with high-half kernel mapping and temporary identity mappings"
+next_entry = "Linux 6.12.95 common_startup_64"
+next_action = "清理 CR4/PGE，建立 boot CPU 编号、percpu offset、TSS、stack 和 early IDT，追到 x86_64_start_kernel()"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
