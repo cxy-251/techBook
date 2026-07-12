@@ -24,8 +24,9 @@
 #. ``LK-BOOT-010``：SeaBIOS 怎样进入 SMM 并把处理入口藏进 SMRAM？
 #. ``LK-BOOT-011``：SeaBIOS 怎样规定物理地址的缓存类型并准备每个 CPU 的 MSR？
 #. ``LK-BOOT-012``：SeaBIOS 怎样用 INIT/SIPI 唤醒其他 CPU？
+#. ``LK-BOOT-013``：SeaBIOS 怎样把 CPU、IRQ 和内存信息写成固件表？
 
-当前控制流停在 ``qemu_platform_setup()`` 的 ``smp_setup()`` 返回处。下一段先在 ``MaxCountCPUs <= 255`` 条件下建立 PIRQ table 与 MP table，再执行 ``smbios_setup()``。收到继续指令后，从这些固件表如何描述 PCI IRQ、CPU/APIC、系统与内存信息开始追踪，不提前规划整本书。
+当前控制流停在 ``qemu_platform_setup()`` 的 ``smbios_setup()`` 返回处。下一段进入 ``romfile_loader_execute("etc/table-loader")``、RSDP 查找与 ACPI table 安装。收到继续指令后，从 QEMU table-loader command stream、table blob 分配、pointer/checksum patch 和 RSDP 开始追踪，不提前规划整本书。
 
 ## 用户输入与技术事实
 
@@ -87,6 +88,7 @@
 ## 当前内容依据
 
 * x86-64 处理器复位状态、保护模式、SMM、MTRR、MSR、APIC 与 INIT/SIPI 资料；
+* PIRQ、Intel MP Specification、SMBIOS 与后续 ACPI 资料；
 * SeaBIOS 固定源码提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
 * QEMU 固定参考提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669``；
 * GRUB i386-pc 固定源码；
