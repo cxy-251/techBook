@@ -33,6 +33,7 @@
 #. ``LK-BOOT-018``：SeaBIOS 怎样枚举 USB 设备并初始化 PS/2 键盘？
 #. ``LK-BOOT-019``：SeaBIOS 怎样发现 q35 的 AHCI 磁盘并把它加入启动列表？
 #. ``LK-BOOT-020``：SeaBIOS 怎样扫描普通 Option ROM 并把 BCV、BEV 加入启动列表？
+#. ``LK-BOOT-021``：SeaBIOS 怎样执行 BCV 并把启动盘映射成 BIOS 0x80？
 
 当前主线
 --------
@@ -49,33 +50,37 @@
 当前控制流位置
 --------------
 
-第二十章结束在：
+第二十一章结束在：
 
 ::
 
    maininit()
-   → optionrom_setup()
-   → 记录 post_vga 边界
-   → 跳过 VGA/display 与 have_driver 设备
-   → 部署 PCI 或 fw_cfg ROM
-   → 选择匹配的 x86 image
-   → 复制到 0xc0000..0xeffff
-   → 验证 0xaa55 / size / checksum
-   → 条件执行 PnP init vector
-   → 条件恢复被错误捕获的 INT 19h
-   → 部署 genroms/
-   → 第二遍扫描最终 ROM 布局
-   → legacy ROM 登记为 BCV
-   → PnP header 登记为 BCV 或 BEV
-   → optionrom_setup() 返回
+   → interactive_bootmenu()
+   → 条件调整 BootList 头部
+   → wait_threads()
+   → prepareboot()
+   → tpm_prepboot()
+   → bcv_prepboot()
+   → 执行 BCV
+   → map_hd_drive(AHCI port 0)
+   → IDMap[HD][0]
+   → BDA hdcount = 1
+   → logical CHS / EBDA FDPT / IVT 0x41
+   → 构造最终 BEV[]
+   → cdrom_prepboot()
+   → pmm_prepboot()
+   → malloc_prepboot()
+   → e820_prepboot()
+   → HaveRunPost = 2
+   → BIOS checksum
+   → prepareboot() 返回
 
 ``maininit()`` 接下来执行：
 
 .. code-block:: c
 
-   interactive_bootmenu();
-   wait_threads();
-   prepareboot();
+   make_bios_readonly();
+   startBoot();
 
 此刻机器状态：
 
@@ -83,14 +88,17 @@
 * 当前主流程 CPU：BSP；
 * 模式：32 位保护模式；
 * 分页：关闭；
-* 普通 PCI/CBFS Option ROM：已经部署和解析；
-* ``have_driver`` 设备：已跳过普通 ROM 扫描；
-* PnP init vector：已经条件执行；
-* legacy/PnP BCV：已经登记，尚未执行；
-* BEV：已经登记，尚未调用；
-* ``BootList``：包含内建设备和条件 BCV/BEV/CBFS 条目；
-* BIOS ``0x80`` drive mapping：尚未建立；
+* BCV：已经执行；
+* 固定 AHCI port 0 硬盘：已经映射为 BIOS 第一块硬盘；
+* ``DL=0x80``：将解析到 ``IDMap[EXTTYPE_HD][0]``；
+* BDA ``hdcount``：固定单盘路径为 1；
+* logical CHS / FDPT：已经建立；
+* 最终 ``BEV[]``：已经形成；
+* PMM：已经关闭；
+* E820：已经冻结；
+* BIOS checksum：已经更新；
 * MBR sector 0：尚未读取；
+* ``0x7c00``：尚未写入启动扇区；
 * GRUB：尚未执行；
 * Linux：尚未装入内存。
 
@@ -109,11 +117,11 @@ Kernel 目录页。
 固定事实来源
 ------------
 
-* PCI Expansion ROM、PnP BIOS、BCV、BEV 与 QEMU fw_cfg 资料；
+* BIOS drive numbering、CHS translation、FDPT、EDD 与 PMM 资料；
 * SeaBIOS 提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
-* SeaBIOS ``src/optionroms.c``、``src/std/optionrom.h``、``src/hw/pcidevice.c``、``src/boot.c`` 和 ``src/post.c``。
+* SeaBIOS ``src/post.c``、``src/boot.c``、``src/block.c``、``src/disk.c``、``src/pmm.c``、``src/malloc.c`` 和 ``src/e820map.c``。
 
 当前下一步
 ----------
 
-从 ``maininit():interactive_bootmenu()`` 开始，追踪用户选择怎样调整 BootList，然后进入 ``prepareboot():bcv_prepboot()`` 执行 BCV、分配 BIOS 驱动号并生成最终 BEV 启动序列。
+从 ``maininit():make_bios_readonly()`` 开始，追踪 q35 PAM shadow write-protect、``startBoot():INT 19h``、``do_boot():boot_disk(0x80)`` 和 ``INT 13h AH=02h`` 怎样把第一扇区读到物理地址 ``0x7c00``。
