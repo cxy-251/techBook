@@ -29,6 +29,7 @@
 #. ``LK-BOOT-014``：SeaBIOS 怎样执行 QEMU 的 ACPI table-loader 并找到 RSDP？
 #. ``LK-BOOT-015``：SeaBIOS 怎样沿 RSDP 读懂 ACPI 表图并解析 DSDT？
 #. ``LK-BOOT-016``：SeaBIOS 怎样建立时间基准、18.2 Hz BIOS 时钟并初始化 TPM？
+#. ``LK-BOOT-017``：SeaBIOS 为什么先运行 VGA Option ROM 再初始化其他设备？
 
 当前主线
 --------
@@ -45,27 +46,32 @@
 当前控制流位置
 --------------
 
-第十六章结束在：
+第十七章结束在：
 
 ::
 
-   platform_hardware_setup()
-   → timer_setup()
-   → clock_setup()
-   → 条件 tpm_setup()
-   → platform_hardware_setup() 返回
-   → maininit()
+   maininit()
+   → threads_during_optionroms() = false
+   → vgarom_setup()
+   → 定位并验证 VGA Option ROM
+   → 条件 TPM measurement
+   → farcall16big(ROM segment:0003)
+   → VGA ROM 安装 INT 10h
+   → sercon_setup() 条件处理
+   → enable_vga_console()
+   → INT 10h AX=0003
+   → 显示 SeaBIOS banner 与 UUID
 
 ``maininit()`` 接下来执行：
 
 .. code-block:: c
 
-   if (threads_during_optionroms())
+   if (!threads_during_optionroms()) {
        device_hardware_setup();
+       wait_threads();
+   }
 
-   vgarom_setup();
-
-设备探测是在 VGA Option ROM 前启动，还是在 VGA 之后同步执行，由 ``ThreadControl`` 和 ``threads_during_optionroms()`` 决定。
+当前默认 ``ThreadControl=1``，因此进入这条同步路径。
 
 此刻机器状态：
 
@@ -73,16 +79,15 @@
 * 当前主流程 CPU：BSP；
 * 模式：32 位保护模式；
 * 分页：关闭；
-* SeaBIOS 内部 deadline timer：已经选定；
-* PIT channel 0：已经配置为约 18.2 Hz；
-* BDA ``timer_counter``：已由 RTC 当前时间初始化；
-* IRQ0 / INT 08h、INT 1Ch 与 INT 1Ah：已经建立；
-* 条件 RTC IRQ8 / INT 70h：已经建立；
-* 条件 TPM：已启动并建立 event log；
-* 条件 measured boot：已测量 SMBIOS 并标记 option ROM scan 起点；
-* USB、PS/2、ATA/AHCI/NVMe 与普通 virtio-pci 驱动：尚未完成 ``device_hardware_setup()``；
-* VGA Option ROM：尚未执行；
-* 普通 option ROM：尚未扫描；
+* 默认 q35 display：QEMU standard VGA；
+* VGA Option ROM：已经验证、测量并执行；
+* ``INT 10h``：已经由 VGA BIOS 或条件 sercon wrapper 提供；
+* VGA mode 3 文字控制台：已经建立；
+* 默认设备初始化跨 Option ROM 并行：关闭；
+* USB controller/device：尚未开始当前同步探测；
+* i8042 PS/2 keyboard：尚未完成硬件初始化；
+* AHCI SATA disk：尚未探测；
+* 普通非 VGA Option ROM：尚未扫描；
 * ``BootList``：尚未形成最终启动设备集合；
 * GRUB：尚未被读取或执行；
 * Linux：尚未装入内存。
@@ -102,11 +107,12 @@ Kernel 目录页。
 固定事实来源
 ------------
 
-* PIT、RTC、BDA timer、INT 08h/1Ah/70h 与 TCG TPM 资料；
+* PCI Expansion ROM、PnP BIOS、VGA BIOS 与 INT 10h 资料；
 * SeaBIOS 提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
-* SeaBIOS ``src/hw/timer.c``、``src/clock.c``、``src/hw/rtc.c``、``src/std/bda.h``、``src/stacks.c`` 与 ``src/tcgbios.c``。
+* SeaBIOS ``src/post.c``、``src/stacks.c``、``src/optionroms.c``、``src/bootsplash.c``、``src/output.c`` 与 ``src/sercon.c``；
+* QEMU 提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669`` 的 ``hw/i386/pc_q35.c``。
 
 当前下一步
 ----------
 
-收到继续指令后，从 ``maininit():threads_during_optionroms()`` 开始，确认设备探测与 option ROM 的时序，再进入 ``device_hardware_setup()``、USB、PS/2 和 block driver 初始化。
+从同步 ``maininit():device_hardware_setup()`` 开始，追踪 USB controller/port 枚举、USB HID/存储分流、i8042 PS/2 keyboard 初始化，然后停在 ``block_setup()``。
