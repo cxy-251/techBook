@@ -30,6 +30,7 @@
 #. ``LK-BOOT-015``：SeaBIOS 怎样沿 RSDP 读懂 ACPI 表图并解析 DSDT？
 #. ``LK-BOOT-016``：SeaBIOS 怎样建立时间基准、18.2 Hz BIOS 时钟并初始化 TPM？
 #. ``LK-BOOT-017``：SeaBIOS 为什么先运行 VGA Option ROM 再初始化其他设备？
+#. ``LK-BOOT-018``：SeaBIOS 怎样枚举 USB 设备并初始化 PS/2 键盘？
 
 当前主线
 --------
@@ -46,49 +47,40 @@
 当前控制流位置
 --------------
 
-第十七章结束在：
+第十八章结束在：
 
 ::
 
    maininit()
-   → threads_during_optionroms() = false
-   → vgarom_setup()
-   → 定位并验证 VGA Option ROM
-   → 条件 TPM measurement
-   → farcall16big(ROM segment:0003)
-   → VGA ROM 安装 INT 10h
-   → sercon_setup() 条件处理
-   → enable_vga_console()
-   → INT 10h AX=0003
-   → 显示 SeaBIOS banner 与 UUID
+   → synchronous device_hardware_setup()
+   → usb_setup()
+   → q35 EHCI/UHCI controller threads
+   → USB root-port / hub threads
+   → address / descriptors / class dispatch
+   → conditional USB HID or mass storage
+   → ps2port_setup()
+   → DSDT PNP0303 check
+   → IRQ1 / INT09h and IRQ12 / INT74h
+   → PS/2 keyboard setup thread
+   → 即将进入 block_setup()
 
-``maininit()`` 接下来执行：
-
-.. code-block:: c
-
-   if (!threads_during_optionroms()) {
-       device_hardware_setup();
-       wait_threads();
-   }
-
-当前默认 ``ThreadControl=1``，因此进入这条同步路径。
+USB 和 PS/2 初始化任务可能仍在协作式线程中运行；``wait_threads()`` 尚未执行。
 
 此刻机器状态：
 
-* 当前执行者：SeaBIOS ``maininit()``；
-* 当前主流程 CPU：BSP；
+* 当前主流程执行者：SeaBIOS ``device_hardware_setup()``；
+* 主流程 CPU：BSP；
 * 模式：32 位保护模式；
 * 分页：关闭；
-* 默认 q35 display：QEMU standard VGA；
-* VGA Option ROM：已经验证、测量并执行；
-* ``INT 10h``：已经由 VGA BIOS 或条件 sercon wrapper 提供；
-* VGA mode 3 文字控制台：已经建立；
-* 默认设备初始化跨 Option ROM 并行：关闭；
-* USB controller/device：尚未开始当前同步探测；
-* i8042 PS/2 keyboard：尚未完成硬件初始化；
-* AHCI SATA disk：尚未探测；
+* EHCI/UHCI：已经开始配置并按 companion routing 枚举端口；
+* USB HID：条件建立 boot keyboard/mouse pipe；
+* USB mass storage：条件建立 drive 并加入启动候选；
+* i8042 IRQ1/IRQ12：已经接通；
+* PS/2 keyboard：正在或已经完成 controller test、BAT、scan set 2 与 translation；
+* USB/PS2 输入：汇合到 ``process_key()``、BDA ring 和 ``INT 16h``；
+* q35 内置 ICH9 AHCI：PCI function 已存在，SeaBIOS block driver 尚未开始探测；
 * 普通非 VGA Option ROM：尚未扫描；
-* ``BootList``：尚未形成最终启动设备集合；
+* ``BootList``：可能已有条件 USB 设备，尚未形成最终集合；
 * GRUB：尚未被读取或执行；
 * Linux：尚未装入内存。
 
@@ -107,12 +99,12 @@ Kernel 目录页。
 固定事实来源
 ------------
 
-* PCI Expansion ROM、PnP BIOS、VGA BIOS 与 INT 10h 资料；
+* USB 2.0、HID boot protocol、i8042 与 AT keyboard 资料；
 * SeaBIOS 提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
-* SeaBIOS ``src/post.c``、``src/stacks.c``、``src/optionroms.c``、``src/bootsplash.c``、``src/output.c`` 与 ``src/sercon.c``；
+* SeaBIOS ``src/hw/usb*.c``、``src/hw/ps2port.c``、``src/kbd.c`` 和 ``src/stacks.c``；
 * QEMU 提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669`` 的 ``hw/i386/pc_q35.c``。
 
 当前下一步
 ----------
 
-从同步 ``maininit():device_hardware_setup()`` 开始，追踪 USB controller/port 枚举、USB HID/存储分流、i8042 PS/2 keyboard 初始化，然后停在 ``block_setup()``。
+从 ``device_hardware_setup():block_setup()`` 开始。为保持可复现，启动磁盘固定走 QEMU q35 内置 ICH9 AHCI SATA 路径；追踪 HBA reset、BAR5、port link、IDENTIFY、LBA 容量、transfer mode、``boot_add_hd()``，并在 ``wait_threads()`` 完成后停止。
