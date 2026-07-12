@@ -22,8 +22,9 @@
 #. ``LK-BOOT-008``：SeaBIOS 怎样启用 q35 MMCONFIG 并为 PCI 设备分配地址？
 #. ``LK-BOOT-009``：SeaBIOS 怎样接通 q35 PCI 中断并打开设备地址解码？
 #. ``LK-BOOT-010``：SeaBIOS 怎样进入 SMM 并把处理入口藏进 SMRAM？
+#. ``LK-BOOT-011``：SeaBIOS 怎样规定物理地址的缓存类型并准备每个 CPU 的 MSR？
 
-当前控制流停在 ``qemu_platform_setup()`` 的 ``smm_setup()`` 返回处。下一条调用是 ``mtrr_setup()``。收到继续指令后，从 MTRR、``MSR_IA32_FEATURE_CONTROL`` 和 ``smp_setup()`` 开始追踪，不提前规划整本书。
+当前控制流停在 ``qemu_platform_setup()`` 的 ``msr_feature_control_setup()`` 返回处。下一条调用是 ``smp_setup()``。收到继续指令后，从 local APIC、INIT/SIPI、``0x10000`` AP 启动跳板、共享栈锁和 AP 重放 MSR 开始追踪，不提前规划整本书。
 
 ## 用户输入与技术事实
 
@@ -84,8 +85,9 @@
 
 ## 当前内容依据
 
-* x86-64 处理器复位状态、保护模式与 SMM 资料；
+* x86-64 处理器复位状态、保护模式、SMM、MTRR、MSR 与 APIC/SMP 资料；
 * SeaBIOS 固定源码提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
+* QEMU 固定参考提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669``；
 * GRUB i386-pc 固定源码；
 * Linux 6.12.95 固定源码；
 * Linux/x86 Boot Protocol；
