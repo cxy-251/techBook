@@ -35,6 +35,9 @@
 #. ``LK-BOOT-020``：SeaBIOS 怎样扫描普通 Option ROM 并把 BCV、BEV 加入启动列表？
 #. ``LK-BOOT-021``：SeaBIOS 怎样执行 BCV 并把启动盘映射成 BIOS 0x80？
 #. ``LK-BOOT-022``：SeaBIOS 怎样把硬盘第一扇区读到 0x7c00 并交给 GRUB？
+#. ``LK-BOOT-023``：GRUB boot.img 怎样从 0x7c00 读出 core.img 的第一扇区？
+#. ``LK-BOOT-024``：GRUB diskboot.img 怎样按 blocklist 读完 core.img？
+#. ``LK-BOOT-025``：GRUB startup_raw 怎样进入保护模式并调用 grub_main？
 
 当前主线
 --------
@@ -44,57 +47,83 @@
    x86-64
    → QEMU q35
    → SeaBIOS
-   → GRUB i386-pc
+   → GNU GRUB 2.14 i386-pc
    → bzImage
    → Linux 6.12.95
+
+固定 GRUB 来源与安装布局
+-----------------------
+
+::
+
+   GNU GRUB release = 2.14
+   release commit   = d38d6a1a9b79427848976f53d474392cd29c2a71
+   target           = i386-pc
+   partition table  = MBR
+   first partition  = LBA 2048
+   boot.img         = LBA 0
+   core.img         = contiguous from LBA 1
+
+GNU 官方发布包是 ``grub-2.14.tar.xz``；源码引用使用 ``GitMirroring/grub`` 的固定发布提交。
 
 当前控制流位置
 --------------
 
-第二十二章结束在：
+第二十五章结束在：
 
 ::
 
-   maininit()
-   → make_bios_readonly()
-   → wbinvd
-   → q35 PAM write-protect
-   → startBoot()
-   → 清理 0x7000..0x8ffff
-   → call16_int(0x19)
-   → handle_19()
-   → BootSequence = 0
-   → do_boot(0)
-   → boot_disk(0x80)
-   → INT 13h AH=02h, CHS 0/0/1
-   → IDMap[EXTTYPE_HD][0]
-   → q35 AHCI port 0 drive_s
-   → CHS 转 LBA 0
-   → 32 位 AHCI CMD_READ
-   → DMA 512 bytes 到物理地址 0x7c00
-   → Carry Flag 清零
-   → 检查 0x55aa
-   → 条件 TPM 测量 boot sector
-   → AX=0xaa55, DL=0x80, IF=1
-   → farcall16 / iretw
-   → CS:IP = 0000:7c00
+   SeaBIOS → 0000:7c00
+   → GRUB boot.img
+   → canonicalize CS=0
+   → DS=SS=0, SP=0x2000
+   → preserve DL=0x80
+   → INT 13h EDD probe
+   → INT 13h AH=42h read LBA 1 to 0x70000
+   → copy diskboot.img to 0x8000
+   → jump 0000:8000
+   → diskboot.img reads blocklist
+   → load core.img LBA 2..N through 0x70000 bounce buffer
+   → copy remaining core to 0x8200...
+   → jump 0000:8200
+   → startup_raw
+   → real stack = 0x1ff0
+   → save encoded boot device 0x80ffffff
+   → real_to_prot()
+   → load GDT
+   → CR0.PE = 1
+   → CS=0x08, data selectors=0x10
+   → protected stack = 0x7fff0
+   → verify A20
+   → optional Reed–Solomon recovery
+   → LZMA decompress to 0x100000
+   → enter decompressed startup.S
+   → copy formal GRUB core code to link address 0x9000
+   → clear BSS
+   → grub_boot_device = 0x80ffffff
+   → call grub_main()
 
 此刻机器状态：
 
-* 当前执行者：GRUB i386-pc ``boot.img``；
-* 当前 CPU：BSP；
-* 模式：16 位实模式；
+* 当前执行者：GNU GRUB 2.14 ``grub_main()``；
+* 当前主流程 CPU：BSP；
+* 模式：32 位保护模式；
 * 分页：关闭；
-* ``CS:IP``：``0000:7c00``；
-* ``DL``：``0x80``；
-* ``AX``：``0xaa55``；
-* FLAGS.IF：1；
-* 物理 ``0x7c00..0x7dff``：启动盘 LBA 0 的 512 字节；
-* MBR signature：已通过 ``0x55aa`` 检查；
-* SeaBIOS AHCI/INT 13h 服务：仍可供 GRUB 调用；
-* GRUB ``core.img``：尚未读取；
-* GRUB 32 位 core：尚未执行；
-* Linux bzImage：尚未读取；
+* A20：已经开启并由 GRUB 重新验证；
+* flat code/data segments：已经建立；
+* protected-mode stack：位于低端 GRUB 保留区，栈顶约 ``0x7fff0``；
+* 正式 GRUB core 代码：位于链接地址 ``0x9000``；
+* 解压和模块区域：从 ``0x100000`` 附近开始；
+* BSS：已经清零；
+* ``grub_boot_device``：``0x80ffffff``；
+* 启动 BIOS drive：``0x80``，后续会推导为 ``hd0``；
+* BIOS 实模式服务：仍可通过 ``prot_to_real`` / ``real_to_prot`` 桥调用；
+* GRUB machine initialization：尚未展开；
+* GRUB heap：尚未在正文中建立；
+* 内建模块：尚未在正文中初始化；
+* ``grub.cfg``：尚未读取；
+* GRUB 菜单：尚未建立；
+* Linux ``bzImage``：尚未读取；
 * Linux：尚未取得控制权。
 
 完成状态
@@ -106,17 +135,19 @@
 资料格式
 --------
 
-章节末尾的资料使用可点击 RST 链接。章节正文不添加上一章、下一章或目录导航；章节列表集中放在 Linux
-Kernel 目录页。
+章节末尾的资料使用可点击 RST 链接。章节正文不添加上一章、下一章或目录导航；章节列表集中放在 Linux Kernel 目录页。
 
 固定事实来源
 ------------
 
-* BIOS ``INT 19h``、``INT 13h``、MBR、实模式调用约定与 q35 PAM 资料；
+* GNU GRUB 2.14 官方发布包；
+* GRUB 发布提交 ``d38d6a1a9b79427848976f53d474392cd29c2a71``；
+* GRUB ``boot.S``、``diskboot.S``、``startup_raw.S``、``realmode.S``、``startup.S``、``init.c``、``util/setup.c`` 和 ``util/mkimage.c``；
 * SeaBIOS 提交 ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``；
-* SeaBIOS ``src/post.c``、``src/fw/shadow.c``、``src/boot.c``、``src/disk.c``、``src/block.c``、``src/hw/ahci.c``、``src/stacks.c``、``src/romlayout.S`` 和 ``src/std/disk.h``。
+* QEMU 提交 ``a759542a2c62f0fd3b65f5a66ad9868201014669``；
+* Linux 6.12.95 与 Linux/x86 Boot Protocol。
 
 当前下一步
 ----------
 
-先固定 GRUB i386-pc 的准确源码 release/commit 和磁盘安装布局，再从 ``boot.img`` 在 ``0000:7c00`` 的第一条汇编指令开始，追踪它怎样保留启动驱动号并读取 ``core.img``。
+从 GNU GRUB 2.14 ``grub_main()`` 开始，追踪 ``grub_machine_init()``、控制台、BIOS memory map、GRUB heap、内建模块和启动设备 ``hd0`` 的建立。只在到达读取 ``grub.cfg`` 前的自然交接点后换章。
