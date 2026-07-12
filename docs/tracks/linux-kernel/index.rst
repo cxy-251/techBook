@@ -17,6 +17,7 @@ Linux Kernel
 #. `第九章：SeaBIOS 怎样接通 q35 PCI 中断并打开设备地址解码？ <09-seabios-pci-interrupt-routing-and-device-enable.rst>`_
 #. `第十章：SeaBIOS 怎样进入 SMM 并把处理入口藏进 SMRAM？ <10-seabios-smm-and-smbase-relocation.rst>`_
 #. `第十一章：SeaBIOS 怎样规定物理地址的缓存类型并准备每个 CPU 的 MSR？ <11-seabios-mtrr-and-feature-control.rst>`_
+#. `第十二章：SeaBIOS 怎样用 INIT/SIPI 唤醒其他 CPU？ <12-seabios-smp-init-sipi-and-ap-startup.rst>`_
 
 当前主线
 --------
@@ -30,9 +31,8 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-正文已经追踪到 SeaBIOS 为 BSP 配置 MTRR，把 q35 PCI hole 标为 UC，并条件写入
-``IA32_FEATURE_CONTROL``。所有需要 AP 继承的 MSR 写入已记录在 ``smp_msr`` 中，下一步从
-``smp_setup()`` 唤醒其他虚拟 CPU。
+正文已经追踪到 SeaBIOS 通过 local APIC 广播 INIT/SIPI，让 AP 从 ``0x10000`` 进入
+``entry_smp``，重放每 CPU MSR 并报告 APIC ID。AP 当前停在 ``HLT``，下一步建立 PIRQ table、MP table 与 SMBIOS。
 
 章节组织
 --------
