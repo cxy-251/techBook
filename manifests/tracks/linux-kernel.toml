@@ -118,10 +118,18 @@ status = "complete"
 start = "qemu_platform_setup():smp_setup()"
 end = "qemu_platform_setup():smp_setup() returns"
 
+[[chapter]]
+id = "LK-BOOT-013"
+title = "SeaBIOS 怎样把 CPU、IRQ 和内存信息写成固件表？"
+rst = "docs/tracks/linux-kernel/13-seabios-pirq-mp-and-smbios-tables.rst"
+status = "complete"
+start = "qemu_platform_setup():pirtable_setup(); mptable_setup(); smbios_setup()"
+end = "qemu_platform_setup():smbios_setup() returns"
+
 [current]
-last_complete = "LK-BOOT-012"
-next_entry = "qemu_platform_setup():pirtable_setup(); mptable_setup(); smbios_setup()"
-next_action = "收到继续指令后，从 PIRQ table、MP table 与 SMBIOS 建立开始继续"
+last_complete = "LK-BOOT-013"
+next_entry = "qemu_platform_setup():romfile_loader_execute(\"etc/table-loader\")"
+next_action = "收到继续指令后，从 ACPI table-loader、RSDP 查找和 q35 ACPI 表安装开始继续"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
