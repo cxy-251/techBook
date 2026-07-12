@@ -374,7 +374,7 @@ SeaBIOS 对 EHCI/UHCI 的策略不是“只要发现 controller 就永远保持�
 如果 root-hub 扫描没有找到任何可支持设备：
 
 * controller 被停止；
-*临时 frame list、queue head、pipe 被释放；
+* 临时 frame list、queue head、pipe 被释放；
 * 不保留无意义的轮询状态。
 
 如果找到键盘、鼠标或存储，必要的 pipe 和 controller state 会搬到可跨 POST 保留的区域，供后续 16 位 BIOS 服务继续访问。
@@ -396,9 +396,9 @@ i8042 是否存在先由 ACPI 提示
 
 ``PNP0303`` 是标准 PC keyboard controller/keyboard device ID。
 
-返回值为明确不存在时，SeaBIOS跳过 PS/2 初始化。这防止固件对没有 i8042 的平台盲目访问 ``0x60/0x64``。
+返回值为明确不存在时，SeaBIOS 跳过 PS/2 初始化。这防止固件对没有 i8042 的平台盲目访问 ``0x60/0x64``。
 
-如果 DSDT 表示存在，或解析结果无法确定，SeaBIOS继续传统探测。当前 q35 PC 兼容路径通常提供 i8042。
+如果 DSDT 表示存在，或解析结果无法确定，SeaBIOS 继续传统探测。当前 q35 PC 兼容路径通常提供 i8042。
 
 PS/2 data port 与 status/command port
 ---------------------------------
@@ -600,7 +600,7 @@ IRQ1 到 INT 16h 之间还隔着哪些步骤
 * PS/2 keyboard：正在或已经完成 BAT、scan set 和 IRQ 配置；
 * USB 与 PS/2 键盘：最终汇合到 ``process_key()``、BDA ring 和 ``INT 16h``；
 * q35 内置 AHCI controller：PCI 层已存在，但 SeaBIOS AHCI driver 尚未开始本轮探测；
-*普通非 VGA Option ROM：尚未扫描；
+* 普通非 VGA Option ROM：尚未扫描；
 * ``BootList``：可能已有 USB 条件设备，尚未形成最终集合；
 * GRUB：尚未被读取或执行；
 * Linux：尚未装入内存。
