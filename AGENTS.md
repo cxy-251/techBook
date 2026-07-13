@@ -4,19 +4,17 @@
 
 `techBook` 当前只写 Linux Kernel。
 
-固定主线：
+固定启动平台：
 
 ```text
 x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 7.2-rc1
 ```
 
-当前已经完成 `LK-BOOT-001` 至 `LK-BOOT-073`。最新章节：
+Linux boot 主线已经完成 `LK-BOOT-001..LK-BOOT-073`。当前运行期主线已完成 `LK-READ-074..LK-READ-076`：
 
-- `LK-BOOT-071`：Linux 怎样释放 __init 内存并进入 SYSTEM_RUNNING？
-- `LK-BOOT-072`：Linux 怎样选择用户态 init，并把可执行映像装入 PID 1？
-- `LK-BOOT-073`：x86 怎样让 PID 1 从 ret_from_fork 真正进入用户态？
-
-Linux boot 主线已经到达自然终点：PID 1 已通过 exec 和 x86 exit-to-user 路径进入第一条用户指令。
+- `LK-READ-074`：x86-64 的 read() 怎样从用户态进入 __x64_sys_read？
+- `LK-READ-075`：read() 怎样从 fd 找到 ext4 文件并进入 generic_file_read_iter？
+- `LK-READ-076`：page cache miss 怎样让 ext4 构造并提交 READ bio？
 
 ## 固定实现
 
@@ -31,6 +29,7 @@ Linux repository  = gregkh/linux
 Linux commit      = 7404ce51637231382873d0b55edabc2f3b841a9d
 partition table   = MBR
 first partition   = LBA 2048, ext4
+storage           = q35 ICH9 AHCI SATA port 0
 kernel            = /boot/bzImage-7.2-rc1
 initramfs         = /boot/initramfs-7.2-rc1.img
 ```
@@ -47,88 +46,122 @@ menuentry 'Linux 7.2-rc1' {
 }
 ```
 
-GRUB 资料使用 GNU 官方 `grub-2.14.tar.xz` 和 `GitMirroring/grub` 固定提交。Linux 资料使用 `gregkh/linux` 固定 commit `7404ce51637231382873d0b55edabc2f3b841a9d`。
+Linux 资料使用 `gregkh/linux` 固定 commit `7404ce51637231382873d0b55edabc2f3b841a9d`。该 commit 的 `Makefile` 标识为 Linux 7.2-rc1。旧章节中的 `Linux 6.12.95` 是历史显示标签错误，不得切换到真正的 `v6.12.95`。
 
-重要纠正：该 commit 的 `Makefile` 标识为 Linux 7.2-rc1。旧章节中残留的 `Linux 6.12.95` 只是历史显示标签错误。不得切换到真正的 `v6.12.95`；技术事实以固定 commit 和链接为准。
+## 固定 read() 运行期场景
+
+```text
+userspace call       = read(fd, buf, 4096)
+ABI                  = x86-64 native SYSCALL
+entry                = entry_SYSCALL_64
+FRED syscall path    = excluded from this scenario
+fd                   = already-open regular ext4 file
+file position        = 0
+filesystem block     = 4096 bytes
+I/O mode             = buffered
+excluded             = O_DIRECT, DAX, inline data, fscrypt, fs-verity
+page cache           = target index 0 absent
+readahead            = nonzero window covering index 0
+extent               = logical block 0 mapped to an existing physical block
+user buffer          = mapped and writable
+```
+
+不要把以下分支混进固定主线：stream file、invalid fd、permission denial、direct I/O、DAX、hole、inline data、encryption、verity 或 user-buffer fault。可以解释这些分支，但章节结束状态必须回到固定路径。
 
 ## 当前控制流
 
 已经执行：
 
 ```text
-start_kernel()
-→ memory / scheduler / IRQ / timer / VFS / cgroup foundations
-→ rest_init()
-→ create PID 1 and PID 2
-→ PID 0 enters idle
+userspace read(fd, buf, 4096)
+→ RAX=0, RDI=fd, RSI=buf, RDX=4096
+→ SYSCALL
+→ entry_SYSCALL_64
+→ swapgs / optional kernel CR3 / kernel stack
+→ construct pt_regs
+→ do_syscall_64
+→ x64_sys_call case 0
+→ __x64_sys_read
 
-PID 1 kernel_init_freeable()
-→ bring APs online
-→ initialize workqueue/SMP scheduler/driver model
-→ run all built-in initcalls
-→ process initramfs and root branch
+→ ksys_read
+→ fdget_pos
+→ optional f_pos_lock
+→ vfs_read
+→ access/range/LSM/fsnotify permission checks
+→ new_sync_read
+→ ext4_file_read_iter
+→ generic_file_read_iter
 
-PID 1 kernel_init()
-→ async_synchronize_full()
-→ SYSTEM_FREEING_INITMEM
-→ free_initmem()
-→ mark_readonly()
-→ pti_finalize()
-→ SYSTEM_RUNNING
-→ rcu_end_inkernel_boot()
-→ do_sysctl_args()
-→ choose init candidate
-→ kernel_execve()
-→ binary-format handler / ELF loading
-→ START_THREAD()
-→ return into ret_from_fork()
-→ syscall_exit_to_user_mode()
-→ x86 PTI/FRED/iretq exit
-→ PID 1 enters userspace
+→ filemap_read
+→ filemap_get_pages
+→ cold page-cache miss
+→ page_cache_sync_ra
+→ ext4_readahead
+→ ext4_mpage_readpages
+→ ext4_map_blocks
+→ bio_alloc(REQ_OP_READ)
+→ bio_add_folio
+→ blk_crypto_submit_bio
+```
+
+当前精确停点：
+
+```c
+blk_crypto_submit_bio(bio);
 ```
 
 当前状态：
 
-- `system_state = SYSTEM_RUNNING`；
-- PID 0 与 AP idle tasks 正常运行；
-- PID 1 已进入用户态 init、dynamic linker 或 script interpreter；
-- PID 2 `kthreadd` 正常运行；
-- `__init` memory 已释放；
-- kernel text/rodata 已最终只读化；
-- 成功 exec 的 user mm、stack、argv/envp/auxv 已激活；
-- 启用 PTI 时 PID 1 正使用 user CR3；
-- Linux boot handoff 已完成。
+- 当前执行者是发起 `read()` 的 userspace task，正在 CPL 0 process context；
+- fd、`struct file`、`kiocb`、`iov_iter` 与 ext4 inode 已确定；
+- `f_pos` 需要时由 `f_pos_lock` 保护；
+- 目标 folio 已加入 page cache，并挂入 READ bio；
+- ext4 logical block 已映射到 physical block 与 512-byte sector；
+- bio operation 是 `REQ_OP_READ`，completion 是 `mpage_end_io`；
+- 尚未创建最终 blk-mq/SCSI/AHCI request；
+- 尚未向 q35 AHCI command list 写入命令；
+- folio 尚不能假设 uptodate；
+- user buffer 尚未由 `copy_folio_to_iter()` 填充；
+- `read()` 尚未返回。
 
-## 下一任务边界
+## 下一任务
 
-固定主线没有锁定 initramfs 内容、最终 init binary 和用户态执行日志，不能猜测 PID 1 的第一条 syscall。
-
-继续时必须先选择一个明确运行期场景，并固定入口，例如：
+从 `block/blk-crypto.c:blk_crypto_submit_bio()` 开始，继续固定的未加密 bio 路径：
 
 ```text
-read()
-openat()
-fork()/clone()
-page fault
-timer interrupt
-block I/O through AHCI
+blk_crypto_submit_bio
+→ submit_bio_noacct
+→ block bio checks / remap / split
+→ current plug or direct submit
+→ blk-mq request allocation
+→ request merge / queue
+→ SCSI disk path
+→ libata / AHCI qc issue
 ```
 
-选定后，从真实用户态 syscall、IDT exception 或 hardware interrupt 入口重新建立连续调用链。不要把多个运行期场景混成一条“系统接下来自动发生”的时间线。
+下一批适合按自然边界拆分：
+
+1. bio 如何进入 `submit_bio_noacct()` 并被 block layer 校验、拆分和归并；
+2. bio 怎样变成 blk-mq request，并进入 SCSI disk queue；
+3. SCSI command 怎样经过 libata 到达 AHCI command slot 与 port registers。
+
+completion interrupt、DMA 完成、folio uptodate、`copy_folio_to_iter()` 与 syscall exit 应留到后续章节，不能在 submission 章节提前宣布。
 
 ## 必须保持的技术边界
 
-1. `SYSTEM_RUNNING` 不等于 PID 1 已进入用户态；真正交接发生在 `iretq`/FRED。
-2. `START_THREAD()` 只准备 `pt_regs`，不切换 CPL。
-3. `kernel_execve()` 成功不创建新 PID；仍是同一个 PID 1。
-4. dynamic ELF 第一条用户指令通常在 dynamic linker，不是 C `main`。
-5. `do_initcalls()` 返回不代表 async work 已完成；全局屏障是 `async_synchronize_full()`。
-6. initramfs 解包不等于必然挂载 `/dev/sda1`；可执行 `/init` 会接管 root 切换。
-7. driver model 建立不等于所有硬件 driver 均成功 probe。
+1. page-cache miss 不等于 user-buffer page fault，也不等于 ext4 metadata cache miss。
+2. `access_ok()` 成功不保证后续 user copy 一定成功。
+3. `fdget_pos()` 取得的是 open file description；pathname lookup 不会在 `read()` 中重做。
+4. `read()` 使用共享 `file->f_pos`；`pread64()` 使用调用者提供的位置，不更新 `f_pos`。
+5. `ext4_file_read_iter()` 选择 buffered/direct/DAX 路径；当前固定为 buffered。
+6. readahead 窗口大小依赖运行时状态，不能固定为恰好一个 folio。
+7. `bio_add_folio()` 不执行 user copy，只描述 storage-to-folio I/O buffer。
+8. bio submission 不等于设备已经完成 I/O。
+9. `do_initcalls()`、boot 和 PID 1 进入用户态已经结束；运行期场景之间不是自动连续时间线。
 
 ## 用户输入与技术事实
 
-用户提供的是关注方向、线索和阅读感受，不直接作为完整技术事实。正文根据固定硬件路径、规范、固定源码和真实状态变化补全中间过程。
+用户提供的是关注方向、线索和阅读感受，不直接作为完整技术事实。正文根据固定平台、固定源码与明确运行期状态补全中间过程。
 
 ## 连续叙事
 
@@ -141,11 +174,11 @@ block I/O through AHCI
 - 下一控制入口；
 - 对应规范、固定源码文件和符号。
 
-不能用“固件初始化硬件”“GRUB 加载内核”“Linux 初始化内存”这样的概括跳过中间主流程。
+不能用“VFS 读取文件”“block layer 发送请求”“驱动访问磁盘”这样的概括跳过中间主流程。
 
 ## 章节边界
 
-章节不按 Roadmap 条目机械切分，也不预先规划整本书。连续叙述达到适合一次阅读的篇幅，并遇到执行者、CPU mode、运行环境或控制入口交接时换章。
+章节不按 Roadmap 条目机械切分。连续叙述达到适合一次阅读的篇幅，并遇到执行者、CPU mode、数据结构所有权或 subsystem 交接时换章。
 
 每章结尾记录当前执行者、状态和下一入口。章节正文不添加上一章、下一章或目录导航；章节列表统一由 `docs/tracks/linux-kernel/index.rst` 提供。
 
@@ -153,16 +186,16 @@ block I/O through AHCI
 
 ## 连续推进模式
 
-用户要求连续完成 N 章时，仍逐章执行：
+用户要求连续完成 N 章时：
 
-1. 重新读取最新 `AGENTS.md`、`project/STATE.rst`、manifest 和当前入口；
+1. 读取最新 `AGENTS.md`、`project/STATE.rst`、manifest 和当前入口；
 2. 读取本章涉及的固定源码与规范；
-3. 只确定当前一章的自然边界；
+3. 确定当前一章的自然边界；
 4. 写完并核对当前章节；
 5. 更新目录、STATE、manifest、README 和接续入口；
 6. 再从最新状态开始下一章。
 
-不能先批量生成多章后统一核对。遇到固定源码无法确认、重大平台分叉、仓库写入失败或达到指定终点时停止。
+遇到固定源码无法确认、重大平台分叉、仓库写入失败或达到指定终点时停止。
 
 ## 状态语义
 
