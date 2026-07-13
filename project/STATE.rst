@@ -11,11 +11,11 @@
 
 仓库当前只写 Linux Kernel。
 
-已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-043``。最新三章：
+已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-044``。最新三章：
 
-#. ``LK-BOOT-041``：Linux setup_arch 怎样接管命令行并导入 E820 内存图？
 #. ``LK-BOOT-042``：Linux 怎样修正 E820 并计算自己真正能管理的物理页？
 #. ``LK-BOOT-043``：Linux 怎样把 E820 RAM 变成 memblock 并建立 early direct map？
+#. ``LK-BOOT-044``：Linux 怎样扩大启动日志并确认 initramfs 与 ACPI 表可以安全访问？
 
 完整章节列表见 ``docs/tracks/linux-kernel/index.rst``，机器可读接续信息见 ``manifests/tracks/linux-kernel.toml``。
 
@@ -47,15 +47,11 @@
 当前控制流位置
 --------------
 
-第四十一至四十三章已经完成：
+第四十二至四十四章已经完成：
 
 ::
 
-   setup_arch(&command_line)
-   → resolve command line and parse boot_params
-   → reserve kernel / low memory / initramfs / setup_data / BIOS ranges
-   → import base and extended E820
-   → setup_initial_init_mm()
+   setup_initial_init_mm()
    → configure NX and parse early parameters
    → initialize DMI / hypervisor / TSC / ROM discovery
    → register kernel resources
@@ -69,6 +65,12 @@
    → load swapper_pg_dir and flush TLB
    → replace early page-fault IDT
    → expand memblock current limit to get_max_mapped()
+   → setup_log_buf(1)
+   → migrate early printk records when a dynamic buffer is required
+   → reserve_initrd() and establish initrd_start/initrd_end
+   → conditionally relocate initramfs below max_pfn_mapped
+   → scan conditional ACPI overrides in initrd
+   → locate, validate and reserve initial ACPI tables
 
 此刻机器状态：
 
@@ -77,17 +79,14 @@
 * mode：64 位 long mode；
 * interrupts：关闭；
 * E820：已修正并转换为 memblock；
-* ``memblock.memory``：已建立；
-* kernel、initramfs、setup_data、BIOS 与 trampoline：已加入 reserved；
-* 低 1 MiB：全部保留但保持 direct mapped；
-* early brk allocator：已封存；
-* early direct map：已建立；
-* CR3：已加载 ``swapper_pg_dir``；
-* ``max_pfn_mapped``：已更新；
-* memblock current limit：已扩大到 ``get_max_mapped()``；
-* real-mode trampoline：物理区已预留，内容尚未最终初始化；
-* initramfs：尚未展开，尚未完成 ``reserve_initrd()`` 的映射确认；
-* ACPI/NUMA/完整架构页表初始化：尚未完成；
+* early direct map：已建立，``CR3`` 使用 ``swapper_pg_dir``；
+* printk ring buffer：若需要，已迁移到 memblock 动态缓冲；
+* initramfs：物理区仍保留，``initrd_start`` / ``initrd_end`` 已建立，尚未展开；
+* ACPI override：已完成条件扫描；
+* ACPI 初始 table list：已建立；
+* ACPI table 物理区：已保留；
+* MADT/SRAT 早期拓扑解析：尚未完成；
+* NUMA node：尚未建立；
 * ``setup_arch()``：尚未返回。
 
 完成状态
@@ -103,4 +102,4 @@
 当前下一步
 ----------
 
-从 ``setup_arch():setup_log_buf(1)`` 开始，追踪扩大 printk ring buffer、``reserve_initrd()`` 的 direct-map 检查与条件重定位、ACPI table 保留和 early ACPI/NUMA 解析、``initmem_init()``、``x86_init.paging.pagetable_init()`` 与 KASAN 正式页表接管。
+从 ``setup_arch():vsmp_init()`` 开始，追踪虚拟 SMP 与 I/O delay 条件路径、early platform quirks、``early_acpi_boot_init()`` 对 MADT 的早期处理、MP table fallback、``initmem_init()`` 和 NUMA node 建立。
