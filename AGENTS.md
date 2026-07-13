@@ -4,17 +4,20 @@
 
 `techBook` 当前只写 Linux Kernel。
 
-固定启动主线：
+已经完成：
 
 ```text
-x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 7.2-rc1
+LK-BOOT-001..LK-BOOT-073
+LK-READ-074..LK-READ-082
 ```
 
-Linux boot 主线已经完成 `LK-BOOT-001..LK-BOOT-073`。当前运行期 `read()` 主线已经完成 `LK-READ-074..LK-READ-079`。最新章节：
+启动主线已完结。第一个运行期场景 `read(fd, buf, 4096)` cold page-cache miss 也已经完整闭环。
 
-- `LK-READ-077`：READ bio 怎样通过校验与分区重映射进入 blk-mq？
-- `LK-READ-078`：blk-mq 怎样把 bio 变成 SCSI READ request？
-- `LK-READ-079`：SCSI READ 怎样变成 ATA taskfile 并写入 AHCI command slot？
+最新三章：
+
+- `LK-READ-080`：AHCI 中断怎样确认完成的 tag，并把结果交回 SCSI？
+- `LK-READ-081`：blk-mq completion 怎样结束 bio，并让 ext4 folio 变成 uptodate？
+- `LK-READ-082`：reader task 怎样复制 folio，并让 read() 返回用户态？
 
 ## 固定实现
 
@@ -46,151 +49,122 @@ menuentry 'Linux 7.2-rc1' {
 }
 ```
 
-GRUB 资料使用 GNU 官方 `grub-2.14.tar.xz` 和 `GitMirroring/grub` 固定提交。Linux 资料使用 `gregkh/linux` 固定 commit `7404ce51637231382873d0b55edabc2f3b841a9d`。
+Linux 资料始终使用 `gregkh/linux` 固定 commit `7404ce51637231382873d0b55edabc2f3b841a9d`。该 commit 的 `Makefile` 标识为 Linux 7.2-rc1。旧章节中的 `Linux 6.12.95` 是历史显示标签错误，不得切换到真正的 `v6.12.95`。
 
-重要纠正：该 commit 的 `Makefile` 标识为 Linux 7.2-rc1。旧章节中残留的 `Linux 6.12.95` 只是历史显示标签错误。不得切换到真正的 `v6.12.95`；技术事实以固定 commit 和链接为准。
-
-## 固定运行期场景
+## 已完成的 read() 固定场景
 
 ```text
 userspace call       = read(fd, buf, 4096)
 ABI                  = native x86-64 SYSCALL / entry_SYSCALL_64
 file                 = already-open regular ext4 file on /dev/sda1
-file position        = 0
+initial file position= 0
 filesystem block     = 4096 bytes
-I/O mode             = buffered, not O_DIRECT, not DAX
+I/O mode             = buffered; not O_DIRECT; not DAX
 file features        = no inline data, fscrypt, fs-verity, integrity protection
-page cache           = target index 0 absent
+initial page cache   = target index 0 absent
 readahead            = synchronous readahead covers target folio
-extent               = logical block 0 maps to an existing physical block
+extent               = logical block 0 maps to existing physical storage
 user buffer          = mapped and writable
 partition offset     = /dev/sda1 begins at whole-disk LBA 2048
 block path           = no injected failure or blk-cgroup throttle delay
-queue limits         = target bio fits limits and is not split
-merge                = no compatible existing request
-SCSI CDB             = sd selects applicable READ(6), READ(10), or READ(16)
-ATA protocol         = negotiated DMA or NCQ read; both converge in AHCI
+queue limits         = bio fits limits and is not split
+merge                = no compatible request
+completion           = successful 4096-byte read
 ```
 
-不要把 ext4 4096-byte filesystem block 推导成磁盘一定使用 4096-byte logical sector。当前 QEMU block backend 的 IDENTIFY sector-size 参数、`sd` 的 `use_10_for_rw/use_16_for_rw` 和 libata NCQ negotiation 没有完全锁定；正文保留这些真实分支，并只在它们重新汇合后继续单一路径。
+没有无依据写死磁盘 logical-sector size、SCSI READ(6/10/16) 或 ATA DMA/NCQ。真实分支在 AHCI submission/completion 处重新汇合。
 
-## 当前控制流
-
-已经执行：
+## 已完成控制流
 
 ```text
 userspace read(fd, buf, 4096)
 → entry_SYSCALL_64
-→ do_syscall_64
-→ __x64_sys_read
-→ ksys_read / fdget_pos
+→ do_syscall_64 / __x64_sys_read
+→ ksys_read / fd position guard
 → vfs_read / new_sync_read
 → ext4_file_read_iter
 → generic_file_read_iter / filemap_read
 → cold page-cache miss
-→ page_cache_sync_ra
-→ ext4_readahead / ext4_mpage_readpages
-→ ext4_map_blocks
-→ READ bio with target folio
-
-→ blk_crypto_submit_bio
-→ submit_bio
+→ synchronous readahead
+→ ext4_mpage_readpages / ext4_map_blocks
+→ READ bio
 → submit_bio_noacct
-→ operation/range checks
-→ add /dev/sda1 bd_start_sect = 2048
-→ submit_bio_noacct_nocheck
+→ partition remap
 → blk_mq_submit_bio
-→ queue-limit check; fixed path no split
-→ fixed path no merge target
-→ allocate request and blk-mq tag
-→ attach bio to request
-→ plug/elevator/direct issue convergence
-
-→ scsi_queue_rq
-→ scsi_prepare_cmd
-→ sd_init_command
-→ applicable SCSI READ CDB
-→ scsi_dispatch_cmd
-→ ata_scsi_queuecmd
-→ ata_scsi_rw_xlat
-→ ata_build_rw_tf
-→ ata_scsi_qc_issue
-→ ata_qc_issue
-→ dma_map_sg(..., DMA_FROM_DEVICE)
-→ ahci_qc_prep
-→ H2D Register FIS
-→ PRDT entries point to page-cache folio DMA addresses
-→ AHCI command header/slot
-→ optional PxSACT[tag] for NCQ
+→ blk-mq request and tag
+→ SCSI READ CDB
+→ libata ATA DMA or NCQ taskfile
+→ dma_map_sg
+→ AHCI H2D FIS / PRDT / command header
 → PxCI[tag] = 1
-```
 
-当前状态：
-
-- `system_state = SYSTEM_RUNNING`；
-- 发起 `read()` 的 task 仍在 syscall 的 kernel process context 中；
-- blk-mq request 已 started，拥有 tag；
-- SCSI READ 已翻译成 ATA DMA/NCQ taskfile；
-- target folio scatterlist 已 DMA-map；
-- AHCI H2D FIS、PRDT、command header 与 command table 已填写；
-- q35 AHCI `PxCI` 对应 tag bit 已置位；
-- AHCI engine/device 可以并发执行 command 和 DMA；
-- completion interrupt 尚未处理；
-- target folio 仍不能视为 uptodate；
-- user buffer 尚未由 `copy_folio_to_iter()` 填充；
-- `read()` 尚未返回。
-
-## 下一任务边界
-
-下一批从 AHCI completion interrupt 开始。IRQ mode 可能是 legacy INTx、MSI 或 MSI-X，固定配置没有锁定具体入口；这些路径在 libahci 中汇合到：
-
-```text
-AHCI IRQ handler
-→ ahci_handle_port_intr()
-→ ahci_port_intr()
-→ read PxCI/PxSACT and determine completed tag
-→ ata_qc_complete()
-→ ata_scsi_qc_complete()
-→ scsi_done()
-→ blk_mq_complete_request()
-→ scsi_complete()/scsi_finish_command()
-→ blk_mq end request
+→ AHCI DMA to page-cache folio
+→ completion IRQ
+→ compare software active mask with PxCI/PxSACT
+→ ata_qc_complete
+→ dma_unmap_sg
+→ ata_scsi_qc_complete / scsi_done
+→ blk_mq_complete_request
+→ scsi_complete / scsi_finish_command
+→ blk_update_request
 → bio_endio
-→ mpage_end_io
-→ folio_end_read(success)
-→ folio uptodate + unlock
-```
+→ ext4 mpage_end_io
+→ folio_end_read(folio, true)
+→ folio uptodate + unlock + waiter wake
 
-随后再回到等待的 reader：
-
-```text
-folio waiter wakes
-→ filemap_get_pages/filemap_read
-→ copy_folio_to_iter(user buf)
-→ ki_pos and f_pos update
-→ vfs/read accounting
-→ syscall return value
+→ reader task retries filemap lookup
+→ copy_folio_to_iter(user buffer)
+→ ki_pos = 4096
+→ local pos = 4096
+→ file->f_pos = 4096
+→ pt_regs->ax = 4096
 → syscall_exit_to_user_mode
 → SYSRETQ or IRETQ
+→ userspace CPL 3
 ```
 
-不要把 `PxCI[tag] = 1` 写成 DMA 已完成，也不要把 interrupt handler 识别 tag 写成 folio 已经 uptodate。completion 必须完整穿过 libata、SCSI、blk-mq、bio 和 ext4 callback。
+## 当前精确状态
+
+```text
+system_state       = SYSTEM_RUNNING
+current executor   = userspace task after read() return
+CPU mode           = x86-64 CPL 3
+RAX                = 4096
+user buffer        = file bytes 0..4095
+file->f_pos        = 4096
+target folio       = in page cache, uptodate, unlocked
+bio/request/tag    = completed and released
+SCSI/ATA/AHCI      = command completed
+runtime scenario   = complete
+```
+
+## 下一任务
+
+下一条运行期主线尚未选定。不要把另一个 syscall 写成本次 `read()` 的自动时间线后续。
+
+开始新场景前必须明确：
+
+1. syscall 与参数；
+2. 对象的初始状态；
+3. cache/mapping/lock/concurrency 状态；
+4. filesystem、device 或 network 路径；
+5. 成功或错误分支；
+6. 自然终止边界。
+
+buffered ext4 `write(fd, buf, 4096)` 是优先候选，可覆盖 user copy、page-cache dirty、ext4 journaling、writeback 和 storage submission；它目前只是候选，没有被正式选为下一入口。
 
 ## 必须保持的技术边界
 
-1. `blk_crypto_submit_bio()` 是统一入口；无 crypt context 时直接进入普通 `submit_bio()`。
-2. 分区 remap 只增加 `bd_start_sect` 并改变块地址坐标，不重新做 ext4 extent lookup。
-3. bio、request、scsi_cmnd、ata_queued_cmd 和 AHCI command slot 是不同层次的对象。
-4. plug/elevator 影响 dispatch 时间与顺序，不改变最终 SCSI `queue_rq`。
-5. SCSI READ(6/10/16) 选择取决于 device flags、LBA 和 block count；不能无依据写死。
-6. ATA DMA/NCQ protocol 取决于 IDENTIFY 和 negotiation；NCQ 额外写 `PxSACT`，所有路径都写 `PxCI`。
-7. DMA target 是 page-cache folio，不是用户 `buf`。
-8. `PxCI` write 表示 command 已 issue，不表示 DMA、bio 或 read syscall 已完成。
-9. hardware completion 与 reader task 是并发线，必须在 folio unlock/wakeup 处重新汇合。
-
-## 用户输入与技术事实
-
-用户提供的是关注方向、线索和阅读感受，不直接作为完整技术事实。正文根据固定硬件路径、规范、固定源码和真实状态变化补全中间过程。
+1. bio、blk-mq request、`scsi_cmnd`、`ata_queued_cmd` 和 AHCI command slot 是不同对象。
+2. AHCI DMA 的目标是 page-cache folio，不是用户 buffer。
+3. hardware tag 完成不等于 folio 已经 uptodate；completion 必须穿过 libata、SCSI、blk-mq、bio 和 ext4。
+4. `folio_end_read(folio, true)` 发布 uptodate、unlock 并唤醒 waiters。
+5. waiter wake 不等于 reader 立即运行。
+6. `copy_folio_to_iter()` 才执行 page cache 到用户 buffer 的复制。
+7. `access_ok()` 成功不保证真正 user copy 不 fault。
+8. `ki_pos`、local `pos` 与共享 `file->f_pos` 必须分开描述。
+9. clean native return frame 通常走 `SYSRETQ`，异常 frame 走 `IRETQ`。
+10. 不同运行期场景之间不是自动连续时间线。
 
 ## 连续叙事
 
@@ -198,16 +172,16 @@ folio waiter wakes
 
 - 当前执行者；
 - CPU mode 和运行环境；
-- 关键代码与数据；
+- 关键代码与数据结构；
 - 当前动作建立的条件；
 - 下一控制入口；
-- 对应规范、固定源码文件和符号。
+- 固定源码文件、symbol 或规范依据。
 
-不能用“block layer 处理请求”“SCSI 发给磁盘”“AHCI 完成读取”这样的概括跳过对象转换与 completion chain。
+不能用“block layer 处理请求”“驱动完成 I/O”“进程返回用户态”这样的概括跳过对象转换和控制权交接。
 
 ## 章节边界
 
-章节不按 Roadmap 条目机械切分，也不预先规划整本书。连续叙述达到适合一次阅读的篇幅，并遇到执行者、CPU mode、运行环境或控制入口交接时换章。
+章节不按 Roadmap 条目机械切分。连续叙述达到适合一次阅读的篇幅，并遇到执行者、CPU mode、数据结构所有权、运行环境或 subsystem 交接时换章。
 
 每章结尾记录当前执行者、状态和下一入口。章节正文不添加上一章、下一章或目录导航；章节列表统一由 `docs/tracks/linux-kernel/index.rst` 提供。
 
@@ -215,16 +189,16 @@ folio waiter wakes
 
 ## 连续推进模式
 
-用户要求连续完成 N 章时，仍逐章执行：
+用户要求连续完成 N 章时：
 
-1. 重新读取最新 `AGENTS.md`、`project/STATE.rst`、manifest 和当前入口；
+1. 读取最新 `AGENTS.md`、`project/STATE.rst`、manifest 和当前入口；
 2. 读取本章涉及的固定源码与规范；
-3. 只确定当前一章的自然边界；
+3. 确定当前一章的自然边界；
 4. 写完并核对当前章节；
 5. 更新目录、STATE、manifest、README 和接续入口；
-6. 再从最新状态开始下一章。
+6. 从最新状态继续下一章。
 
-不能先批量生成多章后统一核对。遇到固定源码无法确认、重大平台分叉、仓库写入失败或达到指定终点时停止。
+遇到固定源码无法确认、重大平台分叉、仓库写入失败或达到场景终点时停止。
 
 ## 状态语义
 
