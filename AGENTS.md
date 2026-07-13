@@ -10,9 +10,9 @@
 
 ``x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 6.12.95``。
 
-当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-049``。最新章节是：
+当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-050``。最新章节是：
 
-``LK-BOOT-049``：Linux 怎样登记物理资源并完成 setup_arch？
+``LK-BOOT-050``：Linux 怎样把 memblock 物理内存变成 node、zone 和 struct page？
 
 ## 固定实现
 
@@ -51,25 +51,21 @@ GRUB 资料使用 GNU 官方 ``grub-2.14.tar.xz`` 和 ``GitMirroring/grub`` 固�
 
 ```text
 setup_arch()
-→ early ACPI / NUMA / paging preparation
-→ tboot / vsyscall / early quirks
-→ full ACPI / Local APIC / IOAPIC / possible CPU topology
-→ e820__reserve_resources()
-→ e820__register_nosave_regions(max_pfn)
-→ reserve_standard_io_resources()
-→ e820__setup_pci_gap()
-→ conditional VGA registration
-→ wallclock backend selection
-→ therm_lvt_init()
-→ mcheck_init()
-→ register_refined_jiffies(CLOCK_TICK_RATE)
-→ unwind_init()
-→ return from setup_arch()
+→ return to start_kernel()
+→ mm_core_init_early()
+→ conditional hugetlb_cma_reserve()
+→ conditional hugetlb_bootmem_alloc()
+→ arch_zone_limits_init()
+→ sparse_init()
+→ derive zone and movable PFN ranges
+→ initialize pg_data_t and zones
+→ initialize struct page metadata and pageblock layout
+→ set_high_memory()
 ```
 
-当前执行者已经回到 Linux 6.12.95 ``init/main.c:start_kernel()``。``setup_arch(&command_line)`` 已返回，精确下一入口是 ``mm_core_init_early()``。CPU 0 正在 ``init_task`` 上执行，中断关闭，``early_boot_irqs_disabled`` 为 true。resource tree、ACPI/APIC/IOAPIC/NUMA/possible CPU 拓扑已建立；buddy allocator、per-CPU area、scheduler、AP 启动和 initramfs 解包均尚未发生。
+当前执行者是 Linux 6.12.95 ``init/main.c:start_kernel()``。``mm_core_init_early()`` 已返回，精确下一入口是 ``jump_label_init()``。CPU 0 正在 ``init_task`` 上执行，中断关闭。zone、SPARSEMEM/vmemmap、``struct page``、pageblock 和 ``free_area[]`` 基础已建立；memblock 仍持有普通 RAM，buddy 尚未接收全部可分配页，slab 和 per-CPU area 尚未建立。
 
-下一任务从 ``start_kernel():mm_core_init_early()`` 开始，沿真实源码顺序处理通用内存管理早期核心、``jump_label_init()``、``static_call_init()``、``early_security_init()``、``setup_boot_config()``、``setup_command_line()``、``setup_nr_cpu_ids()`` 和 ``setup_per_cpu_areas()``。不要直接跳到 ``sched_init()``、``smp_init()``、``populate_rootfs()`` 或 ``kernel_init()``。
+下一任务从 ``start_kernel():jump_label_init()`` 开始，沿真实源码顺序处理 ``static key``、``static call``、``early_security_init()``、``setup_boot_config()`` 和 ``setup_command_line()``。不要把 early LSM 写成完整 SELinux/AppArmor policy 初始化，也不要把 bootconfig 数据继续留在 initramfs payload 中。
 
 ## 用户输入与技术事实
 
