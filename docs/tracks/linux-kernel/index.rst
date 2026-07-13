@@ -58,6 +58,9 @@ Linux Kernel
 #. `第五十章：Linux 怎样把 memblock 物理内存变成 node、zone 和 struct page？ <50-linux-builds-zones-and-struct-page-map.rst>`_
 #. `第五十一章：Linux 为什么再次检查 static key/static call，并怎样生成正式命令行？ <51-linux-rechecks-static-patching-and-builds-command-lines.rst>`_
 #. `第五十二章：Linux 怎样确定 CPU 编号上限并把 CPU0 迁入正式 per-CPU area？ <52-linux-builds-percpu-area-and-migrates-cpu0.rst>`_
+#. `第五十三章：Linux 为什么再次确认 CPU NUMA node，并把 CPU0 放入 hotplug ONLINE 状态？ <53-linux-initializes-boot-cpu-numa-and-hotplug-state.rst>`_
+#. `第五十四章：Linux 怎样把 GRUB 命令行分发给内核参数和 init？ <54-linux-dispatches-kernel-command-line-and-init-arguments.rst>`_
+#. `第五十五章：Linux 怎样把 memblock 空闲页交给 buddy，并建立 slab 与 vmalloc？ <55-linux-releases-memblock-to-buddy-and-starts-slab-vmalloc.rst>`_
 
 当前主线
 --------
@@ -71,9 +74,9 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-``start_kernel()`` 已按 ``cpu_possible_mask`` 收缩 ``nr_cpu_ids``，建立 x86-64 per-CPU first chunk，迁移 early APIC/ACPI/NUMA 映射，并把 CPU0 切换到正式 GDT/GS per-CPU base。
+``start_kernel()`` 已完成 boot CPU NUMA/hotplug 初始状态和 GRUB 命令行分发，并通过 ``mm_core_init()`` 把 memblock 可用页释放给 buddy，建立 slab 与 vmalloc 基础。
 
-当前下一入口是 ``early_numa_node_init()``，随后初始化 boot CPU hotplug state，再打印并解析正式命令行。
+当前下一入口是 ``maple_tree_init()``，随后进入 poking、ftrace、early trace 和 ``sched_init()``。CPU0 仍是唯一 online CPU，中断仍关闭，initramfs 尚未解包。
 
 章节组织
 --------
