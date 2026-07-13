@@ -9,16 +9,19 @@
 ```text
 LK-BOOT-001..LK-BOOT-073
 LK-READ-074..LK-READ-082
-LK-WRITE-083..LK-WRITE-088
+LK-WRITE-083..LK-WRITE-091
 ```
 
-启动主线已完结；`read(fd, buf, 4096)` cold page-cache miss 已完整闭环。当前正在写独立的 ext4 `O_SYNC` buffered write 主线。
+启动主线已完结。两个运行期实验均已闭环：
+
+- `read(fd, buf, 4096)` cold page-cache miss；
+- `O_SYNC write(fd, buf, 4096)` buffered ext4 overwrite。
 
 最新三章：
 
-- `LK-WRITE-086`：ext4 writeback 怎样把 dirty folio 变成 WRITE bio？
-- `LK-WRITE-087`：WRITE bio 怎样变成 AHCI command 并写入 PxCI？
-- `LK-WRITE-088`：WRITE completion 怎样结束 folio writeback，并让 O_SYNC 等待继续？
+- `LK-WRITE-089`：ext4 fsync 怎样选择 fast commit 或完整 JBD2 commit？
+- `LK-WRITE-090`：ext4 barrier 怎样把 journal 顺序落实到设备 cache？
+- `LK-WRITE-091`：O_SYNC write 怎样提交 file position 并返回用户态？
 
 ## 固定实现
 
@@ -40,141 +43,109 @@ initramfs         = /boot/initramfs-7.2-rc1.img
 
 固定 Linux commit 的 `Makefile` 标识为 Linux 7.2-rc1。旧章节中的 `Linux 6.12.95` 是历史显示标签错误，不得改用真正的 `v6.12.95`。
 
-## 当前 write 固定场景
+## 已完成 O_SYNC 场景
 
 ```text
 userspace call       = write(fd, buf, 4096)
 ABI                  = native x86-64 SYSCALL / entry_SYSCALL_64
 open flags           = O_WRONLY | O_SYNC
-file                 = independent already-open regular ext4 file on /dev/sda1
+file                 = regular ext4 file on /dev/sda1
 initial file position= 0
+final file position  = 4096
 file size            = at least 4096 bytes
 filesystem block     = 4096 bytes
 write type           = full-block overwrite, not extending
-extent               = logical block 0 already initialized and mapped
+extent               = existing initialized mapped logical block 0
 I/O mode             = buffered; not O_DIRECT; not DAX
-ext4 mode            = journal enabled, data=ordered, delayed allocation enabled
-initial page cache   = target index 0 absent
-user buffer          = mapped, readable, stable during copy
+ext4 mode            = journal enabled, data=ordered, delalloc enabled
 excluded             = inline data, fscrypt, fs-verity, atomic write
-failure policy       = no ENOSPC, copy fault, freeze conflict, forced shutdown or injected I/O failure
-block path           = REQ_OP_WRITE | REQ_SYNC, no REQ_FUA, no split, no merge target
+failure policy       = no copy, writeback, journal, flush or storage error
 ```
 
-该 write 场景独立于前一条 read；不要沿用 read 结束后的 page-cache folio。
-
-## 已执行控制流
+完整结果：
 
 ```text
-userspace write(fd, buf, 4096)
-→ entry_SYSCALL_64 / __x64_sys_write
-→ ksys_write / vfs_write / new_sync_write
-→ ext4_file_write_iter / ext4_buffered_write_iter
-→ generic_perform_write
-→ ext4_da_write_begin
-→ copy_folio_from_iter_atomic
-→ ext4_da_write_end
-→ dirty page-cache folio
-→ generic_write_sync
-→ vfs_fsync_range(file, 0, 4095, datasync=0)
-→ ext4_sync_file
-→ file_write_and_wait_range
-→ WB_SYNC_ALL / ext4_writepages
-→ existing mapped buffer submitted in do_map=0 pass
-→ folio_clear_dirty_for_io
-→ ext4_bio_write_folio
-→ __folio_start_writeback
-→ REQ_OP_WRITE | REQ_SYNC bio
-→ blk_crypto_submit_bio / submit_bio
-→ partition remap
-→ blk-mq request and tag
-→ SCSI WRITE(10 or 16)
-→ libata ATA DMA/NCQ WRITE
-→ dma_map_sg(DMA_TO_DEVICE)
-→ AHCI H2D FIS / PRDT / AHCI_CMD_WRITE
-→ PxCI[tag] = 1
-→ AHCI completion interrupt
-→ ata_qc_complete / dma_unmap_sg
-→ ata_scsi_qc_complete / scsi_done
-→ blk_mq_complete_request
-→ scsi_complete / blk_update_request
-→ bio_endio / ext4_end_bio
-→ ext4_finish_bio
-→ folio_end_writeback
-→ file_write_and_wait_range returns 0
+userspace RAX       = 4096
+file->f_pos         = 4096
+target folio        = clean, uptodate, unlocked, PG_writeback=0
+data I/O            = complete
+journal requirement = satisfied by already-committed, fast commit, or full JBD2 commit
+barrier requirement = satisfied by commit barrier or standalone FLUSH CACHE when enabled and needed
+freeze protection   = released
+fd position guard   = released
 ```
 
 ## 当前精确状态
 
 ```text
-system_state       = SYSTEM_RUNNING
-current executor   = O_SYNC writer task inside ext4_sync_file
-CPU mode           = x86-64 CPL 0, syscall process context
-target folio       = clean, uptodate, unlocked, PG_writeback=0
-data WRITE bio     = completed and released
-blk-mq request/tag = completed and released
-SCSI/ATA/AHCI      = command completed
-DMA mapping        = unmapped
-data range wait    = returned 0
-writeback error    = none
-device durability  = not fully established yet
-JBD2 commit        = not executed at next entry
-optional flush     = not issued
-kiocb->ki_pos      = 4096
-local pos          = 0
-file->f_pos        = 0
-write syscall      = not returned
+system_state     = SYSTEM_RUNNING
+current executor = original writer task
+CPU mode         = x86-64 CPL 3
+current location = userspace immediately after successful O_SYNC write
+runtime scenario = none selected
+next entry       = unselected
 ```
 
-## 下一任务边界
+不要把任意后续 syscall伪装成 O_SYNC write的自动时间线后续。
 
-下一批从固定源码中的：
+## 下一建议场景
 
-```c
-ext4_fsync_journal(inode, false, &needs_barrier)
-```
+下一批默认选择单线程 x86-64 用户进程直接执行 native `fork()` syscall，除非用户明确指定其他方向。
 
-开始，连续追踪：
+建议固定：
 
 ```text
-select EXT4_I(inode)->i_sync_tid
-→ ext4_fc_commit
-→ fast commit or full JBD2 commit
-→ transaction wait and commit record
-→ determine needs_barrier
-→ optional blkdev_issue_flush
-→ file_check_and_advance_wb_err
-→ ext4_sync_file returns
-→ generic_write_sync returns 4096
-→ new_sync_write updates local pos
-→ vfs_write accounting and file_end_write
-→ ksys_write commits file->f_pos = 4096
-→ pt_regs->ax = 4096
-→ syscall_exit_to_user_mode
-→ SYSRETQ or IRETQ
-→ userspace receives 4096
+userspace call      = native fork() syscall
+process             = single-threaded userspace process
+parent state        = normal running task with private user mm
+signals             = no pending signal; default fork success path
+ptrace/seccomp      = disabled for the scenario
+namespaces/cgroups  = inherited without creating new namespaces
+files/fs/sighand    = copied with ordinary fork semantics, not CLONE_* sharing
+memory              = private anonymous and file-backed VMAs; enough memory
+failure policy      = no RLIMIT_NPROC, PID exhaustion, allocation failure, fatal signal or LSM denial
 ```
 
-必须从固定 commit 核对 `ext4_fc_commit()`、JBD2 commit、barrier 与 flush 的真实分支。不要假设 fast commit 一定启用，也不要假设一定或一定不执行 flush。
+从固定源码核对实际调用链后，预计连续追踪：
+
+```text
+entry_SYSCALL_64
+→ __x64_sys_fork
+→ kernel_clone
+→ copy_process
+→ dup_task_struct
+→ copy_creds / copy_files / copy_fs / copy_sighand / copy_signal
+→ copy_mm
+→ dup_mm / dup_mmap
+→ copy_page_range
+→ page-table write-protect / COW setup
+→ alloc_pid
+→ copy_thread
+→ tasklist and PID publication
+→ wake_up_new_task
+→ scheduler first runs child
+→ parent returns child PID
+→ child returns 0 through ret_from_fork
+```
+
+是否拆成上述精确函数，必须以固定 commit源码为准。不要从 glibc wrapper推断内核入口；场景直接规定 native `fork` syscall。
 
 ## 必须保持的技术边界
 
-1. `O_SYNC` buffered write 先写 page cache，再执行同步 writeback。
-2. 已有 initialized extent 的覆盖写在 `ext4_writepages` 第一遍直接提交，不新分配 extent。
-3. `folio_clear_dirty_for_io`、`PG_writeback` 与 folio lock 是不同状态。
-4. WRITE DMA 从 page-cache folio读取数据，不直接读取用户 buffer。
-5. `REQ_SYNC` 不等于 `REQ_FUA`。
-6. AHCI completion必须穿过 SCSI、blk-mq、bio和 `ext4_end_bio` 才能调用 `folio_end_writeback`。
-7. data I/O completion、JBD2 transaction commit与 device cache flush是三个独立阶段。
-8. clean folio不等于 O_SYNC durability已经全部满足。
-9. `kiocb->ki_pos`、local `pos`、共享 `file->f_pos` 必须分开描述。
-10. 不同运行期场景之间不是自动连续时间线。
+1. 不同运行期实验之间不是自动连续时间线。
+2. fork创建新 task与 exec替换当前 image是不同机制。
+3. task_struct、PID、mm、files、fs、sighand、signal、credentials分别说明复制或共享语义。
+4. 页表复制与物理页复制不同；普通 fork主要建立 COW，不立即复制所有用户 data pages。
+5. parent与 child从同一次 syscall获得不同返回值，但由不同 task执行。
+6. child首次运行入口、`ret_from_fork` 与返回用户态必须按 x86 fixed source说明。
+7. scheduler enqueue不等于 child已经运行。
+8. 遇到配置或运行时分支，保留条件，不凭空写死。
 
 ## 连续叙事
 
 每一段必须交代：当前执行者、CPU mode、关键数据结构、当前动作建立的条件、下一控制入口，以及固定源码依据。
 
-不能用“ext4 刷盘”“journal 提交完成”“系统调用返回”这样的概括跳过 transaction、flush、error propagation 和 position commit。
+不能使用“复制进程”“建立 COW”“调度 child”这样的概括跳过对象创建、引用关系、页表权限变化和控制权交接。
 
 ## 章节边界
 
@@ -187,11 +158,12 @@ select EXT4_I(inode)->i_sync_tid
 ## 连续推进模式
 
 1. 读取最新 `AGENTS.md`、`project/STATE.rst`、manifest 和当前入口；
-2. 读取本章涉及的固定源码与规范；
-3. 确定自然边界；
-4. 写完并核对章节；
-5. 更新目录、STATE、manifest、README 和接续入口；
-6. 从最新状态继续。
+2. 固定新的运行期场景；
+3. 读取本章涉及的固定源码与规范；
+4. 确定自然边界；
+5. 写完并核对章节；
+6. 更新目录、STATE、manifest、README 和接续入口；
+7. 从最新状态继续。
 
 遇到固定源码无法确认、重大平台分叉、仓库写入失败或达到场景终点时停止。
 
