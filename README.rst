@@ -59,6 +59,9 @@ techBook
 * `第五十章：Linux 怎样把 memblock 物理内存变成 node、zone 和 struct page？ <docs/tracks/linux-kernel/50-linux-builds-zones-and-struct-page-map.rst>`_
 * `第五十一章：Linux 为什么再次检查 static key/static call，并怎样生成正式命令行？ <docs/tracks/linux-kernel/51-linux-rechecks-static-patching-and-builds-command-lines.rst>`_
 * `第五十二章：Linux 怎样确定 CPU 编号上限并把 CPU0 迁入正式 per-CPU area？ <docs/tracks/linux-kernel/52-linux-builds-percpu-area-and-migrates-cpu0.rst>`_
+* `第五十三章：Linux 为什么再次确认 CPU NUMA node，并把 CPU0 放入 hotplug ONLINE 状态？ <docs/tracks/linux-kernel/53-linux-initializes-boot-cpu-numa-and-hotplug-state.rst>`_
+* `第五十四章：Linux 怎样把 GRUB 命令行分发给内核参数和 init？ <docs/tracks/linux-kernel/54-linux-dispatches-kernel-command-line-and-init-arguments.rst>`_
+* `第五十五章：Linux 怎样把 memblock 空闲页交给 buddy，并建立 slab 与 vmalloc？ <docs/tracks/linux-kernel/55-linux-releases-memblock-to-buddy-and-starts-slab-vmalloc.rst>`_
 
 当前主线
 --------
@@ -72,9 +75,9 @@ techBook
    → bzImage
    → Linux 6.12.95
 
-当前 ``start_kernel()`` 已建立正式 per-CPU first chunk，为 possible CPU 设置 unit offset，并把 CPU0 切换到正式 GDT/GS per-CPU base；AP 尚未启动。
+当前 ``start_kernel()`` 已完成 boot CPU NUMA/hotplug 初始状态和 GRUB 命令行分发，并把 memblock 普通 free RAM 交给 buddy；slab 基础与 vmalloc 已可用。
 
-下一入口是 ``early_numa_node_init()``，随后处理 boot CPU hotplug state 和通用命令行解析。
+下一入口是 ``maple_tree_init()``，随后处理 poking、ftrace、early trace 和 ``sched_init()``。CPU0 仍是唯一 online CPU，中断仍关闭，initramfs 尚未解包。
 
 开始工作
 --------
