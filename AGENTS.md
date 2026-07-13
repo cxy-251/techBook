@@ -10,9 +10,9 @@
 
 ``x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 6.12.95``。
 
-当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-051``。最新章节是：
+当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-052``。最新章节是：
 
-``LK-BOOT-051``：Linux 为什么再次检查 static key/static call，并怎样生成正式命令行？
+``LK-BOOT-052``：Linux 怎样确定 CPU 编号上限并把 CPU0 迁入正式 per-CPU area？
 
 ## 固定实现
 
@@ -50,24 +50,27 @@ GRUB 资料使用 GNU 官方 ``grub-2.14.tar.xz`` 和 ``GitMirroring/grub`` 固�
 当前已经执行：
 
 ```text
-setup_arch()
-→ return to start_kernel()
+start_kernel()
 → mm_core_init_early()
 → establish node / zone / struct page metadata
-→ jump_label_init() idempotent check
-→ static_call_init() idempotent check
-→ early_security_init()
-→ setup_boot_config()
-→ conditionally detach bootconfig trailer from initramfs
+→ early LSM and bootconfig handling
 → setup_command_line(command_line)
-→ allocate saved_command_line and static_command_line
+→ setup_nr_cpu_ids()
+→ setup_per_cpu_areas()
+→ allocate per-CPU first chunk
+→ establish __per_cpu_offset for possible CPUs
+→ migrate early APIC / ACPI / NUMA maps
+→ switch CPU0 to formal GDT and GS-relative per-CPU base
+→ setup node-to-cpumask and x86 SMP masks
+→ smp_prepare_boot_cpu()
+→ native_pv_lock_init()
 ```
 
-当前执行者是 Linux 6.12.95 ``init/main.c:start_kernel()``。``setup_command_line(command_line)`` 已返回，精确下一入口是 ``setup_nr_cpu_ids()``。CPU 0 正在 ``init_task`` 上执行，中断关闭。early LSM 已初始化；bootconfig 已完成条件处理；两份持久命令行已经由 memblock 分配。per-CPU area、scheduler、AP 启动和普通参数解析尚未发生。
+当前执行者是 Linux 6.12.95 ``init/main.c:start_kernel()``。``smp_prepare_boot_cpu()`` 已返回，精确下一入口是 ``early_numa_node_init()``。CPU0 正在 ``init_task`` 上执行，中断关闭，并已使用正式 per-CPU unit。所有 possible CPU 已分配 per-CPU unit 和 offset，但 AP 尚未收到 INIT/SIPI。
 
-固定 x86 路径在 ``setup_arch()`` 早期已经完成首次 ``jump_label_init()`` / ``static_call_init()``，所以 ``start_kernel()`` 中同名调用主要走幂等返回。后续正文不要重复声称这里重新修补整个内核 text。
+下一任务从 ``early_numa_node_init()`` 开始，继续 ``boot_cpu_hotplug_init()``，随后打印 ``saved_command_line``、执行 early parameter 幂等入口和通用 ``parse_args()``。需要区分 possible/present/online/active mask，也要区分 kernel parameters、``__setup`` 参数、未知参数和 ``--`` 后的 init arguments。
 
-下一任务从 ``start_kernel():setup_nr_cpu_ids()`` 开始，追踪 possible/present/online/active mask、x86-64 per-CPU first chunk、``__per_cpu_offset``、early APIC/ACPI/NUMA map 迁移、CPU0 的 GDT/GS per-CPU base 切换、``smp_prepare_boot_cpu()``、``early_numa_node_init()`` 和 ``boot_cpu_hotplug_init()``。AP 仍不会在这一阶段启动。
+固定 x86 路径在 ``setup_arch()`` 早期已经完成首次 ``jump_label_init()`` / ``static_call_init()``，后续正文不要声称 ``start_kernel()`` 中同名调用重新修补整个内核 text。
 
 ## 用户输入与技术事实
 
