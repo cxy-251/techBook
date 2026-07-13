@@ -10,9 +10,9 @@
 
 ``x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 6.12.95``。
 
-当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-042``。最新章节是：
+当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-043``。最新章节是：
 
-``LK-BOOT-042``：Linux 怎样修正 E820 并计算自己真正能管理的物理页？
+``LK-BOOT-043``：Linux 怎样把 E820 RAM 变成 memblock 并建立 early direct map？
 
 ## 固定实现
 
@@ -51,23 +51,23 @@ GRUB 资料使用 GNU 官方 ``grub-2.14.tar.xz`` 和 ``GitMirroring/grub`` 固�
 
 ```text
 setup_arch()
-→ import command line and boot_params
-→ reserve kernel/initramfs/setup_data/BIOS ranges
-→ import and sanitize E820
-→ setup_initial_init_mm()
-→ configure NX and parse early parameters
-→ initialize DMI/hypervisor/TSC/ROM discovery
-→ register kernel resources
-→ correct low BIOS ranges
-→ apply GART/MTRR corrections
-→ calculate max_pfn, max_possible_pfn and max_low_pfn
-→ randomize large kernel virtual areas
-→ find legacy MP table
+→ import command line / boot_params / E820
+→ reserve kernel / initramfs / setup_data / BIOS ranges
+→ register kernel resources and correct E820
+→ apply MTRR trim and calculate PFN limits
+→ early_alloc_pgt_buf()
+→ reserve and close brk
+→ e820__memblock_setup()
+→ reserve low 1 MiB and real-mode trampoline
+→ init_mem_mapping()
+→ load swapper_pg_dir and flush TLB
+→ replace early page-fault IDT
+→ memblock_set_current_limit(get_max_mapped())
 ```
 
-当前执行者是 Linux 6.12.95 ``arch/x86/kernel/setup.c:setup_arch()``。精确停点是下一条调用 ``arch/x86/mm/init.c:early_alloc_pgt_buf()``。CPU 0 正在执行，中断关闭；E820、resource tree 与 PFN 上界已确定；``memblock.memory`` 和完整 direct map 尚未建立。
+当前执行者是 Linux 6.12.95 ``arch/x86/kernel/setup.c:setup_arch()``。CPU 0 正在执行，中断关闭。E820 RAM 已转换成 ``memblock.memory``；kernel、initramfs、setup_data、BIOS 与 trampoline 已保留；early direct map 已建立；``CR3`` 已切到 ``swapper_pg_dir``；memblock 分配上限已扩大。
 
-下一任务从 ``early_alloc_pgt_buf()`` 开始，追踪 brk 页表缓冲、``reserve_brk()``、``e820__memblock_setup()``、低 1 MiB real-mode 保留、``init_mem_mapping()``、CR3 切换和 memblock current limit。不要把 E820、iomem resource、memblock 和 direct map 混成同一对象。
+精确下一入口是 ``setup_arch():setup_log_buf(1)``。下一任务追踪扩大 printk ring buffer、``reserve_initrd()`` 的 direct-map 检查与条件重定位、ACPI table 保留、early ACPI/NUMA、``initmem_init()`` 和 ``x86_init.paging.pagetable_init()``。不要把 early direct map 与后面的完整架构页表/NUMA 初始化视为同一步。
 
 ## 用户输入与技术事实
 
