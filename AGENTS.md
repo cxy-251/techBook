@@ -10,9 +10,9 @@
 
 ``x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 6.12.95``。
 
-当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-058``。最新章节是：
+当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-061``。最新章节是：
 
-``LK-BOOT-058``：Linux 怎样建立 early workqueue、RCU 和 trace event 基础？
+``LK-BOOT-061``：Linux 怎样建立 timekeeping，并把 x86 定时器初始化延后？
 
 ## 固定实现
 
@@ -69,13 +69,40 @@ start_kernel()
 → kvfree_rcu_init()
 → trace_init()
 → context_tracking_init()
+→ early_irq_init()
+→ allocate boot IRQ descriptors in sparse IRQ Maple Tree
+→ create x86 VECTOR domain and vector matrix
+→ init_IRQ()
+→ initialize legacy IRQ mappings and CPU0 IRQ stack
+→ install APIC/system/external interrupt gates into IDT
+→ map IDT into CPU entry area and mark it read-only
+→ tick_init()
+→ initialize tick broadcast and NO_HZ management
+→ rcu_init_nohz()
+→ timers_init()
+→ initialize per-possible-CPU timer wheel bases
+→ register TIMER_SOFTIRQ
+→ srcu_init()
+→ hrtimers_init()
+→ initialize CPU0 hrtimer bases and HRTIMER_SOFTIRQ
+→ softirq_init()
+→ initialize tasklet softirq queues and actions
+→ vdso_setup_data_pages()
+→ allocate final VDSO/VVAR backing pages
+→ timekeeping_init()
+→ read persistent wall clock
+→ establish realtime/monotonic/raw bases
+→ install jiffies as initial clocksource
+→ update fast timekeeper and VDSO time data
+→ time_init()
+→ set late_time_init = x86_late_time_init
 ```
 
-当前执行者是 Linux 6.12.95 ``init/main.c:start_kernel()``。``context_tracking_init()`` 已返回，精确下一入口是 ``early_irq_init()``。
+当前执行者是 Linux 6.12.95 ``init/main.c:start_kernel()``。``time_init()`` 已返回，精确下一入口是 ``random_init()``。
 
-CPU0 是唯一 online CPU，当前任务是 ``init_task`` / ``swapper/0`` / PID 0。scheduler runqueue 与 class 已建立，scheduler tick 尚未启动；external IRQ 仍关闭；AP 尚未收到 INIT/SIPI。early workqueue 可以创建和排队 work，worker kthread 尚未存在；RCU 核心结构已建立，后续 nohz、softirq 和 kthread 环境尚未完成；initramfs 尚未解包，PID 1/PID 2 尚未创建。
+CPU0 是唯一 online CPU，当前任务是 ``init_task`` / ``swapper/0`` / PID 0。scheduler runqueue 与 class 已建立，scheduler tick 尚未启动。IRQ descriptors、x86 VECTOR domain、legacy vector mapping 和 APIC/external IDT gates 已建立，但 ``early_boot_irqs_disabled`` 仍为 true，CPU0 IF 位仍关闭。timer wheel、hrtimer、softirq、VDSO/VVAR 和通用 timekeeper 已建立；初始 clocksource 是 jiffies。x86 HPET/PIT/TSC 与最终 interrupt mode 只登记在 ``late_time_init``，尚未执行。AP、initramfs 解包和 PID 1/PID 2 创建均未开始。
 
-下一任务从 ``early_irq_init()`` 开始，依次核对通用 IRQ descriptor 初始化、x86 ``init_IRQ()``、IDT/interrupt-gate、``tick_init()``、``rcu_init_nohz()``、timer wheel、SRCU、hrtimer、softirq、vDSO data、``timekeeping_init()`` 和 ``time_init()``。不要把“IRQ 数据结构存在”“硬件入口已安装”和“IF 位已打开”写成同一步；``local_irq_enable()`` 仍在更后面。
+下一任务从 ``random_init()`` 开始，依次核对正式 RNG、``kfence_init()``、``boot_init_stack_canary()``、``perf_event_init()``、``profile_init()``、``call_function_init()``、``early_boot_irqs_disabled = false`` 和 ``local_irq_enable()``。不要把“IRQ descriptor 已建立”“IDT gate 已安装”“timer 软件结构已建立”和“CPU IF 位已经打开”写成同一步。x86 HPET/PIT/TSC 的实际初始化仍在后面的 ``acpi_early_init()`` 与 ``late_time_init()``。
 
 ## 用户输入与技术事实
 
