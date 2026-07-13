@@ -76,6 +76,9 @@ Linux Kernel
 #. `第六十八章：Linux 怎样创建 PID 1、PID 2，并让 PID 0 进入 idle loop？ <68-linux-creates-pid1-pid2-and-enters-idle.rst>`_
 #. `第六十九章：Linux 怎样唤醒 AP，并让 workqueue 与 SMP scheduler 正式运行？ <69-linux-starts-aps-workqueues-and-smp-scheduler.rst>`_
 #. `第七十章：Linux 怎样运行全部 built-in initcall，并准备 initramfs 与 root filesystem？ <70-linux-runs-initcalls-and-prepares-rootfs.rst>`_
+#. `第七十一章：Linux 怎样释放 __init 内存并进入 SYSTEM_RUNNING？ <71-linux-frees-init-memory-and-enters-system-running.rst>`_
+#. `第七十二章：Linux 怎样选择用户态 init，并把可执行映像装入 PID 1？ <72-linux-selects-init-and-loads-userspace-image.rst>`_
+#. `第七十三章：x86 怎样让 PID 1 从 ret_from_fork 真正进入用户态？ <73-x86-returns-pid1-to-userspace.rst>`_
 
 当前主线
 --------
@@ -91,9 +94,9 @@ Linux Kernel
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-``rest_init()`` 已创建 PID 1 与 PID 2，PID 0 和成功上线的 AP 已进入各自 idle loop。PID 1 已完成 SMP/workqueue 准备、全部 built-in initcall、initramfs 解包等待、初始 console 与 root 路径选择。
+Linux 启动主线已经完成：PID 1 已选择成功的 init 映像，建立用户地址空间，并通过 x86 ``ret_from_fork``、exit-to-user 与 ``iretq``/FRED 路径进入第一条用户指令。
 
-当前下一入口是 PID 1 ``kernel_init():async_synchronize_full()``。PID 1 仍在内核态，``__init`` 内存尚未释放，``system_state`` 尚未进入 ``SYSTEM_RUNNING``，用户态 init 尚未 exec。
+当前不再存在唯一可由固定内核源码决定的下一条时间线。继续研究需要先固定一个运行期场景，例如 ``read()``、``openat()``、``fork()``、page fault、timer interrupt 或 block I/O，再从对应用户态/硬件入口重新进入内核。
 
 章节组织
 --------
