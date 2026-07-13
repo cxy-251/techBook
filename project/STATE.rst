@@ -11,11 +11,11 @@
 
 仓库当前只写 Linux Kernel。
 
-已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-058``。最新三章：
+已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-061``。最新三章：
 
-#. ``LK-BOOT-056``：Linux 怎样准备 Maple Tree、文本热补丁和 ftrace？
-#. ``LK-BOOT-057``：Linux 怎样建立 runqueue，并把 init_task 变成 CPU0 的 idle task？
-#. ``LK-BOOT-058``：Linux 怎样建立 early workqueue、RCU 和 trace event 基础？
+#. ``LK-BOOT-059``：Linux 怎样建立 IRQ descriptor 并把外部中断入口写入 IDT？
+#. ``LK-BOOT-060``：Linux 怎样建立 tick、timer wheel、hrtimer 与 softirq？
+#. ``LK-BOOT-061``：Linux 怎样建立 timekeeping，并把 x86 定时器初始化延后？
 
 完整章节列表见 ``docs/tracks/linux-kernel/index.rst``，机器可读接续信息见 ``manifests/tracks/linux-kernel.toml``。
 
@@ -47,56 +47,69 @@
 当前控制流位置
 --------------
 
-第五十六至五十八章已经完成：
+第五十九至六十一章已经完成：
 
 ::
 
-   maple_tree_init()
-   → create Maple Tree node slab cache
-   → poking_init()
-   → prepare controlled x86 runtime text patching
-   → ftrace_init()
-   → build dynamic function call-site records
-   → early_trace_init()
-   → sched_init()
-   → initialize per-possible-CPU runqueues and scheduling classes
-   → bind init_task as CPU0 idle/current task
-   → select dynamic preemption model
-   → verify IRQs remain disabled
-   → radix_tree_init()
-   → create radix-tree/XArray node cache and CPU-hotplug cleanup
-   → housekeeping_init()
-   → workqueue_init_early()
-   → allow workqueue creation and queueing without worker execution
-   → rcu_init()
-   → build RCU core/per-CPU/hierarchy state
-   → kvfree_rcu_init()
-   → trace_init()
-   → make trace-event infrastructure available
-   → context_tracking_init()
+   early_irq_init()
+   → initialize default IRQ affinity
+   → allocate boot IRQ descriptors
+   → insert sparse IRQ descriptors into Maple Tree
+   → create x86 VECTOR IRQ domain and vector matrix
+   → init_IRQ()
+   → map legacy ISA vectors to CPU0 irq_desc objects
+   → initialize CPU0 IRQ stack
+   → initialize legacy PIC/ISA IRQ chip and flow handlers
+   → install APIC system and external IRQ gates into IDT
+   → map IDT into CPU entry area and mark it read-only
+   → tick_init()
+   → initialize tick broadcast and NO_HZ management
+   → rcu_init_nohz()
+   → finalize optional RCU no-CB masks and callback offload layout
+   → timers_init()
+   → initialize per-possible-CPU timer wheel bases
+   → register TIMER_SOFTIRQ
+   → srcu_init()
+   → enable normal SRCU delayed-work queueing
+   → hrtimers_init()
+   → initialize CPU0 hrtimer bases and HRTIMER_SOFTIRQ
+   → softirq_init()
+   → initialize per-CPU tasklet queues and tasklet softirq actions
+   → vdso_setup_data_pages()
+   → allocate final VDSO/VVAR backing pages
+   → timekeeping_init()
+   → read x86 persistent wall clock
+   → establish realtime/monotonic/raw bases
+   → install jiffies as initial clocksource
+   → update fast timekeeper and VDSO time data
+   → time_init()
+   → set late_time_init = x86_late_time_init
 
 此刻机器状态：
 
 * 当前执行者：Linux 6.12.95 ``init/main.c:start_kernel()``；
-* 精确位置：``context_tracking_init()`` 已返回，``early_irq_init()`` 尚未调用；
+* 精确位置：``time_init()`` 已返回，``random_init()`` 尚未调用；
 * CPU：只有 BSP / Linux CPU0 online；
 * mode：64 位 long mode；
 * current task：``init_task`` / ``swapper/0`` / PID 0；
-* CPU0 runqueue：已建立，``rq->curr`` 与 ``rq->idle`` 指向 boot idle task；
-* possible CPU runqueue：均已初始化；
-* scheduler：核心数据结构和 scheduling class 已可用；
+* scheduler：runqueue、scheduling class 与 CPU0 idle task 已建立；
 * scheduler tick：尚未启动；
-* interrupts：关闭，``early_boot_irqs_disabled = true``；
-* IRQ descriptors：尚未执行 ``early_irq_init()``；
+* interrupts：关闭，``early_boot_irqs_disabled = true``，CPU0 IF 位仍为 0；
+* IRQ descriptors：启动所需 descriptor 已建立，默认处于 disabled/masked；
+* x86 IRQ：VECTOR domain、vector matrix、legacy vector mapping 与 IDT external gates 已建立；
+* IDT：已映射到 CPU entry area 并设为只读；
+* device irqaction：绝大多数设备尚未注册 handler；
 * AP：尚未收到 INIT/SIPI；
 * buddy/slab/vmalloc：可用；
-* Maple Tree/radix tree：节点 cache 已建立；
-* text poking/ftrace：运行期补丁和函数 call-site 基础已建立；
-* housekeeping：固定命令行未设置 CPU isolation；
-* workqueue：可创建、排队和取消 work，worker kthread 尚未运行；
-* RCU：核心/per-CPU/hierarchy 状态已建立，nohz、softirq 和 kthread 环境仍待补齐；
-* trace event：基础设施已可用；
-* context tracking：已初始化，CPU0 当前处于 kernel context；
+* timer wheel：所有 possible CPU 的 base 已建立；
+* hrtimer：CPU0 base 和 softirq handler 已建立；
+* softirq：TIMER、HRTIMER、TASKLET 与 HI action 已登记，``ksoftirqd`` 尚未创建；
+* tick framework：broadcast/NO_HZ 管理已建立，CPU0 最终 clock-event device 尚未完成；
+* timekeeping：realtime/monotonic/raw 基础已建立，初始 clocksource 为 jiffies；
+* VDSO/VVAR：正式 backing pages 和 time data 已准备；
+* x86 hardware time：``late_time_init`` 已登记，HPET/PIT/TSC 与最终 interrupt mode 尚未执行；
+* workqueue：可创建和排队，worker kthread 尚未运行；
+* RCU/SRCU：核心结构与 SRCU 正常 queueing 基础已建立，相关 kthread 尚未运行；
 * 正式 console：尚未初始化；
 * initramfs：尚未解包；
 * PID 1 / PID 2：尚未创建。
@@ -114,4 +127,4 @@
 当前下一步
 ----------
 
-从 ``start_kernel():early_irq_init()`` 开始，追踪通用 IRQ descriptor 分配、x86 ``init_IRQ()`` 与 IDT/interrupt-gate 接管，随后继续 ``tick_init()``、timer wheel、hrtimer、softirq、timekeeping 和架构时钟初始化。保持三个状态边界清晰：IRQ 数据结构已建立、硬件中断入口已安装、``local_irq_enable()`` 真正打开 IF 位发生在不同位置。
+从 ``start_kernel():random_init()`` 开始，继续 ``kfence_init()``、``boot_init_stack_canary()``、``perf_event_init()``、``profile_init()`` 与 ``call_function_init()``，随后核对 ``early_boot_irqs_disabled = false`` 和 ``local_irq_enable()``。保持状态边界清晰：IDT gate 与 IRQ descriptor 已存在，timer/softirq/timekeeper 软件结构已建立，只有执行 ``local_irq_enable()`` 后 CPU0 才开始接受普通 maskable external IRQ。x86 HPET/PIT/TSC 的实际 late 初始化仍在更后的 ``acpi_early_init()`` 之后。
