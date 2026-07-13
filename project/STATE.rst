@@ -11,11 +11,11 @@
 
 仓库当前只写 Linux Kernel。
 
-已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-041``。最新三章：
+已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-042``。最新三章：
 
-#. ``LK-BOOT-039``：x86_64_start_kernel 怎样清理临时环境并保存启动数据？
 #. ``LK-BOOT-040``：Linux 怎样进入 start_kernel 并建立最早的通用内核状态？
 #. ``LK-BOOT-041``：Linux setup_arch 怎样接管命令行并导入 E820 内存图？
+#. ``LK-BOOT-042``：Linux 怎样修正 E820 并计算自己真正能管理的物理页？
 
 完整章节列表见 ``docs/tracks/linux-kernel/index.rst``，机器可读接续信息见 ``manifests/tracks/linux-kernel.toml``。
 
@@ -47,41 +47,40 @@
 当前控制流位置
 --------------
 
-第四十一章已经完成：
+第四十二章已经完成：
 
 ::
 
-   start_kernel()
-   → setup_arch(&command_line)
-   → resolve effective command line
-   → install early traps and early ioremap
-   → parse_boot_params()
-   → reserve kernel image
-   → reserve low 64 KiB
-   → reserve initramfs physical range
-   → reserve setup_data chain
-   → reserve BIOS regions
-   → e820__memory_setup()
-   → parse_setup_data()
-   → copy_edd()
-   → immediately before setup_initial_init_mm()
+   setup_initial_init_mm()
+   → configure NX support
+   → parse early parameters
+   → initialize DMI/hypervisor/TSC/ROM discovery
+   → register kernel code/rodata/data/bss resources
+   → verify kernel range is E820 RAM
+   → reserve page 0 and remove 640 KiB–1 MiB from RAM
+   → apply early GART and MTRR corrections
+   → calculate max_pfn / max_possible_pfn / max_low_pfn
+   → randomize large kernel virtual memory regions
+   → find legacy MP table
+   → immediately before early_alloc_pgt_buf()
 
 此刻机器状态：
 
 * 当前执行者：Linux 6.12.95 ``arch/x86/kernel/setup.c:setup_arch()``；
+* 当前停点：``early_alloc_pgt_buf()`` 尚未调用；
 * CPU：BSP / Linux CPU 0；
 * mode：64 位 long mode；
 * interrupts：关闭；
-* 命令行：已接管；
-* ``boot_params``：主要字段已翻译；
-* kernel、低 64 KiB、initramfs、setup_data 与 BIOS ranges：已预留；
-* 基础 E820：已从 ``boot_params`` 导入并 sanitize；
-* 扩展 ``setup_data``：已解析；
+* ``init_mm``：已登记 kernel code/data/brk 边界；
+* NX：已反映到支持的 PTE mask；
+* E820：已应用 early 参数、低端 BIOS 修正与 MTRR trim；
+* kernel sections：已加入 ``iomem_resource``；
+* ``max_pfn`` / ``max_possible_pfn`` / ``max_low_pfn``：已确定；
+* memory layout randomization：已决定；
 * ``memblock.memory``：尚未由 E820 RAM 建立；
-* ``max_pfn``：尚未计算；
-* direct map：尚未重建；
-* ``setup_arch()``：尚未返回；
-* initramfs：尚未展开。
+* early page-table buffer：尚未分配；
+*完整 direct map：尚未建立；
+* initramfs：仍只被物理保留。
 
 完成状态
 --------
@@ -96,4 +95,4 @@
 当前下一步
 ----------
 
-从 ``setup_initial_init_mm()`` 开始，追踪 ``init_mm`` 边界、NX 与 early 参数、DMI/hypervisor/ROM 资源、kernel resource tree、E820 修正、MTRR trim、``max_pfn``、memory layout randomization 和 MPTABLE 查找，停在 ``early_alloc_pgt_buf()`` 前。
+从 ``arch/x86/mm/init.c:early_alloc_pgt_buf()`` 开始，追踪 brk 页表缓冲、``reserve_brk()``、``e820__memblock_setup()``、低 1 MiB real-mode 保留、``init_mem_mapping()`` 的页大小选择与 top-down/bottom-up 映射，停在 direct map 建立并更新 memblock 分配上限之后。
