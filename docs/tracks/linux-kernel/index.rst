@@ -48,6 +48,7 @@ Linux Kernel
 #. `第四十章：Linux 怎样进入 start_kernel 并建立最早的通用内核状态？ <40-linux-start-kernel-establishes-earliest-generic-state.rst>`_
 #. `第四十一章：Linux setup_arch 怎样接管命令行并导入 E820 内存图？ <41-linux-setup-arch-imports-command-line-and-e820.rst>`_
 #. `第四十二章：Linux 怎样修正 E820 并计算自己真正能管理的物理页？ <42-linux-fixes-e820-and-computes-max-pfn.rst>`_
+#. `第四十三章：Linux 怎样把 E820 RAM 变成 memblock 并建立 early direct map？ <43-linux-builds-memblock-and-early-direct-map.rst>`_
 
 当前主线
 --------
@@ -61,7 +62,9 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-``setup_arch()`` 已建立 ``init_mm`` 边界、配置 NX、应用 early 参数、登记 kernel resources、修正 E820、执行 MTRR trim，并确定 ``max_pfn``。当前停在 ``early_alloc_pgt_buf()`` 调用前。
+``setup_arch()`` 已把 E820 RAM 转换为 memblock，预留 low-memory trampoline，建立覆盖目标 RAM 的 early direct map，切换到 ``swapper_pg_dir``，并扩大 memblock 分配上限。
+
+当前下一入口是 ``setup_log_buf(1)``，随后处理 initramfs 映射、ACPI、NUMA 与完整架构页表初始化。
 
 章节组织
 --------
