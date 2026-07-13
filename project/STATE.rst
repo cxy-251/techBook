@@ -11,11 +11,11 @@
 
 仓库当前只写 Linux Kernel。
 
-已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-044``。最新三章：
+已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-045``。最新三章：
 
-#. ``LK-BOOT-042``：Linux 怎样修正 E820 并计算自己真正能管理的物理页？
 #. ``LK-BOOT-043``：Linux 怎样把 E820 RAM 变成 memblock 并建立 early direct map？
 #. ``LK-BOOT-044``：Linux 怎样扩大启动日志并确认 initramfs 与 ACPI 表可以安全访问？
+#. ``LK-BOOT-045``：Linux 怎样从 MADT、MP table 和 SRAT 建立 CPU 拓扑与 NUMA node？
 
 完整章节列表见 ``docs/tracks/linux-kernel/index.rst``，机器可读接续信息见 ``manifests/tracks/linux-kernel.toml``。
 
@@ -47,30 +47,28 @@
 当前控制流位置
 --------------
 
-第四十二至四十四章已经完成：
+第四十三至四十五章已经完成：
 
 ::
 
-   setup_initial_init_mm()
-   → configure NX and parse early parameters
-   → initialize DMI / hypervisor / TSC / ROM discovery
-   → register kernel resources
-   → correct E820 low BIOS ranges and apply MTRR trim
-   → calculate max_pfn / max_possible_pfn / max_low_pfn
-   → early_alloc_pgt_buf()
-   → reserve and close brk
-   → e820__memblock_setup()
+   e820__memblock_setup()
    → reserve low 1 MiB and real-mode trampoline
    → init_mem_mapping()
    → load swapper_pg_dir and flush TLB
-   → replace early page-fault IDT
-   → expand memblock current limit to get_max_mapped()
+   → expand memblock current limit
    → setup_log_buf(1)
-   → migrate early printk records when a dynamic buffer is required
-   → reserve_initrd() and establish initrd_start/initrd_end
-   → conditionally relocate initramfs below max_pfn_mapped
-   → scan conditional ACPI overrides in initrd
-   → locate, validate and reserve initial ACPI tables
+   → reserve_initrd()
+   → locate and reserve ACPI initial tables
+   → vsmp_init() conditional path
+   → configure I/O delay and early platform quirks
+   → early_acpi_boot_init()
+   → parse early MADT CPU/APIC topology
+   → early MP table fallback
+   → Device Tree conditional path
+   → initmem_init()
+   → ACPI SRAT / platform NUMA attempts
+   → guarantee at least node 0
+   → assign memblock RAM to NUMA nodes
 
 此刻机器状态：
 
@@ -78,15 +76,17 @@
 * CPU：BSP / Linux CPU 0；
 * mode：64 位 long mode；
 * interrupts：关闭；
-* E820：已修正并转换为 memblock；
-* early direct map：已建立，``CR3`` 使用 ``swapper_pg_dir``；
-* printk ring buffer：若需要，已迁移到 memblock 动态缓冲；
-* initramfs：物理区仍保留，``initrd_start`` / ``initrd_end`` 已建立，尚未展开；
-* ACPI override：已完成条件扫描；
-* ACPI 初始 table list：已建立；
-* ACPI table 物理区：已保留；
-* MADT/SRAT 早期拓扑解析：尚未完成；
-* NUMA node：尚未建立；
+* initramfs：可通过 ``initrd_start`` / ``initrd_end`` 访问，尚未展开；
+* ACPI initial table list：已建立并保留；
+* MADT：已进行早期 CPU/APIC 拓扑处理；
+* MP table：已完成 fallback 条件解析；
+* possible CPU topology：已开始建立；
+* AP：尚未唤醒；
+* NUMA：已通过 SRAT/平台路径或 dummy fallback 建立；
+* ``memblock.memory``：已带 node 归属；
+* 有效 memory node：已分配 node data 并 online；
+* zone/buddy allocator：尚未建立；
+* KASAN 正式 shadow：尚未建立；
 * ``setup_arch()``：尚未返回。
 
 完成状态
@@ -102,4 +102,4 @@
 当前下一步
 ----------
 
-从 ``setup_arch():vsmp_init()`` 开始，追踪虚拟 SMP 与 I/O delay 条件路径、early platform quirks、``early_acpi_boot_init()`` 对 MADT 的早期处理、MP table fallback、``initmem_init()`` 和 NUMA node 建立。
+从 ``setup_arch():dma_contiguous_reserve(max_pfn_mapped << PAGE_SHIFT)`` 开始，追踪 CMA/crashkernel 条件保留、early xHCI debug、``x86_init.paging.pagetable_init()`` 在 x86-64 上映射到 ``paging_init()``、KASAN shadow 接管与 ``sync_initial_page_table()``。
