@@ -51,6 +51,8 @@ techBook
 * `第四十二章：Linux 怎样修正 E820 并计算自己真正能管理的物理页？ <docs/tracks/linux-kernel/42-linux-fixes-e820-and-computes-max-pfn.rst>`_
 * `第四十三章：Linux 怎样把 E820 RAM 变成 memblock 并建立 early direct map？ <docs/tracks/linux-kernel/43-linux-builds-memblock-and-early-direct-map.rst>`_
 * `第四十四章：Linux 怎样扩大启动日志并确认 initramfs 与 ACPI 表可以安全访问？ <docs/tracks/linux-kernel/44-linux-expands-log-buffer-and-reserves-initramfs-acpi.rst>`_
+* `第四十五章：Linux 怎样从 MADT、MP table 和 SRAT 建立 CPU 拓扑与 NUMA node？ <docs/tracks/linux-kernel/45-linux-parses-early-acpi-and-builds-numa-nodes.rst>`_
+* `第四十六章：Linux 怎样完成 x86-64 paging 收尾并建立 KASAN shadow？ <docs/tracks/linux-kernel/46-linux-finalizes-paging-and-kasan-shadow.rst>`_
 
 当前主线
 --------
@@ -64,9 +66,9 @@ techBook
    → bzImage
    → Linux 6.12.95
 
-当前 ``setup_arch()`` 已扩大 printk ring buffer，确认 initramfs 可通过 direct map 访问，并定位、校验与保留 ACPI 初始表。
+当前 ``setup_arch()`` 已完成 early ACPI/NUMA、CMA/crashkernel 条件保留、native x86-64 paging hook 与条件 KASAN shadow 接管。
 
-下一入口是 ``vsmp_init()``，随后处理 early platform quirks、MADT/MP table 早期拓扑与 NUMA node 建立。
+下一入口是 ``tboot_probe()``，随后完成 vsyscall、ACPI/SMP/APIC/IOAPIC、E820 resource、wall clock、MCE 与 ``setup_arch()`` 收尾。
 
 开始工作
 --------
