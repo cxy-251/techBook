@@ -10,9 +10,9 @@
 
 ``x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 6.12.95``。
 
-当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-048``。最新章节是：
+当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-049``。最新章节是：
 
-``LK-BOOT-048``：Linux 怎样完成 ACPI、Local APIC、IOAPIC 与 possible CPU 拓扑？
+``LK-BOOT-049``：Linux 怎样登记物理资源并完成 setup_arch？
 
 ## 固定实现
 
@@ -52,24 +52,24 @@ GRUB 资料使用 GNU 官方 ``grub-2.14.tar.xz`` 和 ``GitMirroring/grub`` 固�
 ```text
 setup_arch()
 → early ACPI / NUMA / paging preparation
-→ tboot_probe()
-→ map_vsyscall()
-→ early_quirks()
-→ topology_apply_cmdline_limits_early()
-→ acpi_boot_init()
-→ FADT / full MADT / HPET / BGRT / SPCR
-→ MP table fallback
-→ init_apic_mappings()
-→ topology_init_possible_cpus()
-→ init_cpu_to_node()
-→ init_gi_nodes()
-→ io_apic_init_mappings()
-→ x86_init.hyper.guest_late_init()
+→ tboot / vsyscall / early quirks
+→ full ACPI / Local APIC / IOAPIC / possible CPU topology
+→ e820__reserve_resources()
+→ e820__register_nosave_regions(max_pfn)
+→ reserve_standard_io_resources()
+→ e820__setup_pci_gap()
+→ conditional VGA registration
+→ wallclock backend selection
+→ therm_lvt_init()
+→ mcheck_init()
+→ register_refined_jiffies(CLOCK_TICK_RATE)
+→ unwind_init()
+→ return from setup_arch()
 ```
 
-当前执行者是 Linux 6.12.95 ``arch/x86/kernel/setup.c:setup_arch()``。CPU 0 正在执行，中断关闭。FADT/MADT/HPET 已完成启动期解析；Local APIC 和 IOAPIC 已映射；possible CPU、package/die/core/thread 和 CPU-to-NUMA node 拓扑已经确定；AP 尚未唤醒。
+当前执行者已经回到 Linux 6.12.95 ``init/main.c:start_kernel()``。``setup_arch(&command_line)`` 已返回，精确下一入口是 ``mm_core_init_early()``。CPU 0 正在 ``init_task`` 上执行，中断关闭，``early_boot_irqs_disabled`` 为 true。resource tree、ACPI/APIC/IOAPIC/NUMA/possible CPU 拓扑已建立；buddy allocator、per-CPU area、scheduler、AP 启动和 initramfs 解包均尚未发生。
 
-精确下一入口是 ``setup_arch():e820__reserve_resources()``。下一任务追踪 E820/nosave/IOAPIC/标准 PC I/O resource tree、PCI gap、VGA console 条件登记、wall clock、thermal LVT、machine check、refined jiffies、EFI memmap quirks 与 unwind，直到 ``setup_arch()`` 返回。返回后必须从 ``start_kernel()`` 的真实下一调用继续，不能跳入 scheduler 或 initramfs 解包。
+下一任务从 ``start_kernel():mm_core_init_early()`` 开始，沿真实源码顺序处理通用内存管理早期核心、``jump_label_init()``、``static_call_init()``、``early_security_init()``、``setup_boot_config()``、``setup_command_line()``、``setup_nr_cpu_ids()`` 和 ``setup_per_cpu_areas()``。不要直接跳到 ``sched_init()``、``smp_init()``、``populate_rootfs()`` 或 ``kernel_init()``。
 
 ## 用户输入与技术事实
 
