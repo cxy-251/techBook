@@ -445,7 +445,7 @@ q35 主线主要依赖 ACPI MADT 描述 CPU 和 APIC，但 MP table 是兼容回
 * memory layout randomization：已决定；
 * MP table：已执行早期查找；
 * ``memblock.memory``：尚未建立；
-*完整 direct map：尚未建立；
+* 完整 direct map：尚未建立；
 * initramfs：仍只被物理保留。
 
 资料
@@ -454,6 +454,6 @@ q35 主线主要依赖 ACPI MADT 描述 CPU 和 APIC，但 MP table 是兼容回
 * `Linux 6.12.95 setup.c：setup_initial_init_mm 之后的 NX、资源与 max_pfn 主流程 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/setup.c>`_
 * `Linux 6.12.95 init-mm.c：init_mm 与 setup_initial_init_mm <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/mm/init-mm.c>`_
 * `Linux 6.12.95 e820.c：E820 查询、修改与 end_of_ram_pfn <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/e820.c>`_
-* `Linux 6.12.95 mtrr/generic.c：MTRR 内存类型与 RAM trim <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/cpu/mtrr/generic.c>`_
+* `Linux 6.12.95 MTRR cleanup：mtrr_trim_uncached_memory <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/cpu/mtrr/cleanup.c>`_
 * `Linux 6.12.95 kaslr.c：kernel_randomize_memory 的虚拟区域随机化 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/mm/kaslr.c>`_
 * `Linux 6.12.95 resource.c：iomem_resource 资源树基础 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/resource.c>`_
