@@ -11,11 +11,11 @@
 
 仓库当前只写 Linux Kernel。
 
-已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-045``。最新三章：
+已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-046``。最新三章：
 
-#. ``LK-BOOT-043``：Linux 怎样把 E820 RAM 变成 memblock 并建立 early direct map？
 #. ``LK-BOOT-044``：Linux 怎样扩大启动日志并确认 initramfs 与 ACPI 表可以安全访问？
 #. ``LK-BOOT-045``：Linux 怎样从 MADT、MP table 和 SRAT 建立 CPU 拓扑与 NUMA node？
+#. ``LK-BOOT-046``：Linux 怎样完成 x86-64 paging 收尾并建立 KASAN shadow？
 
 完整章节列表见 ``docs/tracks/linux-kernel/index.rst``，机器可读接续信息见 ``manifests/tracks/linux-kernel.toml``。
 
@@ -47,28 +47,29 @@
 当前控制流位置
 --------------
 
-第四十三至四十五章已经完成：
+第四十四至四十六章已经完成：
 
 ::
 
-   e820__memblock_setup()
-   → reserve low 1 MiB and real-mode trampoline
-   → init_mem_mapping()
-   → load swapper_pg_dir and flush TLB
-   → expand memblock current limit
-   → setup_log_buf(1)
-   → reserve_initrd()
+   setup_log_buf(1)
+   → migrate early printk records when needed
+   → reserve_initrd() and establish initrd virtual range
+   → scan conditional ACPI overrides
    → locate and reserve ACPI initial tables
    → vsmp_init() conditional path
    → configure I/O delay and early platform quirks
    → early_acpi_boot_init()
    → parse early MADT CPU/APIC topology
    → early MP table fallback
-   → Device Tree conditional path
    → initmem_init()
-   → ACPI SRAT / platform NUMA attempts
-   → guarantee at least node 0
    → assign memblock RAM to NUMA nodes
+   → dma_contiguous_reserve() conditional CMA
+   → arch_reserve_crashkernel() conditional path
+   → early xDBC conditional console
+   → x86_init.paging.pagetable_init()
+   → native x86-64 paging_init()
+   → conditional kasan_init()
+   → sync_initial_page_table() (x86-64 no-op)
 
 此刻机器状态：
 
@@ -76,17 +77,19 @@
 * CPU：BSP / Linux CPU 0；
 * mode：64 位 long mode；
 * interrupts：关闭；
+* printk：动态 ring buffer 已按需建立；
 * initramfs：可通过 ``initrd_start`` / ``initrd_end`` 访问，尚未展开；
-* ACPI initial table list：已建立并保留；
-* MADT：已进行早期 CPU/APIC 拓扑处理；
-* MP table：已完成 fallback 条件解析；
-* possible CPU topology：已开始建立；
-* AP：尚未唤醒；
-* NUMA：已通过 SRAT/平台路径或 dummy fallback 建立；
-* ``memblock.memory``：已带 node 归属；
-* 有效 memory node：已分配 node data 并 online；
+* early ACPI CPU/APIC topology：已建立；
+* NUMA：已保证至少一个 online memory node；
+* memblock RAM：已带 node 归属；
+* CMA：已按配置完成条件保留；
+* crashkernel：固定命令行未请求；
+* direct map：继续由 ``init_top_pgt`` / ``swapper_pg_dir`` 承载；
+* native ``pagetable_init``：x86-64 实际调用短小的 ``paging_init()``，未重建 direct map；
+* KASAN：若配置启用，正式 shadow 已建立；
+* ``sync_initial_page_table()``：x86-64 为空操作；
 * zone/buddy allocator：尚未建立；
-* KASAN 正式 shadow：尚未建立；
+* 完整 ACPI/FADT/HPET、APIC/IOAPIC 与资源注册：尚未完成；
 * ``setup_arch()``：尚未返回。
 
 完成状态
@@ -102,4 +105,4 @@
 当前下一步
 ----------
 
-从 ``setup_arch():dma_contiguous_reserve(max_pfn_mapped << PAGE_SHIFT)`` 开始，追踪 CMA/crashkernel 条件保留、early xHCI debug、``x86_init.paging.pagetable_init()`` 在 x86-64 上映射到 ``paging_init()``、KASAN shadow 接管与 ``sync_initial_page_table()``。
+从 ``setup_arch():tboot_probe()`` 开始，追踪 Trusted Boot 条件路径、vsyscall 映射、完整 ``acpi_boot_init()``、local APIC/IOAPIC 映射、possible CPU 与 CPU-to-node 收尾、E820/resource 注册、wall clock、MCE、unwind，直到 ``setup_arch()`` 返回。
