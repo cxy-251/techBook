@@ -85,6 +85,9 @@ Linux Kernel
 #. `第七十七章：READ bio 怎样通过校验与分区重映射进入 blk-mq？ <77-read-bio-enters-generic-block-submission.rst>`_
 #. `第七十八章：blk-mq 怎样把 bio 变成 SCSI READ request？ <78-blk-mq-builds-scsi-read-request.rst>`_
 #. `第七十九章：SCSI READ 怎样变成 ATA taskfile 并写入 AHCI command slot？ <79-scsi-read-becomes-ahci-command.rst>`_
+#. `第八十章：AHCI 中断怎样确认完成的 tag，并把结果交回 SCSI？ <80-ahci-interrupt-completes-ata-and-scsi-command.rst>`_
+#. `第八十一章：blk-mq completion 怎样结束 bio，并让 ext4 folio 变成 uptodate？ <81-block-completion-marks-ext4-folio-uptodate.rst>`_
+#. `第八十二章：reader task 怎样复制 folio，并让 read() 返回用户态？ <82-reader-copies-folio-and-returns-from-read.rst>`_
 
 当前主线
 --------
@@ -95,21 +98,20 @@ Linux Kernel
    → bzImage → Linux 7.2-rc1
    → boot handoff complete
    → fixed runtime read(fd, buf, 4096)
-   → entry_SYSCALL_64 / __x64_sys_read
-   → VFS / ext4 buffered read
+   → x86 syscall entry / VFS / ext4
    → cold page-cache miss
-   → ext4 READ bio
-   → submit_bio_noacct
-   → partition remap
-   → blk_mq_submit_bio
-   → blk-mq request / SCSI READ CDB
-   → libata ATA taskfile
-   → AHCI H2D FIS / PRDT / command slot
-   → PxCI[tag] = 1
+   → bio / blk-mq / SCSI / libata / AHCI
+   → device DMA completion interrupt
+   → bio_endio / mpage_end_io
+   → folio uptodate + unlock
+   → copy_folio_to_iter(user buffer)
+   → file->f_pos = 4096
+   → SYSRETQ or IRETQ
+   → read() returns 4096 in userspace
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-当前固定运行期场景是：x86-64 native ``read(fd, buf, 4096)``，普通 ext4 buffered file，offset 0，4 KiB filesystem block，非 DAX/direct I/O、非加密/verity/inline data，目标 folio cold miss。当前 AHCI command 已提交，下一阶段追踪 DMA completion interrupt、SCSI/blk-mq/bio completion、folio unlock 与 user copy。
+启动主线和第一个运行期 ``read()`` cold-miss 主线均已闭环。下一条运行期故事必须重新固定 syscall、对象状态、缓存状态与目标子系统；不能假装它在时间线上自动接续本次 ``read()``。
 
 章节组织
 --------
