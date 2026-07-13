@@ -11,11 +11,11 @@
 
 仓库当前只写 Linux Kernel。
 
-已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-052``。最新三章：
+已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-055``。最新三章：
 
-#. ``LK-BOOT-050``：Linux 怎样把 memblock 物理内存变成 node、zone 和 struct page？
-#. ``LK-BOOT-051``：Linux 为什么再次检查 static key/static call，并怎样生成正式命令行？
-#. ``LK-BOOT-052``：Linux 怎样确定 CPU 编号上限并把 CPU0 迁入正式 per-CPU area？
+#. ``LK-BOOT-053``：Linux 为什么再次确认 CPU NUMA node，并把 CPU0 放入 hotplug ONLINE 状态？
+#. ``LK-BOOT-054``：Linux 怎样把 GRUB 命令行分发给内核参数和 init？
+#. ``LK-BOOT-055``：Linux 怎样把 memblock 空闲页交给 buddy，并建立 slab 与 vmalloc？
 
 完整章节列表见 ``docs/tracks/linux-kernel/index.rst``，机器可读接续信息见 ``manifests/tracks/linux-kernel.toml``。
 
@@ -47,48 +47,57 @@
 当前控制流位置
 --------------
 
-第五十至五十二章已经完成：
+第五十三至五十五章已经完成：
 
 ::
 
-   mm_core_init_early()
-   → establish node / zone / sparse memory / struct page metadata
-   → jump_label_init() and static_call_init() idempotent checks
-   → early_security_init()
-   → setup_boot_config()
-   → setup_command_line(command_line)
-   → setup_nr_cpu_ids()
-   → derive runtime CPU-ID upper bound from cpu_possible_mask
-   → setup_per_cpu_areas()
-   → allocate embedded or page-backed per-CPU first chunk
-   → establish __per_cpu_offset for every possible CPU
-   → migrate early APIC / ACPI / NUMA maps
-   → switch CPU0 to formal GDT and GS-relative per-CPU base
-   → set node-to-cpumask and x86 SMP local masks
-   → smp_prepare_boot_cpu()
-   → native_pv_lock_init()
+   early_numa_node_init()
+   → ensure formal per-CPU CPU-to-node data is available
+   → boot_cpu_hotplug_init()
+   → mark CPU0 hotplug state/target as CPUHP_ONLINE
+   → mark CPU0 booted once and AP sync ONLINE
+   → print_kernel_cmdline(saved_command_line)
+   → parse_early_param() idempotent checkpoint
+   → parse_args("Booting kernel", static_command_line, ...)
+   → dispatch __param and __setup options
+   → collect unknown options for PID 1
+   → split init arguments after -- and bootconfig init.*
+   → random_init_early(command_line)
+   → setup_log_buf(0)
+   → vfs_caches_init_early()
+   → sort_main_extable()
+   → trap_init()
+   → mm_core_init()
+   → build zonelists and page allocator CPU-hotplug hooks
+   → decide memory debugging/hardening static keys
+   → memblock_free_all()
+   → release free RAM into buddy
+   → x86 mem_init() and after_bootmem transition
+   → kmem_cache_init()
+   → vmalloc_init(), espfix/PTI, mm and execmem caches
 
 此刻机器状态：
 
 * 当前执行者：Linux 6.12.95 ``init/main.c:start_kernel()``；
-* 精确位置：``smp_prepare_boot_cpu()`` 已返回，``early_numa_node_init()`` 尚未调用；
-* CPU：只有 BSP / Linux CPU 0 online；
+* 精确位置：``mm_core_init()`` 已返回，``maple_tree_init()`` 尚未调用；
+* CPU：只有 BSP / Linux CPU0 online；
 * mode：64 位 long mode；
 * current task：``init_task``；
 * interrupts：关闭，``early_boot_irqs_disabled = true``；
-* ``nr_cpu_ids``：已按 possible mask 最终收缩；
-* per-CPU first chunk：已建立；
-* possible CPU units：均已有 offset、CPU 编号和早期拓扑副本；
-* CPU0：已切换到正式 per-CPU unit 和 GDT/GS base；
-* early APIC/ACPI/NUMA arrays：数据已迁移，early pointers 已撤销；
-* node-to-cpumask / x86 SMP masks：已建立；
-* boot CPU SMP hook：已执行；
+* CPU0 hotplug state：``state = target = CPUHP_ONLINE``；
+* GRUB command line：已打印并完成内核参数、``__setup`` 参数和 init 参数分发；
+* ``root=/dev/sda1 ro console=ttyS0``：已转换为后续根挂载与控制台策略，尚未执行实际挂载/console 初始化；
+* node/zone/``struct page``：已建立；
+* memblock free RAM：已交给 buddy；
+* buddy allocator：可用；
+* slab：``kmem_cache_init()`` 已完成，late 阶段尚未执行；
+* vmalloc：可用；
+* scheduler：尚未初始化；
 * AP：尚未收到 INIT/SIPI；
-* boot CPU hotplug state：尚未完成下一阶段初始化；
-* 正式命令行：已保存，尚未通用解析；
-* buddy：尚未接收全部可分配 RAM；
-* slab/scheduler：尚未初始化；
-* initramfs：尚未解包。
+* external IRQ：尚未启用；
+* console：正式初始化尚未执行；
+* initramfs：尚未解包；
+* PID 1：尚未创建。
 
 完成状态
 --------
@@ -103,4 +112,4 @@
 当前下一步
 ----------
 
-从 ``start_kernel():early_numa_node_init()`` 开始，继续 ``boot_cpu_hotplug_init()``，随后打印 ``saved_command_line``、完成 early parameter 幂等入口和通用 ``parse_args()``，把内核参数与 ``init`` 参数真正分发。
+从 ``start_kernel():maple_tree_init()`` 开始，继续 ``poking_init()``、``ftrace_init()``、``early_trace_init()``，随后进入 ``sched_init()``。需要区分“scheduler 数据结构可用”“中断已开启”“AP 已启动”三个不同时间点；当前只有第一项即将发生。
