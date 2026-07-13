@@ -10,9 +10,9 @@
 
 ``x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 6.12.95``。
 
-当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-047``。最新章节是：
+当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-048``。最新章节是：
 
-``LK-BOOT-047``：Linux 怎样探测 tboot、映射 vsyscall 并在固件枚举前限制 CPU？
+``LK-BOOT-048``：Linux 怎样完成 ACPI、Local APIC、IOAPIC 与 possible CPU 拓扑？
 
 ## 固定实现
 
@@ -51,21 +51,25 @@ GRUB 资料使用 GNU 官方 ``grub-2.14.tar.xz`` 和 ``GitMirroring/grub`` 固�
 
 ```text
 setup_arch()
-→ build memblock and early direct map
-→ locate and reserve initramfs / ACPI tables
-→ early MADT / MP table topology
-→ initmem_init() / NUMA node assignment
-→ native x86-64 paging_init()
-→ conditional kasan_init()
+→ early ACPI / NUMA / paging preparation
 → tboot_probe()
 → map_vsyscall()
 → early_quirks()
 → topology_apply_cmdline_limits_early()
+→ acpi_boot_init()
+→ FADT / full MADT / HPET / BGRT / SPCR
+→ MP table fallback
+→ init_apic_mappings()
+→ topology_init_possible_cpus()
+→ init_cpu_to_node()
+→ init_gi_nodes()
+→ io_apic_init_mappings()
+→ x86_init.hyper.guest_late_init()
 ```
 
-当前执行者是 Linux 6.12.95 ``arch/x86/kernel/setup.c:setup_arch()``。CPU 0 正在执行，中断关闭。tboot 固定主线未启用；vsyscall 已按构建配置/命令行设置；early PCI quirks 已扫描；CPU 上限已在完整 firmware enumeration 前生效。
+当前执行者是 Linux 6.12.95 ``arch/x86/kernel/setup.c:setup_arch()``。CPU 0 正在执行，中断关闭。FADT/MADT/HPET 已完成启动期解析；Local APIC 和 IOAPIC 已映射；possible CPU、package/die/core/thread 和 CPU-to-NUMA node 拓扑已经确定；AP 尚未唤醒。
 
-精确下一入口是 ``setup_arch():acpi_boot_init()``。下一任务追踪 FADT、MADT、HPET、SPCR 与 PCI ACPI hook，随后执行 MP table fallback、Local APIC 映射、``topology_init_possible_cpus()``、CPU-to-node 收尾和 IOAPIC 映射。不要把第四十五章的 early MADT pass 与本阶段完整中断拓扑初始化视为同一步。
+精确下一入口是 ``setup_arch():e820__reserve_resources()``。下一任务追踪 E820/nosave/IOAPIC/标准 PC I/O resource tree、PCI gap、VGA console 条件登记、wall clock、thermal LVT、machine check、refined jiffies、EFI memmap quirks 与 unwind，直到 ``setup_arch()`` 返回。返回后必须从 ``start_kernel()`` 的真实下一调用继续，不能跳入 scheduler 或 initramfs 解包。
 
 ## 用户输入与技术事实
 
