@@ -55,6 +55,7 @@ techBook
 * `第四十六章：Linux 怎样完成 x86-64 paging 收尾并建立 KASAN shadow？ <docs/tracks/linux-kernel/46-linux-finalizes-paging-and-kasan-shadow.rst>`_
 * `第四十七章：Linux 怎样探测 tboot、映射 vsyscall 并在固件枚举前限制 CPU？ <docs/tracks/linux-kernel/47-linux-probes-tboot-maps-vsyscall-and-applies-early-limits.rst>`_
 * `第四十八章：Linux 怎样完成 ACPI、Local APIC、IOAPIC 与 possible CPU 拓扑？ <docs/tracks/linux-kernel/48-linux-completes-acpi-apic-and-possible-cpu-topology.rst>`_
+* `第四十九章：Linux 怎样登记物理资源并完成 setup_arch？ <docs/tracks/linux-kernel/49-linux-registers-resources-and-finishes-setup-arch.rst>`_
 
 当前主线
 --------
@@ -68,9 +69,9 @@ techBook
    → bzImage
    → Linux 6.12.95
 
-当前 ``setup_arch()`` 已完成完整 ACPI/APIC/IOAPIC 和 possible CPU/node 拓扑。
+当前 ``setup_arch()`` 已完成资源树、PCI gap、wallclock backend、thermal LVT、MCE、refined-jiffies 和 unwind 收尾，并返回 ``start_kernel()``。
 
-下一入口是 ``e820__reserve_resources()``，随后注册资源、PCI gap、wall clock、thermal LVT、MCE 和 unwind，并从 ``setup_arch()`` 返回。
+下一入口是 ``start_kernel():mm_core_init_early()``。buddy allocator、per-CPU area、scheduler、AP 启动和 initramfs 解包均尚未发生。
 
 开始工作
 --------
