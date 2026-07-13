@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第八十三章：x86-64 的 write() 怎样进入 ext4 buffered write？ <docs/tracks/linux-kernel/83-x86-write-enters-ext4-buffered-path.rst>`_
-* `第八十四章：ext4 怎样把用户数据复制进 page-cache folio 并标脏？ <docs/tracks/linux-kernel/84-ext4-copies-user-data-into-dirty-folio.rst>`_
-* `第八十五章：O_SYNC write 怎样进入 ext4 writeback？ <docs/tracks/linux-kernel/85-osync-write-enters-ext4-writeback.rst>`_
+* `第八十六章：ext4 writeback 怎样把 dirty folio 变成 WRITE bio？ <docs/tracks/linux-kernel/86-ext4-writeback-builds-write-bio.rst>`_
+* `第八十七章：WRITE bio 怎样变成 AHCI command 并写入 PxCI？ <docs/tracks/linux-kernel/87-write-bio-becomes-ahci-command.rst>`_
+* `第八十八章：WRITE completion 怎样结束 folio writeback，并让 O_SYNC 等待继续？ <docs/tracks/linux-kernel/88-write-completion-ends-folio-writeback.rst>`_
 
 固定来源
 --------
@@ -32,38 +32,40 @@ techBook
 
    LK-BOOT-001..LK-BOOT-073
    LK-READ-074..LK-READ-082
-   LK-WRITE-083..LK-WRITE-085
+   LK-WRITE-083..LK-WRITE-088
 
-``read()`` cold-miss 运行期主线已经完整闭环。当前是独立的 ext4 synchronous buffered write 场景：
+当前 O_SYNC write 主线
+----------------------
+
+固定场景：native x86-64 ``write(fd, buf, 4096)``，文件以 ``O_SYNC`` 打开，普通 ext4 ``data=ordered`` buffered full-block overwrite，offset 0，已有 initialized extent。
 
 ::
 
-   write(fd, buf, 4096)
-   → native x86-64 syscall entry
-   → ksys_write / vfs_write
-   → ext4_file_write_iter
-   → ext4_buffered_write_iter
-   → generic_perform_write
-   → ext4_da_write_begin
-   → copy_folio_from_iter_atomic
-   → ext4_da_write_end
+   userspace write(fd, buf, 4096)
+   → syscall / VFS / ext4 buffered copy
    → dirty page-cache folio
    → generic_write_sync
-   → vfs_fsync_range
-   → ext4_sync_file
-   → file_write_and_wait_range
    → WB_SYNC_ALL
-   → do_writepages
    → ext4_writepages
-
-固定 write 条件：文件以 ``O_SYNC`` 打开，普通 ext4 ``data=ordered``、journal enabled、delalloc enabled，offset 0，完整覆盖已有 4 KiB initialized block，目标 folio 初始不在 page cache，用户 buffer mapped and readable。
+   → clear dirty-for-I/O / PG_writeback
+   → ext4 WRITE bio
+   → block submission / partition remap
+   → blk-mq request
+   → SCSI WRITE
+   → libata ATA WRITE
+   → AHCI H2D FIS / PRDT / PxCI
+   → AHCI completion interrupt
+   → SCSI / blk-mq / bio completion
+   → ext4_end_bio
+   → folio_end_writeback
+   → file_write_and_wait_range returns 0
 
 当前状态
 --------
 
-用户数据已经复制到 dirty、uptodate、unlocked 的 page-cache folio。``kiocb->ki_pos`` 已是 4096，local ``pos`` 和共享 ``file->f_pos`` 尚未提交。O_SYNC task 已进入 ``ext4_writepages()``，WRITE bio、blk-mq request、SCSI/ATA/AHCI command 尚未建立。
+file data WRITE 已完成，target folio 当前 clean、uptodate、unlocked，``PG_writeback=0``。``kiocb->ki_pos=4096``，local ``pos`` 与共享 ``file->f_pos`` 仍为 0。
 
-下一步从 ``ext4_writepages()`` 开始，追踪 dirty folio、writeback extent、ordered-data journal、WRITE bio、block/SCSI/libata/AHCI submission 与完成，再返回 journal commit 和同步 write syscall。
+当前尚未完成 JBD2 transaction commit，也尚未确认是否需要 block-device cache flush，因此 O_SYNC syscall 仍不能返回。下一入口是 ``ext4_fsync_journal(inode, false, &needs_barrier)``。
 
 开始工作
 --------
