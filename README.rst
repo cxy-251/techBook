@@ -71,6 +71,9 @@ techBook
 * `第六十二章：Linux 怎样完成启动期随机数并第一次打开外部中断？ <docs/tracks/linux-kernel/62-linux-finalizes-randomness-and-enables-external-interrupts.rst>`_
 * `第六十三章：Linux 怎样启用正式 console、锁依赖检查并完成 early ACPI？ <docs/tracks/linux-kernel/63-linux-enables-console-lockdep-and-early-acpi.rst>`_
 * `第六十四章：x86 怎样启动真实定时器、校准延时并完成 boot CPU 收尾？ <docs/tracks/linux-kernel/64-x86-starts-hardware-timers-calibrates-delay-and-finalizes-boot-cpu.rst>`_
+* `第六十五章：Linux 怎样建立 PID 分配器与 fork 对象基础？ <docs/tracks/linux-kernel/65-linux-builds-pid-and-fork-object-foundations.rst>`_
+* `第六十六章：Linux 怎样建立 namespace、安全框架与 VFS/proc 基础？ <docs/tracks/linux-kernel/66-linux-builds-namespaces-security-and-vfs-foundations.rst>`_
+* `第六十七章：Linux 怎样建立 cgroup 与 accounting，并到达 rest_init？ <docs/tracks/linux-kernel/67-linux-builds-cgroups-accounting-and-reaches-rest-init.rst>`_
 
 当前主线
 --------
@@ -86,9 +89,9 @@ techBook
 
 固定 commit 的真实版本是 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 属于历史显示标签错误；源码事实以固定 commit 为准。
 
-当前 ``start_kernel()`` 已第一次打开 CPU0 IF，完成正式 console/lockdep、per-CPU pageset、early ACPI、x86 HPET/PIT/TSC late time 初始化、sched clock、delay calibration 与 boot CPU 架构收尾。
+当前 ``start_kernel()`` 已建立 PID/fork/credential、namespace/security、VFS/page cache、proc/nsfs/pidfs、cpuset/memcg/cgroup、task accounting、ACPI subsystem 和 KCSAN 基础。
 
-下一入口是 ``pid_idr_init()``。CPU0 仍是唯一 online CPU，当前任务仍是 PID 0；initramfs 尚未解包，PID 1/PID 2 尚未创建。
+下一入口是 ``rest_init()``。CPU0 仍是唯一 online CPU，当前任务仍是 PID 0；PID 1/PID 2 尚未创建，尚未发生第一次正常 ``schedule()``，initramfs 尚未解包。
 
 开始工作
 --------
