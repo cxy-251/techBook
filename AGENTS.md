@@ -10,9 +10,9 @@
 
 ``x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 6.12.95``。
 
-当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-041``。最新章节是：
+当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-042``。最新章节是：
 
-``LK-BOOT-041``：Linux setup_arch 怎样接管命令行并导入 E820 内存图？
+``LK-BOOT-042``：Linux 怎样修正 E820 并计算自己真正能管理的物理页？
 
 ## 固定实现
 
@@ -47,27 +47,27 @@ GRUB 资料使用 GNU 官方 ``grub-2.14.tar.xz`` 和 ``GitMirroring/grub`` 固�
 
 ## 当前控制流
 
-SeaBIOS、GNU GRUB、Linux compressed boot、正式内核汇编入口和 ``start_kernel()`` 最早阶段已经完成。
-
 当前已经执行：
 
 ```text
-start_kernel()
-→ setup_arch(&command_line)
-→ resolve effective command line
-→ install early traps and early ioremap
-→ parse_boot_params()
-→ reserve kernel image and low 64 KiB
-→ reserve initramfs and setup_data
-→ reserve BIOS regions
-→ import and sanitize base E820 map
-→ parse setup_data extensions
-→ copy EDD
+setup_arch()
+→ import command line and boot_params
+→ reserve kernel/initramfs/setup_data/BIOS ranges
+→ import and sanitize E820
+→ setup_initial_init_mm()
+→ configure NX and parse early parameters
+→ initialize DMI/hypervisor/TSC/ROM discovery
+→ register kernel resources
+→ correct low BIOS ranges
+→ apply GART/MTRR corrections
+→ calculate max_pfn, max_possible_pfn and max_low_pfn
+→ randomize large kernel virtual areas
+→ find legacy MP table
 ```
 
-当前执行者是 Linux 6.12.95 ``arch/x86/kernel/setup.c:setup_arch()``。精确停点是下一条调用 ``setup_initial_init_mm()``。CPU 0 正在执行，中断关闭；kernel、低端内存、initramfs、setup_data 与 BIOS ranges 已预留；基础/扩展 E820 已导入；``memblock.memory``、``max_pfn`` 和完整 direct map 尚未建立。
+当前执行者是 Linux 6.12.95 ``arch/x86/kernel/setup.c:setup_arch()``。精确停点是下一条调用 ``arch/x86/mm/init.c:early_alloc_pgt_buf()``。CPU 0 正在执行，中断关闭；E820、resource tree 与 PFN 上界已确定；``memblock.memory`` 和完整 direct map 尚未建立。
 
-下一任务从 ``setup_initial_init_mm()`` 开始，追踪 NX、early parameters、DMI/hypervisor/ROM、kernel resources、E820 修正、MTRR trim、``max_pfn`` 和 memory layout randomization，停在 ``early_alloc_pgt_buf()`` 前。不要把 E820、resource tree 与 memblock 混成同一个结构。
+下一任务从 ``early_alloc_pgt_buf()`` 开始，追踪 brk 页表缓冲、``reserve_brk()``、``e820__memblock_setup()``、低 1 MiB real-mode 保留、``init_mem_mapping()``、CR3 切换和 memblock current limit。不要把 E820、iomem resource、memblock 和 direct map 混成同一对象。
 
 ## 用户输入与技术事实
 
