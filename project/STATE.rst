@@ -11,11 +11,11 @@
 
 仓库当前只写 Linux Kernel。
 
-已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-046``。最新三章：
+已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-047``。最新三章：
 
-#. ``LK-BOOT-044``：Linux 怎样扩大启动日志并确认 initramfs 与 ACPI 表可以安全访问？
 #. ``LK-BOOT-045``：Linux 怎样从 MADT、MP table 和 SRAT 建立 CPU 拓扑与 NUMA node？
 #. ``LK-BOOT-046``：Linux 怎样完成 x86-64 paging 收尾并建立 KASAN shadow？
+#. ``LK-BOOT-047``：Linux 怎样探测 tboot、映射 vsyscall 并在固件枚举前限制 CPU？
 
 完整章节列表见 ``docs/tracks/linux-kernel/index.rst``，机器可读接续信息见 ``manifests/tracks/linux-kernel.toml``。
 
@@ -47,21 +47,11 @@
 当前控制流位置
 --------------
 
-第四十四至四十六章已经完成：
+第四十五至四十七章已经完成：
 
 ::
 
-   setup_log_buf(1)
-   → migrate early printk records when needed
-   → reserve_initrd() and establish initrd virtual range
-   → scan conditional ACPI overrides
-   → locate and reserve ACPI initial tables
-   → vsmp_init() conditional path
-   → configure I/O delay and early platform quirks
-   → early_acpi_boot_init()
-   → parse early MADT CPU/APIC topology
-   → early MP table fallback
-   → initmem_init()
+   initmem_init()
    → assign memblock RAM to NUMA nodes
    → dma_contiguous_reserve() conditional CMA
    → arch_reserve_crashkernel() conditional path
@@ -70,6 +60,11 @@
    → native x86-64 paging_init()
    → conditional kasan_init()
    → sync_initial_page_table() (x86-64 no-op)
+   → tboot_probe()
+   → map_vsyscall()
+   → x86_32_probe_apic() architecture compatibility entry
+   → early_quirks() direct PCI scan
+   → topology_apply_cmdline_limits_early()
 
 此刻机器状态：
 
@@ -77,19 +72,15 @@
 * CPU：BSP / Linux CPU 0；
 * mode：64 位 long mode；
 * interrupts：关闭；
-* printk：动态 ring buffer 已按需建立；
-* initramfs：可通过 ``initrd_start`` / ``initrd_end`` 访问，尚未展开；
-* early ACPI CPU/APIC topology：已建立；
-* NUMA：已保证至少一个 online memory node；
-* memblock RAM：已带 node 归属；
-* CMA：已按配置完成条件保留；
-* crashkernel：固定命令行未请求；
-* direct map：继续由 ``init_top_pgt`` / ``swapper_pg_dir`` 承载；
-* native ``pagetable_init``：x86-64 实际调用短小的 ``paging_init()``，未重建 direct map；
-* KASAN：若配置启用，正式 shadow 已建立；
-* ``sync_initial_page_table()``：x86-64 为空操作；
+* tboot：固定主线未检测到 measured-launch shared page；
+* vsyscall：已按构建配置和命令行完成固定页/兼容模式设置；
+* early PCI quirks：已扫描并应用匹配项；
+* CPU 命令行上限：已在完整 firmware CPU enumeration 前生效；
+* early MADT CPU/APIC topology：已存在；
+* FADT/HPET/完整 MADT interrupt pass：尚未完成；
+* Local APIC/IOAPIC 最终映射：尚未完成；
+* AP：尚未唤醒；
 * zone/buddy allocator：尚未建立；
-* 完整 ACPI/FADT/HPET、APIC/IOAPIC 与资源注册：尚未完成；
 * ``setup_arch()``：尚未返回。
 
 完成状态
@@ -105,4 +96,4 @@
 当前下一步
 ----------
 
-从 ``setup_arch():tboot_probe()`` 开始，追踪 Trusted Boot 条件路径、vsyscall 映射、完整 ``acpi_boot_init()``、local APIC/IOAPIC 映射、possible CPU 与 CPU-to-node 收尾、E820/resource 注册、wall clock、MCE、unwind，直到 ``setup_arch()`` 返回。
+从 ``setup_arch():acpi_boot_init()`` 开始，追踪 FADT、MADT、HPET、SPCR 与 PCI ACPI hook，随后执行 MP table fallback、Local APIC 映射、possible CPU 初始化、CPU-to-node 收尾和 IOAPIC 映射。
