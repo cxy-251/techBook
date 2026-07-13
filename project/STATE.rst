@@ -11,11 +11,11 @@
 
 仓库当前只写 Linux Kernel。
 
-已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-049``。最新三章：
+已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-050``。最新三章：
 
-#. ``LK-BOOT-047``：Linux 怎样探测 tboot、映射 vsyscall 并在固件枚举前限制 CPU？
 #. ``LK-BOOT-048``：Linux 怎样完成 ACPI、Local APIC、IOAPIC 与 possible CPU 拓扑？
 #. ``LK-BOOT-049``：Linux 怎样登记物理资源并完成 setup_arch？
+#. ``LK-BOOT-050``：Linux 怎样把 memblock 物理内存变成 node、zone 和 struct page？
 
 完整章节列表见 ``docs/tracks/linux-kernel/index.rst``，机器可读接续信息见 ``manifests/tracks/linux-kernel.toml``。
 
@@ -47,56 +47,47 @@
 当前控制流位置
 --------------
 
-第四十七至四十九章已经完成：
+第四十八至五十章已经完成：
 
 ::
 
-   tboot_probe()
-   → map_vsyscall()
-   → early_quirks()
-   → topology_apply_cmdline_limits_early()
-   → acpi_boot_init()
-   → parse FADT / full MADT / HPET / BGRT / SPCR
-   → MP table fallback
-   → init_apic_mappings()
-   → topology_init_possible_cpus()
-   → init_cpu_to_node()
-   → init_gi_nodes()
-   → io_apic_init_mappings()
-   → x86_init.hyper.guest_late_init()
-   → e820__reserve_resources()
-   → e820__register_nosave_regions(max_pfn)
-   → reserve_standard_io_resources()
-   → e820__setup_pci_gap()
-   → conditional VGA screen registration
-   → x86_init.oem.banner()
-   → x86_init.timers.wallclock_init()
-   → therm_lvt_init()
-   → mcheck_init()
-   → register_refined_jiffies(CLOCK_TICK_RATE)
-   → conditional EFI memmap quirks
-   → unwind_init()
+   acpi_boot_init()
+   → full FADT / MADT / HPET / SPCR parsing
+   → Local APIC / IOAPIC mappings
+   → possible CPU and CPU-to-node topology
+   → E820 and standard I/O resource registration
+   → wallclock backend / thermal LVT / MCE / unwind
    → return from setup_arch()
+   → mm_core_init_early()
+   → conditional HugeTLB CMA reservation
+   → conditional gigantic HugeTLB boot allocation
+   → arch_zone_limits_init()
+   → sparse_init()
+   → derive zone and movable PFN ranges
+   → initialize pg_data_t and per-node zones
+   → initialize struct page metadata and pageblock layout
+   → set high_memory
 
 此刻机器状态：
 
 * 当前执行者：Linux 6.12.95 ``init/main.c:start_kernel()``；
-* 精确位置：``setup_arch(&command_line)`` 已返回，``mm_core_init_early()`` 尚未调用；
+* 精确位置：``mm_core_init_early()`` 已返回，``jump_label_init()`` 尚未调用；
 * CPU：BSP / Linux CPU 0；
 * mode：64 位 long mode；
 * current task：``init_task``；
 * interrupts：关闭，``early_boot_irqs_disabled = true``；
-* E820 与标准 PC I/O ranges：已登记进 resource tree；
-* hibernation nosave holes：已登记；
-* PCI 32 位 MMIO gap：已选择并写入 ``pci_mem_start``；
-* ACPI/APIC/IOAPIC/possible CPU/NUMA 拓扑：已完成启动期建立；
-* wallclock backend：已完成条件选择，尚未在该调用中读取 RTC；
-* thermal LVT：BSP firmware 初值已条件保存；
-* MCE software decode/work framework：已初始化；
-* refined-jiffies：已登记为后备 clocksource 候选；
-* unwinder：已按构建配置初始化；
-* ``setup_arch()``：已返回；
-* buddy allocator：尚未建立；
+* NUMA ``pg_data_t``：已建立；
+* zones：已按 x86 PFN 和 node 范围建立；
+* sparse memory / vmemmap：已初始化；
+* ``struct page``：已为可管理 PFN 建立和初始化；
+* pageblock / zone ``free_area[]``：结构已建立；
+* memblock：仍管理普通 RAM 与 reservation；
+* zone ``managed_pages``：普通 RAM 尚未全部释放进 buddy；
+* buddy allocator：基础结构存在，尚未接收全部可分配页；
+* slab allocator：尚未建立；
+* static key/static call：尚未完成运行时代码修补；
+* early LSM：尚未初始化；
+* bootconfig：尚未检查；
 * per-CPU area：尚未建立；
 * scheduler：尚未初始化；
 * AP：尚未唤醒；
@@ -115,4 +106,4 @@
 当前下一步
 ----------
 
-从 ``start_kernel():mm_core_init_early()`` 开始，沿真实调用顺序追踪通用内存管理早期核心、static key/static call、early security、boot config、正式命令行保存、CPU 数量与 per-CPU area。不要跳到 scheduler、AP 启动或 initramfs 解包。
+从 ``start_kernel():jump_label_init()`` 开始，追踪 static key 的 jump-table 修补、static call call-site 修补、early LSM hooks、initrd 尾部 bootconfig 检查，以及 ``saved_command_line`` / ``static_command_line`` 的 memblock 持久副本。
