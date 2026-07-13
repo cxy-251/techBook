@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第八十六章：ext4 writeback 怎样把 dirty folio 变成 WRITE bio？ <docs/tracks/linux-kernel/86-ext4-writeback-builds-write-bio.rst>`_
-* `第八十七章：WRITE bio 怎样变成 AHCI command 并写入 PxCI？ <docs/tracks/linux-kernel/87-write-bio-becomes-ahci-command.rst>`_
-* `第八十八章：WRITE completion 怎样结束 folio writeback，并让 O_SYNC 等待继续？ <docs/tracks/linux-kernel/88-write-completion-ends-folio-writeback.rst>`_
+* `第八十九章：ext4 fsync 怎样选择 fast commit 或完整 JBD2 commit？ <docs/tracks/linux-kernel/89-ext4-fsync-chooses-fast-or-full-jbd2-commit.rst>`_
+* `第九十章：ext4 barrier 怎样把 journal 顺序落实到设备 cache？ <docs/tracks/linux-kernel/90-ext4-barrier-flushes-device-cache.rst>`_
+* `第九十一章：O_SYNC write 怎样提交 file position 并返回用户态？ <docs/tracks/linux-kernel/91-osync-write-returns-to-userspace.rst>`_
 
 固定来源
 --------
@@ -32,40 +32,43 @@ techBook
 
    LK-BOOT-001..LK-BOOT-073
    LK-READ-074..LK-READ-082
-   LK-WRITE-083..LK-WRITE-088
+   LK-WRITE-083..LK-WRITE-091
 
-当前 O_SYNC write 主线
-----------------------
+运行期实验
+----------
 
-固定场景：native x86-64 ``write(fd, buf, 4096)``，文件以 ``O_SYNC`` 打开，普通 ext4 ``data=ordered`` buffered full-block overwrite，offset 0，已有 initialized extent。
+``read(fd, buf, 4096)`` cold page-cache miss 已完整闭环：
 
 ::
 
-   userspace write(fd, buf, 4096)
-   → syscall / VFS / ext4 buffered copy
-   → dirty page-cache folio
-   → generic_write_sync
-   → WB_SYNC_ALL
-   → ext4_writepages
-   → clear dirty-for-I/O / PG_writeback
+   userspace syscall
+   → VFS / ext4 / page cache
+   → block / SCSI / libata / AHCI
+   → completion interrupt
+   → user copy
+   → userspace RAX=4096
+
+``O_SYNC write(fd, buf, 4096)`` buffered overwrite 也已完整闭环：
+
+::
+
+   userspace write
+   → VFS / ext4 buffered copy
+   → dirty folio / WB_SYNC_ALL
    → ext4 WRITE bio
-   → block submission / partition remap
-   → blk-mq request
-   → SCSI WRITE
-   → libata ATA WRITE
-   → AHCI H2D FIS / PRDT / PxCI
-   → AHCI completion interrupt
-   → SCSI / blk-mq / bio completion
-   → ext4_end_bio
+   → block / SCSI / libata / AHCI
    → folio_end_writeback
-   → file_write_and_wait_range returns 0
+   → fast commit 或完整 JBD2 commit
+   → commit barrier 或 standalone FLUSH CACHE
+   → file->f_pos = 4096
+   → userspace RAX = 4096
 
 当前状态
 --------
 
-file data WRITE 已完成，target folio 当前 clean、uptodate、unlocked，``PG_writeback=0``。``kiocb->ki_pos=4096``，local ``pos`` 与共享 ``file->f_pos`` 仍为 0。
+第二个运行期场景已经结束。writer task 位于 x86-64 CPL 3，``write()`` 返回 4096，``file->f_pos`` 为 4096，target folio clean、uptodate、unlocked。data request、journal durability 与需要的 barrier/flush 均已完成，相关 locks 与 freeze protection 已释放。
 
-当前尚未完成 JBD2 transaction commit，也尚未确认是否需要 block-device cache flush，因此 O_SYNC syscall 仍不能返回。下一入口是 ``ext4_fsync_journal(inode, false, &needs_barrier)``。
+下一条 kernel runtime 主线尚未选择。建议从单线程进程直接执行 native x86-64 ``fork()`` syscall 开始，继续贯通 ``kernel_clone()``、``copy_process()``、PID、task、page-table COW、scheduler 与父子进程分别返回。
 
 开始工作
 --------
