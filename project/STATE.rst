@@ -11,11 +11,11 @@
 
 仓库当前只写 Linux Kernel。
 
-已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-055``。最新三章：
+已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-058``。最新三章：
 
-#. ``LK-BOOT-053``：Linux 为什么再次确认 CPU NUMA node，并把 CPU0 放入 hotplug ONLINE 状态？
-#. ``LK-BOOT-054``：Linux 怎样把 GRUB 命令行分发给内核参数和 init？
-#. ``LK-BOOT-055``：Linux 怎样把 memblock 空闲页交给 buddy，并建立 slab 与 vmalloc？
+#. ``LK-BOOT-056``：Linux 怎样准备 Maple Tree、文本热补丁和 ftrace？
+#. ``LK-BOOT-057``：Linux 怎样建立 runqueue，并把 init_task 变成 CPU0 的 idle task？
+#. ``LK-BOOT-058``：Linux 怎样建立 early workqueue、RCU 和 trace event 基础？
 
 完整章节列表见 ``docs/tracks/linux-kernel/index.rst``，机器可读接续信息见 ``manifests/tracks/linux-kernel.toml``。
 
@@ -47,57 +47,59 @@
 当前控制流位置
 --------------
 
-第五十三至五十五章已经完成：
+第五十六至五十八章已经完成：
 
 ::
 
-   early_numa_node_init()
-   → ensure formal per-CPU CPU-to-node data is available
-   → boot_cpu_hotplug_init()
-   → mark CPU0 hotplug state/target as CPUHP_ONLINE
-   → mark CPU0 booted once and AP sync ONLINE
-   → print_kernel_cmdline(saved_command_line)
-   → parse_early_param() idempotent checkpoint
-   → parse_args("Booting kernel", static_command_line, ...)
-   → dispatch __param and __setup options
-   → collect unknown options for PID 1
-   → split init arguments after -- and bootconfig init.*
-   → random_init_early(command_line)
-   → setup_log_buf(0)
-   → vfs_caches_init_early()
-   → sort_main_extable()
-   → trap_init()
-   → mm_core_init()
-   → build zonelists and page allocator CPU-hotplug hooks
-   → decide memory debugging/hardening static keys
-   → memblock_free_all()
-   → release free RAM into buddy
-   → x86 mem_init() and after_bootmem transition
-   → kmem_cache_init()
-   → vmalloc_init(), espfix/PTI, mm and execmem caches
+   maple_tree_init()
+   → create Maple Tree node slab cache
+   → poking_init()
+   → prepare controlled x86 runtime text patching
+   → ftrace_init()
+   → build dynamic function call-site records
+   → early_trace_init()
+   → sched_init()
+   → initialize per-possible-CPU runqueues and scheduling classes
+   → bind init_task as CPU0 idle/current task
+   → select dynamic preemption model
+   → verify IRQs remain disabled
+   → radix_tree_init()
+   → create radix-tree/XArray node cache and CPU-hotplug cleanup
+   → housekeeping_init()
+   → workqueue_init_early()
+   → allow workqueue creation and queueing without worker execution
+   → rcu_init()
+   → build RCU core/per-CPU/hierarchy state
+   → kvfree_rcu_init()
+   → trace_init()
+   → make trace-event infrastructure available
+   → context_tracking_init()
 
 此刻机器状态：
 
 * 当前执行者：Linux 6.12.95 ``init/main.c:start_kernel()``；
-* 精确位置：``mm_core_init()`` 已返回，``maple_tree_init()`` 尚未调用；
+* 精确位置：``context_tracking_init()`` 已返回，``early_irq_init()`` 尚未调用；
 * CPU：只有 BSP / Linux CPU0 online；
 * mode：64 位 long mode；
-* current task：``init_task``；
+* current task：``init_task`` / ``swapper/0`` / PID 0；
+* CPU0 runqueue：已建立，``rq->curr`` 与 ``rq->idle`` 指向 boot idle task；
+* possible CPU runqueue：均已初始化；
+* scheduler：核心数据结构和 scheduling class 已可用；
+* scheduler tick：尚未启动；
 * interrupts：关闭，``early_boot_irqs_disabled = true``；
-* CPU0 hotplug state：``state = target = CPUHP_ONLINE``；
-* GRUB command line：已打印并完成内核参数、``__setup`` 参数和 init 参数分发；
-* ``root=/dev/sda1 ro console=ttyS0``：已转换为后续根挂载与控制台策略，尚未执行实际挂载/console 初始化；
-* node/zone/``struct page``：已建立；
-* memblock free RAM：已交给 buddy；
-* buddy allocator：可用；
-* slab：``kmem_cache_init()`` 已完成，late 阶段尚未执行；
-* vmalloc：可用；
-* scheduler：尚未初始化；
+* IRQ descriptors：尚未执行 ``early_irq_init()``；
 * AP：尚未收到 INIT/SIPI；
-* external IRQ：尚未启用；
-* console：正式初始化尚未执行；
+* buddy/slab/vmalloc：可用；
+* Maple Tree/radix tree：节点 cache 已建立；
+* text poking/ftrace：运行期补丁和函数 call-site 基础已建立；
+* housekeeping：固定命令行未设置 CPU isolation；
+* workqueue：可创建、排队和取消 work，worker kthread 尚未运行；
+* RCU：核心/per-CPU/hierarchy 状态已建立，nohz、softirq 和 kthread 环境仍待补齐；
+* trace event：基础设施已可用；
+* context tracking：已初始化，CPU0 当前处于 kernel context；
+* 正式 console：尚未初始化；
 * initramfs：尚未解包；
-* PID 1：尚未创建。
+* PID 1 / PID 2：尚未创建。
 
 完成状态
 --------
@@ -112,4 +114,4 @@
 当前下一步
 ----------
 
-从 ``start_kernel():maple_tree_init()`` 开始，继续 ``poking_init()``、``ftrace_init()``、``early_trace_init()``，随后进入 ``sched_init()``。需要区分“scheduler 数据结构可用”“中断已开启”“AP 已启动”三个不同时间点；当前只有第一项即将发生。
+从 ``start_kernel():early_irq_init()`` 开始，追踪通用 IRQ descriptor 分配、x86 ``init_IRQ()`` 与 IDT/interrupt-gate 接管，随后继续 ``tick_init()``、timer wheel、hrtimer、softirq、timekeeping 和架构时钟初始化。保持三个状态边界清晰：IRQ 数据结构已建立、硬件中断入口已安装、``local_irq_enable()`` 真正打开 IF 位发生在不同位置。
