@@ -94,6 +94,9 @@ Linux Kernel
 #. `第八十六章：ext4 writeback 怎样把 dirty folio 变成 WRITE bio？ <86-ext4-writeback-builds-write-bio.rst>`_
 #. `第八十七章：WRITE bio 怎样变成 AHCI command 并写入 PxCI？ <87-write-bio-becomes-ahci-command.rst>`_
 #. `第八十八章：WRITE completion 怎样结束 folio writeback，并让 O_SYNC 等待继续？ <88-write-completion-ends-folio-writeback.rst>`_
+#. `第八十九章：ext4 fsync 怎样选择 fast commit 或完整 JBD2 commit？ <89-ext4-fsync-chooses-fast-or-full-jbd2-commit.rst>`_
+#. `第九十章：ext4 barrier 怎样把 journal 顺序落实到设备 cache？ <90-ext4-barrier-flushes-device-cache.rst>`_
+#. `第九十一章：O_SYNC write 怎样提交 file position 并返回用户态？ <91-osync-write-returns-to-userspace.rst>`_
 
 当前主线
 --------
@@ -104,23 +107,19 @@ Linux Kernel
    → bzImage → Linux 7.2-rc1
    → boot handoff complete
    → read(fd, buf, 4096) cold miss complete
-   → independent O_SYNC write(fd, buf, 4096)
-   → syscall / VFS / ext4 buffered copy
-   → dirty page-cache folio
-   → WB_SYNC_ALL / ext4_writepages
-   → ext4 WRITE bio
-   → blk-mq / SCSI WRITE / libata ATA WRITE
-   → AHCI H2D FIS / PRDT / PxCI
-   → AHCI completion interrupt
-   → SCSI / blk-mq / bio completion
-   → ext4_end_bio
+   → O_SYNC write(fd, buf, 4096) complete
+   → buffered copy / ext4 writeback
+   → block / SCSI / libata / AHCI data WRITE
    → folio_end_writeback
-   → file_write_and_wait_range returns 0
-   → ext4_fsync_journal next
+   → fast commit or full JBD2 commit
+   → commit barrier or standalone FLUSH CACHE
+   → local position / file->f_pos commit
+   → syscall exit
+   → userspace RAX=4096
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-当前固定 write 场景是 native x86-64 ``O_SYNC write(fd, buf, 4096)``，普通 ext4 ``data=ordered`` full-block overwrite。data WRITE 与 folio writeback 已完成；下一阶段从 ``ext4_fsync_journal()`` 开始，处理 JBD2 transaction commit、必要的 block-device flush、position 提交和 syscall return。
+当前两个运行期源码实验均已闭环：cold-miss ``read()`` 和 ``O_SYNC`` buffered ``write()``。下一条 kernel runtime主线尚未选择，不能把任意 syscall伪装成前一场景的自动后续。
 
 章节组织
 --------
