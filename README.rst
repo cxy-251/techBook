@@ -50,6 +50,7 @@ techBook
 * `第四十一章：Linux setup_arch 怎样接管命令行并导入 E820 内存图？ <docs/tracks/linux-kernel/41-linux-setup-arch-imports-command-line-and-e820.rst>`_
 * `第四十二章：Linux 怎样修正 E820 并计算自己真正能管理的物理页？ <docs/tracks/linux-kernel/42-linux-fixes-e820-and-computes-max-pfn.rst>`_
 * `第四十三章：Linux 怎样把 E820 RAM 变成 memblock 并建立 early direct map？ <docs/tracks/linux-kernel/43-linux-builds-memblock-and-early-direct-map.rst>`_
+* `第四十四章：Linux 怎样扩大启动日志并确认 initramfs 与 ACPI 表可以安全访问？ <docs/tracks/linux-kernel/44-linux-expands-log-buffer-and-reserves-initramfs-acpi.rst>`_
 
 当前主线
 --------
@@ -63,9 +64,9 @@ techBook
    → bzImage
    → Linux 6.12.95
 
-当前 ``setup_arch()`` 已把 E820 RAM 转换为 memblock，预留低端 trampoline，建立 early direct map，切换到 ``swapper_pg_dir``，并扩大 memblock 分配上限。
+当前 ``setup_arch()`` 已扩大 printk ring buffer，确认 initramfs 可通过 direct map 访问，并定位、校验与保留 ACPI 初始表。
 
-下一入口是 ``setup_log_buf(1)``，随后处理 initramfs 映射、ACPI、NUMA 与完整架构页表初始化。
+下一入口是 ``vsmp_init()``，随后处理 early platform quirks、MADT/MP table 早期拓扑与 NUMA node 建立。
 
 开始工作
 --------
