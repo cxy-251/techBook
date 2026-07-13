@@ -70,6 +70,9 @@ Linux Kernel
 #. `第六十二章：Linux 怎样完成启动期随机数并第一次打开外部中断？ <62-linux-finalizes-randomness-and-enables-external-interrupts.rst>`_
 #. `第六十三章：Linux 怎样启用正式 console、锁依赖检查并完成 early ACPI？ <63-linux-enables-console-lockdep-and-early-acpi.rst>`_
 #. `第六十四章：x86 怎样启动真实定时器、校准延时并完成 boot CPU 收尾？ <64-x86-starts-hardware-timers-calibrates-delay-and-finalizes-boot-cpu.rst>`_
+#. `第六十五章：Linux 怎样建立 PID 分配器与 fork 对象基础？ <65-linux-builds-pid-and-fork-object-foundations.rst>`_
+#. `第六十六章：Linux 怎样建立 namespace、安全框架与 VFS/proc 基础？ <66-linux-builds-namespaces-security-and-vfs-foundations.rst>`_
+#. `第六十七章：Linux 怎样建立 cgroup 与 accounting，并到达 rest_init？ <67-linux-builds-cgroups-accounting-and-reaches-rest-init.rst>`_
 
 当前主线
 --------
@@ -85,9 +88,9 @@ Linux Kernel
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-``start_kernel()`` 已完成 RNG/KFENCE/stack canary、首次打开 CPU0 IF、正式 console/lockdep、per-CPU pageset、early ACPI、x86 HPET/PIT/TSC late time 初始化、sched clock、delay calibration 与 boot CPU 架构收尾。
+``start_kernel()`` 已完成 PID/fork/credential 对象基础、UTS/time/network namespace、key 与 LSM、VFS/page cache、procfs/nsfs/pidfs、cpuset/memcg/cgroup、taskstats/delay accounting、ACPI subsystem enable 和 KCSAN 初始化。
 
-当前下一入口是 ``pid_idr_init()``。CPU0 仍是唯一 online CPU，当前任务仍是 PID 0；initramfs 尚未解包，PID 1/PID 2 尚未创建。
+当前下一入口是 ``rest_init()``。CPU0 仍是唯一 online CPU，当前任务仍是 PID 0，尚未创建 PID 1/PID 2，也尚未发生第一次正常 ``schedule()``；initramfs 仍未解包。
 
 章节组织
 --------
