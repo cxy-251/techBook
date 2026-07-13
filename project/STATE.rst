@@ -11,11 +11,11 @@
 
 仓库当前只写 Linux Kernel。
 
-已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-048``。最新三章：
+已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-049``。最新三章：
 
-#. ``LK-BOOT-046``：Linux 怎样完成 x86-64 paging 收尾并建立 KASAN shadow？
 #. ``LK-BOOT-047``：Linux 怎样探测 tboot、映射 vsyscall 并在固件枚举前限制 CPU？
 #. ``LK-BOOT-048``：Linux 怎样完成 ACPI、Local APIC、IOAPIC 与 possible CPU 拓扑？
+#. ``LK-BOOT-049``：Linux 怎样登记物理资源并完成 setup_arch？
 
 完整章节列表见 ``docs/tracks/linux-kernel/index.rst``，机器可读接续信息见 ``manifests/tracks/linux-kernel.toml``。
 
@@ -47,45 +47,60 @@
 当前控制流位置
 --------------
 
-第四十六至四十八章已经完成：
+第四十七至四十九章已经完成：
 
 ::
 
-   x86_init.paging.pagetable_init()
-   → native x86-64 paging_init()
-   → conditional kasan_init()
-   → tboot_probe()
+   tboot_probe()
    → map_vsyscall()
    → early_quirks()
    → topology_apply_cmdline_limits_early()
    → acpi_boot_init()
    → parse FADT / full MADT / HPET / BGRT / SPCR
-   → select pci_acpi_init when ACPI IRQ routing is enabled
-   → MP table fallback parse
+   → MP table fallback
    → init_apic_mappings()
    → topology_init_possible_cpus()
    → init_cpu_to_node()
    → init_gi_nodes()
    → io_apic_init_mappings()
    → x86_init.hyper.guest_late_init()
+   → e820__reserve_resources()
+   → e820__register_nosave_regions(max_pfn)
+   → reserve_standard_io_resources()
+   → e820__setup_pci_gap()
+   → conditional VGA screen registration
+   → x86_init.oem.banner()
+   → x86_init.timers.wallclock_init()
+   → therm_lvt_init()
+   → mcheck_init()
+   → register_refined_jiffies(CLOCK_TICK_RATE)
+   → conditional EFI memmap quirks
+   → unwind_init()
+   → return from setup_arch()
 
 此刻机器状态：
 
-* 当前执行者：Linux 6.12.95 ``arch/x86/kernel/setup.c:setup_arch()``；
+* 当前执行者：Linux 6.12.95 ``init/main.c:start_kernel()``；
+* 精确位置：``setup_arch(&command_line)`` 已返回，``mm_core_init_early()`` 尚未调用；
 * CPU：BSP / Linux CPU 0；
 * mode：64 位 long mode；
-* interrupts：全局关闭；
-* FADT：SCI、PM timer 等启动信息已解析；
-* MADT：Local APIC、IOAPIC、GSI override 与 NMI 信息已处理；
-* Local APIC：已确认，非 x2APIC 模式下已有 fixmap；
-* IOAPIC：MMIO 已映射，redirection table 尚未正式启用；
-* possible CPU 数量与 package/die/core/thread 拓扑：已最终确定；
-* CPU-to-node：已建立；
+* current task：``init_task``；
+* interrupts：关闭，``early_boot_irqs_disabled = true``；
+* E820 与标准 PC I/O ranges：已登记进 resource tree；
+* hibernation nosave holes：已登记；
+* PCI 32 位 MMIO gap：已选择并写入 ``pci_mem_start``；
+* ACPI/APIC/IOAPIC/possible CPU/NUMA 拓扑：已完成启动期建立；
+* wallclock backend：已完成条件选择，尚未在该调用中读取 RTC；
+* thermal LVT：BSP firmware 初值已条件保存；
+* MCE software decode/work framework：已初始化；
+* refined-jiffies：已登记为后备 clocksource 候选；
+* unwinder：已按构建配置初始化；
+* ``setup_arch()``：已返回；
+* buddy allocator：尚未建立；
+* per-CPU area：尚未建立；
+* scheduler：尚未初始化；
 * AP：尚未唤醒；
-* 普通设备 IRQ：尚未开放；
-* E820/resource tree：尚未完成注册；
-* wall clock/MCE/unwind：尚未初始化；
-* ``setup_arch()``：尚未返回。
+* initramfs：尚未解包。
 
 完成状态
 --------
@@ -100,4 +115,4 @@
 当前下一步
 ----------
 
-从 ``setup_arch():e820__reserve_resources()`` 开始，追踪 E820 与标准 PC resource tree、nosave regions、IOAPIC resource、PCI gap、VGA console 条件登记、wall clock、thermal LVT、machine check、refined jiffies、EFI quirk 和 unwind，直到 ``setup_arch()`` 返回。
+从 ``start_kernel():mm_core_init_early()`` 开始，沿真实调用顺序追踪通用内存管理早期核心、static key/static call、early security、boot config、正式命令行保存、CPU 数量与 per-CPU area。不要跳到 scheduler、AP 启动或 initramfs 解包。
