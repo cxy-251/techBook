@@ -52,6 +52,7 @@ Linux Kernel
 #. `第四十四章：Linux 怎样扩大启动日志并确认 initramfs 与 ACPI 表可以安全访问？ <44-linux-expands-log-buffer-and-reserves-initramfs-acpi.rst>`_
 #. `第四十五章：Linux 怎样从 MADT、MP table 和 SRAT 建立 CPU 拓扑与 NUMA node？ <45-linux-parses-early-acpi-and-builds-numa-nodes.rst>`_
 #. `第四十六章：Linux 怎样完成 x86-64 paging 收尾并建立 KASAN shadow？ <46-linux-finalizes-paging-and-kasan-shadow.rst>`_
+#. `第四十七章：Linux 怎样探测 tboot、映射 vsyscall 并在固件枚举前限制 CPU？ <47-linux-probes-tboot-maps-vsyscall-and-applies-early-limits.rst>`_
 
 当前主线
 --------
@@ -65,9 +66,9 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-``setup_arch()`` 已完成 CMA/crashkernel 条件保留、native x86-64 paging hook 和条件 KASAN shadow 接管。direct map 沿用前一阶段建立的 ``init_top_pgt``。
+``setup_arch()`` 已完成 tboot 条件探测、vsyscall 固定 ABI 映射、early PCI quirks 和固件完整 CPU 枚举前的命令行上限。
 
-当前下一入口是 ``tboot_probe()``，随后进入 vsyscall、完整 ACPI/SMP/APIC/IOAPIC 拓扑、E820 resource 注册与 ``setup_arch()`` 收尾。
+当前下一入口是 ``acpi_boot_init()``，随后完成 FADT/MADT/HPET、MP table fallback、Local APIC/IOAPIC 和 possible CPU/node 拓扑。
 
 章节组织
 --------
