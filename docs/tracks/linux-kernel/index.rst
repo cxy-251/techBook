@@ -1,7 +1,7 @@
 Linux Kernel
 ============
 
-这本书讲 Linux 内核。开头从设备上电后的真实执行过程进入，先交代内核取得控制权之前发生的必要故事。
+这本书讲 Linux 内核。开头从设备上电后的真实执行过程进入，先交代内核取得控制权之前发生的必要故事；启动链完成后，切换到明确的运行期入口继续追踪。
 
 当前正文
 --------
@@ -79,28 +79,35 @@ Linux Kernel
 #. `第七十一章：Linux 怎样释放 __init 内存并进入 SYSTEM_RUNNING？ <71-linux-frees-init-memory-and-enters-system-running.rst>`_
 #. `第七十二章：Linux 怎样选择用户态 init，并把可执行映像装入 PID 1？ <72-linux-selects-init-and-loads-userspace-image.rst>`_
 #. `第七十三章：x86 怎样让 PID 1 从 ret_from_fork 真正进入用户态？ <73-x86-returns-pid1-to-userspace.rst>`_
+#. `第七十四章：x86-64 的 read() 怎样从用户态进入 __x64_sys_read？ <74-x86-read-syscall-enters-kernel.rst>`_
+#. `第七十五章：read() 怎样从 fd 找到 ext4 文件并进入 generic_file_read_iter？ <75-read-resolves-fd-and-dispatches-through-vfs.rst>`_
+#. `第七十六章：page cache miss 怎样让 ext4 构造并提交 READ bio？ <76-filemap-miss-builds-ext4-read-bio.rst>`_
 
 当前主线
 --------
 
 ::
 
-   x86-64
-   → QEMU q35
-   → SeaBIOS
-   → GNU GRUB 2.14 i386-pc
-   → bzImage
-   → Linux 7.2-rc1 @ 7404ce51637231382873d0b55edabc2f3b841a9d
+   x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc
+   → bzImage → Linux 7.2-rc1
+   → boot handoff complete
+   → fixed runtime read(fd, buf, 4096)
+   → entry_SYSCALL_64
+   → __x64_sys_read
+   → ksys_read / vfs_read
+   → ext4_file_read_iter
+   → generic_file_read_iter / filemap_read
+   → cold page-cache miss
+   → ext4 logical-to-physical mapping
+   → READ bio
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-Linux 启动主线已经完成：PID 1 已选择成功的 init 映像，建立用户地址空间，并通过 x86 ``ret_from_fork``、exit-to-user 与 ``iretq``/FRED 路径进入第一条用户指令。
-
-当前不再存在唯一可由固定内核源码决定的下一条时间线。继续研究需要先固定一个运行期场景，例如 ``read()``、``openat()``、``fork()``、page fault、timer interrupt 或 block I/O，再从对应用户态/硬件入口重新进入内核。
+当前固定运行期场景是：x86-64 native ``read(fd, buf, 4096)``，普通 ext4 buffered file，offset 0，4 KiB block，非 DAX/direct I/O、非加密/verity/inline data，目标 folio cold miss。ext4 已构造 READ bio，下一入口是 ``blk_crypto_submit_bio()`` 进入 block layer。
 
 章节组织
 --------
 
-正文沿时间线连续讲述。故事达到适合一次阅读的篇幅，并遇到执行者、CPU 模式、运行环境或控制入口交接时换章。每章末尾记录当前执行者、当前状态和下一入口。
+正文沿时间线连续讲述。故事达到适合一次阅读的篇幅，并遇到执行者、CPU mode、运行环境或控制入口交接时换章。每章末尾记录当前执行者、当前状态和下一入口。
 
 章节完成状态由固定源码和规范核对决定。读者反馈用于指出哪里难懂、希望展开或阅读不连续，不承担技术审稿。
