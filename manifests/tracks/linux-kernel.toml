@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-045"
+completed_range = "LK-BOOT-001..LK-BOOT-046"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
@@ -39,14 +39,6 @@ initramfs_path = "/boot/initramfs-6.12.95.img"
 boot_protocol = "Linux/x86 32-bit Boot Protocol"
 
 [[chapter]]
-id = "LK-BOOT-043"
-title = "Linux 怎样把 E820 RAM 变成 memblock 并建立 early direct map？"
-rst = "docs/tracks/linux-kernel/43-linux-builds-memblock-and-early-direct-map.rst"
-status = "complete"
-start = "Linux 6.12.95 arch/x86/mm/init.c:early_alloc_pgt_buf()"
-end = "setup_arch after memblock_set_current_limit(get_max_mapped())"
-
-[[chapter]]
 id = "LK-BOOT-044"
 title = "Linux 怎样扩大启动日志并确认 initramfs 与 ACPI 表可以安全访问？"
 rst = "docs/tracks/linux-kernel/44-linux-expands-log-buffer-and-reserves-initramfs-acpi.rst"
@@ -62,15 +54,23 @@ status = "complete"
 start = "Linux 6.12.95 setup_arch():vsmp_init()"
 end = "setup_arch after initmem_init()"
 
+[[chapter]]
+id = "LK-BOOT-046"
+title = "Linux 怎样完成 x86-64 paging 收尾并建立 KASAN shadow？"
+rst = "docs/tracks/linux-kernel/46-linux-finalizes-paging-and-kasan-shadow.rst"
+status = "complete"
+start = "Linux 6.12.95 setup_arch():dma_contiguous_reserve(max_pfn_mapped << PAGE_SHIFT)"
+end = "setup_arch after sync_initial_page_table()"
+
 [current]
-last_complete = "LK-BOOT-045"
+last_complete = "LK-BOOT-046"
 executor = "Linux 6.12.95 arch/x86/kernel/setup.c:setup_arch()"
 cpu_mode = "64-bit long mode"
-paging = "enabled; swapper_pg_dir active with early direct map over node-tagged memblock RAM"
+paging = "enabled; init_top_pgt/swapper_pg_dir active with early direct map and optional formal KASAN shadow"
 interrupts = "disabled"
 current_task = "init_task on Linux CPU 0"
-next_entry = "Linux 6.12.95 setup_arch():dma_contiguous_reserve(max_pfn_mapped << PAGE_SHIFT)"
-next_action = "处理 CMA/crashkernel、early xHCI debug、native_pagetable_init/paging_init、KASAN shadow 与 initial page-table 同步"
+next_entry = "Linux 6.12.95 setup_arch():tboot_probe()"
+next_action = "处理 Trusted Boot 条件路径、vsyscall、完整 ACPI/SMP/APIC/IOAPIC 拓扑、E820 resource 注册、wall clock、MCE 与 unwind，直到 setup_arch() 返回"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完成"
