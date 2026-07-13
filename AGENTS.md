@@ -10,9 +10,9 @@
 
 ``x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 6.12.95``。
 
-当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-052``。最新章节是：
+当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-055``。最新章节是：
 
-``LK-BOOT-052``：Linux 怎样确定 CPU 编号上限并把 CPU0 迁入正式 per-CPU area？
+``LK-BOOT-055``：Linux 怎样把 memblock 空闲页交给 buddy，并建立 slab 与 vmalloc？
 
 ## 固定实现
 
@@ -51,24 +51,34 @@ GRUB 资料使用 GNU 官方 ``grub-2.14.tar.xz`` 和 ``GitMirroring/grub`` 固�
 
 ```text
 start_kernel()
-→ mm_core_init_early()
-→ establish node / zone / struct page metadata
-→ early LSM and bootconfig handling
-→ setup_command_line(command_line)
-→ setup_nr_cpu_ids()
-→ setup_per_cpu_areas()
-→ allocate per-CPU first chunk
-→ establish __per_cpu_offset for possible CPUs
-→ migrate early APIC / ACPI / NUMA maps
-→ switch CPU0 to formal GDT and GS-relative per-CPU base
-→ setup node-to-cpumask and x86 SMP masks
-→ smp_prepare_boot_cpu()
-→ native_pv_lock_init()
+→ early_numa_node_init()
+→ normalize formal per-CPU CPU-to-node data
+→ boot_cpu_hotplug_init()
+→ mark CPU0 hotplug state/target CPUHP_ONLINE
+→ print_kernel_cmdline(saved_command_line)
+→ parse_early_param() idempotent checkpoint
+→ parse_args("Booting kernel", static_command_line, ...)
+→ dispatch __param / __setup / unknown / init arguments
+→ random_init_early(command_line)
+→ setup_log_buf(0)
+→ vfs_caches_init_early()
+→ sort_main_extable()
+→ trap_init()
+→ mm_core_init()
+→ build zonelists and allocator hotplug hooks
+→ decide memory hardening/debug static keys
+→ memblock_free_all()
+→ release ordinary free RAM to buddy
+→ x86 mem_init() / after_bootmem
+→ kmem_cache_init()
+→ vmalloc_init(), espfix/PTI, mm and execmem caches
 ```
 
-当前执行者是 Linux 6.12.95 ``init/main.c:start_kernel()``。``smp_prepare_boot_cpu()`` 已返回，精确下一入口是 ``early_numa_node_init()``。CPU0 正在 ``init_task`` 上执行，中断关闭，并已使用正式 per-CPU unit。所有 possible CPU 已分配 per-CPU unit 和 offset，但 AP 尚未收到 INIT/SIPI。
+当前执行者是 Linux 6.12.95 ``init/main.c:start_kernel()``。``mm_core_init()`` 已返回，精确下一入口是 ``maple_tree_init()``。CPU0 正在 ``init_task`` 上执行，中断关闭，并使用正式 per-CPU unit。CPU0 hotplug state 已为 ``CPUHP_ONLINE``；AP 尚未收到 INIT/SIPI。
 
-下一任务从 ``early_numa_node_init()`` 开始，继续 ``boot_cpu_hotplug_init()``，随后打印 ``saved_command_line``、执行 early parameter 幂等入口和通用 ``parse_args()``。需要区分 possible/present/online/active mask，也要区分 kernel parameters、``__setup`` 参数、未知参数和 ``--`` 后的 init arguments。
+GRUB 提供的 ``root=/dev/sda1 ro console=ttyS0`` 已完成内核侧参数分发，但根文件系统尚未挂载，正式 console 尚未初始化。memblock 的普通 free RAM 已交给 buddy；slab 基础和 vmalloc 已可用；scheduler、external IRQ、initramfs 解包和 PID 1 均尚未发生。
+
+下一任务从 ``maple_tree_init()`` 开始，继续 ``poking_init()``、``ftrace_init()``、``early_trace_init()``，随后进入 ``sched_init()``。需要清楚区分：scheduler 数据结构初始化、external IRQ 开启、secondary CPU bring-up、initramfs 解包和 PID 1 创建发生在不同位置。
 
 固定 x86 路径在 ``setup_arch()`` 早期已经完成首次 ``jump_label_init()`` / ``static_call_init()``，后续正文不要声称 ``start_kernel()`` 中同名调用重新修补整个内核 text。
 
