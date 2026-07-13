@@ -82,6 +82,9 @@ Linux Kernel
 #. `第七十四章：x86-64 的 read() 怎样从用户态进入 __x64_sys_read？ <74-x86-read-syscall-enters-kernel.rst>`_
 #. `第七十五章：read() 怎样从 fd 找到 ext4 文件并进入 generic_file_read_iter？ <75-read-resolves-fd-and-dispatches-through-vfs.rst>`_
 #. `第七十六章：page cache miss 怎样让 ext4 构造并提交 READ bio？ <76-filemap-miss-builds-ext4-read-bio.rst>`_
+#. `第七十七章：READ bio 怎样通过校验与分区重映射进入 blk-mq？ <77-read-bio-enters-generic-block-submission.rst>`_
+#. `第七十八章：blk-mq 怎样把 bio 变成 SCSI READ request？ <78-blk-mq-builds-scsi-read-request.rst>`_
+#. `第七十九章：SCSI READ 怎样变成 ATA taskfile 并写入 AHCI command slot？ <79-scsi-read-becomes-ahci-command.rst>`_
 
 当前主线
 --------
@@ -92,18 +95,21 @@ Linux Kernel
    → bzImage → Linux 7.2-rc1
    → boot handoff complete
    → fixed runtime read(fd, buf, 4096)
-   → entry_SYSCALL_64
-   → __x64_sys_read
-   → ksys_read / vfs_read
-   → ext4_file_read_iter
-   → generic_file_read_iter / filemap_read
+   → entry_SYSCALL_64 / __x64_sys_read
+   → VFS / ext4 buffered read
    → cold page-cache miss
-   → ext4 logical-to-physical mapping
-   → READ bio
+   → ext4 READ bio
+   → submit_bio_noacct
+   → partition remap
+   → blk_mq_submit_bio
+   → blk-mq request / SCSI READ CDB
+   → libata ATA taskfile
+   → AHCI H2D FIS / PRDT / command slot
+   → PxCI[tag] = 1
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-当前固定运行期场景是：x86-64 native ``read(fd, buf, 4096)``，普通 ext4 buffered file，offset 0，4 KiB block，非 DAX/direct I/O、非加密/verity/inline data，目标 folio cold miss。ext4 已构造 READ bio，下一入口是 ``blk_crypto_submit_bio()`` 进入 block layer。
+当前固定运行期场景是：x86-64 native ``read(fd, buf, 4096)``，普通 ext4 buffered file，offset 0，4 KiB filesystem block，非 DAX/direct I/O、非加密/verity/inline data，目标 folio cold miss。当前 AHCI command 已提交，下一阶段追踪 DMA completion interrupt、SCSI/blk-mq/bio completion、folio unlock 与 user copy。
 
 章节组织
 --------
