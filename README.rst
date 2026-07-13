@@ -48,6 +48,7 @@ techBook
 * `第三十九章：x86_64_start_kernel 怎样清理临时环境并保存启动数据？ <docs/tracks/linux-kernel/39-linux-x86-64-start-kernel-cleans-early-environment.rst>`_
 * `第四十章：Linux 怎样进入 start_kernel 并建立最早的通用内核状态？ <docs/tracks/linux-kernel/40-linux-start-kernel-establishes-earliest-generic-state.rst>`_
 * `第四十一章：Linux setup_arch 怎样接管命令行并导入 E820 内存图？ <docs/tracks/linux-kernel/41-linux-setup-arch-imports-command-line-and-e820.rst>`_
+* `第四十二章：Linux 怎样修正 E820 并计算自己真正能管理的物理页？ <docs/tracks/linux-kernel/42-linux-fixes-e820-and-computes-max-pfn.rst>`_
 
 当前主线
 --------
@@ -61,7 +62,7 @@ techBook
    → bzImage
    → Linux 6.12.95
 
-当前 ``setup_arch()`` 已导入命令行、``boot_params``、基础/扩展 E820，并预留 kernel、initramfs、setup_data 与 BIOS 区域。下一段从 ``setup_initial_init_mm()`` 继续。
+当前 ``setup_arch()`` 已完成 E820 修正、资源登记、MTRR trim 与 PFN 边界计算，停在 ``early_alloc_pgt_buf()`` 调用前。下一段进入 memblock 与完整 direct map。
 
 开始工作
 --------
