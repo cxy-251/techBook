@@ -10,9 +10,9 @@
 
 ``x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 6.12.95``。
 
-当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-050``。最新章节是：
+当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-051``。最新章节是：
 
-``LK-BOOT-050``：Linux 怎样把 memblock 物理内存变成 node、zone 和 struct page？
+``LK-BOOT-051``：Linux 为什么再次检查 static key/static call，并怎样生成正式命令行？
 
 ## 固定实现
 
@@ -53,19 +53,21 @@ GRUB 资料使用 GNU 官方 ``grub-2.14.tar.xz`` 和 ``GitMirroring/grub`` 固�
 setup_arch()
 → return to start_kernel()
 → mm_core_init_early()
-→ conditional hugetlb_cma_reserve()
-→ conditional hugetlb_bootmem_alloc()
-→ arch_zone_limits_init()
-→ sparse_init()
-→ derive zone and movable PFN ranges
-→ initialize pg_data_t and zones
-→ initialize struct page metadata and pageblock layout
-→ set_high_memory()
+→ establish node / zone / struct page metadata
+→ jump_label_init() idempotent check
+→ static_call_init() idempotent check
+→ early_security_init()
+→ setup_boot_config()
+→ conditionally detach bootconfig trailer from initramfs
+→ setup_command_line(command_line)
+→ allocate saved_command_line and static_command_line
 ```
 
-当前执行者是 Linux 6.12.95 ``init/main.c:start_kernel()``。``mm_core_init_early()`` 已返回，精确下一入口是 ``jump_label_init()``。CPU 0 正在 ``init_task`` 上执行，中断关闭。zone、SPARSEMEM/vmemmap、``struct page``、pageblock 和 ``free_area[]`` 基础已建立；memblock 仍持有普通 RAM，buddy 尚未接收全部可分配页，slab 和 per-CPU area 尚未建立。
+当前执行者是 Linux 6.12.95 ``init/main.c:start_kernel()``。``setup_command_line(command_line)`` 已返回，精确下一入口是 ``setup_nr_cpu_ids()``。CPU 0 正在 ``init_task`` 上执行，中断关闭。early LSM 已初始化；bootconfig 已完成条件处理；两份持久命令行已经由 memblock 分配。per-CPU area、scheduler、AP 启动和普通参数解析尚未发生。
 
-下一任务从 ``start_kernel():jump_label_init()`` 开始，沿真实源码顺序处理 ``static key``、``static call``、``early_security_init()``、``setup_boot_config()`` 和 ``setup_command_line()``。不要把 early LSM 写成完整 SELinux/AppArmor policy 初始化，也不要把 bootconfig 数据继续留在 initramfs payload 中。
+固定 x86 路径在 ``setup_arch()`` 早期已经完成首次 ``jump_label_init()`` / ``static_call_init()``，所以 ``start_kernel()`` 中同名调用主要走幂等返回。后续正文不要重复声称这里重新修补整个内核 text。
+
+下一任务从 ``start_kernel():setup_nr_cpu_ids()`` 开始，追踪 possible/present/online/active mask、x86-64 per-CPU first chunk、``__per_cpu_offset``、early APIC/ACPI/NUMA map 迁移、CPU0 的 GDT/GS per-CPU base 切换、``smp_prepare_boot_cpu()``、``early_numa_node_init()`` 和 ``boot_cpu_hotplug_init()``。AP 仍不会在这一阶段启动。
 
 ## 用户输入与技术事实
 
