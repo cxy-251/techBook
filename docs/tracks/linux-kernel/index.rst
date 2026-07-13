@@ -50,6 +50,7 @@ Linux Kernel
 #. `第四十二章：Linux 怎样修正 E820 并计算自己真正能管理的物理页？ <42-linux-fixes-e820-and-computes-max-pfn.rst>`_
 #. `第四十三章：Linux 怎样把 E820 RAM 变成 memblock 并建立 early direct map？ <43-linux-builds-memblock-and-early-direct-map.rst>`_
 #. `第四十四章：Linux 怎样扩大启动日志并确认 initramfs 与 ACPI 表可以安全访问？ <44-linux-expands-log-buffer-and-reserves-initramfs-acpi.rst>`_
+#. `第四十五章：Linux 怎样从 MADT、MP table 和 SRAT 建立 CPU 拓扑与 NUMA node？ <45-linux-parses-early-acpi-and-builds-numa-nodes.rst>`_
 
 当前主线
 --------
@@ -63,9 +64,9 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-``setup_arch()`` 已扩大 printk ring buffer，确认或条件搬迁 initramfs，并定位、校验与保留 ACPI 初始表。
+``setup_arch()`` 已完成 early MADT/MP table 拓扑解析，并通过 SRAT 或 single-node fallback 为 memblock RAM 建立 NUMA node 归属。
 
-当前下一入口是 ``vsmp_init()``，随后进入 early platform quirks、MADT/MP table 早期 CPU 拓扑和 NUMA node 建立。
+当前下一入口是 ``dma_contiguous_reserve()``，随后处理 crashkernel、early xHCI debug、x86 paging hook、KASAN shadow 与 initial page-table 同步。
 
 章节组织
 --------
