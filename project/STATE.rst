@@ -17,13 +17,13 @@
 
    LK-BOOT-001..LK-BOOT-073
    LK-READ-074..LK-READ-082
-   LK-WRITE-083..LK-WRITE-085
+   LK-WRITE-083..LK-WRITE-088
 
 最新三章：
 
-#. ``LK-WRITE-083``：x86-64 的 write() 怎样进入 ext4 buffered write？
-#. ``LK-WRITE-084``：ext4 怎样把用户数据复制进 page-cache folio 并标脏？
-#. ``LK-WRITE-085``：O_SYNC write 怎样进入 ext4 writeback？
+#. ``LK-WRITE-086``：ext4 writeback 怎样把 dirty folio 变成 WRITE bio？
+#. ``LK-WRITE-087``：WRITE bio 怎样变成 AHCI command 并写入 PxCI？
+#. ``LK-WRITE-088``：WRITE completion 怎样结束 folio writeback，并让 O_SYNC 等待继续？
 
 完整章节列表见 ``docs/tracks/linux-kernel/index.rst``，机器可读接续信息见 ``manifests/tracks/linux-kernel.toml``。
 
@@ -71,88 +71,105 @@
 ::
 
    userspace write(fd, buf, 4096)
-   → entry_SYSCALL_64
-   → do_syscall_64 / __x64_sys_write
-   → ksys_write / fd position guard
-   → vfs_write / new_sync_write
-   → IOCB_SYNC + IOCB_DSYNC
-   → ext4_file_write_iter
-   → ext4_buffered_write_iter
-   → inode_lock
-   → ext4_write_checks
+   → entry_SYSCALL_64 / __x64_sys_write
+   → ksys_write / vfs_write / new_sync_write
+   → ext4_file_write_iter / ext4_buffered_write_iter
    → generic_perform_write
    → ext4_da_write_begin
-   → allocate and lock page-cache folio
-   → prepare existing block mapping
    → copy_folio_from_iter_atomic
-   → ext4_da_write_end / block_write_end
-   → folio dirty, uptodate, unlocked
-   → iocb->ki_pos = 4096
-   → inode_unlock
+   → ext4_da_write_end
+   → dirty page-cache folio
    → generic_write_sync
    → vfs_fsync_range(file, 0, 4095, datasync=0)
    → ext4_sync_file
    → file_write_and_wait_range
-   → filemap_fdatawrite_range
-   → writeback_control: WB_SYNC_ALL, range 0..4095
-   → do_writepages
+   → WB_SYNC_ALL
    → ext4_writepages
+   → scan and lock dirty folio
+   → folio_clear_dirty_for_io
+   → ext4_bio_write_folio
+   → PG_writeback = 1
+   → REQ_OP_WRITE | REQ_SYNC bio
+   → blk_crypto_submit_bio
+   → partition remap
+   → blk-mq request/tag
+   → SCSI WRITE(10 or 16)
+   → libata ATA DMA/NCQ WRITE
+   → dma_map_sg(DMA_TO_DEVICE)
+   → AHCI H2D FIS / PRDT / AHCI_CMD_WRITE
+   → PxCI[tag] = 1
+   → AHCI completion interrupt
+   → ata_qc_complete / dma_unmap_sg
+   → ata_scsi_qc_complete / scsi_done
+   → blk_mq_complete_request
+   → scsi_complete / blk_update_request
+   → bio_endio / ext4_end_bio
+   → ext4_finish_bio
+   → folio_end_writeback
+   → file_write_and_wait_range returns 0
+   → ext4_fsync_journal next
 
 当前精确状态
 ------------
 
 * ``system_state``：``SYSTEM_RUNNING``；
 * 当前执行者：发起 O_SYNC ``write()`` 的 task；
-* CPU mode：x86-64 CPL 0，syscall process context；
-* target folio：page cache 中，dirty、uptodate、unlocked；
-* user data：已经复制进 folio；
-* stable storage：尚未更新；
-* inode ``i_rwsem``：已释放；
-* superblock write/freeze protection：仍 held；
-* writeback mode：``WB_SYNC_ALL``；
-* writeback range：file offset 0..4095；
+* CPU mode：x86-64 CPL 0，仍在 syscall process context；
+* target folio：page cache 中，clean、uptodate、unlocked；
+* ``PG_writeback``：0；
+* data WRITE bio：已完成并释放；
+* blk-mq request/tag：已完成并释放；
+* SCSI/ATA/AHCI command：已完成；
+* DMA mapping：已解除；
+* data-range wait：成功返回；
+* data writeback error：无；
+* device cache durability：尚未最终确认；
+* JBD2 transaction commit：尚未执行下一入口；
+* optional block-device flush：尚未执行；
 * ``kiocb->ki_pos``：4096；
 * local ``pos``：0；
 * ``file->f_pos``：0；
-* ``PG_writeback``：尚未由本次 ``ext4_writepages`` 建立；
-* WRITE bio：尚未建立；
-* blk-mq/SCSI/ATA/AHCI objects：尚未建立；
-* journal commit：尚未等待；
 * ``write()``：尚未返回。
 
 关键边界
 --------
 
 #. 新 write 场景独立于前一条 read，不共享其 page-cache 结果。
-#. ``O_SYNC`` buffered write 仍先复制到 page cache，再进入同步 writeback。
-#. dirty/uptodate folio 不表示数据已经进入 stable storage。
-#. delayed-allocation aops 被选中，不表示覆盖已有 extent 时会重新分配磁盘块。
-#. ``generic_write_sync`` 对 ``O_SYNC`` 使用 ``datasync=0``。
-#. ``file_write_and_wait_range`` 先启动 writeback，再等待 completion。
-#. ``WB_SYNC_ALL`` 表示必须完成 data-integrity writeback，不表示 bio 已建立。
+#. 已有 initialized extent 的覆盖写在 ``ext4_writepages`` 第一遍直接提交，不分配新 extent。
+#. ``folio_clear_dirty_for_io``、``PG_writeback`` 与 folio lock 是不同状态。
+#. WRITE DMA 从 page-cache folio读取数据，不直接读取用户 buffer。
+#. ``REQ_SYNC`` 不等于 ``REQ_FUA``。
+#. AHCI command completion必须经过 SCSI、blk-mq、bio和 ``ext4_end_bio`` 才能结束 folio writeback。
+#. ``folio_end_writeback`` 不提交 JBD2 transaction，也不保证 volatile device cache已经 flush。
+#. data-range wait成功发生在 journal commit之前。
 #. ``kiocb->ki_pos``、local ``pos`` 与共享 ``file->f_pos`` 尚未全部提交。
 
 下一任务
 --------
 
-下一批从 ``ext4_writepages(mapping, wbc)`` 开始：
+下一批从：
+
+.. code-block:: c
+
+   ext4_fsync_journal(inode, false, &needs_barrier);
+
+开始：
 
 ::
 
-   ext4_writepages
-   → scan/lock dirty folio
-   → clear dirty for I/O and set PG_writeback
-   → prepare writeback extent
-   → ordered-data journal dependency
-   → ext4_io_submit / WRITE bio
-   → block layer / SCSI / libata / AHCI
-   → write completion
-   → folio end writeback
-   → file_write_and_wait_range returns
-   → ext4 journal commit / optional flush
-   → generic_write_sync returns
-   → local pos and file->f_pos commit
-   → write() returns userspace
+   choose i_sync_tid
+   → ext4_fc_commit
+   → fast commit or full JBD2 commit
+   → determine needs_barrier
+   → optional blkdev_issue_flush
+   → file_check_and_advance_wb_err
+   → ext4_sync_file returns
+   → generic_write_sync returns 4096
+   → new_sync_write copies kiocb->ki_pos to local pos
+   → vfs_write accounting / file_end_write
+   → ksys_write commits file->f_pos = 4096
+   → syscall exit
+   → userspace RAX = 4096
 
 资料格式
 --------
