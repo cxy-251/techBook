@@ -46,6 +46,7 @@ Linux Kernel
 #. `第三十八章：Linux common_startup_64 怎样建立 boot CPU 的最早运行上下文？ <38-linux-common-startup64-builds-boot-cpu-context.rst>`_
 #. `第三十九章：x86_64_start_kernel 怎样清理临时环境并保存启动数据？ <39-linux-x86-64-start-kernel-cleans-early-environment.rst>`_
 #. `第四十章：Linux 怎样进入 start_kernel 并建立最早的通用内核状态？ <40-linux-start-kernel-establishes-earliest-generic-state.rst>`_
+#. `第四十一章：Linux setup_arch 怎样接管命令行并导入 E820 内存图？ <41-linux-setup-arch-imports-command-line-and-e820.rst>`_
 
 当前主线
 --------
@@ -59,9 +60,7 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-正式内核已建立 CPU 0 的 per-CPU/GDT/IDT/栈环境，清除临时 identity mapping，复制 ``boot_params`` 与命令行，加载 BSP microcode，并进入通用 ``start_kernel()``。
-
-当前停在 ``start_kernel():setup_arch(&command_line)`` 调用前。下一段进入 x86 架构内存图、保留区、memblock 与早期页表初始化。
+``setup_arch()`` 已接管有效命令行，翻译 ``boot_params``，预留 kernel、低端内存、initramfs 与 ``setup_data``，并导入基础/扩展 E820。当前停在 ``setup_initial_init_mm()`` 调用前。
 
 章节组织
 --------
