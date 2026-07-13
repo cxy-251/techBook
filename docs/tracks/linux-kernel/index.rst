@@ -73,6 +73,9 @@ Linux Kernel
 #. `第六十五章：Linux 怎样建立 PID 分配器与 fork 对象基础？ <65-linux-builds-pid-and-fork-object-foundations.rst>`_
 #. `第六十六章：Linux 怎样建立 namespace、安全框架与 VFS/proc 基础？ <66-linux-builds-namespaces-security-and-vfs-foundations.rst>`_
 #. `第六十七章：Linux 怎样建立 cgroup 与 accounting，并到达 rest_init？ <67-linux-builds-cgroups-accounting-and-reaches-rest-init.rst>`_
+#. `第六十八章：Linux 怎样创建 PID 1、PID 2，并让 PID 0 进入 idle loop？ <68-linux-creates-pid1-pid2-and-enters-idle.rst>`_
+#. `第六十九章：Linux 怎样唤醒 AP，并让 workqueue 与 SMP scheduler 正式运行？ <69-linux-starts-aps-workqueues-and-smp-scheduler.rst>`_
+#. `第七十章：Linux 怎样运行全部 built-in initcall，并准备 initramfs 与 root filesystem？ <70-linux-runs-initcalls-and-prepares-rootfs.rst>`_
 
 当前主线
 --------
@@ -88,9 +91,9 @@ Linux Kernel
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-``start_kernel()`` 已完成 PID/fork/credential 对象基础、UTS/time/network namespace、key 与 LSM、VFS/page cache、procfs/nsfs/pidfs、cpuset/memcg/cgroup、taskstats/delay accounting、ACPI subsystem enable 和 KCSAN 初始化。
+``rest_init()`` 已创建 PID 1 与 PID 2，PID 0 和成功上线的 AP 已进入各自 idle loop。PID 1 已完成 SMP/workqueue 准备、全部 built-in initcall、initramfs 解包等待、初始 console 与 root 路径选择。
 
-当前下一入口是 ``rest_init()``。CPU0 仍是唯一 online CPU，当前任务仍是 PID 0，尚未创建 PID 1/PID 2，也尚未发生第一次正常 ``schedule()``；initramfs 仍未解包。
+当前下一入口是 PID 1 ``kernel_init():async_synchronize_full()``。PID 1 仍在内核态，``__init`` 内存尚未释放，``system_state`` 尚未进入 ``SYSTEM_RUNNING``，用户态 init 尚未 exec。
 
 章节组织
 --------
