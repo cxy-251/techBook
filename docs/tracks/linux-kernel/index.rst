@@ -91,6 +91,9 @@ Linux Kernel
 #. `第八十三章：x86-64 的 write() 怎样进入 ext4 buffered write？ <83-x86-write-enters-ext4-buffered-path.rst>`_
 #. `第八十四章：ext4 怎样把用户数据复制进 page-cache folio 并标脏？ <84-ext4-copies-user-data-into-dirty-folio.rst>`_
 #. `第八十五章：O_SYNC write 怎样进入 ext4 writeback？ <85-osync-write-enters-ext4-writeback.rst>`_
+#. `第八十六章：ext4 writeback 怎样把 dirty folio 变成 WRITE bio？ <86-ext4-writeback-builds-write-bio.rst>`_
+#. `第八十七章：WRITE bio 怎样变成 AHCI command 并写入 PxCI？ <87-write-bio-becomes-ahci-command.rst>`_
+#. `第八十八章：WRITE completion 怎样结束 folio writeback，并让 O_SYNC 等待继续？ <88-write-completion-ends-folio-writeback.rst>`_
 
 当前主线
 --------
@@ -102,20 +105,22 @@ Linux Kernel
    → boot handoff complete
    → read(fd, buf, 4096) cold miss complete
    → independent O_SYNC write(fd, buf, 4096)
-   → entry_SYSCALL_64 / __x64_sys_write
-   → fd / VFS / ext4 buffered write
-   → copy_folio_from_iter_atomic
-   → page-cache folio dirty
-   → generic_write_sync
-   → vfs_fsync_range / ext4_sync_file
-   → file_write_and_wait_range
-   → WB_SYNC_ALL
-   → do_writepages
-   → ext4_writepages
+   → syscall / VFS / ext4 buffered copy
+   → dirty page-cache folio
+   → WB_SYNC_ALL / ext4_writepages
+   → ext4 WRITE bio
+   → blk-mq / SCSI WRITE / libata ATA WRITE
+   → AHCI H2D FIS / PRDT / PxCI
+   → AHCI completion interrupt
+   → SCSI / blk-mq / bio completion
+   → ext4_end_bio
+   → folio_end_writeback
+   → file_write_and_wait_range returns 0
+   → ext4_fsync_journal next
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-当前固定 write 场景是：native x86-64 ``write(fd, buf, 4096)``，文件以 ``O_SYNC`` 打开，普通 ext4 ``data=ordered`` buffered overwrite，offset 0，4 KiB block，已有 initialized extent，目标 folio 初始 absent。用户数据已经复制到 dirty folio；下一阶段从 ``ext4_writepages()`` 开始建立 writeback extent、WRITE bio 与后续 storage completion。
+当前固定 write 场景是 native x86-64 ``O_SYNC write(fd, buf, 4096)``，普通 ext4 ``data=ordered`` full-block overwrite。data WRITE 与 folio writeback 已完成；下一阶段从 ``ext4_fsync_journal()`` 开始，处理 JBD2 transaction commit、必要的 block-device flush、position 提交和 syscall return。
 
 章节组织
 --------
