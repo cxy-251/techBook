@@ -65,6 +65,9 @@ techBook
 * `第五十六章：Linux 怎样准备 Maple Tree、文本热补丁和 ftrace？ <docs/tracks/linux-kernel/56-linux-prepares-maple-tree-text-poking-and-ftrace.rst>`_
 * `第五十七章：Linux 怎样建立 runqueue，并把 init_task 变成 CPU0 的 idle task？ <docs/tracks/linux-kernel/57-linux-initializes-runqueues-and-boot-idle-task.rst>`_
 * `第五十八章：Linux 怎样建立 early workqueue、RCU 和 trace event 基础？ <docs/tracks/linux-kernel/58-linux-builds-workqueue-rcu-and-trace-foundations.rst>`_
+* `第五十九章：Linux 怎样建立 IRQ descriptor 并把外部中断入口写入 IDT？ <docs/tracks/linux-kernel/59-linux-builds-irq-descriptors-and-x86-interrupt-gates.rst>`_
+* `第六十章：Linux 怎样建立 tick、timer wheel、hrtimer 与 softirq？ <docs/tracks/linux-kernel/60-linux-initializes-tick-timers-hrtimers-and-softirqs.rst>`_
+* `第六十一章：Linux 怎样建立 timekeeping，并把 x86 定时器初始化延后？ <docs/tracks/linux-kernel/61-linux-establishes-timekeeping-and-defers-x86-timer-init.rst>`_
 
 当前主线
 --------
@@ -78,9 +81,9 @@ techBook
    → bzImage
    → Linux 6.12.95
 
-当前 ``start_kernel()`` 已建立 scheduler runqueue、CPU0 idle task、early workqueue、RCU、trace event 和 context tracking 基础。
+当前 ``start_kernel()`` 已建立 IRQ descriptor、x86 vector domain 与外部中断 IDT gates，完成 tick/timer/hrtimer/softirq 软件基础，并建立 VDSO 数据页和以 jiffies 为初始 clocksource 的通用 timekeeping。
 
-下一入口是 ``early_irq_init()``，随后进入 x86 IRQ、tick、timer、softirq 与 timekeeping。CPU0 仍是唯一 online CPU，硬件中断仍关闭，initramfs 尚未解包。
+下一入口是 ``random_init()``。CPU0 仍是唯一 online CPU，IF 位仍关闭；x86 HPET/PIT/TSC 与最终 timer interrupt mode 被延后到 ``late_time_init()``，initramfs 尚未解包。
 
 开始工作
 --------
