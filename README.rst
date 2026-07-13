@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第八十章：AHCI 中断怎样确认完成的 tag，并把结果交回 SCSI？ <docs/tracks/linux-kernel/80-ahci-interrupt-completes-ata-and-scsi-command.rst>`_
-* `第八十一章：blk-mq completion 怎样结束 bio，并让 ext4 folio 变成 uptodate？ <docs/tracks/linux-kernel/81-block-completion-marks-ext4-folio-uptodate.rst>`_
-* `第八十二章：reader task 怎样复制 folio，并让 read() 返回用户态？ <docs/tracks/linux-kernel/82-reader-copies-folio-and-returns-from-read.rst>`_
+* `第八十三章：x86-64 的 write() 怎样进入 ext4 buffered write？ <docs/tracks/linux-kernel/83-x86-write-enters-ext4-buffered-path.rst>`_
+* `第八十四章：ext4 怎样把用户数据复制进 page-cache folio 并标脏？ <docs/tracks/linux-kernel/84-ext4-copies-user-data-into-dirty-folio.rst>`_
+* `第八十五章：O_SYNC write 怎样进入 ext4 writeback？ <docs/tracks/linux-kernel/85-osync-write-enters-ext4-writeback.rst>`_
 
 固定来源
 --------
@@ -32,40 +32,38 @@ techBook
 
    LK-BOOT-001..LK-BOOT-073
    LK-READ-074..LK-READ-082
+   LK-WRITE-083..LK-WRITE-085
 
-``read()`` 运行期主线
---------------------
-
-固定场景：native x86-64 ``read(fd, buf, 4096)``，已打开的普通 ext4 文件，offset 0，buffered I/O，目标 folio cold miss，文件数据位于 q35 ICH9 AHCI SATA port 0 的启动盘。
+``read()`` cold-miss 运行期主线已经完整闭环。当前是独立的 ext4 synchronous buffered write 场景：
 
 ::
 
-   userspace read(fd, buf, 4096)
-   → entry_SYSCALL_64 / __x64_sys_read
-   → fd / VFS / ext4 buffered read
-   → cold page-cache miss
-   → ext4 READ bio
-   → submit_bio_noacct / partition remap
-   → blk-mq request and tag
-   → SCSI READ CDB
-   → libata ATA taskfile
-   → AHCI H2D FIS / PRDT / PxCI[tag]
-   → AHCI completion interrupt
-   → ata_qc_complete / scsi_done
-   → blk-mq / bio / ext4 completion
-   → folio_end_read(folio, true)
-   → folio uptodate + unlock
-   → copy_folio_to_iter(user buffer)
-   → file->f_pos = 4096
-   → SYSRETQ or IRETQ
-   → userspace receives RAX = 4096
+   write(fd, buf, 4096)
+   → native x86-64 syscall entry
+   → ksys_write / vfs_write
+   → ext4_file_write_iter
+   → ext4_buffered_write_iter
+   → generic_perform_write
+   → ext4_da_write_begin
+   → copy_folio_from_iter_atomic
+   → ext4_da_write_end
+   → dirty page-cache folio
+   → generic_write_sync
+   → vfs_fsync_range
+   → ext4_sync_file
+   → file_write_and_wait_range
+   → WB_SYNC_ALL
+   → do_writepages
+   → ext4_writepages
+
+固定 write 条件：文件以 ``O_SYNC`` 打开，普通 ext4 ``data=ordered``、journal enabled、delalloc enabled，offset 0，完整覆盖已有 4 KiB initialized block，目标 folio 初始不在 page cache，用户 buffer mapped and readable。
 
 当前状态
 --------
 
-第一个运行期场景已经完整闭环：用户 buffer 含有文件 offset 0..4095 的数据，``file->f_pos`` 已推进到 4096，目标 folio 保留在 page cache 中且处于 uptodate、unlocked 状态，相关 AHCI/SCSI/blk-mq request 与 tag 已完成并释放。
+用户数据已经复制到 dirty、uptodate、unlocked 的 page-cache folio。``kiocb->ki_pos`` 已是 4096，local ``pos`` 和共享 ``file->f_pos`` 尚未提交。O_SYNC task 已进入 ``ext4_writepages()``，WRITE bio、blk-mq request、SCSI/ATA/AHCI command 尚未建立。
 
-下一条运行期故事尚未选定。开始新主线前必须重新固定 syscall、对象、缓存状态、文件系统状态和目标子系统，不能假装它在时间线上自动接续本次 ``read()``。
+下一步从 ``ext4_writepages()`` 开始，追踪 dirty folio、writeback extent、ordered-data journal、WRITE bio、block/SCSI/libata/AHCI submission 与完成，再返回 journal commit 和同步 write syscall。
 
 开始工作
 --------
