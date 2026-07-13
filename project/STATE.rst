@@ -11,11 +11,11 @@
 
 仓库当前只写 Linux Kernel。
 
-已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-040``。最新三章：
+已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-041``。最新三章：
 
-#. ``LK-BOOT-038``：Linux common_startup_64 怎样建立 boot CPU 的最早运行上下文？
 #. ``LK-BOOT-039``：x86_64_start_kernel 怎样清理临时环境并保存启动数据？
 #. ``LK-BOOT-040``：Linux 怎样进入 start_kernel 并建立最早的通用内核状态？
+#. ``LK-BOOT-041``：Linux setup_arch 怎样接管命令行并导入 E820 内存图？
 
 完整章节列表见 ``docs/tracks/linux-kernel/index.rst``，机器可读接续信息见 ``manifests/tracks/linux-kernel.toml``。
 
@@ -47,55 +47,41 @@
 当前控制流位置
 --------------
 
-第三十八至四十章已经完成：
+第四十一章已经完成：
 
 ::
 
-   arch/x86/kernel/head_64.S:common_startup_64
-   → sanitize CR4 and flush stale global identity translations through PGE toggle
-   → identify BSP as Linux CPU 0
-   → load CPU0 per-cpu offset
-   → switch to init_task stack
-   → load per-cpu GDT and GSBASE
-   → install early IDT
-   → enable EFER.SCE and conditional NXE
-   → call initial_code = x86_64_start_kernel
-   → reset early identity page tables
-   → clear formal kernel BSS and brk
-   → initialize conditional SME, KASAN and TDX early state
-   → copy boot_params and kernel command line
-   → load BSP microcode
-   → x86_64_start_reservations
-   → initialize PC legacy platform quirks
-   → start_kernel
-   → stack-end magic, processor id, debug objects and build id
-   → early cgroup relation for init_task
-   → force local IRQs disabled
-   → mark CPU0 possible/present/online/active
-   → print linux_banner
-   → immediately before setup_arch(&command_line)
+   start_kernel()
+   → setup_arch(&command_line)
+   → resolve effective command line
+   → install early traps and early ioremap
+   → parse_boot_params()
+   → reserve kernel image
+   → reserve low 64 KiB
+   → reserve initramfs physical range
+   → reserve setup_data chain
+   → reserve BIOS regions
+   → e820__memory_setup()
+   → parse_setup_data()
+   → copy_edd()
+   → immediately before setup_initial_init_mm()
 
 此刻机器状态：
 
-* 当前执行者：Linux 6.12.95 ``init/main.c:start_kernel()``；
-* 当前停点：``setup_arch(&command_line)`` 尚未调用；
+* 当前执行者：Linux 6.12.95 ``arch/x86/kernel/setup.c:setup_arch()``；
 * CPU：BSP / Linux CPU 0；
-* CPU mode：64 位 long mode；
-* RIP：正式内核高半区；
-* current task：``init_task``；
-* stack：``init_task`` 启动栈，栈底 magic 已写入；
-* per-CPU GSBASE：CPU 0；
-* early IDT：已安装；
-* ``boot_params``：已复制到内核全局对象；
-* command line：已复制为 ``root=/dev/sda1 ro console=ttyS0``；
-* BSP microcode：早期加载已执行；
-* temporary identity mapping：已从 ``early_top_pgt`` 清除；
-* CPU 0 masks：possible、present、online、active；
+* mode：64 位 long mode；
 * interrupts：关闭；
-* architecture setup：尚未执行；
-* memblock：尚未完成 x86 初始化；
-* initramfs：尚未展开；
-* scheduler、VFS、initcall：尚未初始化。
+* 命令行：已接管；
+* ``boot_params``：主要字段已翻译；
+* kernel、低 64 KiB、initramfs、setup_data 与 BIOS ranges：已预留；
+* 基础 E820：已从 ``boot_params`` 导入并 sanitize；
+* 扩展 ``setup_data``：已解析；
+* ``memblock.memory``：尚未由 E820 RAM 建立；
+* ``max_pfn``：尚未计算；
+* direct map：尚未重建；
+* ``setup_arch()``：尚未返回；
+* initramfs：尚未展开。
 
 完成状态
 --------
@@ -110,4 +96,4 @@
 当前下一步
 ----------
 
-从 ``arch/x86/kernel/setup.c:setup_arch(&command_line)`` 第一条真实调用开始，追踪 boot command line 接管、``boot_params``/setup_data、E820 内存图导入、BIOS 与内核映像保留区、memblock 建立和 early page-table/direct-map 初始化。不要用“完成架构初始化”一句跨过该大型阶段。
+从 ``setup_initial_init_mm()`` 开始，追踪 ``init_mm`` 边界、NX 与 early 参数、DMI/hypervisor/ROM 资源、kernel resource tree、E820 修正、MTRR trim、``max_pfn``、memory layout randomization 和 MPTABLE 查找，停在 ``early_alloc_pgt_buf()`` 前。
