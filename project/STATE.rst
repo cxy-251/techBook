@@ -17,13 +17,13 @@
 
    LK-BOOT-001..LK-BOOT-073
    LK-READ-074..LK-READ-082
-   LK-WRITE-083..LK-WRITE-088
+   LK-WRITE-083..LK-WRITE-091
 
 最新三章：
 
-#. ``LK-WRITE-086``：ext4 writeback 怎样把 dirty folio 变成 WRITE bio？
-#. ``LK-WRITE-087``：WRITE bio 怎样变成 AHCI command 并写入 PxCI？
-#. ``LK-WRITE-088``：WRITE completion 怎样结束 folio writeback，并让 O_SYNC 等待继续？
+#. ``LK-WRITE-089``：ext4 fsync 怎样选择 fast commit 或完整 JBD2 commit？
+#. ``LK-WRITE-090``：ext4 barrier 怎样把 journal 顺序落实到设备 cache？
+#. ``LK-WRITE-091``：O_SYNC write 怎样提交 file position 并返回用户态？
 
 完整章节列表见 ``docs/tracks/linux-kernel/index.rst``，机器可读接续信息见 ``manifests/tracks/linux-kernel.toml``。
 
@@ -40,13 +40,15 @@
 
 旧章节中的 ``Linux 6.12.95`` 是历史显示标签错误，技术事实继续以固定 Linux commit 为准。
 
-已完成的 read 场景
+已完成的运行期实验
 ------------------
 
-``read(fd, buf, 4096)`` cold page-cache miss 已完整闭环：VFS、ext4、page cache、block、SCSI、libata、AHCI、DMA completion、folio unlock、user copy 和 syscall return 均已写完。
+``read(fd, buf, 4096)`` cold page-cache miss 已完整闭环：VFS、ext4、page cache、block、SCSI、libata、AHCI、completion、user copy 与 syscall return 均已完成。
 
-当前 write 固定场景
--------------------
+``O_SYNC write(fd, buf, 4096)`` buffered overwrite 也已完整闭环：page-cache copy、writeback、storage data command、journal durability、barrier/flush、position commit 与 syscall return 均已完成。
+
+O_SYNC write 固定场景
+---------------------
 
 ::
 
@@ -56,16 +58,16 @@
    file                 = independent already-open regular ext4 file
    filesystem           = /dev/sda1, journal enabled, data=ordered, delalloc enabled
    initial f_pos        = 0
+   final f_pos          = 4096
    file size            = at least 4096 bytes
    filesystem block     = 4096 bytes
    write type           = full-block overwrite, not extending
    extent               = logical block 0 already initialized and mapped
-   initial page cache   = index 0 absent
-   user buffer          = mapped, readable, stable
-   excluded             = O_DIRECT, DAX, inline data, fscrypt, fs-verity, atomic write
-   failure policy       = no ENOSPC, copy fault, forced shutdown or injected I/O error
+   I/O mode             = buffered; not O_DIRECT; not DAX
+   excluded             = inline data, fscrypt, fs-verity, atomic write
+   failure policy       = no copy, writeback, journal, flush or storage error
 
-当前控制流
+完整控制流
 ----------
 
 ::
@@ -83,93 +85,82 @@
    → vfs_fsync_range(file, 0, 4095, datasync=0)
    → ext4_sync_file
    → file_write_and_wait_range
-   → WB_SYNC_ALL
-   → ext4_writepages
-   → scan and lock dirty folio
+   → WB_SYNC_ALL / ext4_writepages
    → folio_clear_dirty_for_io
-   → ext4_bio_write_folio
-   → PG_writeback = 1
+   → ext4_bio_write_folio / PG_writeback
    → REQ_OP_WRITE | REQ_SYNC bio
-   → blk_crypto_submit_bio
-   → partition remap
-   → blk-mq request/tag
-   → SCSI WRITE(10 or 16)
-   → libata ATA DMA/NCQ WRITE
-   → dma_map_sg(DMA_TO_DEVICE)
-   → AHCI H2D FIS / PRDT / AHCI_CMD_WRITE
-   → PxCI[tag] = 1
+   → blk-mq / SCSI WRITE
+   → libata ATA WRITE
+   → AHCI H2D FIS / PRDT / PxCI
    → AHCI completion interrupt
-   → ata_qc_complete / dma_unmap_sg
-   → ata_scsi_qc_complete / scsi_done
-   → blk_mq_complete_request
-   → scsi_complete / blk_update_request
-   → bio_endio / ext4_end_bio
-   → ext4_finish_bio
-   → folio_end_writeback
+   → SCSI / blk-mq / bio completion
+   → ext4_end_bio / folio_end_writeback
    → file_write_and_wait_range returns 0
-   → ext4_fsync_journal next
+   → ext4_fsync_journal(inode, false, &needs_barrier)
+   → choose i_sync_tid
+   → already committed / fast commit / full JBD2 commit
+   → commit barrier or standalone blkdev_issue_flush
+   → file_check_and_advance_wb_err
+   → ext4_sync_file returns 0
+   → generic_write_sync returns 4096
+   → new_sync_write: local pos = 4096
+   → vfs_write: accounting / file_end_write
+   → ksys_write: file->f_pos = 4096
+   → pt_regs->ax = 4096
+   → syscall_exit_to_user_mode
+   → SYSRETQ or IRETQ
+   → userspace RAX = 4096
 
 当前精确状态
 ------------
 
 * ``system_state``：``SYSTEM_RUNNING``；
-* 当前执行者：发起 O_SYNC ``write()`` 的 task；
-* CPU mode：x86-64 CPL 0，仍在 syscall process context；
-* target folio：page cache 中，clean、uptodate、unlocked；
-* ``PG_writeback``：0；
-* data WRITE bio：已完成并释放；
-* blk-mq request/tag：已完成并释放；
-* SCSI/ATA/AHCI command：已完成；
-* DMA mapping：已解除；
-* data-range wait：成功返回；
-* data writeback error：无；
-* device cache durability：尚未最终确认；
-* JBD2 transaction commit：尚未执行下一入口；
-* optional block-device flush：尚未执行；
-* ``kiocb->ki_pos``：4096；
-* local ``pos``：0；
-* ``file->f_pos``：0；
-* ``write()``：尚未返回。
+* 当前执行者：完成 O_SYNC write 的原 writer task；
+* CPU mode：x86-64 CPL 3；
+* syscall result / ``RAX``：4096；
+* ``file->f_pos``：4096；
+* target folio：clean、uptodate、unlocked，``PG_writeback=0``；
+* data bio/request/SCSI/ATA/AHCI command：已完成并释放；
+* journal requirement：已由 already-committed、fast commit 或 full JBD2 commit成功满足；
+* barrier-enabled路径：commit内 barrier或 standalone FLUSH CACHE 已完成；
+* writeback error：无，file error cursor已检查；
+* superblock freeze protection：已释放；
+* fd position guard/lock：已释放；
+* ``kiocb`` 与 local ``pos``：调用栈已经退出；
+* current runtime scenario：complete。
 
 关键边界
 --------
 
-#. 新 write 场景独立于前一条 read，不共享其 page-cache 结果。
-#. 已有 initialized extent 的覆盖写在 ``ext4_writepages`` 第一遍直接提交，不分配新 extent。
-#. ``folio_clear_dirty_for_io``、``PG_writeback`` 与 folio lock 是不同状态。
-#. WRITE DMA 从 page-cache folio读取数据，不直接读取用户 buffer。
-#. ``REQ_SYNC`` 不等于 ``REQ_FUA``。
-#. AHCI command completion必须经过 SCSI、blk-mq、bio和 ``ext4_end_bio`` 才能结束 folio writeback。
-#. ``folio_end_writeback`` 不提交 JBD2 transaction，也不保证 volatile device cache已经 flush。
-#. data-range wait成功发生在 journal commit之前。
-#. ``kiocb->ki_pos``、local ``pos`` 与共享 ``file->f_pos`` 尚未全部提交。
+#. fast commit、full JBD2 commit与 already-committed是运行时分支，不能凭未固定 mount state写死其中一个。
+#. fast-commit tail或 full commit record可以携带 ``REQ_PREFLUSH|REQ_FUA``。
+#. journal commit无法替本次 fsync携带 barrier时，ext4单独执行 ``blkdev_issue_flush``。
+#. standalone flush没有 payload、sector或 folio；SCSI将其表示为 SYNCHRONIZE CACHE，libata翻译为 ATA FLUSH CACHE/EXT。
+#. transaction commit不等于所有 metadata已经 checkpoint回 home blocks。
+#. ``kiocb->ki_pos``、local ``pos``、共享 ``file->f_pos`` 按顺序逐层提交。
+#. 运行期场景结束后，不能虚构用户程序的下一条 syscall。
 
 下一任务
 --------
 
-下一批从：
-
-.. code-block:: c
-
-   ext4_fsync_journal(inode, false, &needs_barrier);
-
-开始：
+当前没有已选定的 runtime scenario。建议下一批固定为单线程 x86-64 用户进程直接执行 native ``fork()`` syscall：
 
 ::
 
-   choose i_sync_tid
-   → ext4_fc_commit
-   → fast commit or full JBD2 commit
-   → determine needs_barrier
-   → optional blkdev_issue_flush
-   → file_check_and_advance_wb_err
-   → ext4_sync_file returns
-   → generic_write_sync returns 4096
-   → new_sync_write copies kiocb->ki_pos to local pos
-   → vfs_write accounting / file_end_write
-   → ksys_write commits file->f_pos = 4096
-   → syscall exit
-   → userspace RAX = 4096
+   userspace fork()
+   → entry_SYSCALL_64 / __x64_sys_fork
+   → kernel_clone
+   → copy_process
+   → task_struct / PID / credentials / files / fs / signals
+   → copy_mm
+   → page-table copy-on-write
+   → copy_thread
+   → wake_up_new_task
+   → scheduler first runs child
+   → parent returns child PID
+   → child returns 0
+
+下一批开始前必须从固定 commit重新核对实际函数链，并记录明确的 fork flags、单线程条件、无 ptrace/seccomp/error和父子返回状态。
 
 资料格式
 --------
