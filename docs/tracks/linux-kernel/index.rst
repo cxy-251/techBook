@@ -88,6 +88,9 @@ Linux Kernel
 #. `第八十章：AHCI 中断怎样确认完成的 tag，并把结果交回 SCSI？ <80-ahci-interrupt-completes-ata-and-scsi-command.rst>`_
 #. `第八十一章：blk-mq completion 怎样结束 bio，并让 ext4 folio 变成 uptodate？ <81-block-completion-marks-ext4-folio-uptodate.rst>`_
 #. `第八十二章：reader task 怎样复制 folio，并让 read() 返回用户态？ <82-reader-copies-folio-and-returns-from-read.rst>`_
+#. `第八十三章：x86-64 的 write() 怎样进入 ext4 buffered write？ <83-x86-write-enters-ext4-buffered-path.rst>`_
+#. `第八十四章：ext4 怎样把用户数据复制进 page-cache folio 并标脏？ <84-ext4-copies-user-data-into-dirty-folio.rst>`_
+#. `第八十五章：O_SYNC write 怎样进入 ext4 writeback？ <85-osync-write-enters-ext4-writeback.rst>`_
 
 当前主线
 --------
@@ -97,21 +100,22 @@ Linux Kernel
    x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc
    → bzImage → Linux 7.2-rc1
    → boot handoff complete
-   → fixed runtime read(fd, buf, 4096)
-   → x86 syscall entry / VFS / ext4
-   → cold page-cache miss
-   → bio / blk-mq / SCSI / libata / AHCI
-   → device DMA completion interrupt
-   → bio_endio / mpage_end_io
-   → folio uptodate + unlock
-   → copy_folio_to_iter(user buffer)
-   → file->f_pos = 4096
-   → SYSRETQ or IRETQ
-   → read() returns 4096 in userspace
+   → read(fd, buf, 4096) cold miss complete
+   → independent O_SYNC write(fd, buf, 4096)
+   → entry_SYSCALL_64 / __x64_sys_write
+   → fd / VFS / ext4 buffered write
+   → copy_folio_from_iter_atomic
+   → page-cache folio dirty
+   → generic_write_sync
+   → vfs_fsync_range / ext4_sync_file
+   → file_write_and_wait_range
+   → WB_SYNC_ALL
+   → do_writepages
+   → ext4_writepages
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-启动主线和第一个运行期 ``read()`` cold-miss 主线均已闭环。下一条运行期故事必须重新固定 syscall、对象状态、缓存状态与目标子系统；不能假装它在时间线上自动接续本次 ``read()``。
+当前固定 write 场景是：native x86-64 ``write(fd, buf, 4096)``，文件以 ``O_SYNC`` 打开，普通 ext4 ``data=ordered`` buffered overwrite，offset 0，4 KiB block，已有 initialized extent，目标 folio 初始 absent。用户数据已经复制到 dirty folio；下一阶段从 ``ext4_writepages()`` 开始建立 writeback extent、WRITE bio 与后续 storage completion。
 
 章节组织
 --------
