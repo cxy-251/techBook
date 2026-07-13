@@ -10,9 +10,9 @@
 
 ``x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 6.12.95``。
 
-当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-055``。最新章节是：
+当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-058``。最新章节是：
 
-``LK-BOOT-055``：Linux 怎样把 memblock 空闲页交给 buddy，并建立 slab 与 vmalloc？
+``LK-BOOT-058``：Linux 怎样建立 early workqueue、RCU 和 trace event 基础？
 
 ## 固定实现
 
@@ -51,36 +51,31 @@ GRUB 资料使用 GNU 官方 ``grub-2.14.tar.xz`` 和 ``GitMirroring/grub`` 固�
 
 ```text
 start_kernel()
-→ early_numa_node_init()
-→ normalize formal per-CPU CPU-to-node data
-→ boot_cpu_hotplug_init()
-→ mark CPU0 hotplug state/target CPUHP_ONLINE
-→ print_kernel_cmdline(saved_command_line)
-→ parse_early_param() idempotent checkpoint
-→ parse_args("Booting kernel", static_command_line, ...)
-→ dispatch __param / __setup / unknown / init arguments
-→ random_init_early(command_line)
-→ setup_log_buf(0)
-→ vfs_caches_init_early()
-→ sort_main_extable()
-→ trap_init()
 → mm_core_init()
-→ build zonelists and allocator hotplug hooks
-→ decide memory hardening/debug static keys
-→ memblock_free_all()
-→ release ordinary free RAM to buddy
-→ x86 mem_init() / after_bootmem
-→ kmem_cache_init()
-→ vmalloc_init(), espfix/PTI, mm and execmem caches
+→ release memblock free RAM to buddy
+→ establish slab and vmalloc
+→ maple_tree_init()
+→ poking_init()
+→ ftrace_init()
+→ early_trace_init()
+→ sched_init()
+→ initialize per-CPU runqueues and scheduling classes
+→ bind init_task as CPU0 idle/current task
+→ keep IRQs disabled
+→ radix_tree_init()
+→ housekeeping_init()
+→ workqueue_init_early()
+→ rcu_init()
+→ kvfree_rcu_init()
+→ trace_init()
+→ context_tracking_init()
 ```
 
-当前执行者是 Linux 6.12.95 ``init/main.c:start_kernel()``。``mm_core_init()`` 已返回，精确下一入口是 ``maple_tree_init()``。CPU0 正在 ``init_task`` 上执行，中断关闭，并使用正式 per-CPU unit。CPU0 hotplug state 已为 ``CPUHP_ONLINE``；AP 尚未收到 INIT/SIPI。
+当前执行者是 Linux 6.12.95 ``init/main.c:start_kernel()``。``context_tracking_init()`` 已返回，精确下一入口是 ``early_irq_init()``。
 
-GRUB 提供的 ``root=/dev/sda1 ro console=ttyS0`` 已完成内核侧参数分发，但根文件系统尚未挂载，正式 console 尚未初始化。memblock 的普通 free RAM 已交给 buddy；slab 基础和 vmalloc 已可用；scheduler、external IRQ、initramfs 解包和 PID 1 均尚未发生。
+CPU0 是唯一 online CPU，当前任务是 ``init_task`` / ``swapper/0`` / PID 0。scheduler runqueue 与 class 已建立，scheduler tick 尚未启动；external IRQ 仍关闭；AP 尚未收到 INIT/SIPI。early workqueue 可以创建和排队 work，worker kthread 尚未存在；RCU 核心结构已建立，后续 nohz、softirq 和 kthread 环境尚未完成；initramfs 尚未解包，PID 1/PID 2 尚未创建。
 
-下一任务从 ``maple_tree_init()`` 开始，继续 ``poking_init()``、``ftrace_init()``、``early_trace_init()``，随后进入 ``sched_init()``。需要清楚区分：scheduler 数据结构初始化、external IRQ 开启、secondary CPU bring-up、initramfs 解包和 PID 1 创建发生在不同位置。
-
-固定 x86 路径在 ``setup_arch()`` 早期已经完成首次 ``jump_label_init()`` / ``static_call_init()``，后续正文不要声称 ``start_kernel()`` 中同名调用重新修补整个内核 text。
+下一任务从 ``early_irq_init()`` 开始，依次核对通用 IRQ descriptor 初始化、x86 ``init_IRQ()``、IDT/interrupt-gate、``tick_init()``、``rcu_init_nohz()``、timer wheel、SRCU、hrtimer、softirq、vDSO data、``timekeeping_init()`` 和 ``time_init()``。不要把“IRQ 数据结构存在”“硬件入口已安装”和“IF 位已打开”写成同一步；``local_irq_enable()`` 仍在更后面。
 
 ## 用户输入与技术事实
 
