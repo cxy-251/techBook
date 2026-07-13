@@ -10,9 +10,9 @@
 
 ``x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 6.12.95``。
 
-当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-040``。最新章节是：
+当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-041``。最新章节是：
 
-``LK-BOOT-040``：Linux 怎样进入 start_kernel 并建立最早的通用内核状态？
+``LK-BOOT-041``：Linux setup_arch 怎样接管命令行并导入 E820 内存图？
 
 ## 固定实现
 
@@ -47,39 +47,27 @@ GRUB 资料使用 GNU 官方 ``grub-2.14.tar.xz`` 和 ``GitMirroring/grub`` 固�
 
 ## 当前控制流
 
-SeaBIOS、GNU GRUB、Linux compressed boot 和正式内核最早汇编入口已经完成。
+SeaBIOS、GNU GRUB、Linux compressed boot、正式内核汇编入口和 ``start_kernel()`` 最早阶段已经完成。
 
 当前已经执行：
 
 ```text
-common_startup_64
-→ sanitize CR4 and toggle PGE to flush stale global identity translations
-→ determine BSP as Linux CPU 0
-→ load CPU0 per-cpu offset
-→ switch to init_task stack
-→ load per-cpu GDT and GSBASE
-→ install early IDT
-→ enable EFER.SCE and conditional NXE
-→ initial_code calls x86_64_start_kernel
-→ reset early identity page tables
-→ clear kernel BSS and brk
-→ initialize conditional SME/KASAN/TDX early state
-→ copy boot_params and command line
-→ load BSP microcode
-→ x86_64_start_reservations
-→ initialize ordinary-PC legacy platform quirks
-→ start_kernel
-→ set init_task stack-end magic
-→ generic processor-id hook
-→ early debug objects, build ID and cgroup relation
-→ force local IRQs disabled
-→ mark CPU0 possible/present/online/active
-→ print linux_banner
+start_kernel()
+→ setup_arch(&command_line)
+→ resolve effective command line
+→ install early traps and early ioremap
+→ parse_boot_params()
+→ reserve kernel image and low 64 KiB
+→ reserve initramfs and setup_data
+→ reserve BIOS regions
+→ import and sanitize base E820 map
+→ parse setup_data extensions
+→ copy EDD
 ```
 
-当前执行者是 Linux 6.12.95 ``init/main.c:start_kernel()``。精确停点是下一条调用 ``setup_arch(&command_line)``。CPU 0 正在执行，interrupts 关闭，``boot_params`` 和命令行已经复制到内核静态对象，BSP microcode 已完成早期加载。x86 E820/memblock/direct-map 架构初始化尚未开始，initramfs 尚未展开，scheduler/VFS/initcall 尚未初始化。
+当前执行者是 Linux 6.12.95 ``arch/x86/kernel/setup.c:setup_arch()``。精确停点是下一条调用 ``setup_initial_init_mm()``。CPU 0 正在执行，中断关闭；kernel、低端内存、initramfs、setup_data 与 BIOS ranges 已预留；基础/扩展 E820 已导入；``memblock.memory``、``max_pfn`` 和完整 direct map 尚未建立。
 
-下一任务从 ``arch/x86/kernel/setup.c:setup_arch()`` 第一条真实调用开始，追踪命令行、``boot_params``、setup_data、E820、低端 BIOS 保留区、kernel/initrd 保留、memblock 和 early page tables。不要直接跳到 ``start_kernel()`` 后面的通用初始化，也不要用“setup_arch 完成架构初始化”概括中间过程。
+下一任务从 ``setup_initial_init_mm()`` 开始，追踪 NX、early parameters、DMI/hypervisor/ROM、kernel resources、E820 修正、MTRR trim、``max_pfn`` 和 memory layout randomization，停在 ``early_alloc_pgt_buf()`` 前。不要把 E820、resource tree 与 memblock 混成同一个结构。
 
 ## 用户输入与技术事实
 
