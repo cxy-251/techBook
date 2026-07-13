@@ -10,9 +10,9 @@
 
 ``x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 6.12.95``。
 
-当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-046``。最新章节是：
+当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-047``。最新章节是：
 
-``LK-BOOT-046``：Linux 怎样完成 x86-64 paging 收尾并建立 KASAN shadow？
+``LK-BOOT-047``：Linux 怎样探测 tboot、映射 vsyscall 并在固件枚举前限制 CPU？
 
 ## 固定实现
 
@@ -51,26 +51,21 @@ GRUB 资料使用 GNU 官方 ``grub-2.14.tar.xz`` 和 ``GitMirroring/grub`` 固�
 
 ```text
 setup_arch()
-→ import command line / boot_params / E820
-→ reserve kernel / initramfs / setup_data / BIOS ranges
 → build memblock and early direct map
-→ setup_log_buf(1)
-→ reserve_initrd()
-→ locate and reserve ACPI initial tables
+→ locate and reserve initramfs / ACPI tables
 → early MADT / MP table topology
 → initmem_init() / NUMA node assignment
-→ dma_contiguous_reserve() conditional CMA
-→ arch_reserve_crashkernel() conditional path
-→ early xDBC conditional console
-→ x86_init.paging.pagetable_init()
 → native x86-64 paging_init()
 → conditional kasan_init()
-→ sync_initial_page_table() (x86-64 no-op)
+→ tboot_probe()
+→ map_vsyscall()
+→ early_quirks()
+→ topology_apply_cmdline_limits_early()
 ```
 
-当前执行者是 Linux 6.12.95 ``arch/x86/kernel/setup.c:setup_arch()``。CPU 0 正在执行，中断关闭。initramfs 已获得可访问的 ``initrd_start`` / ``initrd_end``，尚未展开；early CPU/APIC 和 NUMA 拓扑已建立；direct map 继续由 ``init_top_pgt`` / ``swapper_pg_dir`` 承载；KASAN 若启用，正式 shadow 已建立。
+当前执行者是 Linux 6.12.95 ``arch/x86/kernel/setup.c:setup_arch()``。CPU 0 正在执行，中断关闭。tboot 固定主线未启用；vsyscall 已按构建配置/命令行设置；early PCI quirks 已扫描；CPU 上限已在完整 firmware enumeration 前生效。
 
-精确下一入口是 ``setup_arch():tboot_probe()``。下一任务追踪 Trusted Boot 条件路径、vsyscall 映射、完整 ``acpi_boot_init()``、local APIC/IOAPIC 映射、possible CPU 与 CPU-to-node 收尾、E820/resource 注册、wall clock、MCE、unwind，直到 ``setup_arch()`` 返回。不要把 early MADT 解析和后续完整 ACPI/APIC 初始化视为同一步。
+精确下一入口是 ``setup_arch():acpi_boot_init()``。下一任务追踪 FADT、MADT、HPET、SPCR 与 PCI ACPI hook，随后执行 MP table fallback、Local APIC 映射、``topology_init_possible_cpus()``、CPU-to-node 收尾和 IOAPIC 映射。不要把第四十五章的 early MADT pass 与本阶段完整中断拓扑初始化视为同一步。
 
 ## 用户输入与技术事实
 
