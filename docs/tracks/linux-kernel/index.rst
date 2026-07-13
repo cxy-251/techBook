@@ -61,6 +61,9 @@ Linux Kernel
 #. `第五十三章：Linux 为什么再次确认 CPU NUMA node，并把 CPU0 放入 hotplug ONLINE 状态？ <53-linux-initializes-boot-cpu-numa-and-hotplug-state.rst>`_
 #. `第五十四章：Linux 怎样把 GRUB 命令行分发给内核参数和 init？ <54-linux-dispatches-kernel-command-line-and-init-arguments.rst>`_
 #. `第五十五章：Linux 怎样把 memblock 空闲页交给 buddy，并建立 slab 与 vmalloc？ <55-linux-releases-memblock-to-buddy-and-starts-slab-vmalloc.rst>`_
+#. `第五十六章：Linux 怎样准备 Maple Tree、文本热补丁和 ftrace？ <56-linux-prepares-maple-tree-text-poking-and-ftrace.rst>`_
+#. `第五十七章：Linux 怎样建立 runqueue，并把 init_task 变成 CPU0 的 idle task？ <57-linux-initializes-runqueues-and-boot-idle-task.rst>`_
+#. `第五十八章：Linux 怎样建立 early workqueue、RCU 和 trace event 基础？ <58-linux-builds-workqueue-rcu-and-trace-foundations.rst>`_
 
 当前主线
 --------
@@ -74,9 +77,9 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-``start_kernel()`` 已完成 boot CPU NUMA/hotplug 初始状态和 GRUB 命令行分发，并通过 ``mm_core_init()`` 把 memblock 可用页释放给 buddy，建立 slab 与 vmalloc 基础。
+``start_kernel()`` 已建立 Maple Tree/text-poking/ftrace 基础，完成 scheduler runqueue 与 CPU0 idle task 初始化，并建立 radix-tree、housekeeping、early workqueue、RCU、trace event 和 context tracking 基础。
 
-当前下一入口是 ``maple_tree_init()``，随后进入 poking、ftrace、early trace 和 ``sched_init()``。CPU0 仍是唯一 online CPU，中断仍关闭，initramfs 尚未解包。
+当前下一入口是 ``early_irq_init()``。CPU0 仍是唯一 online CPU，外部中断仍关闭，initramfs 尚未解包，PID 1 尚未创建。
 
 章节组织
 --------
