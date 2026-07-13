@@ -56,6 +56,7 @@ Linux Kernel
 #. `第四十八章：Linux 怎样完成 ACPI、Local APIC、IOAPIC 与 possible CPU 拓扑？ <48-linux-completes-acpi-apic-and-possible-cpu-topology.rst>`_
 #. `第四十九章：Linux 怎样登记物理资源并完成 setup_arch？ <49-linux-registers-resources-and-finishes-setup-arch.rst>`_
 #. `第五十章：Linux 怎样把 memblock 物理内存变成 node、zone 和 struct page？ <50-linux-builds-zones-and-struct-page-map.rst>`_
+#. `第五十一章：Linux 为什么再次检查 static key/static call，并怎样生成正式命令行？ <51-linux-rechecks-static-patching-and-builds-command-lines.rst>`_
 
 当前主线
 --------
@@ -69,9 +70,9 @@ Linux Kernel
    → bzImage
    → Linux 6.12.95
 
-``mm_core_init_early()`` 已建立 ``pg_data_t``、DMA/DMA32/NORMAL/MOVABLE zone、SPARSEMEM/vmemmap、``struct page`` 和 ``free_area[]`` 基础。memblock 仍持有普通 RAM，buddy 尚未接收全部可分配页面。
+``start_kernel()`` 已完成 static key/static call 幂等确认、early LSM 初始化、bootconfig trailer 条件裁剪，以及 ``saved_command_line`` / ``static_command_line`` 的 memblock 持久副本。
 
-当前下一入口是 ``start_kernel():jump_label_init()``，随后处理 static call、early LSM、bootconfig 和正式命令行副本。
+当前下一入口是 ``setup_nr_cpu_ids()``，随后建立 x86-64 per-CPU first chunk 并把 CPU0 从早期静态 per-CPU 数据迁移到正式 unit。
 
 章节组织
 --------
