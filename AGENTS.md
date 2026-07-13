@@ -10,9 +10,9 @@
 
 ``x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 7.2-rc1``。
 
-当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-064``。最新章节是：
+当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-067``。最新章节是：
 
-``LK-BOOT-064``：x86 怎样启动真实定时器、校准延时并完成 boot CPU 收尾？
+``LK-BOOT-067``：Linux 怎样建立 cgroup 与 accounting，并到达 rest_init？
 
 ## 固定实现
 
@@ -45,7 +45,7 @@ menuentry 'Linux 7.2-rc1' {
 
 GRUB 资料使用 GNU 官方 ``grub-2.14.tar.xz`` 和 ``GitMirroring/grub`` 固定提交。Linux 资料使用 ``gregkh/linux`` 固定 commit ``7404ce51637231382873d0b55edabc2f3b841a9d``。
 
-重要纠正：该 commit 的 ``Makefile`` 标识为 ``Linux 7.2-rc1``。此前 ``AGENTS.md``、STATE 和 manifest 将其误写为 ``v6.12.95``。真正的 ``v6.12.95`` 是另一提交，``start_kernel()`` 顺序不同。后续不得把源码切换到 ``v6.12.95``；旧章节中残留的版本显示字符串只作为待清理标签，技术事实以固定 commit 和链接为准。
+重要纠正：该 commit 的 ``Makefile`` 标识为 ``Linux 7.2-rc1``。此前状态文件将其误写为 ``v6.12.95``。真正的 ``v6.12.95`` 是另一提交，``start_kernel()`` 顺序不同。后续不得把源码切换到 ``v6.12.95``；旧章节中残留的版本显示字符串只作为待清理标签，技术事实以固定 commit 和链接为准。
 
 ## 当前控制流
 
@@ -53,59 +53,53 @@ GRUB 资料使用 GNU 官方 ``grub-2.14.tar.xz`` 和 ``GitMirroring/grub`` 固�
 
 ```text
 start_kernel()
-→ mm_core_init()
-→ release memblock free RAM to buddy
-→ establish slab and vmalloc
-→ maple_tree_init()
-→ poking_init()
-→ ftrace_init()
-→ early_trace_init()
-→ sched_init()
-→ initialize per-CPU runqueues and scheduling classes
-→ bind init_task as CPU0 idle/current task
-→ radix_tree_init()
-→ housekeeping_init()
-→ workqueue_init_early()
-→ rcu_init()
-→ kvfree_rcu_init()
-→ trace_init()
-→ context_tracking_init()
-→ early_irq_init()
-→ allocate IRQ descriptors and x86 VECTOR domain
-→ init_IRQ()
-→ install APIC/system/external gates into IDT
-→ tick_init() / rcu_init_nohz()
-→ timers_init() / srcu_init() / hrtimers_init() / softirq_init()
-→ vdso_setup_data_pages()
-→ timekeeping_init()
-→ time_init()
-→ random_init()
-→ kfence_init()
-→ boot_init_stack_canary()
-→ perf_event_init() / profile_init() / call_function_init()
-→ early_boot_irqs_disabled = false
+→ memory / slab / vmalloc
+→ scheduler runqueues and boot idle task
+→ workqueue / RCU / trace foundations
+→ IRQ descriptors, x86 VECTOR domain and IDT gates
+→ tick / timer wheel / hrtimer / softirq
+→ timekeeping and x86 late timer initialization
 → local_irq_enable()
-→ kmem_cache_init_late()
-→ console_init()
-→ lockdep_init() / locking_selftest()
-→ setup_per_cpu_pageset()
-→ numa_policy_init()
-→ acpi_early_init()
-→ x86_late_time_init()
-→ select and initialize final interrupt mode
-→ try HPET, fall back to PIT where required
-→ register timer IRQ action
-→ tsc_init()
-→ sched_clock_init()
-→ calibrate_delay()
-→ arch_cpu_finalize_init()
+→ console / lockdep / early ACPI
+→ boot CPU finalize
+→ pid_idr_init()
+→ initialize initial PID namespace IDR and struct pid cache
+→ anon_vma_init()
+→ initialize anonymous reverse-mapping object caches
+→ thread_stack_cache_init()
+→ cred_init()
+→ fork_init()
+→ initialize task_struct cache, task limits and fork foundations
+→ proc_caches_init()
+→ initialize signal/files/fs/mm and process-related caches
+→ uts_ns_init()
+→ time_ns_init()
+→ key_init()
+→ security_init()
+→ dbg_late_init()
+→ net_ns_init()
+→ vfs_caches_init()
+→ pagecache_init()
+→ signals_init()
+→ seq_file_init()
+→ proc_root_init()
+→ nsfs_init()
+→ pidfs_init()
+→ cpuset_init()
+→ mem_cgroup_init()
+→ cgroup_init()
+→ taskstats_init_early()
+→ delayacct_init()
+→ acpi_subsystem_init()
+→ arch_post_acpi_subsys_init()
+→ kcsan_init()
 ```
 
-当前执行者是 Linux 7.2-rc1 ``init/main.c:start_kernel()``。``arch_cpu_finalize_init()`` 已返回，精确下一入口是 ``pid_idr_init()``。
+当前执行者是 Linux 7.2-rc1 ``init/main.c:start_kernel()``。``kcsan_init()`` 已返回，精确下一入口是 ``rest_init()``。
 
-CPU0 是唯一 online CPU，当前任务是 ``init_task`` / ``swapper/0`` / PID 0。CPU0 IF=1，普通 maskable IRQ 已允许进入；最终 x86 interrupt mode、HPET/PIT fallback、TSC、sched clock 和 delay calibration 已完成对应初始化入口。boot CPU feature、idle routine、SMT、mitigation、FPU、alternative instructions 与 memory-encryption 收尾已完成。AP 尚未启动，initramfs 尚未解包，PID allocator、PID 1 和 PID 2 尚未创建。
+CPU0 是唯一 online CPU，当前任务仍是 ``init_task`` / ``swapper/0`` / PID 0。CPU0 IF=1。PID/fork/credential caches、namespace roots、LSM/VFS/proc/pidfs、cpuset/memcg/cgroup、task accounting、ACPI subsystem 与 KCSAN 基础已建立。AP 尚未启动，initramfs 尚未解包，PID 1/PID 2 尚未创建，也尚未发生第一次正常 ``schedule()``。
 
-下一任务从 ``pid_idr_init()`` 开始，依次核对 ``anon_vma_init()``、``thread_stack_cache_init()``、``cred_init()``、``fork_init()``、``proc_caches_init()``、UTS/time namespace、key/security、network namespace、VFS/page cache、signal、proc/nsfs/pidfs、cpuset、memcg 和 cgroup 基础。不要把“进程相关 cache 已建立”“PID allocator 已建立”和“PID 1 已创建”写成同一步；真正创建 PID 1/PID 2 仍在 ``rest_init()``。
+下一任务从 ``rest_init()`` 开始，依次核对 ``rcu_scheduler_starting()``、``user_mode_thread(kernel_init)`` 创建 PID 1、把 PID 1 暂时固定在 CPU0、``kernel_thread(kthreadd)`` 创建 PID 2、``system_state = SYSTEM_SCHEDULING``、``complete(kthreadd_done)``、``schedule_preempt_disabled()`` 与 ``cpu_startup_entry()``。不要把“进程对象基础已建立”“PID allocator 已建立”“PID 1/PID 2 已创建”和“PID 0 已进入 idle loop”写成同一步。
 
 ## 用户输入与技术事实
 
