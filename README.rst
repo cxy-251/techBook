@@ -56,6 +56,7 @@ techBook
 * `第四十七章：Linux 怎样探测 tboot、映射 vsyscall 并在固件枚举前限制 CPU？ <docs/tracks/linux-kernel/47-linux-probes-tboot-maps-vsyscall-and-applies-early-limits.rst>`_
 * `第四十八章：Linux 怎样完成 ACPI、Local APIC、IOAPIC 与 possible CPU 拓扑？ <docs/tracks/linux-kernel/48-linux-completes-acpi-apic-and-possible-cpu-topology.rst>`_
 * `第四十九章：Linux 怎样登记物理资源并完成 setup_arch？ <docs/tracks/linux-kernel/49-linux-registers-resources-and-finishes-setup-arch.rst>`_
+* `第五十章：Linux 怎样把 memblock 物理内存变成 node、zone 和 struct page？ <docs/tracks/linux-kernel/50-linux-builds-zones-and-struct-page-map.rst>`_
 
 当前主线
 --------
@@ -69,9 +70,9 @@ techBook
    → bzImage
    → Linux 6.12.95
 
-当前 ``setup_arch()`` 已完成资源树、PCI gap、wallclock backend、thermal LVT、MCE、refined-jiffies 和 unwind 收尾，并返回 ``start_kernel()``。
+当前 ``mm_core_init_early()`` 已建立 node、zone、SPARSEMEM/vmemmap、``struct page``、pageblock 和 ``free_area[]`` 基础。memblock 仍持有普通 RAM，buddy 与 slab 尚未正式接管。
 
-下一入口是 ``start_kernel():mm_core_init_early()``。buddy allocator、per-CPU area、scheduler、AP 启动和 initramfs 解包均尚未发生。
+下一入口是 ``start_kernel():jump_label_init()``，随后处理 static call、early LSM、bootconfig 与命令行持久副本。
 
 开始工作
 --------
