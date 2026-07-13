@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第七十四章：x86-64 的 read() 怎样从用户态进入 __x64_sys_read？ <docs/tracks/linux-kernel/74-x86-read-syscall-enters-kernel.rst>`_
-* `第七十五章：read() 怎样从 fd 找到 ext4 文件并进入 generic_file_read_iter？ <docs/tracks/linux-kernel/75-read-resolves-fd-and-dispatches-through-vfs.rst>`_
-* `第七十六章：page cache miss 怎样让 ext4 构造并提交 READ bio？ <docs/tracks/linux-kernel/76-filemap-miss-builds-ext4-read-bio.rst>`_
+* `第七十七章：READ bio 怎样通过校验与分区重映射进入 blk-mq？ <docs/tracks/linux-kernel/77-read-bio-enters-generic-block-submission.rst>`_
+* `第七十八章：blk-mq 怎样把 bio 变成 SCSI READ request？ <docs/tracks/linux-kernel/78-blk-mq-builds-scsi-read-request.rst>`_
+* `第七十九章：SCSI READ 怎样变成 ATA taskfile 并写入 AHCI command slot？ <docs/tracks/linux-kernel/79-scsi-read-becomes-ahci-command.rst>`_
 
 当前主线
 --------
@@ -32,29 +32,29 @@ techBook
 ::
 
    LK-BOOT-001..LK-BOOT-073
-   LK-READ-074..LK-READ-076
+   LK-READ-074..LK-READ-079
 
 当前运行期路径：
 
 ::
 
-   userspace SYSCALL
-   → entry_SYSCALL_64
-   → do_syscall_64
-   → __x64_sys_read
-   → ksys_read
-   → fdget_pos
-   → vfs_read
-   → ext4_file_read_iter
-   → generic_file_read_iter
-   → filemap_read
+   userspace read(fd, buf, 4096)
+   → entry_SYSCALL_64 / __x64_sys_read
+   → fd / VFS / ext4
    → cold page-cache miss
-   → ext4_readahead / ext4_mpage_readpages
-   → ext4_map_blocks
-   → READ bio
-   → blk_crypto_submit_bio
+   → ext4 READ bio
+   → submit_bio_noacct
+   → /dev/sda1 partition remap
+   → blk_mq_submit_bio
+   → blk-mq request and tag
+   → SCSI READ CDB
+   → libata ATA taskfile
+   → DMA-map folio scatterlist
+   → AHCI H2D Register FIS
+   → AHCI PRDT and command header
+   → PxCI[tag] = 1
 
-下一步从 ``blk_crypto_submit_bio()`` 进入 block layer，继续追踪 ``submit_bio_noacct()``、bio split/merge、blk-mq request、SCSI 与 q35 ICH9 AHCI submission。
+当前 AHCI command 已提交，DMA completion 尚未发生。下一批从 AHCI interrupt path 开始，继续追踪 ``ata_qc_complete``、``scsi_done``、blk-mq/bio completion、``mpage_end_io``、folio unlock、``copy_folio_to_iter`` 与 x86 syscall return。
 
 开始工作
 --------
