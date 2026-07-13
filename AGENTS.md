@@ -10,9 +10,9 @@
 
 ``x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 6.12.95``。
 
-当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-044``。最新章节是：
+当前已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-046``。最新章节是：
 
-``LK-BOOT-044``：Linux 怎样扩大启动日志并确认 initramfs 与 ACPI 表可以安全访问？
+``LK-BOOT-046``：Linux 怎样完成 x86-64 paging 收尾并建立 KASAN shadow？
 
 ## 固定实现
 
@@ -53,26 +53,24 @@ GRUB 资料使用 GNU 官方 ``grub-2.14.tar.xz`` 和 ``GitMirroring/grub`` 固�
 setup_arch()
 → import command line / boot_params / E820
 → reserve kernel / initramfs / setup_data / BIOS ranges
-→ register kernel resources and correct E820
-→ apply MTRR trim and calculate PFN limits
-→ early_alloc_pgt_buf()
-→ reserve and close brk
-→ e820__memblock_setup()
-→ reserve low 1 MiB and real-mode trampoline
-→ init_mem_mapping()
-→ load swapper_pg_dir and flush TLB
-→ replace early page-fault IDT
-→ memblock_set_current_limit(get_max_mapped())
+→ build memblock and early direct map
 → setup_log_buf(1)
 → reserve_initrd()
-→ conditionally relocate initramfs below max_pfn_mapped
-→ scan initrd ACPI overrides
-→ acpi_boot_table_init()
+→ locate and reserve ACPI initial tables
+→ early MADT / MP table topology
+→ initmem_init() / NUMA node assignment
+→ dma_contiguous_reserve() conditional CMA
+→ arch_reserve_crashkernel() conditional path
+→ early xDBC conditional console
+→ x86_init.paging.pagetable_init()
+→ native x86-64 paging_init()
+→ conditional kasan_init()
+→ sync_initial_page_table() (x86-64 no-op)
 ```
 
-当前执行者是 Linux 6.12.95 ``arch/x86/kernel/setup.c:setup_arch()``。CPU 0 正在执行，中断关闭。动态 printk ring buffer 已按需建立；initramfs 已获得可访问的 ``initrd_start`` / ``initrd_end``，尚未展开；ACPI 初始 table list 已定位并保留。
+当前执行者是 Linux 6.12.95 ``arch/x86/kernel/setup.c:setup_arch()``。CPU 0 正在执行，中断关闭。initramfs 已获得可访问的 ``initrd_start`` / ``initrd_end``，尚未展开；early CPU/APIC 和 NUMA 拓扑已建立；direct map 继续由 ``init_top_pgt`` / ``swapper_pg_dir`` 承载；KASAN 若启用，正式 shadow 已建立。
 
-精确下一入口是 ``setup_arch():vsmp_init()``。下一任务追踪 virtual SMP 与 I/O delay 条件路径、early platform quirks、``early_acpi_boot_init()`` 对 MADT 的早期处理、MP table fallback、``x86_flattree_get_config()`` 和 ``initmem_init()``。不要把 ACPI table 定位、MADT 拓扑解析和 NUMA memory-node 建立混成一步。
+精确下一入口是 ``setup_arch():tboot_probe()``。下一任务追踪 Trusted Boot 条件路径、vsyscall 映射、完整 ``acpi_boot_init()``、local APIC/IOAPIC 映射、possible CPU 与 CPU-to-node 收尾、E820/resource 注册、wall clock、MCE、unwind，直到 ``setup_arch()`` 返回。不要把 early MADT 解析和后续完整 ACPI/APIC 初始化视为同一步。
 
 ## 用户输入与技术事实
 
