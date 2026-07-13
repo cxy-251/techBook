@@ -9,15 +9,16 @@
 ```text
 LK-BOOT-001..LK-BOOT-073
 LK-READ-074..LK-READ-082
+LK-WRITE-083..LK-WRITE-085
 ```
 
-启动主线已完结。第一个运行期场景 `read(fd, buf, 4096)` cold page-cache miss 也已经完整闭环。
+启动主线已完结；`read(fd, buf, 4096)` cold page-cache miss 已完整闭环。当前正在写独立的 ext4 `O_SYNC` buffered write 主线。
 
 最新三章：
 
-- `LK-READ-080`：AHCI 中断怎样确认完成的 tag，并把结果交回 SCSI？
-- `LK-READ-081`：blk-mq completion 怎样结束 bio，并让 ext4 folio 变成 uptodate？
-- `LK-READ-082`：reader task 怎样复制 folio，并让 read() 返回用户态？
+- `LK-WRITE-083`：x86-64 的 write() 怎样进入 ext4 buffered write？
+- `LK-WRITE-084`：ext4 怎样把用户数据复制进 page-cache folio 并标脏？
+- `LK-WRITE-085`：O_SYNC write 怎样进入 ext4 writeback？
 
 ## 固定实现
 
@@ -37,134 +38,131 @@ kernel            = /boot/bzImage-7.2-rc1
 initramfs         = /boot/initramfs-7.2-rc1.img
 ```
 
-固定 `grub.cfg`：
+固定 Linux commit 的 `Makefile` 标识为 Linux 7.2-rc1。旧章节中的 `Linux 6.12.95` 是历史显示标签错误，不得改用真正的 `v6.12.95`。
 
-```cfg
-set timeout=0
-set default=0
-
-menuentry 'Linux 7.2-rc1' {
-    linux /boot/bzImage-7.2-rc1 root=/dev/sda1 ro console=ttyS0
-    initrd /boot/initramfs-7.2-rc1.img
-}
-```
-
-Linux 资料始终使用 `gregkh/linux` 固定 commit `7404ce51637231382873d0b55edabc2f3b841a9d`。该 commit 的 `Makefile` 标识为 Linux 7.2-rc1。旧章节中的 `Linux 6.12.95` 是历史显示标签错误，不得切换到真正的 `v6.12.95`。
-
-## 已完成的 read() 固定场景
+## 当前 write 固定场景
 
 ```text
-userspace call       = read(fd, buf, 4096)
+userspace call       = write(fd, buf, 4096)
 ABI                  = native x86-64 SYSCALL / entry_SYSCALL_64
-file                 = already-open regular ext4 file on /dev/sda1
+open flags           = O_WRONLY | O_SYNC
+file                 = independent already-open regular ext4 file on /dev/sda1
 initial file position= 0
+file size            = at least 4096 bytes
 filesystem block     = 4096 bytes
+write type           = full-block overwrite, not extending
+extent               = logical block 0 already initialized and mapped
 I/O mode             = buffered; not O_DIRECT; not DAX
-file features        = no inline data, fscrypt, fs-verity, integrity protection
+ext4 mode            = journal enabled, data=ordered, delayed allocation enabled
 initial page cache   = target index 0 absent
-readahead            = synchronous readahead covers target folio
-extent               = logical block 0 maps to existing physical storage
-user buffer          = mapped and writable
-partition offset     = /dev/sda1 begins at whole-disk LBA 2048
-block path           = no injected failure or blk-cgroup throttle delay
-queue limits         = bio fits limits and is not split
-merge                = no compatible request
-completion           = successful 4096-byte read
+user buffer          = mapped, readable, stable during copy
+excluded             = inline data, fscrypt, fs-verity, atomic write
+failure policy       = no ENOSPC, copy fault, freeze conflict, forced shutdown or injected I/O failure
 ```
 
-没有无依据写死磁盘 logical-sector size、SCSI READ(6/10/16) 或 ATA DMA/NCQ。真实分支在 AHCI submission/completion 处重新汇合。
+该 write 场景独立于前一条 read；不要沿用 read 结束后的 page-cache folio。
 
-## 已完成控制流
+## 已执行控制流
 
 ```text
-userspace read(fd, buf, 4096)
+userspace write(fd, buf, 4096)
 → entry_SYSCALL_64
-→ do_syscall_64 / __x64_sys_read
-→ ksys_read / fd position guard
-→ vfs_read / new_sync_read
-→ ext4_file_read_iter
-→ generic_file_read_iter / filemap_read
-→ cold page-cache miss
-→ synchronous readahead
-→ ext4_mpage_readpages / ext4_map_blocks
-→ READ bio
-→ submit_bio_noacct
-→ partition remap
-→ blk_mq_submit_bio
-→ blk-mq request and tag
-→ SCSI READ CDB
-→ libata ATA DMA or NCQ taskfile
-→ dma_map_sg
-→ AHCI H2D FIS / PRDT / command header
-→ PxCI[tag] = 1
-
-→ AHCI DMA to page-cache folio
-→ completion IRQ
-→ compare software active mask with PxCI/PxSACT
-→ ata_qc_complete
-→ dma_unmap_sg
-→ ata_scsi_qc_complete / scsi_done
-→ blk_mq_complete_request
-→ scsi_complete / scsi_finish_command
-→ blk_update_request
-→ bio_endio
-→ ext4 mpage_end_io
-→ folio_end_read(folio, true)
-→ folio uptodate + unlock + waiter wake
-
-→ reader task retries filemap lookup
-→ copy_folio_to_iter(user buffer)
-→ ki_pos = 4096
-→ local pos = 4096
-→ file->f_pos = 4096
-→ pt_regs->ax = 4096
-→ syscall_exit_to_user_mode
-→ SYSRETQ or IRETQ
-→ userspace CPL 3
+→ do_syscall_64 / __x64_sys_write
+→ ksys_write / fd position guard
+→ vfs_write / new_sync_write
+→ IOCB_SYNC + IOCB_DSYNC
+→ ext4_file_write_iter
+→ ext4_buffered_write_iter
+→ inode_lock
+→ ext4_write_checks
+→ generic_perform_write
+→ ext4_da_write_begin
+→ allocate and lock page-cache folio
+→ prepare existing mapped block
+→ copy_folio_from_iter_atomic
+→ ext4_da_write_end / block_write_end
+→ folio dirty, uptodate, unlocked
+→ iocb->ki_pos = 4096
+→ inode_unlock
+→ generic_write_sync
+→ vfs_fsync_range(file, 0, 4095, datasync=0)
+→ ext4_sync_file
+→ file_write_and_wait_range
+→ filemap_fdatawrite_range
+→ writeback_control: WB_SYNC_ALL, range 0..4095
+→ do_writepages
+→ ext4_writepages
 ```
 
 ## 当前精确状态
 
 ```text
 system_state       = SYSTEM_RUNNING
-current executor   = userspace task after read() return
-CPU mode           = x86-64 CPL 3
-RAX                = 4096
-user buffer        = file bytes 0..4095
-file->f_pos        = 4096
-target folio       = in page cache, uptodate, unlocked
-bio/request/tag    = completed and released
-SCSI/ATA/AHCI      = command completed
-runtime scenario   = complete
+current executor   = task that invoked O_SYNC write(fd, buf, 4096)
+CPU mode           = x86-64 CPL 0, syscall process context
+writeback mode     = WB_SYNC_ALL
+writeback range    = file offset 0..4095
+target folio       = page cache, dirty, uptodate, unlocked
+stable storage     = not updated yet
+inode i_rwsem      = released
+superblock writer  = still protected by file_start_write
+kiocb->ki_pos      = 4096
+local pos          = 0
+file->f_pos        = 0
+PG_writeback       = not established by this writepages call yet
+WRITE bio          = not created
+blk-mq request/tag = not created
+SCSI/ATA/AHCI      = not created
+journal commit     = not waited
+write syscall      = not returned
 ```
 
-## 下一任务
+## 下一任务边界
 
-下一条运行期主线尚未选定。不要把另一个 syscall 写成本次 `read()` 的自动时间线后续。
+下一批从固定源码中的：
 
-开始新场景前必须明确：
+```c
+ext4_writepages(mapping, wbc)
+```
 
-1. syscall 与参数；
-2. 对象的初始状态；
-3. cache/mapping/lock/concurrency 状态；
-4. filesystem、device 或 network 路径；
-5. 成功或错误分支；
-6. 自然终止边界。
+开始，连续追踪：
 
-buffered ext4 `write(fd, buf, 4096)` 是优先候选，可覆盖 user copy、page-cache dirty、ext4 journaling、writeback 和 storage submission；它目前只是候选，没有被正式选为下一入口。
+```text
+ext4_writepages
+→ scan and lock dirty folio
+→ clear dirty-for-I/O and set PG_writeback
+→ prepare ext4 writeback extent
+→ preserve data=ordered journal dependency
+→ ext4_io_submit
+→ WRITE bio
+→ submit_bio / partition remap
+→ blk-mq request
+→ SCSI WRITE
+→ libata ATA write taskfile
+→ AHCI H2D FIS / PRDT / PxCI
+→ completion interrupt
+→ bio completion / folio end_writeback
+→ file_write_and_wait_range returns
+→ ext4 journal commit / optional flush
+→ generic_write_sync returns
+→ local pos and file->f_pos become 4096
+→ write() returns userspace
+```
+
+必须从固定 commit 核对实际函数链后再决定下一章自然边界，不要直接复用 read 路径的函数名称。
 
 ## 必须保持的技术边界
 
-1. bio、blk-mq request、`scsi_cmnd`、`ata_queued_cmd` 和 AHCI command slot 是不同对象。
-2. AHCI DMA 的目标是 page-cache folio，不是用户 buffer。
-3. hardware tag 完成不等于 folio 已经 uptodate；completion 必须穿过 libata、SCSI、blk-mq、bio 和 ext4。
-4. `folio_end_read(folio, true)` 发布 uptodate、unlock 并唤醒 waiters。
-5. waiter wake 不等于 reader 立即运行。
-6. `copy_folio_to_iter()` 才执行 page cache 到用户 buffer 的复制。
-7. `access_ok()` 成功不保证真正 user copy 不 fault。
-8. `ki_pos`、local `pos` 与共享 `file->f_pos` 必须分开描述。
-9. clean native return frame 通常走 `SYSRETQ`，异常 frame 走 `IRETQ`。
-10. 不同运行期场景之间不是自动连续时间线。
+1. `O_SYNC` buffered write 仍先写 page cache，再执行同步 writeback。
+2. dirty、uptodate folio 不表示 stable storage 已更新。
+3. delayed-allocation aops 被选中，不表示覆盖已有 extent 时重新分配磁盘块。
+4. `generic_write_sync()` 对 `O_SYNC` 使用 `datasync=0`。
+5. `file_write_and_wait_range()` 的 write 与 wait 是不同阶段。
+6. `WB_SYNC_ALL` 不表示 bio 已创建或 I/O 已完成。
+7. `PG_writeback`、WRITE bio、blk-mq request、SCSI command、ATA queued command 和 AHCI slot 是不同状态与对象。
+8. storage WRITE DMA 从 page-cache folio 读取数据；用户 buffer 已在更早的 CPU copy 阶段退出主线。
+9. data completion 与 journal commit/device flush 不得混为同一件事。
+10. `kiocb->ki_pos`、local `pos`、共享 `file->f_pos` 必须分开描述。
 
 ## 连续叙事
 
@@ -177,13 +175,13 @@ buffered ext4 `write(fd, buf, 4096)` 是优先候选，可覆盖 user copy、pag
 - 下一控制入口；
 - 固定源码文件、symbol 或规范依据。
 
-不能用“block layer 处理请求”“驱动完成 I/O”“进程返回用户态”这样的概括跳过对象转换和控制权交接。
+不能用“ext4 刷盘”“block layer 处理”“journal 提交完成”这样的概括跳过对象转换、等待与控制权交接。
 
 ## 章节边界
 
 章节不按 Roadmap 条目机械切分。连续叙述达到适合一次阅读的篇幅，并遇到执行者、CPU mode、数据结构所有权、运行环境或 subsystem 交接时换章。
 
-每章结尾记录当前执行者、状态和下一入口。章节正文不添加上一章、下一章或目录导航；章节列表统一由 `docs/tracks/linux-kernel/index.rst` 提供。
+每章末尾记录当前执行者、状态和下一入口。章节正文不添加上一章、下一章或目录导航；章节列表统一由 `docs/tracks/linux-kernel/index.rst` 提供。
 
 每章末尾“资料”必须使用可点击 RST 链接。技术事实优先使用规范、官方发布物和固定源码等一手资料。
 
