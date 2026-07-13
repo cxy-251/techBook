@@ -11,11 +11,11 @@
 
 仓库当前只写 Linux Kernel。
 
-已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-050``。最新三章：
+已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-051``。最新三章：
 
-#. ``LK-BOOT-048``：Linux 怎样完成 ACPI、Local APIC、IOAPIC 与 possible CPU 拓扑？
 #. ``LK-BOOT-049``：Linux 怎样登记物理资源并完成 setup_arch？
 #. ``LK-BOOT-050``：Linux 怎样把 memblock 物理内存变成 node、zone 和 struct page？
+#. ``LK-BOOT-051``：Linux 为什么再次检查 static key/static call，并怎样生成正式命令行？
 
 完整章节列表见 ``docs/tracks/linux-kernel/index.rst``，机器可读接续信息见 ``manifests/tracks/linux-kernel.toml``。
 
@@ -47,48 +47,43 @@
 当前控制流位置
 --------------
 
-第四十八至五十章已经完成：
+第四十九至五十一章已经完成：
 
 ::
 
-   acpi_boot_init()
-   → full FADT / MADT / HPET / SPCR parsing
-   → Local APIC / IOAPIC mappings
-   → possible CPU and CPU-to-node topology
-   → E820 and standard I/O resource registration
-   → wallclock backend / thermal LVT / MCE / unwind
-   → return from setup_arch()
+   finish setup_arch() and return to start_kernel()
    → mm_core_init_early()
-   → conditional HugeTLB CMA reservation
-   → conditional gigantic HugeTLB boot allocation
-   → arch_zone_limits_init()
-   → sparse_init()
-   → derive zone and movable PFN ranges
-   → initialize pg_data_t and per-node zones
-   → initialize struct page metadata and pageblock layout
-   → set high_memory
+   → establish nodes, zones, sparse memory and struct page metadata
+   → jump_label_init() idempotent check on fixed x86 path
+   → static_call_init() idempotent check on fixed x86 path
+   → early_security_init()
+   → prepare early LSM blob offsets and hooks
+   → setup_boot_config()
+   → conditionally detach bootconfig trailer from initramfs
+   → conditionally convert kernel.* and init.* bootconfig keys
+   → setup_command_line(command_line)
+   → allocate saved_command_line and static_command_line from memblock
 
 此刻机器状态：
 
 * 当前执行者：Linux 6.12.95 ``init/main.c:start_kernel()``；
-* 精确位置：``mm_core_init_early()`` 已返回，``jump_label_init()`` 尚未调用；
+* 精确位置：``setup_command_line(command_line)`` 已返回，``setup_nr_cpu_ids()`` 尚未调用；
 * CPU：BSP / Linux CPU 0；
 * mode：64 位 long mode；
 * current task：``init_task``；
 * interrupts：关闭，``early_boot_irqs_disabled = true``；
-* NUMA ``pg_data_t``：已建立；
-* zones：已按 x86 PFN 和 node 范围建立；
-* sparse memory / vmemmap：已初始化；
-* ``struct page``：已为可管理 PFN 建立和初始化；
-* pageblock / zone ``free_area[]``：结构已建立；
-* memblock：仍管理普通 RAM 与 reservation；
-* zone ``managed_pages``：普通 RAM 尚未全部释放进 buddy；
-* buddy allocator：基础结构存在，尚未接收全部可分配页；
-* slab allocator：尚未建立；
-* static key/static call：尚未完成运行时代码修补；
-* early LSM：尚未初始化；
-* bootconfig：尚未检查；
+* node/zone/``struct page``：已建立；
+* memblock：仍活动；
+* buddy：尚未接收全部可分配 RAM；
+* static key/static call：固定 x86 路径此前已初始化，本阶段完成幂等确认；
+* early LSM：已初始化并可安装 static-call hook；
+* 普通 LSM 和 policy：尚未完成；
+* bootconfig：已完成尾部识别、条件解析和从 initramfs 逻辑范围裁剪；
+* ``saved_command_line``：已建立完整持久副本；
+* ``static_command_line``：已建立可原地解析副本；
+* ``nr_cpu_ids``：尚未按 possible mask 最终收缩；
 * per-CPU area：尚未建立；
+* CPU0：仍使用早期 per-CPU/GDT 基础；
 * scheduler：尚未初始化；
 * AP：尚未唤醒；
 * initramfs：尚未解包。
@@ -106,4 +101,4 @@
 当前下一步
 ----------
 
-从 ``start_kernel():jump_label_init()`` 开始，追踪 static key 的 jump-table 修补、static call call-site 修补、early LSM hooks、initrd 尾部 bootconfig 检查，以及 ``saved_command_line`` / ``static_command_line`` 的 memblock 持久副本。
+从 ``start_kernel():setup_nr_cpu_ids()`` 开始，追踪 possible/present/online/active CPU mask 区别、x86-64 per-CPU first chunk、``__per_cpu_offset``、早期 APIC/ACPI/NUMA 映射迁移、CPU0 的 GDT/GS per-CPU base 切换，以及 boot CPU hotplug state 初始化。
