@@ -11,11 +11,11 @@
 
 仓库当前只写 Linux Kernel。
 
-已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-047``。最新三章：
+已经完成 ``LK-BOOT-001`` 至 ``LK-BOOT-048``。最新三章：
 
-#. ``LK-BOOT-045``：Linux 怎样从 MADT、MP table 和 SRAT 建立 CPU 拓扑与 NUMA node？
 #. ``LK-BOOT-046``：Linux 怎样完成 x86-64 paging 收尾并建立 KASAN shadow？
 #. ``LK-BOOT-047``：Linux 怎样探测 tboot、映射 vsyscall 并在固件枚举前限制 CPU？
+#. ``LK-BOOT-048``：Linux 怎样完成 ACPI、Local APIC、IOAPIC 与 possible CPU 拓扑？
 
 完整章节列表见 ``docs/tracks/linux-kernel/index.rst``，机器可读接续信息见 ``manifests/tracks/linux-kernel.toml``。
 
@@ -47,40 +47,44 @@
 当前控制流位置
 --------------
 
-第四十五至四十七章已经完成：
+第四十六至四十八章已经完成：
 
 ::
 
-   initmem_init()
-   → assign memblock RAM to NUMA nodes
-   → dma_contiguous_reserve() conditional CMA
-   → arch_reserve_crashkernel() conditional path
-   → early xDBC conditional console
-   → x86_init.paging.pagetable_init()
+   x86_init.paging.pagetable_init()
    → native x86-64 paging_init()
    → conditional kasan_init()
-   → sync_initial_page_table() (x86-64 no-op)
    → tboot_probe()
    → map_vsyscall()
-   → x86_32_probe_apic() architecture compatibility entry
-   → early_quirks() direct PCI scan
+   → early_quirks()
    → topology_apply_cmdline_limits_early()
+   → acpi_boot_init()
+   → parse FADT / full MADT / HPET / BGRT / SPCR
+   → select pci_acpi_init when ACPI IRQ routing is enabled
+   → MP table fallback parse
+   → init_apic_mappings()
+   → topology_init_possible_cpus()
+   → init_cpu_to_node()
+   → init_gi_nodes()
+   → io_apic_init_mappings()
+   → x86_init.hyper.guest_late_init()
 
 此刻机器状态：
 
 * 当前执行者：Linux 6.12.95 ``arch/x86/kernel/setup.c:setup_arch()``；
 * CPU：BSP / Linux CPU 0；
 * mode：64 位 long mode；
-* interrupts：关闭；
-* tboot：固定主线未检测到 measured-launch shared page；
-* vsyscall：已按构建配置和命令行完成固定页/兼容模式设置；
-* early PCI quirks：已扫描并应用匹配项；
-* CPU 命令行上限：已在完整 firmware CPU enumeration 前生效；
-* early MADT CPU/APIC topology：已存在；
-* FADT/HPET/完整 MADT interrupt pass：尚未完成；
-* Local APIC/IOAPIC 最终映射：尚未完成；
+* interrupts：全局关闭；
+* FADT：SCI、PM timer 等启动信息已解析；
+* MADT：Local APIC、IOAPIC、GSI override 与 NMI 信息已处理；
+* Local APIC：已确认，非 x2APIC 模式下已有 fixmap；
+* IOAPIC：MMIO 已映射，redirection table 尚未正式启用；
+* possible CPU 数量与 package/die/core/thread 拓扑：已最终确定；
+* CPU-to-node：已建立；
 * AP：尚未唤醒；
-* zone/buddy allocator：尚未建立；
+* 普通设备 IRQ：尚未开放；
+* E820/resource tree：尚未完成注册；
+* wall clock/MCE/unwind：尚未初始化；
 * ``setup_arch()``：尚未返回。
 
 完成状态
@@ -96,4 +100,4 @@
 当前下一步
 ----------
 
-从 ``setup_arch():acpi_boot_init()`` 开始，追踪 FADT、MADT、HPET、SPCR 与 PCI ACPI hook，随后执行 MP table fallback、Local APIC 映射、possible CPU 初始化、CPU-to-node 收尾和 IOAPIC 映射。
+从 ``setup_arch():e820__reserve_resources()`` 开始，追踪 E820 与标准 PC resource tree、nosave regions、IOAPIC resource、PCI gap、VGA console 条件登记、wall clock、thermal LVT、machine check、refined jiffies、EFI quirk 和 unwind，直到 ``setup_arch()`` 返回。
