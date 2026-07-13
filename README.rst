@@ -58,6 +58,7 @@ techBook
 * `第四十九章：Linux 怎样登记物理资源并完成 setup_arch？ <docs/tracks/linux-kernel/49-linux-registers-resources-and-finishes-setup-arch.rst>`_
 * `第五十章：Linux 怎样把 memblock 物理内存变成 node、zone 和 struct page？ <docs/tracks/linux-kernel/50-linux-builds-zones-and-struct-page-map.rst>`_
 * `第五十一章：Linux 为什么再次检查 static key/static call，并怎样生成正式命令行？ <docs/tracks/linux-kernel/51-linux-rechecks-static-patching-and-builds-command-lines.rst>`_
+* `第五十二章：Linux 怎样确定 CPU 编号上限并把 CPU0 迁入正式 per-CPU area？ <docs/tracks/linux-kernel/52-linux-builds-percpu-area-and-migrates-cpu0.rst>`_
 
 当前主线
 --------
@@ -71,9 +72,9 @@ techBook
    → bzImage
    → Linux 6.12.95
 
-当前 ``start_kernel()`` 已完成 early LSM、bootconfig 条件处理和两份命令行持久副本。固定 x86 路径中的 static key/static call 在更早阶段已初始化，此处只完成幂等确认。
+当前 ``start_kernel()`` 已建立正式 per-CPU first chunk，为 possible CPU 设置 unit offset，并把 CPU0 切换到正式 GDT/GS per-CPU base；AP 尚未启动。
 
-下一入口是 ``setup_nr_cpu_ids()``，随后建立正式 per-CPU area 并切换 CPU0 的 per-CPU base。
+下一入口是 ``early_numa_node_init()``，随后处理 boot CPU hotplug state 和通用命令行解析。
 
 开始工作
 --------
