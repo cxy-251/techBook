@@ -54,6 +54,7 @@ techBook
 * `第四十五章：Linux 怎样从 MADT、MP table 和 SRAT 建立 CPU 拓扑与 NUMA node？ <docs/tracks/linux-kernel/45-linux-parses-early-acpi-and-builds-numa-nodes.rst>`_
 * `第四十六章：Linux 怎样完成 x86-64 paging 收尾并建立 KASAN shadow？ <docs/tracks/linux-kernel/46-linux-finalizes-paging-and-kasan-shadow.rst>`_
 * `第四十七章：Linux 怎样探测 tboot、映射 vsyscall 并在固件枚举前限制 CPU？ <docs/tracks/linux-kernel/47-linux-probes-tboot-maps-vsyscall-and-applies-early-limits.rst>`_
+* `第四十八章：Linux 怎样完成 ACPI、Local APIC、IOAPIC 与 possible CPU 拓扑？ <docs/tracks/linux-kernel/48-linux-completes-acpi-apic-and-possible-cpu-topology.rst>`_
 
 当前主线
 --------
@@ -67,9 +68,9 @@ techBook
    → bzImage
    → Linux 6.12.95
 
-当前 ``setup_arch()`` 已完成 tboot 条件探测、vsyscall 映射、early PCI quirks 和 firmware CPU enumeration 前的命令行上限。
+当前 ``setup_arch()`` 已完成完整 ACPI/APIC/IOAPIC 和 possible CPU/node 拓扑。
 
-下一入口是 ``acpi_boot_init()``，随后完成 FADT/MADT/HPET、MP table fallback、Local APIC/IOAPIC 和 possible CPU/node 拓扑。
+下一入口是 ``e820__reserve_resources()``，随后注册资源、PCI gap、wall clock、thermal LVT、MCE 和 unwind，并从 ``setup_arch()`` 返回。
 
 开始工作
 --------
