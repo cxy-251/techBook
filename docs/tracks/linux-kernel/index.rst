@@ -67,6 +67,9 @@ Linux Kernel
 #. `第五十九章：Linux 怎样建立 IRQ descriptor 并把外部中断入口写入 IDT？ <59-linux-builds-irq-descriptors-and-x86-interrupt-gates.rst>`_
 #. `第六十章：Linux 怎样建立 tick、timer wheel、hrtimer 与 softirq？ <60-linux-initializes-tick-timers-hrtimers-and-softirqs.rst>`_
 #. `第六十一章：Linux 怎样建立 timekeeping，并把 x86 定时器初始化延后？ <61-linux-establishes-timekeeping-and-defers-x86-timer-init.rst>`_
+#. `第六十二章：Linux 怎样完成启动期随机数并第一次打开外部中断？ <62-linux-finalizes-randomness-and-enables-external-interrupts.rst>`_
+#. `第六十三章：Linux 怎样启用正式 console、锁依赖检查并完成 early ACPI？ <63-linux-enables-console-lockdep-and-early-acpi.rst>`_
+#. `第六十四章：x86 怎样启动真实定时器、校准延时并完成 boot CPU 收尾？ <64-x86-starts-hardware-timers-calibrates-delay-and-finalizes-boot-cpu.rst>`_
 
 当前主线
 --------
@@ -78,11 +81,13 @@ Linux Kernel
    → SeaBIOS
    → GNU GRUB 2.14 i386-pc
    → bzImage
-   → Linux 6.12.95
+   → Linux 7.2-rc1 @ 7404ce51637231382873d0b55edabc2f3b841a9d
 
-``start_kernel()`` 已建立 IRQ descriptor、x86 vector domain 与外部中断 IDT gates，完成 tick/timer/hrtimer/softirq 软件基础，并建立 VDSO 数据页和以 jiffies 为初始 clocksource 的通用 timekeeping。
+固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-当前下一入口是 ``random_init()``。CPU0 仍是唯一 online CPU，IF 位仍关闭；x86 HPET/PIT/TSC 与最终 timer interrupt mode 被延后到 ``late_time_init()``，initramfs 尚未解包，PID 1 尚未创建。
+``start_kernel()`` 已完成 RNG/KFENCE/stack canary、首次打开 CPU0 IF、正式 console/lockdep、per-CPU pageset、early ACPI、x86 HPET/PIT/TSC late time 初始化、sched clock、delay calibration 与 boot CPU 架构收尾。
+
+当前下一入口是 ``pid_idr_init()``。CPU0 仍是唯一 online CPU，当前任务仍是 PID 0；initramfs 尚未解包，PID 1/PID 2 尚未创建。
 
 章节组织
 --------
