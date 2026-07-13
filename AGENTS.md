@@ -10,11 +10,13 @@
 x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc → bzImage → Linux 7.2-rc1
 ```
 
-当前已经完成 `LK-BOOT-001` 至 `LK-BOOT-070`。最新章节：
+当前已经完成 `LK-BOOT-001` 至 `LK-BOOT-073`。最新章节：
 
-- `LK-BOOT-068`：Linux 怎样创建 PID 1、PID 2，并让 PID 0 进入 idle loop？
-- `LK-BOOT-069`：Linux 怎样唤醒 AP，并让 workqueue 与 SMP scheduler 正式运行？
-- `LK-BOOT-070`：Linux 怎样运行全部 built-in initcall，并准备 initramfs 与 root filesystem？
+- `LK-BOOT-071`：Linux 怎样释放 __init 内存并进入 SYSTEM_RUNNING？
+- `LK-BOOT-072`：Linux 怎样选择用户态 init，并把可执行映像装入 PID 1？
+- `LK-BOOT-073`：x86 怎样让 PID 1 从 ret_from_fork 真正进入用户态？
+
+Linux boot 主线已经到达自然终点：PID 1 已通过 exec 和 x86 exit-to-user 路径进入第一条用户指令。
 
 ## 固定实现
 
@@ -47,93 +49,82 @@ menuentry 'Linux 7.2-rc1' {
 
 GRUB 资料使用 GNU 官方 `grub-2.14.tar.xz` 和 `GitMirroring/grub` 固定提交。Linux 资料使用 `gregkh/linux` 固定 commit `7404ce51637231382873d0b55edabc2f3b841a9d`。
 
-重要纠正：该 commit 的 `Makefile` 标识为 Linux 7.2-rc1。旧章节中残留的 `Linux 6.12.95` 只是历史显示标签错误。不得把源码切换到真正的 `v6.12.95`；技术事实以固定 commit 和链接为准。
+重要纠正：该 commit 的 `Makefile` 标识为 Linux 7.2-rc1。旧章节中残留的 `Linux 6.12.95` 只是历史显示标签错误。不得切换到真正的 `v6.12.95`；技术事实以固定 commit 和链接为准。
 
 ## 当前控制流
 
-当前已执行：
+已经执行：
 
 ```text
 start_kernel()
-→ memory / allocator / scheduler / IRQ / timer / timekeeping
-→ PID/fork/namespace/VFS/cgroup foundations
+→ memory / scheduler / IRQ / timer / VFS / cgroup foundations
 → rest_init()
-→ create PID 1 kernel_init
-→ create PID 2 kthreadd
-→ system_state = SYSTEM_SCHEDULING
-→ PID 0 first schedule
-→ PID 0 enters cpu_startup_entry()/idle
+→ create PID 1 and PID 2
+→ PID 0 enters idle
+
+PID 1 kernel_init_freeable()
+→ bring APs online
+→ initialize workqueue/SMP scheduler/driver model
+→ run all built-in initcalls
+→ process initramfs and root branch
 
 PID 1 kernel_init()
-→ wait_for_completion(kthreadd_done)
-→ kernel_init_freeable()
-→ enable full GFP and memory-node access
-→ smp_prepare_cpus()
-→ workqueue_init()
-→ pre-SMP initcalls and lockup detector
-→ smp_init()
-→ bring permitted APs online
-→ sched_init_smp()
-→ workqueue topology / async / padata / page allocator late init
-→ do_basic_setup()
-→ driver model and IRQ proc setup
-→ pure/core/postcore/arch/subsys/fs/device/late initcalls
-→ KUnit entry
-→ wait_for_initramfs()
-→ console_on_rootfs()
-→ choose executable /init or prepare_namespace(root=/dev/sda1)
-→ integrity_load_keys()
-→ kernel_init_freeable() returns
-```
-
-当前主线执行者是 Linux 7.2-rc1 PID 1 `init/main.c:kernel_init()`。精确下一入口：
-
-```c
-async_synchronize_full();
+→ async_synchronize_full()
+→ SYSTEM_FREEING_INITMEM
+→ free_initmem()
+→ mark_readonly()
+→ pti_finalize()
+→ SYSTEM_RUNNING
+→ rcu_end_inkernel_boot()
+→ do_sysctl_args()
+→ choose init candidate
+→ kernel_execve()
+→ binary-format handler / ELF loading
+→ START_THREAD()
+→ return into ret_from_fork()
+→ syscall_exit_to_user_mode()
+→ x86 PTI/FRED/iretq exit
+→ PID 1 enters userspace
 ```
 
 当前状态：
 
-- PID 0 已是 CPU0 idle task；
-- PID 1 仍在 kernel mode，尚未 exec 用户态 init；
-- PID 2 kthreadd 与正式 workqueue 已运行；
-- 配置允许且成功启动的 AP 已 online，数量由实际 QEMU 参数和运行结果决定；
-- SMP scheduler topology 已建立；
-- built-in initcall 已全部调用；
-- initramfs 解包等待已完成；
-- root 路径已二选一：保留可执行 `/init` 的 initramfs，或 `prepare_namespace()` 尝试挂载并 pivot 到 `/dev/sda1`；
-- 全局 async work 尚未最终汇合；
-- `__init` memory 尚未释放；
-- rodata/PTI 尚未最终收尾；
-- `system_state` 尚未进入 `SYSTEM_RUNNING`。
+- `system_state = SYSTEM_RUNNING`；
+- PID 0 与 AP idle tasks 正常运行；
+- PID 1 已进入用户态 init、dynamic linker 或 script interpreter；
+- PID 2 `kthreadd` 正常运行；
+- `__init` memory 已释放；
+- kernel text/rodata 已最终只读化；
+- 成功 exec 的 user mm、stack、argv/envp/auxv 已激活；
+- 启用 PTI 时 PID 1 正使用 user CR3；
+- Linux boot handoff 已完成。
 
-下一任务从 `kernel_init():async_synchronize_full()` 开始，继续：
+## 下一任务边界
+
+固定主线没有锁定 initramfs 内容、最终 init binary 和用户态执行日志，不能猜测 PID 1 的第一条 syscall。
+
+继续时必须先选择一个明确运行期场景，并固定入口，例如：
 
 ```text
-async_synchronize_full()
-→ system_state = SYSTEM_FREEING_INITMEM
-→ kprobe/ftrace/kgdb init-memory cleanup
-→ exit_boot_config()
-→ free_initmem()
-→ mark_readonly()
-→ pti_finalize()
-→ system_state = SYSTEM_RUNNING
-→ numa_default_policy()
-→ rcu_end_inkernel_boot()
-→ do_sysctl_args()
-→ try /init, init=, CONFIG_DEFAULT_INIT,
-  /sbin/init, /etc/init, /bin/init, /bin/sh
-→ successful kernel_execve()
-→ PID 1 enters user mode
+read()
+openat()
+fork()/clone()
+page fault
+timer interrupt
+block I/O through AHCI
 ```
 
-必须继续区分：
+选定后，从真实用户态 syscall、IDT exception 或 hardware interrupt 入口重新建立连续调用链。不要把多个运行期场景混成一条“系统接下来自动发生”的时间线。
 
-1. `user_mode_thread(kernel_init)` 创建 PID 1，不代表 PID 1 已进入用户态；
-2. `smp_prepare_cpus()` 准备 AP，不代表 AP online；真正 bring-up 在 `smp_init()`；
-3. `do_initcalls()` 返回不代表 async work/probe 全部完成；
-4. initramfs 解包不代表必然已挂载 `/dev/sda1`；可执行 `/init` 会让 early userspace 接管 root 切换；
-5. `kernel_execve()` 成功后 PID 1 才真正成为用户态 init。
+## 必须保持的技术边界
+
+1. `SYSTEM_RUNNING` 不等于 PID 1 已进入用户态；真正交接发生在 `iretq`/FRED。
+2. `START_THREAD()` 只准备 `pt_regs`，不切换 CPL。
+3. `kernel_execve()` 成功不创建新 PID；仍是同一个 PID 1。
+4. dynamic ELF 第一条用户指令通常在 dynamic linker，不是 C `main`。
+5. `do_initcalls()` 返回不代表 async work 已完成；全局屏障是 `async_synchronize_full()`。
+6. initramfs 解包不等于必然挂载 `/dev/sda1`；可执行 `/init` 会接管 root 切换。
+7. driver model 建立不等于所有硬件 driver 均成功 probe。
 
 ## 用户输入与技术事实
 
@@ -179,15 +170,11 @@ async_synchronize_full()
 - `verified`：关键结论已依据固定源码或规范核对，章节仍在续写；
 - `complete`：章节到达自然终点，关键事实已经核对。
 
-读者不承担技术审稿。用户反馈只用于指出哪里难懂、希望展开或阅读不连续。
-
 ## 接手顺序
 
 1. `AGENTS.md`；
 2. `project/STATE.rst`；
 3. `docs/tracks/linux-kernel/index.rst`；
-4. 最新已完成章节；
+4. 已完成章节；
 5. `manifests/tracks/linux-kernel.toml`；
-6. `main` 最近相关提交。
-
-完成章节后更新正文、目录、STATE、manifest、README 和 Linux 路径状态。
+6. `main` 最近的相关提交。
