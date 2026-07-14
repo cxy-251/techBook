@@ -113,7 +113,7 @@ Linux Kernel
 #. `第一百零五章：ext4_create() 怎样分配 inode 并把 demo.txt 写进目录？ <105-ext4-create-allocates-inode-and-dirent.rst>`_
 #. `第一百零六章：VFS 怎样打开新 inode、发布 fd 6 并让 openat() 返回？ <106-vfs-opens-and-publishes-new-fd.rst>`_
 #. `第一百零七章：首次 buffered write 怎样只预留空间而不分配物理块？ <107-first-buffered-write-creates-delalloc-state.rst>`_
-#. `第一百零八章：fsync() 怎样让 writeback 分配第一个 unwritten extent并提交数据？ <108-fsync-writeback-allocates-first-unwritten-extent.rst>`_
+#. `第一百零八章：fsync() 怎样让 writeback 分配第一个 unwritten extent 并提交数据？ <108-fsync-writeback-allocates-first-unwritten-extent.rst>`_
 #. `第一百零九章：data completion 怎样转换 extent，并让 fsync() 真正返回？ <109-write-completion-converts-extent-and-fsync-returns.rst>`_
 #. `第一百一十章：unlinkat() 怎样锁住父目录并进入 ext4_unlink()？ <110-unlinkat-locks-parent-and-enters-ext4-unlink.rst>`_
 #. `第一百一十一章：ext4_unlink() 怎样删除名称，却让 fd 6 继续访问 inode？ <111-ext4-unlink-removes-name-and-keeps-open-inode.rst>`_
@@ -136,6 +136,9 @@ Linux Kernel
 #. `第一百二十八章：eventfd2() 怎样建立counter并发布fd 6？ <128-eventfd2-creates-counter-and-publishes-fd.rst>`_
 #. `第一百二十九章：eventfd read() 怎样在counter为0时进入locked wait queue？ <129-empty-eventfd-read-enters-locked-wait-queue.rst>`_
 #. `第一百三十章：eventfd write() 怎样唤醒reader并让read()返回counter？ <130-eventfd-write-wakes-reader-and-read-returns-counter.rst>`_
+#. `第一百三十一章：close(6) 怎样撤销eventfd fd并同步进入最后一次__fput()？ <131-close-eventfd-fd-enters-final-fput.rst>`_
+#. `第一百三十二章：eventfd_release() 怎样发送EPOLLHUP并释放eventfd_ctx？ <132-eventfd-release-sends-hup-and-frees-ctx.rst>`_
+#. `第一百三十三章：__fput() 怎样释放anon-inode path并让close()返回0？ <133-final-eventfd-file-teardown-returns-close.rst>`_
 
 当前主线
 --------
@@ -151,16 +154,20 @@ Linux Kernel
    → natural and SIGUSR1-interrupted monotonic nanosleep complete
    → anonymous pipe lifecycle complete
    → private futex wait/wake complete
-   → eventfd2 creates shared O_RDWR fd 6 with count=0
-   → parent blocks in non-exclusive locked wait queue
-   → helper writes u64 3, count becomes 3 and parent becomes runnable
-   → parent restores original read stack and consumes full counter
-   → count returns to 0
-   → parent CPL3 with read RAX=8 and userspace value=3
+   → eventfd blocking read/writer wakeup complete
+   → parent closes shared fd 6
+   → fd publication and close-on-exec bookkeeping removed
+   → synchronous final __fput enters eventfd_release
+   → EPOLLHUP wake scans an empty queue
+   → ctx kref reaches zero and internal id is returned
+   → per-file pseudo dentry and mount reference are released
+   → eventfd file is freed
+   → parent CPL3 with close RAX=0
+   → singleton anon inode and global anon_inodefs mount remain active
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-当前十五个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``、新文件首次delalloc write + fsync、open-unlinked文件的final close/eviction、自然到期monotonic nanosleep、``SIGUSR1`` 中断nanosleep与 ``rt_sigreturn``、anonymous pipe读写与final teardown、private futex wait/wake，以及eventfd counter blocking read/writer wakeup。下一条runtime主线尚未选择。
+当前十六个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``、新文件首次delalloc write + fsync、open-unlinked文件的final close/eviction、自然到期monotonic nanosleep、``SIGUSR1`` 中断nanosleep与 ``rt_sigreturn``、anonymous pipe读写与final teardown、private futex wait/wake、eventfd counter blocking read/writer wakeup，以及eventfd final close与anon-inode file teardown。下一条runtime主线尚未选择。
 
 章节组织
 --------
