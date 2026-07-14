@@ -41,7 +41,7 @@ LK-UNIXSOCK-164..LK-UNIXSOCK-166
 - `LK-UNIXSOCK-165`：helper写入hello时，Unix stream skb怎样唤醒epoll并让read返回5？
 - `LK-UNIXSOCK-166`：shutdown(SHUT_WR)怎样让peer收到EPOLLRDHUP并让read返回EOF？
 
-进度：当前166章。按最初195章目标还剩29章；最终章数未锁死，按当前颗粒度合理总量约190至220章。
+进度：当前完成166章。项目没有预设固定总章数，也没有固定195章目标；后续按源码主线与必要场景自然推进，不计算剩余章数。
 
 ## 固定实现
 
