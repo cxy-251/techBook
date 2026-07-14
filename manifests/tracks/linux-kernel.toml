@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106"
+completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
@@ -83,6 +83,17 @@ create = "JBD2 metadata handle allocates inode bitmap bit, updates group descrip
 file = "ext4 regular 0644; nlink=1; size=0; data blocks=0; write-only struct file with f_pos=0"
 durability = "metadata attached to JBD2 transaction; no sync policy or fsync, so openat return does not guarantee commit durability"
 result = "parent CPL3 with RAX=6; fd 6 points to opened /work/demo.txt"
+
+[completed_delalloc_scenario]
+name = "first buffered write to a new ext4 file followed by fsync"
+status = "complete"
+userspace_calls = "write(6, buf, 4096); fsync(6)"
+mount = "data=ordered,delalloc,dioread_nolock,barrier; fast commit, bigalloc and inline data disabled"
+write_result = "RAX=4096; f_pos=4096; dirty folio; delayed logical extent [0,1); reservation=1; i_size=4096; i_disksize=0; no physical block"
+writeback_result = "fsync writeback consumes reservation and maps logical block 0 to physical block P as unwritten before submitting a REQ_SYNC data bio"
+completion_result = "successful data completion triggers deferred unwritten-to-written conversion and ends folio writeback"
+durability_result = "full JBD2 commit and required device flush complete; fsync returns zero"
+final_result = "fd 6 remains open; size and i_disksize are 4096; i_blocks=8 sectors; extent is written; folio is clean"
 
 [[chapter]]
 id = "LK-READ-074"
@@ -294,15 +305,39 @@ status = "complete"
 start = "lookup_open returns the created positive dentry"
 end = "parent CPL3 receives fd 6 for the opened size-zero ext4 file"
 
+[[chapter]]
+id = "LK-DELALLOC-107"
+title = "首次 buffered write 怎样只预留空间而不分配物理块？"
+rst = "docs/tracks/linux-kernel/107-first-buffered-write-creates-delalloc-state.rst"
+status = "complete"
+start = "parent calls write(6, buf, 4096) on the new size-zero file"
+end = "write returns 4096 with a dirty folio, delayed logical extent and no physical block"
+
+[[chapter]]
+id = "LK-DELALLOC-108"
+title = "fsync() 怎样让 writeback 分配第一个 unwritten extent 并提交数据？"
+rst = "docs/tracks/linux-kernel/108-fsync-writeback-allocates-first-unwritten-extent.rst"
+status = "complete"
+start = "parent enters fsync with one dirty delayed-allocation folio"
+end = "physical block P is allocated as unwritten, data bio is submitted, and fsync waits"
+
+[[chapter]]
+id = "LK-DELALLOC-109"
+title = "data completion 怎样转换 extent，并让 fsync() 真正返回？"
+rst = "docs/tracks/linux-kernel/109-write-completion-converts-extent-and-fsync-returns.rst"
+status = "complete"
+start = "successful data completion enters deferred unwritten extent conversion"
+end = "parent CPL3 receives fsync result zero after written conversion, full journal commit and device flush"
+
 [current]
-last_complete = "LK-OPEN-106"
-executor = "parent after successful openat create-open"
+last_complete = "LK-DELALLOC-109"
+executor = "parent after successful fsync return"
 cpu_mode = "x86-64 CPL 3"
-paging = "parent mm remains active"
+paging = "parent mm remains active; the clean file folio remains page-cache resident"
 interrupts = "normal userspace runtime state"
-current_task = "parent holds fd 6 for /work/demo.txt; file size is zero and no data block is allocated"
+current_task = "parent holds write-only fd 6 at f_pos 4096 for durable /work/demo.txt"
 next_entry = "unselected runtime scenario"
-next_action = "preferred next path is first buffered write to fd 6 followed by fsync, covering delayed allocation, first extent allocation, data writeback and metadata durability"
+next_action = "preferred next path is unlinkat(/work/demo.txt) while fd 6 remains open, followed by close(6) and final ext4 inode and block reclamation"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完整"
