@@ -43,19 +43,18 @@
    LK-INOTIFY-158..LK-INOTIFY-160
    LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163
    LK-UNIXSOCK-164..LK-UNIXSOCK-166
+   LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169
 
 最新三章：
 
-#. ``LK-UNIXSOCK-164``：socketpair怎样建立双向Unix stream并让parent阻塞在epoll_wait？
-#. ``LK-UNIXSOCK-165``：helper写入hello时，Unix stream skb怎样唤醒epoll并让read返回5？
-#. ``LK-UNIXSOCK-166``：shutdown(SHUT_WR)怎样让peer收到EPOLLRDHUP并让read返回EOF？
+#. ``LK-UNIXSOCKCLOSE-167``：EPOLL_CTL_DEL怎样从persistent-ready Unix socket拆除callback与epitem？
+#. ``LK-UNIXSOCKCLOSE-168``：close(6)怎样释放socket A，却让dead SA继续被peer reference保持？
+#. ``LK-UNIXSOCKCLOSE-169``：close(7)与close(8)怎样释放两端Unix socket和空eventpoll？
 
 进度
 ----
 
-当前已经完成166章。项目没有预设固定总章数，也没有固定195章目标。后续按源码主线与必要场景自然推进，完成条件由内容覆盖与叙事闭环决定，因此当前不计算“剩余章数”。
-
-当前主线已经完成启动、VFS读写、进程/内存、调度/信号、多种fd通知机制，并开始进入Unix socket网络IPC路径。
+当前已经完成169章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
 
 固定来源
 --------
@@ -73,192 +72,146 @@
 
 ::
 
-   runtime relation      = independent scenario after LK-INOTIFYCLOSE-163
-   CPUs online           = CPU0 only
-   process               = parent + helper threads, same TGID
-   mm/files              = shared
-   scheduling            = both SCHED_NORMAL
-   socketpair call       = socketpair(AF_UNIX,SOCK_STREAM|SOCK_CLOEXEC,0,sv)
-   socket fd             = 6 and 7, blocking, close-on-exec
-   socket A / sock SA    = fd 6 receive endpoint
-   socket B / sock SB    = fd 7 helper endpoint
-   unix peer relation    = SA <-> SB
-   protocol state        = both TCP_ESTABLISHED
-   initial shutdown      = both 0
-   eventpoll fd          = 8, close-on-exec
-   registration          = level-triggered EPOLLIN|EPOLLRDHUP
-   event data            = 0x554E4958
-   callback              = P on socket A wait queue
-   first helper call     = write(7,"hello",5)
-   first parent read     = read(6,buf,5)
-   second helper call    = shutdown(7,SHUT_WR)
-   final parent read     = read(6,buf,5)
-   failures/races        = none
+   runtime relation    = continuation of LK-UNIXSOCK-164..166
+   CPUs online         = CPU0 only
+   process             = parent + helper threads, same TGID
+   mm/files            = shared
+   scheduling          = both SCHED_NORMAL
+   socket fd           = 6 and 7 before close
+   eventpoll fd        = 8 before close
+   socket A / SA       = fd 6 endpoint, RCV_SHUTDOWN initially
+   socket B / SB       = fd 7 endpoint, SEND_SHUTDOWN initially
+   peer relation       = SA <-> SB initially
+   registration        = fd 6, EPOLLIN|EPOLLRDHUP, persistent-ready
+   callback            = P on socket A wait queue
+   epitem              = I in EP.rbr and EP.rdllist
+   eventpoll refcount  = 2 initially
+   calls               = epoll_ctl DEL, close(6), close(7), close(8)
+   failures/races      = none
 
 完整控制流
 ----------
 
 ::
 
-   parent socketpair(AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC, 0, sv)
-   → reserve fd 6 and fd 7 with close-on-exec bits
-   → copy numeric fd values to user sv
-   → create two PF_UNIX SOCK_STREAM sockets
-   → unix_create1 initializes SA/UA and SB/UB
-   → unix_socketpair takes peer references
-   → unix_peer(SA)=SB and unix_peer(SB)=SA
-   → SA/SB.sk_state=TCP_ESTABLISHED
-   → allocate two sockfs files F6/F7
-   → fd_install(6,F6), fd_install(7,F7)
-   → return 0 with sv={6,7}
+   parent epoll_ctl(8, EPOLL_CTL_DEL, 6, NULL)
+   → resolve F8/EP and F6
+   → lock EP.mtx and find I by (F6,fd6)
+   → ep_unregister_pollwait removes P from A.wq.wait
+   → free P synchronously
+   → epi_fget temporarily pins F6
+   → under F6.f_lock clear last watcher and publish F6.f_ep=NULL
+   → remove I target-file reverse link
+   → erase I from EP.rbr
+   → remove persistent-ready I from EP.rdllist
+   → kfree_rcu(I)
+   → EP.refcount 2 -> 1
+   → return 0
 
-   parent epoll_create1(EPOLL_CLOEXEC) -> fd 8
-   → eventpoll EP refcount starts at 1
-   → epoll_ctl ADD fd 6 EPOLLIN|EPOLLRDHUP data 0x554E4958
-   → allocate epitem I; EP refcount 1 -> 2
-   → sock_poll_wait installs callback P on socket A wait queue
-   → initial unix_poll sees empty queue, shutdown=0 and only writable readiness
-   → interest filter returns 0
-   → EP.rbr contains I, EP.rdllist empty
+   parent close(6)
+   → remove fd 6 and close-on-exec bit from shared fdtable
+   → final synchronous __fput(F6)
+   → F6.f_ep=NULL, so eventpoll target-release fastpath does nothing
+   → sock_close
+   → __sock_release(socket A)
+   → unix_release(SA)
+   → unix_release_sock removes SA from Unix socket table
+   → sock_orphan(SA)
+   → SA.sk_shutdown=SHUTDOWN_MASK
+   → SA.sk_state=TCP_CLOSE
+   → save skpair=SB and clear unix_peer(SA)
+   → SB.sk_shutdown becomes SHUTDOWN_MASK
+   → empty SA receive queue means SB.sk_err remains 0
+   → SB.sk_state_change and async HUP notification
+   → drop A-held peer reference to SB
+   → drop A file/socket reference
+   → SA remains alive because unix_peer(SB)=SA still holds a reference
+   → release F6 and socket A sockfs VFS objects
+   → close(6) returns 0
 
-   parent epoll_wait(8,events,1,-1)
-   → exclusive waiter W enters EP.wq
-   → parent TASK_INTERRUPTIBLE and schedules out
-   → helper runs on CPU0
+   parent close(7)
+   → remove fd 7 and close-on-exec bit
+   → final __fput(F7)
+   → unix_release_sock(SB)
+   → SB becomes orphan, TCP_CLOSE and SHUTDOWN_MASK
+   → save skpair=SA and clear unix_peer(SB)
+   → drop final peer reference to SA
+   → unix_sock_destructor frees SA/UA
+   → drop final SB reference
+   → unix_sock_destructor frees SB/UB
+   → release F7 and socket B sockfs VFS objects
+   → close(7) returns 0
 
-   helper write(7,"hello",5)
-   → sock_write_iter
-   → unix_stream_sendmsg on socket B
-   → unix_peer(SB) resolves SA directly
-   → allocate one 5-byte skb and copy "hello"
-   → lock SA receive queue
-   → UA.inq_len 0 -> 5
-   → queue skb on SA.sk_receive_queue
-   → call SA.sk_data_ready
-   → callback P links I to EP.rdllist and wakes parent
-   → write returns 5
-   → helper blocks outside socket objects
-
-   parent resumes first epoll_wait
-   → remove W from EP.wq
-   → unix_poll sees non-empty SA receive queue
-   → deliver {EPOLLIN,data=0x554E4958}
-   → level-triggered I requeues
-   → epoll_wait returns 1
-
-   parent read(6,buf,5)
-   → sock_read_iter
-   → unix_stream_read_generic under UA.iolock
-   → copy 5 bytes "hello"
-   → UA.inq_len 5 -> 0
-   → unlink and consume skb
-   → SA receive queue becomes empty
-   → read returns 5
-   → I remains stale-ready
-
-   parent epoll_wait(8,events2,1,-1)
-   → re-poll stale I
-   → empty queue and shutdown=0 produce no requested readiness
-   → remove I from EP.rdllist
-   → parent installs exclusive waiter W2 and sleeps
-
-   helper shutdown(7,SHUT_WR)
-   → generic shutdown resolves socket B
-   → unix_shutdown maps SHUT_WR to SEND_SHUTDOWN
-   → SB.sk_shutdown 0 -> SEND_SHUTDOWN
-   → peer SA.sk_shutdown 0 -> RCV_SHUTDOWN
-   → peer and local sk_state remain TCP_ESTABLISHED
-   → SA.sk_state_change wakes socket A wait queue
-   → callback P links I and wakes parent
-   → shutdown returns 0
-
-   parent resumes second epoll_wait
-   → unix_poll sees SA RCV_SHUTDOWN
-   → poll mask contains EPOLLIN|EPOLLRDNORM|EPOLLRDHUP
-   → deliver {EPOLLIN|EPOLLRDHUP,data=0x554E4958}
-   → persistent level-triggered I requeues
-   → epoll_wait returns 1
-
-   parent read(6,buf,5)
-   → receive queue empty
-   → RCV_SHUTDOWN detected before sleeping
-   → return EOF 0
+   parent close(8)
+   → remove fd 8 and close-on-exec bit
+   → final __fput(F8)
+   → ep_eventpoll_release
+   → ep_clear_and_put sees empty EP.rbr and EP.rdllist
+   → no callback or epitem remains to drain
+   → EP.refcount 1 -> 0
+   → ep_free and kfree_rcu(EP)
+   → release F8 and eventpoll pseudo path
+   → close(8) returns 0
 
 当前精确状态
 ------------
 
 * ``system_state``：``SYSTEM_RUNNING``；
-* runtime scenario：Unix stream socketpair data and half-close delivery complete；
+* runtime scenario：Unix stream socketpair data、half-close与最终teardown complete；
 * current executor：parent；
 * CPU：CPU0；
 * CPU mode：x86-64 CPL 3；
-* scheduling class：``SCHED_NORMAL``；
 * parent state：``TASK_RUNNING``；
-* parent ``on_rq=1``、 ``on_cpu=1``；
-* helper：blocked outside socket objects；
-* ``socketpair`` result：0， ``sv={6,7}``；
-* helper ``write(7)`` result：5；
-* first ``epoll_wait`` result：1；
-* first delivered event：``EPOLLIN``、data ``0x554E4958``；
-* first ``read(6)`` result：5，bytes ``hello``；
-* helper ``shutdown(7,SHUT_WR)`` result：0；
-* second ``epoll_wait`` result：1；
-* second delivered event：``EPOLLIN|EPOLLRDHUP``、data ``0x554E4958``；
-* final syscall/result：``read(6)=0``；
-* fd 6/7/8：open；
-* socket files ``F6/F7``：active sockfs files；
-* ``SA/SB.sk_state``：``TCP_ESTABLISHED``；
-* ``SA.sk_shutdown``：``RCV_SHUTDOWN``；
-* ``SB.sk_shutdown``：``SEND_SHUTDOWN``；
-* ``unix_peer(SA)=SB``、 ``unix_peer(SB)=SA``；
-* SA/SB receive queues：empty；
-* ``UA.inq_len=0``、 ``UB.inq_len=0``；
-* callback ``P``：active on socket A wait queue；
-* epitem ``I``：active in ``EP.rbr`` and persistent-ready in ``EP.rdllist``；
-* ``EP.refcount=2``；
-* ``EP.wq``：empty；
-* fd 6向fd 7发送方向：open；
-* fd 7从fd 6接收方向：open；
-* fd 7向fd 6发送方向：closed；
-* filesystem/block/device I/O：none；
+* parent ``on_rq=1``、``on_cpu=1``；
+* helper：blocked outside released objects；
+* ``EPOLL_CTL_DEL`` result：0；
+* ``close(6)`` result：0；
+* ``close(7)`` result：0；
+* final syscall/result：``close(8)=0``；
+* fd 6/7/8：closed and unallocated；
+* callback ``P``：freed synchronously；
+* epitem ``I``：logical lifetime ended，storage through RCU；
+* socket files ``F6/F7``：freed；
+* socket A/B sockfs VFS objects：freed；
+* ``SA/UA``：freed；
+* ``SB/UB``：freed；
+* Unix peer references：none；
+* eventpoll ``EP``：logical lifetime ended，storage through RCU；
+* eventpoll file ``F8``：freed；
+* global sockfs：active；
+* global anon_inodefs：active；
+* filesystem/block/device/network packet I/O：none；
 * next runtime scenario：unselected。
 
 关键边界
 --------
 
-#. socketpair reserve fd、copy用户数字与安装file是三个不同阶段。
-#. 两个Unix stream endpoints互相持有peer reference。
-#. AF_UNIX stream使用skb和socket wait queue，但不进入IP或设备层。
-#. socket file由sockfs承载，不是anon_inodefs。
-#. 初始socket可写不会触发只监听IN/RDHUP的registration。
-#. callback位于socket A wait queue，sleeping parent位于eventpoll wait queue。
-#. sendmsg把数据复制到skb并排入peer receive queue。
-#. ``UA.inq_len`` 在本批为0→5→0。
-#. ``sk_data_ready`` 只建立candidate readiness，delivery仍需 ``unix_poll`` re-check。
-#. Unix stream不保证write、skb和read之间的一一消息边界。
-#. 第一次read清空queue不会主动删除epoll ready membership。
-#. 第二次epoll_wait先清stale item，再真正睡眠等待shutdown。
-#. ``SHUT_WR`` 本端设置SEND_SHUTDOWN、peer设置RCV_SHUTDOWN。
-#. half-close不清除peer pointers，也不把状态改成TCP_CLOSE。
-#. RCV_SHUTDOWN同时产生EPOLLIN与EPOLLRDHUP，便于read取得EOF。
-#. 单向half-close不产生EPOLLHUP。
-#. EOF来自空queue加RCV_SHUTDOWN，不是零长度skb。
-#. RDHUP为persistent readiness，EOF read不会消费它。
+#. persistent-ready registration可以直接通过DEL删除，无需先消费readiness。
+#. callback在DEL中同步free；epitem通过RCU延迟free。
+#. ``F6.f_ep=NULL`` 使close(6)跳过eventpoll target-release慢路径。
+#. ``unix_release_sock`` 把关闭端设为orphan、``TCP_CLOSE``和``SHUTDOWN_MASK``。
+#. close(6)只清除 ``unix_peer(SA)``，不会同步清除 ``unix_peer(SB)``。
+#. fd 6关闭后，dead SA仍由SB的peer reference保持。
+#. peer B得到完整shutdown/HUP语义，但直到close(7)才进入 ``TCP_CLOSE``。
+#. close(7)清除最后peer pointer并释放SA的最后peer reference。
+#. socket file、sockfs VFS对象和 ``struct sock`` 具有不同生命周期边界。
+#. 两端queue为空，因此关闭不产生 ``ECONNRESET`` 或skb丢弃分支。
+#. eventpoll file持有最后base reference；close(8)使EP refcount归零。
+#. sockfs与anon_inodefs是全局pseudo filesystems，不随本场景fd关闭而卸载。
 
 下一任务
 --------
 
-优先接续Unix socketpair cleanup：
+当前场景完整闭环。优先候选是TCP/IPv4 loopback连接建立：
 
 ::
 
-   epoll_ctl(8,EPOLL_CTL_DEL,6,NULL)
-   → remove callback P and epitem I
-   close(6)
-   → release socket A and notify peer B of disconnect/full shutdown
-   close(7)
-   → release socket B and mutual peer references
-   close(8)
-   → release empty eventpoll
+   server socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, 0)
+   → bind(127.0.0.1:fixed_port)
+   → listen(backlog)
+   client socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, 0)
+   → connect(127.0.0.1:fixed_port)
+   → loopback route and SYN/SYN-ACK/ACK processing
+   → accept4 publishes connected server fd
 
-开始前固定close(6)触发的peer状态、wake mask、peer reference下降、sockfs inode/file teardown、skb queue清理与eventpoll RCU边界。
+开始前必须固定network namespace、loopback device、route、port、socket states、request socket、softirq与scheduler顺序。
