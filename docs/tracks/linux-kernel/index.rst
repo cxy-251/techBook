@@ -101,7 +101,7 @@ Linux Kernel
 #. `第九十三章：copy_process() 怎样复制资源并建立 COW 子进程？ <93-copy-process-builds-cow-child.rst>`_
 #. `第九十四章：scheduler 怎样启动 child，并让 fork() 在父子进程返回不同结果？ <94-fork-parent-and-child-return.rst>`_
 #. `第九十五章：child 写只读 COW 地址时，x86 #PF 怎样进入 do_wp_page？ <95-x86-cow-write-fault-enters-do-wp-page.rst>`_
-#. `第九十六章：wp_page_copy() 怎样分配新 folio 并替换 child PTE？ <96-wp-page-copy-replaces-child-pte.rst>`_
+#. `第九十六章：wp_page_copy() 怎样分配新 folio并替换 child PTE？ <96-wp-page-copy-replaces-child-pte.rst>`_
 #. `第九十七章：page fault 返回后，CPU 怎样重试 store 并完成 COW 隔离？ <97-page-fault-return-retries-child-store.rst>`_
 #. `第九十八章：x86-64 的 execve() 怎样打开静态 ELF 并进入 load_elf_binary()？ <98-execve-opens-static-elf.rst>`_
 #. `第九十九章：begin_new_exec() 怎样替换旧 mm 并建立静态 ELF 映射？ <99-begin-new-exec-replaces-mm-and-maps-elf.rst>`_
@@ -148,6 +148,9 @@ Linux Kernel
 #. `第一百四十章：signalfd4() 怎样把阻塞信号变成可poll的fd并挂进epoll？ <140-signalfd4-creates-pollable-signal-fd-and-epoll-registration.rst>`_
 #. `第一百四十一章：tgkill() 怎样让blocked SIGUSR1经signalfd callback唤醒epoll_wait？ <141-tgkill-wakes-signalfd-epoll-waiter.rst>`_
 #. `第一百四十二章：parent怎样从epoll event进入signalfd read并取出128字节siginfo？ <142-epoll-returns-signalfd-event-and-read-dequeues-siginfo.rst>`_
+#. `第一百四十三章：零超时epoll_wait() 怎样清理signalfd的stale-ready item？ <143-zero-time-epoll-wait-removes-signalfd-stale-ready-item.rst>`_
+#. `第一百四十四章：EPOLL_CTL_DEL 怎样拆除signalfd callback与epitem？ <144-epoll-del-detaches-signalfd-callback.rst>`_
+#. `第一百四十五章：close() 怎样释放signalfd与eventpoll，却保留共享sighand wait queue？ <145-final-close-frees-signalfd-and-eventpoll.rst>`_
 
 当前主线
 --------
@@ -164,22 +167,19 @@ Linux Kernel
    → anonymous pipe lifecycle complete
    → private futex wait/wake complete
    → eventfd and eventpoll lifecycles complete
-   → parent/helper block SIGUSR1
-   → signalfd fd 6 and eventpoll fd 7 created
-   → epoll_ctl ADD installs callback on shared sighand signalfd wait queue
-   → parent blocks exclusively on eventpoll wait queue
-   → helper tgkill queues SI_TKILL SIGUSR1 in parent private pending
-   → NULL-key signalfd wake queues epitem and wakes parent
-   → parent re-polls signalfd and receives EPOLLIN data 0x51FD6
-   → epoll_wait returns 1
-   → parent read dequeues SIGUSR1 and copies one 128-byte signalfd_siginfo
-   → read returns 128
-   → fd 6/7 and registration remain active
-   → level-triggered epitem remains stale-ready until next scan
+   → blocked SIGUSR1 delivered through signalfd and epoll
+   → parent reads one 128-byte signalfd_siginfo
+   → zero-time epoll_wait re-polls and removes stale-ready membership
+   → EPOLL_CTL_DEL detaches callback from shared sighand wait queue
+   → epitem exits through kfree_rcu and EP refcount returns to 1
+   → close(6) frees signalfd ctx/file while shared signalfd_wqh remains
+   → close(7) ends eventpoll lifetime through kfree_rcu
+   → parent CPL3 with close RAX=0 and fd 6/7 closed
+   → parent/helper still block SIGUSR1 and no SIGUSR1 is pending
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-当前十九个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``、新文件首次delalloc write + fsync、open-unlinked文件的final close/eviction、自然到期monotonic nanosleep、``SIGUSR1`` 中断nanosleep与 ``rt_sigreturn``、anonymous pipe读写与final teardown、private futex wait/wake、eventfd counter blocking read/writer wakeup、eventfd final close、eventfd level-triggered epoll callback/wait delivery、eventfd/epoll cleanup，以及blocked ``SIGUSR1`` 通过signalfd与epoll交付并读取 ``signalfd_siginfo``。下一条runtime主线尚未选择。
+当前二十个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``、新文件首次delalloc write + fsync、open-unlinked文件的final close/eviction、自然到期monotonic nanosleep、``SIGUSR1`` 中断nanosleep与 ``rt_sigreturn``、anonymous pipe读写与final teardown、private futex wait/wake、eventfd counter blocking read/writer wakeup、eventfd final close、eventfd level-triggered epoll callback/wait delivery、eventfd/epoll cleanup、blocked ``SIGUSR1`` 通过signalfd与epoll交付，以及signalfd/epoll stale-ready cleanup、registration deletion与final teardown。下一条runtime主线尚未选择。
 
 章节组织
 --------
