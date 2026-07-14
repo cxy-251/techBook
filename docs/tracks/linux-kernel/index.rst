@@ -89,7 +89,7 @@ Linux Kernel
 #. `第八十一章：blk-mq completion 怎样结束 bio，并让 ext4 folio 变成 uptodate？ <81-block-completion-marks-ext4-folio-uptodate.rst>`_
 #. `第八十二章：reader task 怎样复制 folio，并让 read() 返回用户态？ <82-reader-copies-folio-and-returns-from-read.rst>`_
 #. `第八十三章：x86-64 的 write() 怎样进入 ext4 buffered write？ <83-x86-write-enters-ext4-buffered-path.rst>`_
-#. `第八十四章：ext4 怎样把用户数据复制进 page-cache folio并标脏？ <84-ext4-copies-user-data-into-dirty-folio.rst>`_
+#. `第八十四章：ext4 怎样把用户数据复制进 page-cache folio 并标脏？ <84-ext4-copies-user-data-into-dirty-folio.rst>`_
 #. `第八十五章：O_SYNC write 怎样进入 ext4 writeback？ <85-osync-write-enters-ext4-writeback.rst>`_
 #. `第八十六章：ext4 writeback 怎样把 dirty folio 变成 WRITE bio？ <86-ext4-writeback-builds-write-bio.rst>`_
 #. `第八十七章：WRITE bio 怎样变成 AHCI command 并写入 PxCI？ <87-write-bio-becomes-ahci-command.rst>`_
@@ -109,6 +109,9 @@ Linux Kernel
 #. `第一百零一章：_exit(42) 怎样进入 do_exit() 并释放进程运行资源？ <101-child-exit-tears-down-runtime-resources.rst>`_
 #. `第一百零二章：exit_notify() 怎样发送 SIGCHLD、唤醒 parent 并留下 zombie？ <102-exit-notify-wakes-parent-and-leaves-zombie.rst>`_
 #. `第一百零三章：parent 的 wait4() 怎样读取 status 并最终回收 child？ <103-parent-wait4-reaps-child.rst>`_
+#. `第一百零四章：openat() 怎样保留 fd 并把 /work/demo.txt 解析成 negative dentry？ <104-openat-resolves-negative-dentry.rst>`_
+#. `第一百零五章：ext4_create() 怎样分配 inode 并把 demo.txt 写进目录？ <105-ext4-create-allocates-inode-and-dirent.rst>`_
+#. `第一百零六章：VFS 怎样打开新 inode、发布 fd 6 并让 openat() 返回？ <106-vfs-opens-and-publishes-new-fd.rst>`_
 
 当前主线
 --------
@@ -123,20 +126,22 @@ Linux Kernel
    → native fork() complete
    → child COW write fault complete
    → child static execve complete
-   → parent wait4(child_pid, &status, 0, &rusage) sleeps
-   → child _exit(42)
-   → do_exit / exit_mm / exit_files / exit_fs
-   → exit_notify / EXIT_ZOMBIE
-   → SIGCHLD and wait_chldexit wakeup
-   → parent wait_task_zombie
-   → EXIT_ZOMBIE to EXIT_DEAD
-   → status 0x2a00 / WEXITSTATUS 42
-   → release_task / PID unlink
-   → parent returns child PID
+   → child exit + parent wait4 reap complete
+   → parent openat("/work/demo.txt", O_CREAT|O_EXCL|O_WRONLY, 0644)
+   → reserve fd 6
+   → cached pathname walk to /work
+   → locked exclusive final lookup
+   → negative dentry
+   → ext4 inode bitmap/group descriptor/inode table transaction
+   → add demo.txt directory entry
+   → positive dentry, size-zero inode, no data blocks
+   → vfs_open / ext4_file_open
+   → fd_install publishes fd 6
+   → parent returns to CPL 3 with RAX=6
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-当前六个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``，以及child exit + parent wait/reap。下一条runtime主线尚未选择。
+当前七个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap，以及ext4 ``openat(O_CREAT|O_EXCL)``。下一条runtime主线尚未选择。
 
 章节组织
 --------
