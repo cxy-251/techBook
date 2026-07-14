@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第一百六十一章：零超时epoll_wait怎样清除inotify的stale-ready item？ <docs/tracks/linux-kernel/161-zero-time-epoll-wait-removes-inotify-stale-ready-item.rst>`_
-* `第一百六十二章：inotify_rm_watch怎样先排入IN_IGNORED再销毁mark？ <docs/tracks/linux-kernel/162-inotify-rm-watch-queues-ignored-and-destroys-mark.rst>`_
-* `第一百六十三章：读取IN_IGNORED后，close怎样释放inotify group与eventpoll？ <docs/tracks/linux-kernel/163-read-ignored-and-final-close-free-inotify-eventpoll.rst>`_
+* `第一百六十四章：socketpair怎样建立双向Unix stream并让parent阻塞在epoll_wait？ <docs/tracks/linux-kernel/164-unix-socketpair-registers-with-epoll-and-blocks-parent.rst>`_
+* `第一百六十五章：helper写入hello时，Unix stream skb怎样唤醒epoll并让read返回5？ <docs/tracks/linux-kernel/165-unix-stream-write-wakes-epoll-and-read-consumes-skb.rst>`_
+* `第一百六十六章：shutdown(SHUT_WR)怎样让peer收到EPOLLRDHUP并让read返回EOF？ <docs/tracks/linux-kernel/166-unix-stream-shutdown-wakes-rdhup-and-read-returns-eof.rst>`_
 
 固定来源
 --------
@@ -51,27 +51,30 @@ techBook
    LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157
    LK-INOTIFY-158..LK-INOTIFY-160
    LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163
+   LK-UNIXSOCK-164..LK-UNIXSOCK-166
 
 最新场景
 --------
 
 ::
 
-   zero-time epoll_wait re-polls empty inotify queue
-   → stale-ready item removed and wait returns 0
-   → inotify_rm_watch(6,1)
-   → queue wd1 IN_IGNORED before removing wd from IDR
-   → callback makes registration ready again
-   → mark detaches from group and /work inode connector
-   → zero-time epoll_wait returns EPOLLIN
-   → read(6) returns one 16-byte IN_IGNORED record
-   → EPOLL_CTL_DEL removes callback and epitem
-   → close(6) destroys fsnotify group and waits mark SRCU reaper
-   → close(7) releases empty eventpoll
+   socketpair(AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC, 0, sv) → fd 6/7
+   → two unbound Unix stream sockets become mutual peers
+   → epoll_create1(EPOLL_CLOEXEC) → fd 8
+   → EPOLL_CTL_ADD watches fd 6 for EPOLLIN|EPOLLRDHUP
+   → parent blocks on eventpoll wait queue
+   → helper write(7,"hello",5) queues one skb on fd 6 receive queue
+   → socket callback wakes parent
+   → epoll_wait returns EPOLLIN and read(6) returns 5 bytes
+   → parent re-enters epoll_wait and clears stale-ready membership
+   → helper shutdown(7,SHUT_WR)
+   → fd 7 gains SEND_SHUTDOWN; peer fd 6 gains RCV_SHUTDOWN
+   → epoll_wait returns EPOLLIN|EPOLLRDHUP
+   → read(6) returns EOF 0
 
-最终fd 6/7均已关闭。wd 1、inotify mark、fsnotify group、inotify file与eventpoll file均已结束生命周期；``/work/new.txt``继续存在，全局anon_inodefs保持active。
+最终fd 6/7/8仍然open。两端保持peer关系与 ``TCP_ESTABLISHED`` 协议状态；fd 7写方向已half-close，fd 6 receive方向持久处于 ``RCV_SHUTDOWN``，所以level-triggered registration持续ready。
 
 开始工作
 --------
 
-新的对话或助手先阅读 ``AGENTS.md``、``project/STATE.rst``、章节目录和manifest。
+新的对话或助手先阅读 ``AGENTS.md``、 ``project/STATE.rst``、章节目录和manifest。
