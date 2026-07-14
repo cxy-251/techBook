@@ -35,15 +35,16 @@ LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163
 LK-UNIXSOCK-164..LK-UNIXSOCK-166
 LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169
 LK-TCPLISTEN-170..LK-TCPLISTEN-172
+LK-TCPCONNECT-173..LK-TCPCONNECT-175
 ```
 
 最新三章：
 
-- `LK-TCPLISTEN-170`：socket(AF_INET,SOCK_STREAM)怎样创建TCP endpoint并发布fd 6？
-- `LK-TCPLISTEN-171`：bind(127.0.0.1:28080)怎样验证本地地址并占用TCP端口？
-- `LK-TCPLISTEN-172`：listen(8)怎样建立空请求队列并把socket加入TCP监听哈希？
+- `LK-TCPCONNECT-173`：client connect怎样选择loopback路由、自动端口并进入TCP_SYN_SENT？
+- `LK-TCPCONNECT-174`：tcp_connect怎样构造SYN并通过lo命中server listener？
+- `LK-TCPCONNECT-175`：listener怎样创建request_sock并把SYN-ACK排入client backlog？
 
-进度：当前完成172章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
+进度：当前完成175章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
 
 ## 固定实现
 
@@ -61,101 +62,124 @@ first partition   = LBA 2048, ext4
 storage           = q35 ICH9 AHCI SATA port 0
 ```
 
-## 已完成TCP/IPv4 listener建立
+## 已完成TCP/IPv4 listener与主动连接前半段
 
 ```text
-fd 0..5 occupied; fd 6 lowest free
+server fd 6
 → socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0)
-→ allocate sockfs inode IS and struct socket S
-→ select inet_stream_ops and tcp_prot
-→ allocate and initialize tcp_sock LTP
-→ S.state=SS_UNCONNECTED; L.sk_state=TCP_CLOSE
-→ create blocking close-on-exec file F6
-→ fd_install(6,F6)
-→ bind(6,127.0.0.1:28080)
-→ confirm address is RTN_LOCAL in network namespace N
-→ create/find inet_bind_bucket TB for port 28080
-→ create/find inet_bind2_bucket TB2 for 127.0.0.1:28080
-→ attach L to TB2 owners
-→ set inet_num/inet_sport and address/port userlocks
-→ remain TCP_CLOSE; no listener lookup visibility
+→ bind(127.0.0.1:28080)
 → listen(6,8)
-→ effective backlog remains 8
-→ initialize empty request/accept queue
-→ sk_max_ack_backlog=8; sk_ack_backlog=0
-→ TCP_CLOSE→TCP_LISTEN
-→ revalidate bound port without duplicate owner insertion
-→ insert L into exact-address listener lhash2
-→ return 0 without route lookup, skb or packet I/O
+→ listener L enters TCP_LISTEN and exact-address lhash2
+
+client fd 7
+→ socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0)
+→ connect(7,127.0.0.1:28080)
+→ ip_route_connect selects 127.0.0.1 and lo
+→ inet_hash_connect selects source port 40000
+→ client tuple 127.0.0.1:40000 → 127.0.0.1:28080
+→ C enters TCP_SYN_SENT, bind/bind2 and ehash
+→ C_ISN=0x13572468
+→ tcp_connect builds original CSYN and sends clone XSYN
+→ IPv4 output → dev_queue_xmit → loopback_xmit
+→ __netif_rx queues XSYN to CPU0 backlog
+→ NET_RX softirq finds L through exact lhash2
+→ L allocates request_sock R in TCP_NEW_SYN_RECV
+→ R records client options and C_ISN+1
+→ S_ISN=0x24681357
+→ R enters ehash, arms request timer, qlen/young become 1/1
+→ server sends SYN-ACK through lo
+→ reverse ehash lookup finds client C
+→ parent still owns C, so softirq queues SYN-ACK in C.sk_backlog
+→ protocol connect returns 0 and CS becomes SS_CONNECTING
+→ inet_wait_for_connect installs wait entry CW
+→ stop immediately before release_sock(C)
 ```
 
 ## 当前精确状态
 
 ```text
-system_state          = SYSTEM_RUNNING
-current executor      = parent
-CPU/mode              = CPU0, x86-64 CPL 3
-parent state          = TASK_RUNNING, on_rq=1, on_cpu=1
-helper                = blocked outside listener objects
-last syscall          = listen(6,8)
-last return           = 0
-fd 6                  = open, blocking, close-on-exec
-file F6               = active sockfs socket file
-socket S              = SS_UNCONNECTED, SOCK_STREAM
-tcp socket L/LTP      = TCP_LISTEN
-network namespace     = N
-loopback device       = lo UP
-local endpoint        = 127.0.0.1:28080
-remote endpoint       = unset
-bind bucket TB        = active
-bind2 bucket TB2      = active; owners contains L
-listener bucket ILB2  = active; contains L
-sk_max_ack_backlog    = 8
-sk_ack_backlog        = 0
-request queue         = empty
-accept queue          = empty
-Fast Open queue       = empty
-request socket        = none
-accepted child        = none
-route/dst cache       = empty
-skb/packet            = none
-next entry            = client socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0)
+system_state             = SYSTEM_RUNNING
+current executor         = parent
+CPU/mode                 = CPU0, x86-64 kernel process context
+current syscall          = connect(7,127.0.0.1:28080)
+parent state             = TASK_RUNNING; not scheduled yet
+client wait entry CW     = installed on sk_sleep(C)
+client socket user lock  = held by parent
+
+server fd 6              = open, blocking, close-on-exec
+server L                 = TCP_LISTEN
+server local endpoint    = 127.0.0.1:28080
+server bind/lhash2       = active
+server request qlen      = 1
+server request young     = 1
+server accept queue      = empty
+server child             = none
+
+client fd 7              = open, blocking, close-on-exec
+client CS                = SS_CONNECTING
+client C                 = TCP_SYN_SENT
+client local endpoint    = 127.0.0.1:40000
+client remote endpoint   = 127.0.0.1:28080
+client bind/bind2        = active; SOCK_CONNECT_BIND
+client ehash             = active
+client dst               = local route through lo
+client C_ISN             = 0x13572468
+client snd_una/snd_nxt   = C_ISN / C_ISN+1
+client retrans tree      = contains original CSYN
+client retrans timer     = armed
+client socket backlog    = contains one SYN-ACK
+
+request R                = TCP_NEW_SYN_RECV
+request tuple            = 127.0.0.1:28080 ← 127.0.0.1:40000
+request S_ISN            = 0x24681357
+request rcv_nxt          = C_ISN+1
+request ehash            = active
+request timer            = armed
+request rsk_refcnt       = 2
+next entry               = release_sock(C)
 ```
 
 ## 必须保持的技术边界
 
-1. protocol 0在AF_INET/`SOCK_STREAM`下选择TCP。
-2. `struct socket`嵌在sockfs pseudo inode中；`struct tcp_sock`是独立协议对象。
-3. `SS_UNCONNECTED`属于socket API状态；`TCP_CLOSE`/`TCP_LISTEN`属于TCP协议状态。
-4. 单个`socket()`在协议对象成功建立后才reserve和发布fd。
-5. `SOCK_CLOEXEC`设置fdtable bit，不等于file的`O_CLOEXEC` status flag。
-6. `bind()`先验证local address，再由`inet_csk_get_port()`建立端口所有权。
-7. `inet_bind_bucket`表示namespace/port/L3 domain；`inet_bind2_bucket`增加local address维度。
-8. bind hash不是listener hash；bind成功后socket仍不可被入站SYN lookup。
-9. `inet_num`使用host byte order；`inet_sport`使用network byte order。
-10. `listen()`先按`somaxconn`限制backlog，再进入协议回调。
-11. 第一次listen初始化空request/accept queue；backlog不代表预分配request或child。
-12. state先写`TCP_LISTEN`，外部可查找性仍以listener hash发布为准。
-13. listen重新调用`get_port()`复核listener冲突，不会重复加入已有bind owner链。
-14. listener进入按具体local address和port计算的lhash2，并设置`SOCK_RCU_FREE`。
-15. socket、bind与listen均不产生route output、skb、SYN或loopback packet。
+1. `struct socket`属于socket API层；`struct tcp_sock`、`request_sock`和未来server child是不同对象与生命周期。
+2. client `socket()`复用服务器创建主链，fd 7来自最低空闲描述符。
+3. `ip_route_connect()`在local port仍为0时选择local route、source address和`lo`。
+4. connect自动选择的source address/port不等同于用户显式bind；端口带`SOCK_CONNECT_BIND`。
+5. ephemeral port由带secret与perturbation的扫描算法选择；40000只是固定场景结果。
+6. `tcp_v4_connect()`先写`TCP_SYN_SENT`，再自动选端口、插入bind hash与ehash。
+7. client在SYN发出前已进入ehash，使反向SYN-ACK能够查到它。
+8. TCP保留original CSYN用于重传，IP/device层发送可消费的clone XSYN。
+9. local destination仍走IPv4 output、`dev_queue_xmit()`、`loopback_xmit()`与`__netif_rx()`。
+10. loopback没有硬件IRQ或DMA；CPU0 NET_RX softirq可嵌套运行在`connect()`发送路径中。
+11. SYN方向不匹配client四元组，随后通过具体地址lhash2命中server listener。
+12. 普通非cookie SYN分配真实request R；R状态为`TCP_NEW_SYN_RECV`，不是完整child的`TCP_SYN_RECV`。
+13. request必须先进入ehash并启动timer，再发送SYN-ACK，避免最终ACK到达时无对象可查。
+14. request qlen=1不等于accept queue已有连接；accept queue仍为空。
+15. parent持有client socket用户锁时，softirq只能把SYN-ACK放入`C.sk_backlog`。
+16. blocking connect先安装CW，再调用`release_sock(C)`，从而不会丢失处理SYN-ACK时的state-change wakeup。
+17. 第175章没有完成三次握手，也没有创建server child或让`connect()`返回。
+18. 单章只解释本章路径；不要在批次末章重复总结前三章正文。
 
 ## 下一建议场景
 
 ```text
-client socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0)
-→ publish fd 7
-→ connect(fd 7,127.0.0.1:28080)
-→ choose loopback route and ephemeral source port
-→ client enters TCP_SYN_SENT
-→ build and transmit SYN through loopback
-→ listener lookup finds L
-→ allocate and hash request_sock
-→ send SYN-ACK
+release_sock(C)
+→ __release_sock drains client socket backlog
+→ tcp_v4_do_rcv(C,SYN-ACK)
+→ TCP_SYN_SENT client validates ACK/options
+→ client C enters TCP_ESTABLISHED
+→ client sends final ACK through lo
+→ server ehash lookup finds request R
+→ tcp_check_req creates full server child
+→ replace/unhash R and hash child
+→ child enters TCP_ESTABLISHED and accept queue
+→ listener data_ready / accept wake semantics
+→ wait_woken observes prior wake without real sleep
+→ connect(7,...) returns 0
 ```
 
-开始前固定client ephemeral port、route result、ISN、TCP options、softirq/NAPI边界、request socket引用、CPU0执行顺序与parent阻塞/唤醒位置。
+开始前固定最终ACK时序、request到child的引用替换、child bind继承、accept queue计数、client retransmission cleanup、wakeup flag与是否实际schedule。
 
 ## 连续叙事与流程
 
-每段交代当前执行者、CPU mode、关键对象、锁/引用、状态变化、下一入口和固定源码依据。继续时读取`AGENTS.md`、`project/STATE.rst`、目录、最近章节和manifest；每批固定写三章并同步五份接续文件。
+每段交代当前执行者、CPU mode、关键对象、锁/引用、状态变化、下一入口和固定源码依据。继续时读取`AGENTS.md`、`project/STATE.rst`、目录、最近章节和manifest；每批固定写三章并同步五份接续文件，直接提交`main`。

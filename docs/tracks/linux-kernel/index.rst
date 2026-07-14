@@ -30,13 +30,16 @@ Linux Kernel
    → private futex wait/wake complete
    → eventfd, signalfd, timerfd, pidfd and inotify eventpoll lifecycles complete
    → Unix stream socketpair data, half-close and final teardown complete
-   → create AF_INET TCP endpoint and publish fd 6
-   → bind listener identity to 127.0.0.1:28080
-   → create TCP bind and bind2 ownership
-   → initialize empty request/accept queue
-   → TCP_CLOSE to TCP_LISTEN
-   → publish listener in exact-address lhash2
-   → no client, request socket or packet yet
+   → server fd 6 binds 127.0.0.1:28080 and enters TCP_LISTEN
+   → client fd 7 selects local route and source port 40000
+   → client enters TCP_SYN_SENT and established hash
+   → client SYN traverses IPv4 output and loopback receive
+   → exact-address listener lookup finds server L
+   → listener creates TCP_NEW_SYN_RECV request R
+   → R enters ehash, arms timer and sends SYN-ACK
+   → SYN-ACK traverses lo and enters client socket backlog
+   → parent has installed connect wait entry but still owns client socket
+   → stop before release_sock(C) processes SYN-ACK
 
 完成范围
 --------
@@ -73,36 +76,37 @@ Linux Kernel
    LK-UNIXSOCK-164..LK-UNIXSOCK-166
    LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169
    LK-TCPLISTEN-170..LK-TCPLISTEN-172
+   LK-TCPCONNECT-173..LK-TCPCONNECT-175
 
 固定commit的 ``Makefile`` 标识为Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定commit为准。
 
 进度
 ----
 
-当前完成172章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
+当前完成175章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
 
 最新三章
 --------
 
-#. `第一百七十章：socket(AF_INET,SOCK_STREAM)怎样创建TCP endpoint并发布fd 6？ <170-inet-stream-socket-creates-tcp-endpoint-and-publishes-fd.rst>`_
-#. `第一百七十一章：bind(127.0.0.1:28080)怎样验证本地地址并占用TCP端口？ <171-bind-loopback-address-claims-tcp-port.rst>`_
-#. `第一百七十二章：listen(8)怎样建立空请求队列并把socket加入TCP监听哈希？ <172-listen-enters-tcp-listen-and-publishes-listener-hash.rst>`_
+#. `第一百七十三章：client connect怎样选择loopback路由、自动端口并进入TCP_SYN_SENT？ <173-client-connect-selects-loopback-route-and-ephemeral-port.rst>`_
+#. `第一百七十四章：tcp_connect怎样构造SYN并通过lo命中server listener？ <174-tcp-syn-traverses-loopback-and-finds-listener.rst>`_
+#. `第一百七十五章：listener怎样创建request_sock并把SYN-ACK排入client backlog？ <175-listener-creates-request-and-queues-synack-to-client-backlog.rst>`_
 
 下一候选
 --------
 
 ::
 
-   client socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, 0)
-   → publish fd 7
-   → connect(127.0.0.1:28080)
-   → loopback route and ephemeral source-port selection
-   → TCP_SYN_SENT and SYN construction
-   → loopback transmit/receive
-   → listener lookup
-   → request_sock allocation and SYN-ACK
+   release_sock(C)
+   → drain SYN-ACK from client socket backlog
+   → client enters TCP_ESTABLISHED
+   → send final ACK through loopback
+   → server lookup finds request R
+   → create and hash full server child
+   → add child to accept queue
+   → connect wait observes wakeup and returns 0
 
 章节组织
 --------
 
-正文沿时间线连续讲述。故事达到适合一次阅读的篇幅，并遇到执行者、CPU mode、运行环境或控制入口交接时换章。每章末尾记录当前执行者、当前状态和下一入口。
+正文沿时间线连续讲述。故事达到适合一次阅读的篇幅，并遇到执行者、CPU mode、运行环境或控制入口交接时换章。每章末尾记录当前执行者、当前状态和下一入口；不要在一批的最后一章重复概括前两章。

@@ -45,17 +45,18 @@
    LK-UNIXSOCK-164..LK-UNIXSOCK-166
    LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169
    LK-TCPLISTEN-170..LK-TCPLISTEN-172
+   LK-TCPCONNECT-173..LK-TCPCONNECT-175
 
 最新三章：
 
-#. ``LK-TCPLISTEN-170``：socket(AF_INET,SOCK_STREAM)怎样创建TCP endpoint并发布fd 6？
-#. ``LK-TCPLISTEN-171``：bind(127.0.0.1:28080)怎样验证本地地址并占用TCP端口？
-#. ``LK-TCPLISTEN-172``：listen(8)怎样建立空请求队列并把socket加入TCP监听哈希？
+#. ``LK-TCPCONNECT-173``：client connect怎样选择loopback路由、自动端口并进入TCP_SYN_SENT？
+#. ``LK-TCPCONNECT-174``：tcp_connect怎样构造SYN并通过lo命中server listener？
+#. ``LK-TCPCONNECT-175``：listener怎样创建request_sock并把SYN-ACK排入client backlog？
 
 进度
 ----
 
-当前已经完成172章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
+当前已经完成175章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
 
 固定来源
 --------
@@ -68,152 +69,174 @@
    → GNU GRUB 2.14 i386-pc @ d38d6a1a9b79427848976f53d474392cd29c2a71
    → Linux 7.2-rc1 @ 7404ce51637231382873d0b55edabc2f3b841a9d
 
-本批固定场景
-------------
+固定场景
+--------
 
 ::
 
-   runtime relation     = new TCP/IPv4 loopback scenario after chapter 169
-   CPUs online          = CPU0 only
-   executor             = parent
-   helper               = blocked outside listener objects
-   scheduling           = parent remains SCHED_NORMAL and running
-   network namespace    = N
-   loopback device      = lo UP
-   loopback address     = 127.0.0.1/8
-   local route          = present before scenario
-   occupied fds         = 0..5
-   server fd            = 6
-   server file          = F6
-   server socket        = S
-   TCP control block    = L/LINET/LICSK/LTP
-   bind address         = 127.0.0.1
-   bind port            = 28080
-   listen backlog       = 8
-   somaxconn            = at least 8
-   SO_REUSEADDR         = disabled
-   SO_REUSEPORT         = disabled
-   server TCP Fast Open = disabled
-   failures/races       = none
-   packet I/O           = none in chapters 170..172
+   runtime relation       = continues chapters 170..172 TCP listener
+   CPUs online            = CPU0 only
+   network namespace      = N
+   loopback device        = lo UP, MTU 65536
+   loopback address       = 127.0.0.1/8
+   server fd              = 6
+   server endpoint        = 127.0.0.1:28080
+   server state           = TCP_LISTEN
+   listen backlog         = 8
+   client fd              = 7
+   client endpoint        = 127.0.0.1:40000
+   remote endpoint        = 127.0.0.1:28080
+   ip_local_port_range    = 32768..60999
+   client ISN             = C_ISN 0x13572468
+   server ISN             = S_ISN 0x24681357
+   client timestamp       = C_TS0 0x10203040
+   server timestamp       = S_TS0 0x50607080
+   client/server wscale   = 7 / 7
+   MSS                    = 65495
+   timestamps/SACK/WS     = enabled
+   TFO/ECN/MD5/AO/MPTCP   = disabled
+   failures/races         = none
 
 完整控制流
 ----------
 
 ::
 
-   parent socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, 0)
-   → __sys_socket_create validates family, type and flags
-   → __sock_create allocates sockfs inode IS and struct socket S
-   → inet_create selects inet_stream_ops and tcp_prot
-   → sk_alloc creates one tcp_sock object LTP
-   → sock_init_data links S and L
-   → S.state=SS_UNCONNECTED
-   → L.sk_state=TCP_CLOSE
-   → tcp_v4_init_sock and tcp_init_sock initialize TCP control state
-   → sock_map_fd reserves fd 6 with close-on-exec
-   → sock_alloc_file creates blocking socket file F6
-   → fd_install publishes F6 at fd 6
-   → socket returns 6
+   client socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0)
+   → reuse AF_INET TCP creation path
+   → publish blocking close-on-exec fd 7
+   → CS.state=SS_UNCONNECTED; C.sk_state=TCP_CLOSE
 
-   parent bind(6,127.0.0.1:28080)
-   → resolve F6/S/L
-   → copy sockaddr_in into kernel storage
-   → inet_bind enters __inet_bind under socket lock
-   → local table classifies 127.0.0.1 as RTN_LOCAL
-   → verify TCP_CLOSE and inet_num=0
-   → set inet_rcv_saddr and inet_saddr
-   → tcp_prot.get_port enters inet_csk_get_port
-   → create/find inet_bind_bucket TB for N/28080/l3mdev0
-   → create/find inet_bind2_bucket TB2 for 127.0.0.1:28080
-   → conflict check succeeds
-   → inet_bind_hash attaches L to TB2 owners
-   → inet_num=28080; inet_sport=htons(28080)
-   → set SOCK_BINDADDR_LOCK and SOCK_BINDPORT_LOCK
-   → remain SS_UNCONNECTED/TCP_CLOSE
-   → bind returns 0
+   connect(7,127.0.0.1:28080)
+   → __sys_connect copies sockaddr_in
+   → inet_stream_connect locks C
+   → tcp_v4_connect validates AF_INET destination
+   → ip_route_connect selects RTN_LOCAL route and lo
+   → route selects source address 127.0.0.1
+   → tcp_set_state(C,TCP_SYN_SENT)
+   → inet_hash_connect scans ephemeral range
+   → fixed scenario chooses local port 40000
+   → create CTB/CTB2 and set SOCK_CONNECT_BIND
+   → insert client C into ehash
+   → commit local/remote tuple and dst
+   → secure sequence function yields C_ISN
 
-   parent listen(6,8)
-   → __sys_listen_socket keeps effective backlog at 8
-   → inet_listen validates SS_UNCONNECTED and SOCK_STREAM
-   → __inet_listen_sk sets sk_max_ack_backlog=8
-   → server Fast Open branch remains disabled
-   → inet_csk_listen_start initializes empty request/accept queue
-   → sk_ack_backlog=0
-   → TCP_CLOSE→TCP_LISTEN
-   → inet_csk_get_port revalidates port 28080
-   → existing bind ownership remains unchanged
-   → inet_hash chooses exact-address lhash2 bucket ILB2
-   → set SOCK_RCU_FREE
-   → RCU-publish L in ILB2
-   → listen returns 0
+   tcp_connect(C)
+   → tcp_connect_init derives PMTU, MSS, receive window and scale
+   → allocate original SYN skb CSYN
+   → seq=C_ISN; end_seq=C_ISN+1
+   → queue CSYN in retransmission tree
+   → send clone XSYN through tcp_transmit_skb
+   → ip_queue_xmit builds IPv4 header
+   → dev_queue_xmit selects lo
+   → loopback_xmit orphans clone and calls __netif_rx
+   → CPU0 backlog raises NET_RX softirq
+   → IPv4 local delivery enters tcp_v4_rcv
+   → ehash direction does not match client C
+   → exact-address listener lookup finds L
+
+   tcp_v4_do_rcv(L,XSYN)
+   → TCP_LISTEN branch calls tcp_v4_conn_request
+   → no syncookie or queue overflow
+   → inet_reqsk_alloc creates request R
+   → R.state=TCP_NEW_SYN_RECV and holds listener reference
+   → parse MSS/SACK/timestamp/window-scale options
+   → R records C_ISN and rcv_nxt=C_ISN+1
+   → fixed server sequence is S_ISN
+   → inet_csk_reqsk_queue_hash_add inserts R into ehash
+   → arm request retransmission timer
+   → set rsk_refcnt to 3, then caller put leaves 2
+   → request qlen/young become 1/1
+   → tcp_v4_send_synack builds seq=S_ISN, ack=C_ISN+1
+   → SYN-ACK traverses IPv4 output and lo
+   → reverse ehash lookup finds client C
+   → parent owns C, so tcp_add_backlog queues SYN-ACK
+
+   return to client connect path
+   → tcp_connect commits snd_nxt=C_ISN+1 and arms SYN timer
+   → tcp_v4_connect returns 0
+   → CS.state becomes SS_CONNECTING
+   → inet_wait_for_connect installs wait entry CW
+   → stop immediately before release_sock(C)
 
 当前精确状态
 ------------
 
 * ``system_state``：``SYSTEM_RUNNING``；
-* runtime scenario：TCP/IPv4 loopback server listener setup complete；
 * current executor：parent；
 * CPU：CPU0；
-* CPU mode：x86-64 CPL 3；
-* parent state：``TASK_RUNNING``；
-* parent ``on_rq=1``、``on_cpu=1``；
-* helper：blocked outside listener objects；
-* final syscall/result：``listen(6,8)=0``；
-* fd 6：open、blocking、close-on-exec；
-* file ``F6``：active sockfs socket file；
-* socket ``S``：``SS_UNCONNECTED``、``SOCK_STREAM``；
-* TCP socket ``L/LTP``：``TCP_LISTEN``；
-* local endpoint：``127.0.0.1:28080``；
-* remote endpoint：unset；
-* bind bucket ``TB``：active；
-* bind2 bucket ``TB2``：active，owners包含 ``L``；
-* listener bucket ``ILB2``：active，包含 ``L``；
-* ``sk_max_ack_backlog=8``；
-* ``sk_ack_backlog=0``；
-* request queue：empty；
+* CPU mode：x86-64 kernel process context；
+* current syscall：blocking ``connect(7,127.0.0.1:28080)``；
+* parent：``TASK_RUNNING``，尚未schedule；
+* client socket user lock：由parent持有；
+* connect wait entry ``CW``：已经加入 ``sk_sleep(C)``；
+* server fd 6：open、blocking、close-on-exec；
+* server ``L``：``TCP_LISTEN``；
+* server endpoint：``127.0.0.1:28080``；
+* server bind hash与listener lhash2：active；
+* client fd 7：open、blocking、close-on-exec；
+* client ``CS``：``SS_CONNECTING``；
+* client ``C``：``TCP_SYN_SENT``；
+* client tuple：``127.0.0.1:40000 → 127.0.0.1:28080``；
+* client bind/bind2 ownership：active，``SOCK_CONNECT_BIND`` set；
+* client ehash：active；
+* client dst：local route through ``lo``；
+* client retransmission tree：contains original CSYN；
+* client SYN retransmission timer：armed；
+* client ``snd_una=C_ISN``、``snd_nxt=C_ISN+1``；
+* client socket backlog：contains one SYN-ACK；
+* request ``R``：``TCP_NEW_SYN_RECV``；
+* request tuple：``127.0.0.1:28080 ← 127.0.0.1:40000``；
+* request ehash：active；
+* request timer：armed；
+* request ``rsk_refcnt=2``；
+* request qlen/young：1/1；
 * accept queue：empty；
-* Fast Open queue：empty；
-* request socket：none；
-* accepted child：none；
-* route/dst cache：empty；
-* skb/packet：none；
-* filesystem/block/device packet I/O：none；
-* next runtime entry：client ``socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0)``。
+* full server child：none；
+* final ACK：not sent；
+* next runtime entry：``release_sock(C)``。
 
 关键边界
 --------
 
-#. protocol 0在AF_INET/``SOCK_STREAM``下选择TCP。
-#. sockfs inode/``struct socket``、socket file与``struct tcp_sock``具有不同对象边界。
-#. ``SS_UNCONNECTED``与``TCP_CLOSE``/``TCP_LISTEN``属于不同状态层。
-#. 单个socket在协议对象创建完成后才reserve并发布fd。
-#. ``SOCK_CLOEXEC``由fdtable close-on-exec bit实现。
-#. bind验证local address并建立bind ownership，不发布listener lookup身份。
-#. ``inet_bind_bucket``与``inet_bind2_bucket``分别表达port domain与address-specific ownership。
-#. ``inet_num``为host order，``inet_sport``为network order。
-#. 第一次listen初始化空request/accept queue，backlog不等于预分配对象数量。
-#. listen在hash发布前写``TCP_LISTEN``，lookup可见性仍由lhash2 membership决定。
-#. listen重新验证bound port，不重复插入已有bind owner。
-#. exact-address listener优先于``INADDR_ANY``回退查找。
-#. listener设置``SOCK_RCU_FREE``并通过RCU可见的nulls list发布。
-#. socket/bind/listen阶段没有route output、skb、SYN或loopback packet。
+#. client创建复用第170章的对象创建路径，本章只新增fd 7与独立tcp_sock C。
+#. ``ip_route_connect``先选择local route与source address，local port随后由``inet_hash_connect``确定。
+#. source port 40000是固定随机状态下的结果，不是Linux API保证。
+#. connect自动端口加入bind/bind2并设置``SOCK_CONNECT_BIND``，与用户显式bind锁不同。
+#. client在SYN发出前已经加入ehash，供反向SYN-ACK查找。
+#. original CSYN留在TCP retransmission tree；device层发送clone XSYN。
+#. local route仍经过IP output、device output、``loopback_xmit``与NET_RX receive。
+#. 单CPUloopback可以在``connect()``发送路径内嵌套运行NET_RX softirq。
+#. SYN按目的地址和端口命中server的具体地址lhash2。
+#. 普通SYN建立真实request R；syncookie分支不会保留相同对象。
+#. ``TCP_NEW_SYN_RECV`` request不是完整的server child。
+#. request在发送SYN-ACK前先进入ehash并启动timer。
+#. request qlen为1时accept queue仍为空。
+#. parent持有client socket lock时，SYN-ACK只能进入``C.sk_backlog``。
+#. ``SS_CONNECTING``与``TCP_SYN_SENT``属于不同层，可以同时存在。
+#. wait entry CW先安装，之后才释放socket lock，避免处理backlog时的wakeup丢失。
+#. 第175章尚未完成握手，不允许提前写client ESTABLISHED、server child或connect返回。
+#. 单章末尾只记录本章状态，不再加入“本批三章总结”。
 
 下一任务
 --------
 
-服务器listener已经建立。下一批优先进入client connect与普通三次握手前半段：
-
 ::
 
-   client socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, 0)
-   → publish fd 7
-   → connect(fd 7,127.0.0.1:28080)
-   → choose loopback route and ephemeral source port
-   → enter TCP_SYN_SENT
-   → build and transmit SYN
-   → listener lookup finds L
-   → allocate and hash request_sock
-   → send SYN-ACK
+   release_sock(C)
+   → __release_sock drains SYN-ACK from C.sk_backlog
+   → tcp_rcv_synsent_state_process validates ACK and options
+   → client C enters TCP_ESTABLISHED
+   → remove/ack original SYN retransmission state
+   → send final ACK through lo
+   → server ehash lookup finds request R
+   → tcp_check_req creates full server child
+   → child inherits listener bind ownership and tuple
+   → replace request hash identity with child
+   → child enters TCP_ESTABLISHED
+   → add child to listener accept queue
+   → state-change/data-ready wakeups become visible
+   → wait_woken observes wake flag without necessarily scheduling
+   → connect(7,...) returns 0
 
-开始前必须固定client ephemeral port、route result、initial sequence numbers、TCP options、softirq/NAPI边界、request socket引用、CPU0执行顺序与parent在blocking connect中的睡眠位置。
+开始前必须固定``release_sock`` backlog顺序、client final ACK sequence、request引用删除、child bind继承与ehash替换、accept queue计数、wakeup flag以及parent是否真正调用scheduler。

@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133; LK-EPOLL-134..LK-EPOLL-136; LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139; LK-SIGNALFD-140..LK-SIGNALFD-142; LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145; LK-TIMERFD-146..LK-TIMERFD-148; LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151; LK-PIDFD-152..LK-PIDFD-154; LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157; LK-INOTIFY-158..LK-INOTIFY-160; LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163; LK-UNIXSOCK-164..LK-UNIXSOCK-166; LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169; LK-TCPLISTEN-170..LK-TCPLISTEN-172"
+completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133; LK-EPOLL-134..LK-EPOLL-136; LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139; LK-SIGNALFD-140..LK-SIGNALFD-142; LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145; LK-TIMERFD-146..LK-TIMERFD-148; LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151; LK-PIDFD-152..LK-PIDFD-154; LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157; LK-INOTIFY-158..LK-INOTIFY-160; LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163; LK-UNIXSOCK-164..LK-UNIXSOCK-166; LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169; LK-TCPLISTEN-170..LK-TCPLISTEN-172; LK-TCPCONNECT-173..LK-TCPCONNECT-175"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
@@ -106,7 +106,10 @@ chapter = [
   { id = "LK-UNIXSOCKCLOSE-169", title = "close(7)与close(8)怎样释放两端Unix socket和空eventpoll？", rst = "docs/tracks/linux-kernel/169-close-second-unix-socket-and-eventpoll-final-teardown.rst", status = "complete" },
   { id = "LK-TCPLISTEN-170", title = "socket(AF_INET,SOCK_STREAM)怎样创建TCP endpoint并发布fd 6？", rst = "docs/tracks/linux-kernel/170-inet-stream-socket-creates-tcp-endpoint-and-publishes-fd.rst", status = "complete" },
   { id = "LK-TCPLISTEN-171", title = "bind(127.0.0.1:28080)怎样验证本地地址并占用TCP端口？", rst = "docs/tracks/linux-kernel/171-bind-loopback-address-claims-tcp-port.rst", status = "complete" },
-  { id = "LK-TCPLISTEN-172", title = "listen(8)怎样建立空请求队列并把socket加入TCP监听哈希？", rst = "docs/tracks/linux-kernel/172-listen-enters-tcp-listen-and-publishes-listener-hash.rst", status = "complete" }
+  { id = "LK-TCPLISTEN-172", title = "listen(8)怎样建立空请求队列并把socket加入TCP监听哈希？", rst = "docs/tracks/linux-kernel/172-listen-enters-tcp-listen-and-publishes-listener-hash.rst", status = "complete" },
+  { id = "LK-TCPCONNECT-173", title = "client connect怎样选择loopback路由、自动端口并进入TCP_SYN_SENT？", rst = "docs/tracks/linux-kernel/173-client-connect-selects-loopback-route-and-ephemeral-port.rst", status = "complete" },
+  { id = "LK-TCPCONNECT-174", title = "tcp_connect怎样构造SYN并通过lo命中server listener？", rst = "docs/tracks/linux-kernel/174-tcp-syn-traverses-loopback-and-finds-listener.rst", status = "complete" },
+  { id = "LK-TCPCONNECT-175", title = "listener怎样创建request_sock并把SYN-ACK排入client backlog？", rst = "docs/tracks/linux-kernel/175-listener-creates-request-and-queues-synack-to-client-backlog.rst", status = "complete" }
 ]
 
 [origin]
@@ -193,19 +196,29 @@ bind_result = "127.0.0.1 is accepted as RTN_LOCAL; port 28080 gains bind and bin
 listen_result = "empty request/accept queue initialized; sk_max_ack_backlog 8; state TCP_LISTEN; listener inserted into exact-address lhash2"
 final_result = "fd 6 open at 127.0.0.1:28080; no client, request socket, child, route cache, skb or packet"
 
+[completed_tcp_connect_syn_scenario]
+name = "TCP IPv4 loopback active open through SYN request creation and SYN-ACK client backlog delivery"
+status = "complete"
+userspace_calls = "socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0) -> fd7; connect(7,127.0.0.1:28080) remains in progress"
+client_identity_result = "route selects 127.0.0.1 and lo; inet_hash_connect selects source port 40000; client enters TCP_SYN_SENT with C_ISN 0x13572468 and ehash membership"
+syn_result = "tcp_connect queues original SYN for retransmission and sends a clone through IPv4 output, loopback_xmit and CPU0 NET_RX softirq; exact-address listener lookup finds L"
+request_result = "listener allocates TCP_NEW_SYN_RECV request R, records client options, hashes R, arms timer, sets qlen/young to 1/1 and sends SYN-ACK with S_ISN 0x24681357"
+synack_result = "reverse ehash lookup finds client C; parent still owns C, so SYN-ACK is queued to C.sk_backlog without processing TCP_SYN_SENT"
+final_result = "CS is SS_CONNECTING, C is TCP_SYN_SENT, connect wait entry CW is installed, R is hashed with refcount 2, accept queue is empty, next entry is release_sock(C)"
+
 [progress]
-completed_chapters = 172
+completed_chapters = 175
 total_chapters = "unfixed"
 remaining_chapters = "unknown"
 planning_rule = "follow source-reading scope and natural narrative closure"
 
 [current]
-last_complete = "LK-TCPLISTEN-172"
-executor = "parent after TCP IPv4 loopback listener publication"
-cpu_mode = "x86-64 CPL 3 on CPU0"
-current_task = "SCHED_NORMAL parent; helper blocked outside listener objects"
-next_entry = "client socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0)"
-next_action = "create client fd 7, connect to 127.0.0.1:28080, select loopback route and ephemeral port, send SYN and create request socket"
+last_complete = "LK-TCPCONNECT-175"
+executor = "parent inside blocking connect after installing wait entry CW"
+cpu_mode = "x86-64 kernel process context on CPU0"
+current_task = "SCHED_NORMAL parent; TASK_RUNNING; owns client socket C; has not scheduled"
+next_entry = "release_sock(C)"
+next_action = "drain SYN-ACK from client backlog, establish client, send final ACK, replace request R with full server child, enqueue child for accept and return connect 0"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完整"
