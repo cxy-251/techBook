@@ -38,12 +38,13 @@
    LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145
    LK-TIMERFD-146..LK-TIMERFD-148
    LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151
+   LK-PIDFD-152..LK-PIDFD-154
 
 最新三章：
 
-#. ``LK-TIMERFDCLOSE-149``：零超时epoll_wait() 怎样清理timerfd的stale-ready item？
-#. ``LK-TIMERFDCLOSE-150``：EPOLL_CTL_DEL 怎样拆除timerfd callback与epitem？
-#. ``LK-TIMERFDCLOSE-151``：close() 怎样释放timerfd与eventpoll并结束两套RCU生命周期？
+#. ``LK-PIDFD-152``：pidfd_open() 怎样建立pidfs file并让epoll_wait监视child？
+#. ``LK-PIDFD-153``：child _exit(42) 怎样通过pid->wait_pidfd唤醒epoll_wait？
+#. ``LK-PIDFD-154``：waitid(P_PIDFD) 怎样读取退出状态并回收child？
 
 固定来源
 --------
@@ -80,176 +81,195 @@
 #. blocked ``SIGUSR1`` 通过signalfd与epoll交付并读取 ``signalfd_siginfo``；
 #. signalfd stale-ready清理、registration删除与signalfd/eventpoll final teardown；
 #. one-shot monotonic timerfd通过local APIC、hrtimer与epoll交付expiration count；
-#. timerfd stale-ready清理、registration删除与timerfd/eventpoll final teardown。
+#. timerfd stale-ready清理、registration删除与timerfd/eventpoll final teardown；
+#. pidfd通过pidfs与epoll观察child退出，再由 ``waitid(P_PIDFD)`` 回收child。
 
 本批固定场景
 ------------
 
 ::
 
-   runtime relation    = continuation of LK-TIMERFD-146..148
+   runtime relation    = independent scenario after LK-TIMERFDCLOSE-151
    CPUs online         = CPU0 only
-   process             = parent + helper threads, same TGID
-   files table         = shared through CLONE_FILES
+   processes           = parent and one direct child, separate TGIDs
+   process shape       = both single-threaded
+   files tables        = separate after ordinary fork
    scheduling          = both SCHED_NORMAL
-   current executor    = parent
-   timerfd fd          = 6, blocking, close-on-exec
-   timerfd file        = F6
-   timerfd ctx         = T
-   timer clock         = CLOCK_MONOTONIC
-   timer interval      = 0, one-shot
-   embedded hrtimer    = inactive and not queued
-   timer state         = T.ticks=0, T.expired=0, T.tintv=0
+   initial executor    = parent
+   child PID           = C in parent's active pid namespace
+   child state         = TASK_RUNNING before parent blocks
+   child exit signal   = SIGCHLD
+   SIGCHLD disposition = default; no explicit SIG_IGN or SA_NOCLDWAIT
+   pidfd call          = pidfd_open(C, 0)
+   pidfd fd            = 6, O_RDWR, blocking, close-on-exec
+   pid object          = P
+   pidfs inode         = N, i_private=P
    epoll fd            = 7, close-on-exec
-   eventpoll file      = F7
-   eventpoll object    = EP
-   registration        = one level-triggered EPOLLIN epitem I
-   event data          = 0x71FD6
-   callback entry      = P on T.wqh
-   entry ready state   = I initially stale-ready on EP.rdllist
-   stale check         = epoll_wait(7, events2, 1, 0)
-   delete call         = epoll_ctl(7, EPOLL_CTL_DEL, 6, NULL)
-   final closes        = close(6), then close(7)
-   concurrency         = no expiration/callback/ctl/wait/close race
-   failure policy      = no fd/copy/VFS/slab/timer/scheduler failure
+   registration        = level-triggered EPOLLIN epitem I
+   event data          = 0x50494436
+   callback entry      = CB on P->wait_pidfd
+   parent wait         = epoll_wait(7, events, 1, -1)
+   child action        = _exit(42)
+   wait action         = waitid(P_PIDFD, 6, &si, WEXITED, NULL)
+   concurrency         = no ptrace, concurrent wait, ctl, close or exec race
+   failure policy      = no fd, pidfs, copy, slab, signal or scheduler failure
 
 完整控制流
 ----------
 
 ::
 
-   parent epoll_wait(7, events2, 1, 0)
-   → zero timeout sets timed_out=1
-   → stale I makes initial ready check true
-   → ep_send_events locks EP.mtx
-   → ep_start_scan moves I into local scan batch
-   → ep_deliver_event removes I from scan batch
-   → ep_item_poll calls timerfd_poll with no queue callback
-   → timerfd_poll locks T.wqh and sees T.ticks=0
-   → no EPOLLIN returned
-   → no event copied and I is not level-triggered requeued
-   → EP.rdllist remains empty
-   → epoll_wait returns 0 without sleeping
+   ordinary fork has already created child PID C
+   → parent and child have separate files_struct objects
+   → child is runnable but has not executed _exit yet
 
-   parent epoll_ctl(7, EPOLL_CTL_DEL, 6, NULL)
-   → resolve F7 and F6 with temporary file references
-   → lock EP.mtx and find I by key (F6, fd 6)
-   → ep_unregister_pollwait removes P from T.wqh
-   → T.wqh lock synchronizes callback removal with wake path
-   → free P synchronously
-   → epi_fget pins F6 against final __fput
-   → under F6.f_lock publish F6.f_ep=NULL for last watcher
-   → remove reverse hlist link
-   → erase I from EP.rbr
-   → I already absent from EP.rdllist
-   → kfree_rcu(I)
-   → EP.refcount 2 -> 1
-   → epoll_ctl returns 0
+   parent pidfd_open(C, 0)
+   → find_get_pid(C) resolves stable struct pid P
+   → pidfd_prepare locks P->wait_pidfd.lock
+   → verify PIDTYPE_PID and PIDTYPE_TGID task linkages
+   → reserve close-on-exec fd 6
+   → pidfs_alloc_file(P)
+   → create/reuse stashed pidfs dentry and inode N
+   → N.i_private=P and N holds a pid reference
+   → create O_RDWR pidfd file F6
+   → fd_install publishes fd 6
+   → return 6
 
-   parent close(6)
-   → remove shared fd 6 publication and close-on-exec bit
-   → filp_flush returns 0
-   → fput_close_sync enters final __fput(F6)
-   → eventpoll_release sees F6.f_ep=NULL and uses fast path
-   → timerfd_release
-   → timerfd_remove_cancel sees might_cancel=false
-   → hrtimer_cancel sees inactive one-shot timer and returns 0
-   → kfree_rcu(T)
-   → release [timerfd] pseudo dentry and per-file mount ref
-   → file_free(F6)
-   → close(6) returns 0
+   parent epoll_create1(EPOLL_CLOEXEC)
+   → allocate eventpoll EP and file F7
+   → publish fd 7
 
-   parent close(7)
-   → remove shared fd 7 publication and close-on-exec bit
-   → filp_flush returns 0
-   → fput_close_sync enters final __fput(F7)
-   → ep_eventpoll_release / ep_clear_and_put
-   → eventpoll wait queues are empty
-   → lock EP.mtx
-   → empty pollwait drain pass
-   → empty rbtree drain pass
-   → unlock EP.mtx
-   → EP.refcount 1 -> 0
-   → ep_free destroys mutex/user/wakeup-source state
-   → kfree_rcu(EP)
-   → release [eventpoll] pseudo dentry and per-file mount ref
-   → file_free(F7)
-   → close(7) returns 0
+   parent epoll_ctl(7, ADD, 6, {EPOLLIN,data=0x50494436})
+   → allocate epitem I keyed by (F6, fd 6)
+   → EP.refcount 1 -> 2
+   → pidfd_poll installs callback CB on P->wait_pidfd
+   → child exit_state=0, so initial poll mask is zero
+   → EP.rbr contains I and EP.rdllist remains empty
+
+   parent epoll_wait(7, events, 1, -1)
+   → add exclusive task waiter W to EP.wq
+   → parent becomes TASK_INTERRUPTIBLE and schedules out
+   → scheduler selects child on CPU0
+
+   child _exit(42)
+   → do_exit(42 << 8)
+   → release runtime resources
+   → exit_notify under tasklist_lock
+   → child exit_state 0 -> EXIT_ZOMBIE
+   → do_notify_parent
+   → do_notify_pidfd(child)
+   → wake P->wait_pidfd with EPOLLIN|EPOLLRDNORM key
+   → ep_poll_callback CB queues I on EP.rdllist
+   → eventpoll wake changes parent TASK_INTERRUPTIBLE -> TASK_RUNNING
+   → default SIGCHLD semantics leave child as zombie
+   → child enters dead scheduling path
+   → scheduler restores parent epoll_wait stack
+
+   parent ep_send_events
+   → pidfd_poll rechecks zombie child
+   → report EPOLLIN|EPOLLRDNORM
+   → copy events[0]={EPOLLIN,data=0x50494436}
+   → level-triggered I returns to EP.rdllist
+   → epoll_wait returns 1
+
+   parent waitid(P_PIDFD, 6, &si, WEXITED, NULL)
+   → pidfd_get_pid obtains P from pidfs inode and takes temporary pid ref
+   → prepare wait_opts with PIDTYPE_PID and WEXITED
+   → verify target is an effective child of current parent
+   → wait_task_zombie cmpxchg EXIT_ZOMBIE -> EXIT_DEAD
+   → collect status 42 << 8 and child accounting
+   → fill CLD_EXITED, status 42, PID C and child UID
+   → release_task(child)
+   → pidfs_exit stores exit metadata in P->attr
+   → remove child task and PID linkages
+   → free_pid removes numeric PID C from namespace IDR
+   → numeric PID C becomes reusable
+   → open pidfs inode keeps old struct pid P alive
+   → waitid copies siginfo and returns 0
 
 当前精确状态
 ------------
 
 * ``system_state``：``SYSTEM_RUNNING``；
-* runtime scenario：timerfd + eventpoll lifecycle complete；
+* runtime scenario：pidfd exit notification and ``P_PIDFD`` reap complete；
 * current executor：parent；
 * CPU：CPU0；
 * CPU mode：x86-64 CPL 3；
 * scheduling class：``SCHED_NORMAL``；
 * parent state：``TASK_RUNNING``；
 * parent ``on_rq=1``、 ``on_cpu=1``；
-* last syscall：``close(7)``；
-* last result/RAX：0；
-* zero-time ``epoll_wait`` result：0；
-* ``EPOLL_CTL_DEL`` result：0；
-* ``close(6)`` result：0；
-* shared fd 6：closed and unallocated；
-* shared fd 7：closed and unallocated；
-* timerfd file ``F6``：freed；
-* timerfd ctx ``T``：logical lifetime ended；
-* ``T`` storage：queued/freed through ``kfree_rcu`` grace period；
-* embedded hrtimer：inactive before ctx teardown；
-* callback ``P``：freed synchronously during DEL；
-* epitem ``I``：logical lifetime ended；
-* ``I`` storage：queued/freed through ``kfree_rcu`` grace period；
-* eventpoll file ``F7``：freed；
-* eventpoll ``EP``：logical lifetime ended；
-* ``EP`` storage：queued/freed through ``kfree_rcu`` grace period；
-* ``[timerfd]`` / ``[eventpoll]`` per-file pseudo paths：released；
-* singleton ``anon_inode_inode``：active；
-* global ``anon_inode_mnt``：mounted；
-* helper：阻塞在旧timerfd/eventpoll之外；
-* parent/helper blocked mask：仍包含之前实验留下的 ``SIGUSR1``；
-* private/shared pending ``SIGUSR1``：none；
-* shared ``files_struct``：active，fd 0..5保持原状；
+* ``epoll_wait`` result：1；
+* ``events[0].events``：``EPOLLIN``；
+* ``events[0].data.u64``：``0x50494436``；
+* ``waitid(P_PIDFD)`` result/RAX：0；
+* ``si_signo``：``SIGCHLD``；
+* ``si_code``：``CLD_EXITED``；
+* ``si_pid``：旧数字PID ``C``；
+* ``si_status``：42；
+* child task：已从活动process图回收；
+* child exit state最终转换：``EXIT_ZOMBIE -> EXIT_DEAD``；
+* numeric PID ``C``：已从namespace IDR移除，可复用；
+* parent fd 6：open pidfd file ``F6``，close-on-exec、blocking；
+* pidfs inode ``N``：active， ``N->i_private=P``；
+* old ``struct pid P``：active because pidfs inode/file still holds references；
+* ``P`` task linkage：none；
+* ``P->attr``：exit bit已设置，保存 ``42 << 8``；
+* ``P->wait_pidfd``：仍包含callback ``CB``；
+* parent fd 7：open eventpoll file ``F7``；
+* eventpoll ``EP``：active， ``refcount=2``；
+* ``EP.rbr``：包含epitem ``I``；
+* ``EP.rdllist``：仍包含level-triggered ``I``；
+* ``EP.wq``：empty；
+* next pidfd poll mask：``EPOLLIN|EPOLLRDNORM|EPOLLHUP``；
+* pidfd/eventpoll close：本批未执行；
 * filesystem/block I/O：none；
 * next runtime scenario：unselected。
 
 关键边界
 --------
 
-#. zero-time epoll会重新验证ready candidate，但不会等待未来event。
-#. ready-list membership不等于目标当前仍ready。
-#. re-poll返回0只删除ready membership，不删除registration。
-#. ``EPOLL_CTL_DEL`` 使用 ``(file, fd)`` key；event参数可以为NULL。
-#. callback entry必须先从target wait queue移除，再释放epitem。
-#. waitqueue lock串行化timerfd wake callback与callback removal。
-#. ``P`` 同步释放； ``I`` 使用 ``kfree_rcu`` 延迟回收storage。
-#. 最后watcher删除时 ``F6->f_ep=NULL``。
-#. epitem持有一个eventpoll reference；DEL使 ``EP->refcount`` 从2降到1。
-#. CLOCK_MONOTONIC relative timerfd不进入cancel-on-set list。
-#. 已到期one-shot hrtimer为inactive，release中的 ``hrtimer_cancel`` 返回0。
-#. timerfd ctx通过 ``kfree_rcu`` 结束storage生命周期。
-#. eventpoll close在空tree上仍执行pollwait-first、tree-second两遍drain。
-#. ``EP->refcount`` 从1归零后由 ``ep_free`` 结束逻辑生命周期。
-#. ``I``、 ``T``、 ``EP`` 的RCU callback彼此独立。
-#. per-file pseudo path结束，全局anon_inodefs继续存在。
-#. 整个场景没有磁盘I/O、journal或writeback。
+#. pidfd固定 ``struct pid`` identity，不固定可复用的数字PID值。
+#. 当前pidfd由pidfs inode承载，不是singleton anonymous inode。
+#. pidfs inode ``i_private`` 指向 ``struct pid`` 并持有pid reference。
+#. 普通fork后parent与child的files table分离，child看不到稍后创建的fd 6/7。
+#. ``pidfd_prepare`` 在 ``wait_pidfd.lock`` 下确认task linkages仍存在。
+#. ``pidfd_poll`` 的target wait queue是 ``P->wait_pidfd``。
+#. callback ``CB`` 与parent sleeping waiter ``W`` 位于两条不同wait queue。
+#. child先进入 ``EXIT_ZOMBIE``，随后发送pidfd wake。
+#. pidfd wake与SIGCHLD/``wait_chldexit`` 是不同通知通道。
+#. epoll event只通知readiness，不消费退出状态或reap child。
+#. ``waitid(P_PIDFD)`` 的upid参数是fd number，不是numeric PID。
+#. 持有pidfd不会绕过自然parent/ptrace wait权限检查。
+#. ``cmpxchg(EXIT_ZOMBIE, EXIT_DEAD)`` 让一个waiter独占reap。
+#. ``waitid`` 成功返回0；child PID和status通过 ``siginfo_t`` 返回。
+#. ``pidfs_exit`` 在task linkage移除前保存exit metadata。
+#. child被reap后numeric PID可以复用，而旧pidfd仍指向旧 ``struct pid``。
+#. task linkage消失后，pidfd poll增加 ``EPOLLHUP``。
+#. level-triggeredepitem仍在ready list，下一次wait会继续交付post-reap readiness。
+#. pidfs是内存pseudo filesystem，本场景没有磁盘I/O、journal或writeback。
 
 下一任务
 --------
 
-当前没有已选定场景。优先候选是pidfd与epoll组合：
+当前pidfd在reap后仍为永久ready。优先接续：
 
 ::
 
-   fork/clone child
-   → pidfd_open(child_pid, 0) publishes fd 6
-   → epoll_create1(EPOLL_CLOEXEC) publishes fd 7
-   → epoll_ctl ADD pidfd EPOLLIN
-   → parent blocks in epoll_wait
-   → child exits and becomes waitable
-   → pidfd poll callback queues epitem and wakes parent
-   → epoll_wait returns one event
-   → waitid(P_PIDFD, fd 6, ...) consumes exit status
+   epoll_wait(7, events2, 1, 0)
+   → pidfd_poll sees no task linkage
+   → report EPOLLIN|EPOLLRDNORM|EPOLLHUP
+   → copy one post-reap event and return 1
 
-开始前必须固定clone flags、child exit status、pidfd type、wait semantics、zombie/reap时点、poll mask、callback和scheduler顺序。
+   epoll_ctl(7, EPOLL_CTL_DEL, 6, NULL)
+   → remove CB from P->wait_pidfd
+   → erase epitem I and drop EP.refcount 2 -> 1
+
+   close(6)
+   → release pidfs file/path/inode
+   → pidfs_evict_inode put_pid(P)
+   → old struct pid and pidfs attr may reach final release
+
+   close(7)
+   → drain empty eventpoll and end EP lifetime
+
+开始前必须核对pidfs dentry stash/prune、inode eviction、pid references、attr free时点、post-reap poll mask与eventpoll teardown顺序。
