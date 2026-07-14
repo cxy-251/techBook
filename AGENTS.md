@@ -33,15 +33,16 @@ LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157
 LK-INOTIFY-158..LK-INOTIFY-160
 LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163
 LK-UNIXSOCK-164..LK-UNIXSOCK-166
+LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169
 ```
 
 最新三章：
 
-- `LK-UNIXSOCK-164`：socketpair怎样建立双向Unix stream并让parent阻塞在epoll_wait？
-- `LK-UNIXSOCK-165`：helper写入hello时，Unix stream skb怎样唤醒epoll并让read返回5？
-- `LK-UNIXSOCK-166`：shutdown(SHUT_WR)怎样让peer收到EPOLLRDHUP并让read返回EOF？
+- `LK-UNIXSOCKCLOSE-167`：EPOLL_CTL_DEL怎样从persistent-ready Unix socket拆除callback与epitem？
+- `LK-UNIXSOCKCLOSE-168`：close(6)怎样释放socket A，却让dead SA继续被peer reference保持？
+- `LK-UNIXSOCKCLOSE-169`：close(7)与close(8)怎样释放两端Unix socket和空eventpoll？
 
-进度：当前完成166章。项目没有预设固定总章数，也没有固定195章目标；后续按源码主线与必要场景自然推进，不计算剩余章数。
+进度：当前完成169章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
 
 ## 固定实现
 
@@ -59,32 +60,31 @@ first partition   = LBA 2048, ext4
 storage           = q35 ICH9 AHCI SATA port 0
 ```
 
-## 已完成Unix socketpair数据与half-close场景
+## 已完成Unix socketpair最终teardown
 
 ```text
-socketpair(AF_UNIX,SOCK_STREAM|SOCK_CLOEXEC,0,sv)
-→ reserve fd 6/7 and create two PF_UNIX stream sockets
-→ unix_peer(SA)=SB, unix_peer(SB)=SA
-→ both sk_state=TCP_ESTABLISHED
-→ install sockfs files F6/F7
-→ epoll_create1 -> fd 8
-→ ADD fd 6 EPOLLIN|EPOLLRDHUP data 0x554E4958
-→ callback P attaches to socket A wait queue
-→ initial poll requested mask is not ready
-→ parent blocks on EP.wq
-→ helper write(7,"hello",5)
-→ one skb enters SA receive queue; UA.inq_len 0→5
-→ SA.sk_data_ready invokes P; I enters ready list; parent wakes
-→ epoll_wait returns EPOLLIN/data 0x554E4958
-→ parent read(6,5) copies hello, consumes skb and UA.inq_len 5→0
-→ I remains stale-ready
-→ parent re-enters epoll_wait
-→ re-poll empty queue removes stale I, then parent sleeps
-→ helper shutdown(7,SHUT_WR)
-→ SB gains SEND_SHUTDOWN; peer SA gains RCV_SHUTDOWN
-→ SA.sk_state_change invokes P and wakes parent
-→ epoll_wait returns EPOLLIN|EPOLLRDHUP/data 0x554E4958
-→ read(6) sees empty queue plus RCV_SHUTDOWN and returns EOF 0
+initial fd6 registration is persistent-ready after peer SHUT_WR and EOF read
+→ epoll_ctl(8,DEL,6,NULL)
+→ remove P from socket A wait queue and free it synchronously
+→ clear F6.f_ep and reverse link
+→ erase I from EP.rbr and EP.rdllist; kfree_rcu(I)
+→ EP refcount 2→1
+→ close(6)
+→ SA orphan, TCP_CLOSE, SHUTDOWN_MASK, unix_peer(SA)=NULL
+→ SB gains SHUTDOWN_MASK/HUP semantics
+→ drop A-held reference to SB
+→ SA remains alive because unix_peer(SB)=SA
+→ free F6 and socket A sockfs VFS objects
+→ close(7)
+→ SB orphan, TCP_CLOSE, SHUTDOWN_MASK
+→ clear unix_peer(SB)
+→ drop final peer reference to SA
+→ unix_sock_destructor frees SA/UA, then SB/UB
+→ free F7 and socket B sockfs VFS objects
+→ close(8)
+→ empty ep_clear_and_put
+→ EP refcount 1→0 and kfree_rcu(EP)
+→ free F8 and eventpoll pseudo path
 ```
 
 ## 当前精确状态
@@ -94,70 +94,57 @@ system_state        = SYSTEM_RUNNING
 current executor    = parent
 CPU/mode            = CPU0, x86-64 CPL 3
 parent state        = TASK_RUNNING, on_rq=1, on_cpu=1
-helper              = blocked outside socket objects
-socketpair result   = 0, sv={6,7}
-helper write        = 5
-first epoll wait    = 1, EPOLLIN/data 0x554E4958
-first read          = 5, bytes hello
-shutdown(7,SHUT_WR) = 0
-second epoll wait   = 1, EPOLLIN|EPOLLRDHUP/data 0x554E4958
-last syscall        = read(6)
-last return         = 0 EOF
-fd 6/7/8            = open
-socket files F6/F7 = active sockfs files
-SA/SB state         = TCP_ESTABLISHED
-SA shutdown         = RCV_SHUTDOWN
-SB shutdown         = SEND_SHUTDOWN
-SA peer             = SB
-SB peer             = SA
-SA/SB receive queue = empty
-UA/UB inq_len       = 0/0
-callback P          = active on socket A wait queue
-epitem I            = active and persistent-ready
-EP refcount         = 2
-EP wq               = empty
+helper              = blocked outside released objects
+EPOLL_CTL_DEL       = 0
+close(6)            = 0
+close(7)            = 0
+last syscall        = close(8)
+last return         = 0
+fd 6/7/8            = closed
+callback P          = synchronously freed
+epitem I            = logically dead; RCU storage free
+socket files F6/F7 = freed
+SA/UA               = freed
+SB/UB               = freed
+Unix peer refs      = none
+eventpoll EP        = logically dead; RCU storage free
+eventpoll F8        = freed
+global sockfs       = active
+global anon_inodefs = active
 next entry          = unselected
 ```
 
 ## 必须保持的技术边界
 
-1. `socketpair`的fd reserve、用户数组copy和`fd_install`是不同阶段。
-2. AF_UNIX socketpair两端互相持有peer reference。
-3. Unix stream使用skb与socket wait queue，不经过IP、路由、网卡或块设备。
-4. socket file由sockfs承载，不是anon_inodefs。
-5. 初始socket可写不会匹配只监听`EPOLLIN|EPOLLRDHUP`的registration。
-6. callback P位于socket A wait queue，sleeping parent位于eventpoll wait queue。
-7. `unix_stream_sendmsg`通过peer pointer直接找到SA。
-8. write数据先复制到skb，再进入SA receive queue。
-9. `UA.inq_len`本批为0→5→0。
-10. `sk_data_ready`只建立candidate readiness；epoll delivery必须re-poll。
-11. Unix stream不保证一次write、一条skb和一次read一一对应。
-12. `UA.iolock`串行化同一socket上的stream reader。
-13. read清空queue不会主动移除eventpoll ready membership。
-14. 第二次epoll_wait先移除stale I，再真正睡眠。
-15. `shutdown`不撤销fd，也不释放file。
-16. `SHUT_WR`本端设置`SEND_SHUTDOWN`，peer设置`RCV_SHUTDOWN`。
-17. half-close不清peer pointer，`sk_state`保持`TCP_ESTABLISHED`。
-18. `RCV_SHUTDOWN`使poll报告`EPOLLIN|EPOLLRDHUP`。
-19. 单向half-close不报告`EPOLLHUP`。
-20. empty queue + `RCV_SHUTDOWN`使stream read返回0 EOF。
-21. EOF不是零长度skb。
-22. RDHUP是persistent level readiness，read EOF不会消费它。
+1. persistent-ready registration可以直接DEL，无需先消费readiness。
+2. callback P同步free；epitem I通过RCU延迟free。
+3. `F6.f_ep=NULL`使close(6)不进入eventpoll target-release慢路径。
+4. close先撤销共享fdtable中的数字fd，再执行最后`__fput`。
+5. `unix_release_sock`把关闭端设为orphan、`TCP_CLOSE`与`SHUTDOWN_MASK`。
+6. close(6)只清`unix_peer(SA)`，不会同步清`unix_peer(SB)`。
+7. dead SA可以在F6和socket A VFS对象释放后继续由SB peer reference保持。
+8. peer B得到full shutdown/HUP语义，但自己的`sk_state`到close(7)才变成`TCP_CLOSE`。
+9. close(7)清除最后peer pointer并释放SA的最后reference。
+10. socket file、sockfs inode/`struct socket`与`struct sock`有不同lifetime。
+11. 两端receive queue为空，所以close不走`ECONNRESET`或skb丢弃分支。
+12. eventpoll base reference由F8持有；close(8)使EP refcount归零。
+13. epitem和eventpoll storage都可在close返回后等待RCU grace period。
+14. sockfs与anon_inodefs是全局pseudo filesystems，不随本场景fd关闭而卸载。
+15. Unix socketpair路径不经过IP、路由、网卡、ext4或块设备。
 
 ## 下一建议场景
 
 ```text
-epoll_ctl(8,EPOLL_CTL_DEL,6,NULL)
-→ remove socket wait callback P and epitem I
-close(6)
-→ release socket A and notify peer B of disconnect/full shutdown
-close(7)
-→ release socket B and mutual peer references
-close(8)
-→ release empty eventpoll and sockfs/eventpoll files
+server socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0)
+→ bind(127.0.0.1:fixed_port)
+→ listen(backlog)
+client socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0)
+→ connect(127.0.0.1:fixed_port)
+→ loopback route and TCP SYN/SYN-ACK/ACK
+→ accept4 publishes connected server fd
 ```
 
-开始前固定`unix_release_sock`对peer的shutdown/state更新、wake mask、peer reference下降、receive queue清理、sockfs inode/file teardown与eventpoll RCU释放顺序。
+开始前固定network namespace、loopback device、route、port、socket state、request socket、softirq和scheduler顺序。
 
 ## 连续叙事与流程
 
