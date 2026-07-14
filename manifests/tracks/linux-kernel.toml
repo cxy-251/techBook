@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109"
+completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
@@ -94,6 +94,17 @@ writeback_result = "fsync writeback consumes reservation and maps logical block 
 completion_result = "successful data completion triggers deferred unwritten-to-written conversion and ends folio writeback"
 durability_result = "full JBD2 commit and required device flush complete; fsync returns zero"
 final_result = "fd 6 remains open; size and i_disksize are 4096; i_blocks=8 sectors; extent is written; folio is clean"
+
+[completed_unlink_scenario]
+name = "unlink an open ext4 file and reclaim it on final close"
+status = "complete"
+userspace_calls = "unlinkat(AT_FDCWD, /work/demo.txt, 0); close(6)"
+initial_state = "fd 6 is the sole open reference; nlink=1; size=4096; one written extent maps logical block 0 to physical P"
+unlink_result = "directory entry removed; nlink becomes zero; inode enters orphan tracking; pathname disappears while fd 6 remains valid"
+close_result = "file_close_fd removes fd 6; synchronous final __fput drops the dentry and triggers ext4_evict_inode"
+reclaim_result = "clean page cache removed; extent P removed; orphan entry deleted; inode bitmap bit cleared in a JBD2 transaction"
+durability = "close returns without forcing journal commit or device flush; freed block and inode reuse remain transaction-protected until commit"
+final_result = "parent CPL3 with close RAX=0; pathname, fd, dentry, extent and inode are no longer accessible"
 
 [[chapter]]
 id = "LK-READ-074"
@@ -329,15 +340,39 @@ status = "complete"
 start = "successful data completion enters deferred unwritten extent conversion"
 end = "parent CPL3 receives fsync result zero after written conversion, full journal commit and device flush"
 
+[[chapter]]
+id = "LK-UNLINK-110"
+title = "unlinkat() 怎样锁住父目录并进入 ext4_unlink()？"
+rst = "docs/tracks/linux-kernel/110-unlinkat-locks-parent-and-enters-ext4-unlink.rst"
+status = "complete"
+start = "parent calls unlinkat on the cache-resident path while fd 6 remains open"
+end = "parent and target inode locks are held and VFS dispatches to ext4_unlink"
+
+[[chapter]]
+id = "LK-UNLINK-111"
+title = "ext4_unlink() 怎样删除名称，却让 fd 6 继续访问 inode？"
+rst = "docs/tracks/linux-kernel/111-ext4-unlink-removes-name-and-keeps-open-inode.rst"
+status = "complete"
+start = "ext4_unlink locates the cached directory entry and starts an EXT4_HT_DIR transaction"
+end = "unlinkat returns zero with nlink zero, orphan tracking active, pathname absent and fd 6 still valid"
+
+[[chapter]]
+id = "LK-UNLINK-112"
+title = "close(6) 怎样触发最后一次 __fput() 并回收 ext4 inode？"
+rst = "docs/tracks/linux-kernel/112-close-evicts-unlinked-ext4-inode.rst"
+status = "complete"
+start = "parent closes the sole file reference to the open-unlinked inode"
+end = "parent CPL3 receives close result zero after synchronous __fput and ext4 eviction; reclamation metadata awaits journal commit"
+
 [current]
-last_complete = "LK-DELALLOC-109"
-executor = "parent after successful fsync return"
+last_complete = "LK-UNLINK-112"
+executor = "parent after successful close return"
 cpu_mode = "x86-64 CPL 3"
-paging = "parent mm remains active; the clean file folio remains page-cache resident"
+paging = "parent mm remains active; deleted file page-cache mapping has been removed"
 interrupts = "normal userspace runtime state"
-current_task = "parent holds write-only fd 6 at f_pos 4096 for durable /work/demo.txt"
+current_task = "parent after completing the full create-write-fsync-unlink-close ext4 file lifecycle"
 next_entry = "unselected runtime scenario"
-next_action = "preferred next path is unlinkat(/work/demo.txt) while fd 6 remains open, followed by close(6) and final ext4 inode and block reclamation"
+next_action = "preferred next path is clock_nanosleep(CLOCK_MONOTONIC, 0, 10ms), covering hrtimer enqueue, task sleep, timer interrupt and scheduler wakeup"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完整"
