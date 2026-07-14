@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133; LK-EPOLL-134..LK-EPOLL-136; LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139; LK-SIGNALFD-140..LK-SIGNALFD-142; LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145; LK-TIMERFD-146..LK-TIMERFD-148; LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151; LK-PIDFD-152..LK-PIDFD-154; LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157"
+completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133; LK-EPOLL-134..LK-EPOLL-136; LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139; LK-SIGNALFD-140..LK-SIGNALFD-142; LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145; LK-TIMERFD-146..LK-TIMERFD-148; LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151; LK-PIDFD-152..LK-PIDFD-154; LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157; LK-INOTIFY-158..LK-INOTIFY-160"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
@@ -91,7 +91,10 @@ chapter = [
   { id = "LK-PIDFD-154", title = "waitid(P_PIDFD) 怎样读取退出状态并回收child？", rst = "docs/tracks/linux-kernel/154-waitid-pidfd-reaps-child-after-epoll-event.rst", status = "complete" },
   { id = "LK-PIDFDCLOSE-155", title = "reap之后的pidfd为什么让epoll_wait返回EPOLLIN|EPOLLHUP？", rst = "docs/tracks/linux-kernel/155-post-reap-pidfd-delivers-epollhup.rst", status = "complete" },
   { id = "LK-PIDFDCLOSE-156", title = "EPOLL_CTL_DEL怎样拆除pidfd callback与epitem？", rst = "docs/tracks/linux-kernel/156-epoll-del-detaches-pidfd-callback.rst", status = "complete" },
-  { id = "LK-PIDFDCLOSE-157", title = "close()怎样释放pidfs inode、旧struct pid与eventpoll？", rst = "docs/tracks/linux-kernel/157-final-close-frees-pidfd-pid-identity-and-eventpoll.rst", status = "complete" }
+  { id = "LK-PIDFDCLOSE-157", title = "close()怎样释放pidfs inode、旧struct pid与eventpoll？", rst = "docs/tracks/linux-kernel/157-final-close-frees-pidfd-pid-identity-and-eventpoll.rst", status = "complete" },
+  { id = "LK-INOTIFY-158", title = "inotify怎样建立目录watch并让parent阻塞在epoll_wait？", rst = "docs/tracks/linux-kernel/158-inotify-watch-registers-with-epoll-and-blocks-parent.rst", status = "complete" },
+  { id = "LK-INOTIFY-159", title = "helper创建并关闭new.txt时，fsnotify怎样排入两条inotify事件？", rst = "docs/tracks/linux-kernel/159-fsnotify-queues-create-and-close-write-events.rst", status = "complete" },
+  { id = "LK-INOTIFY-160", title = "parent怎样从epoll event读取两条inotify_event记录？", rst = "docs/tracks/linux-kernel/160-epoll-returns-inotify-and-read-consumes-two-records.rst", status = "complete" }
 ]
 
 [origin]
@@ -128,13 +131,23 @@ pidfd_close_result = "pidfs dentry pruned, inode evicted, old pid refs and exit 
 epoll_close_result = "empty eventpoll refcount 1 to 0; eventpoll storage kfree_rcu"
 final_result = "fd 6/7 closed; child and old pid identity inaccessible; global pidfs and anon_inodefs remain"
 
+[completed_inotify_scenario]
+name = "ext4 directory create and close-write events delivered through inotify and level-triggered epoll"
+status = "complete"
+userspace_calls = "inotify_init1(IN_CLOEXEC); inotify_add_watch(/work,IN_CREATE|IN_CLOSE_WRITE); epoll_create1; epoll_ctl ADD; epoll_wait; helper open/write/close new.txt; read inotify"
+registration_result = "fd 6 and fd 7 open; wd 1 mark M on /work; callback P attached to group notification_waitq; parent blocked on EP.wq"
+queue_result = "FS_CREATE and FS_CLOSE_WRITE records for new.txt queue FIFO without merge; q_len reaches 2"
+epoll_result = "epoll_wait returns 1 with EPOLLIN and data 0x494E4F36; level item requeues"
+read_result = "read returns 64 and copies two 32-byte records: IN_CREATE then IN_CLOSE_WRITE"
+final_result = "fd 6/7, wd 1 and registration active; queue empty; epitem remains stale-ready"
+
 [current]
-last_complete = "LK-PIDFDCLOSE-157"
-executor = "parent after successful pidfd and eventpoll final closes"
+last_complete = "LK-INOTIFY-160"
+executor = "parent after successful inotify read consumed create and close-write records"
 cpu_mode = "x86-64 CPL 3 on CPU0"
-current_task = "SCHED_NORMAL parent; child absent; numeric PID reusable"
+current_task = "SCHED_NORMAL parent; helper blocked outside inotify objects"
 next_entry = "unselected runtime scenario"
-next_action = "preferred next path is inotify plus epoll observing ext4 directory create and close-write events"
+next_action = "preferred next path is stale-ready cleanup, inotify_rm_watch with IN_IGNORED delivery, registration deletion and final close"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完整"
