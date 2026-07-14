@@ -170,10 +170,9 @@ final_result = "fd 6/7/8 open; receive queues empty; registration remains persis
 
 [progress]
 completed_chapters = 166
-original_target_chapters = 195
-remaining_to_original_target = 29
-practical_total_range = "190..220"
-remaining_practical_range = "24..54"
+total_chapters = "unfixed"
+remaining_chapters = "unknown"
+planning_rule = "follow source-reading scope and natural narrative closure"
 
 [current]
 last_complete = "LK-UNIXSOCK-166"
