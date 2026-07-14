@@ -157,6 +157,9 @@ Linux Kernel
 #. `第一百四十九章：零超时epoll_wait() 怎样清理timerfd的stale-ready item？ <149-zero-time-epoll-wait-removes-timerfd-stale-ready-item.rst>`_
 #. `第一百五十章：EPOLL_CTL_DEL 怎样拆除timerfd callback与epitem？ <150-epoll-del-detaches-timerfd-callback.rst>`_
 #. `第一百五十一章：close() 怎样释放timerfd与eventpoll并结束两套RCU生命周期？ <151-final-close-frees-timerfd-and-eventpoll.rst>`_
+#. `第一百五十二章：pidfd_open() 怎样建立pidfs file并让epoll_wait监视child？ <152-pidfd-open-registers-child-with-epoll.rst>`_
+#. `第一百五十三章：child _exit(42) 怎样通过pid->wait_pidfd唤醒epoll_wait？ <153-child-exit-wakes-pidfd-epoll-waiter.rst>`_
+#. `第一百五十四章：waitid(P_PIDFD) 怎样读取退出状态并回收child？ <154-waitid-pidfd-reaps-child-after-epoll-event.rst>`_
 
 当前主线
 --------
@@ -172,19 +175,23 @@ Linux Kernel
    → natural and SIGUSR1-interrupted monotonic nanosleep complete
    → anonymous pipe lifecycle complete
    → private futex wait/wake complete
-   → eventfd and signalfd eventpoll lifecycles complete
-   → one-shot monotonic timerfd expires through LAPIC and hrtimer
-   → parent receives EPOLLIN and reads expiration count 1
-   → zero-time epoll_wait re-polls ticks=0 and removes stale-ready item
-   → EPOLL_CTL_DEL removes callback and epitem
-   → eventpoll refcount returns from 2 to 1
-   → close(6) cancels inactive hrtimer and ends timerfd ctx through kfree_rcu
-   → close(7) drains empty eventpoll and ends EP through kfree_rcu
-   → parent CPL3 with close RAX=0 and fd 6/7 closed
+   → eventfd, signalfd and timerfd eventpoll lifecycles complete
+   → parent forks a direct child with separate files table
+   → pidfd_open creates pidfs-backed fd 6 for stable struct pid identity
+   → eventpoll fd 7 watches pid->wait_pidfd through callback CB
+   → parent blocks in epoll_wait and child executes _exit(42)
+   → child enters EXIT_ZOMBIE before do_notify_pidfd sends readiness
+   → callback queues the epitem and wakes parent
+   → parent receives EPOLLIN data 0x50494436
+   → waitid(P_PIDFD) consumes exit status and returns CLD_EXITED/status 42
+   → child transitions EXIT_ZOMBIE to EXIT_DEAD and is reaped
+   → numeric PID becomes reusable
+   → open pidfd keeps the old struct pid alive through pidfs inode
+   → level-triggered epitem remains ready and next poll includes EPOLLHUP
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-当前二十二个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``、新文件首次delalloc write + fsync、open-unlinked文件的final close/eviction、自然到期monotonic nanosleep、``SIGUSR1`` 中断nanosleep与 ``rt_sigreturn``、anonymous pipe读写与final teardown、private futex wait/wake、eventfd counter blocking read/writer wakeup、eventfd final close、eventfd level-triggered epoll callback/wait delivery、eventfd/epoll cleanup、blocked ``SIGUSR1`` 通过signalfd与epoll交付、signalfd/epoll cleanup、one-shot monotonic timerfd通过local APIC、hrtimer和epoll交付expiration count，以及timerfd/epoll stale-ready cleanup、registration deletion与final teardown。下一条runtime主线尚未选择。
+当前二十三个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``、新文件首次delalloc write + fsync、open-unlinked文件的final close/eviction、自然到期monotonic nanosleep、``SIGUSR1`` 中断nanosleep与 ``rt_sigreturn``、anonymous pipe读写与final teardown、private futex wait/wake、eventfd counter blocking read/writer wakeup、eventfd final close、eventfd level-triggered epoll callback/wait delivery、eventfd/epoll cleanup、blocked ``SIGUSR1`` 通过signalfd与epoll交付、signalfd/epoll cleanup、one-shot monotonic timerfd通过local APIC、hrtimer和epoll交付expiration count、timerfd/epoll cleanup，以及pidfd通过pidfs与epoll观察child退出并由 ``waitid(P_PIDFD)`` 回收child。下一条runtime主线尚未选择。
 
 章节组织
 --------
