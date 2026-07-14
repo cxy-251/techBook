@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第一百一十章：unlinkat() 怎样锁住父目录并进入 ext4_unlink()？ <docs/tracks/linux-kernel/110-unlinkat-locks-parent-and-enters-ext4-unlink.rst>`_
-* `第一百一十一章：ext4_unlink() 怎样删除名称，却让 fd 6 继续访问 inode？ <docs/tracks/linux-kernel/111-ext4-unlink-removes-name-and-keeps-open-inode.rst>`_
-* `第一百一十二章：close(6) 怎样触发最后一次 __fput() 并回收 ext4 inode？ <docs/tracks/linux-kernel/112-close-evicts-unlinked-ext4-inode.rst>`_
+* `第一百一十三章：clock_nanosleep() 怎样建立 hrtimer 并让 parent 阻塞？ <docs/tracks/linux-kernel/113-clock-nanosleep-arms-hrtimer-and-blocks-parent.rst>`_
+* `第一百一十四章：local APIC timer interrupt 怎样运行 hrtimer callback 并唤醒 parent？ <docs/tracks/linux-kernel/114-lapic-timer-interrupt-wakes-sleeping-parent.rst>`_
+* `第一百一十五章：scheduler 怎样恢复 parent，并让 clock_nanosleep() 返回 0？ <docs/tracks/linux-kernel/115-scheduler-resumes-parent-and-nanosleep-returns.rst>`_
 
 固定来源
 --------
@@ -34,25 +34,25 @@ techBook
    LK-OPEN-104..LK-OPEN-106
    LK-DELALLOC-107..LK-DELALLOC-109
    LK-UNLINK-110..LK-UNLINK-112
+   LK-SLEEP-113..LK-SLEEP-115
 
 最新场景
 --------
 
 ::
 
-   unlinkat(AT_FDCWD, "/work/demo.txt", 0)
-   → lock /work and find cached positive dentry
-   → ext4_delete_entry
-   → nlink 1 -> 0
-   → add orphan tracking
-   → pathname disappears while fd 6 remains valid
-   → close(6)
-   → file_close_fd / fput_close_sync / __fput
-   → final dput / iput / ext4_evict_inode
-   → remove extent P and free inode allocation in JBD2 transaction
-   → userspace RAX = 0
+   clock_nanosleep(CLOCK_MONOTONIC, 0, {0, 10ms}, NULL)
+   → create on-stack hrtimer_sleeper
+   → enqueue CPU0 monotonic hrtimer
+   → program local APIC TSC deadline
+   → parent TASK_INTERRUPTIBLE and schedule to idle/0
+   → LOCAL_TIMER_VECTOR
+   → hrtimer_interrupt / hrtimer_wakeup
+   → try_to_wake_up(parent)
+   → scheduler restores parent kernel stack
+   → clock_nanosleep returns userspace RAX=0
 
-当前运行系统中pathname、fd、dentry、extent与inode均已删除。block与inode free metadata已经进入JBD2 transaction；没有显式sync，因此close返回不保证该删除事务已经持久化。
+固定timer slack为0、只有CPU0 online、没有signal或其他runnable task。monotonic elapsed不早于10 ms；sleep completion不进入restart或remaining-time copyout。
 
 开始工作
 --------
