@@ -31,13 +31,14 @@ LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151
 LK-PIDFD-152..LK-PIDFD-154
 LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157
 LK-INOTIFY-158..LK-INOTIFY-160
+LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163
 ```
 
 最新三章：
 
-- `LK-INOTIFY-158`：inotify怎样建立目录watch并让parent阻塞在epoll_wait？
-- `LK-INOTIFY-159`：helper创建并关闭new.txt时，fsnotify怎样排入两条inotify事件？
-- `LK-INOTIFY-160`：parent怎样从epoll event读取两条inotify_event记录？
+- `LK-INOTIFYCLOSE-161`：零超时epoll_wait怎样清除inotify的stale-ready item？
+- `LK-INOTIFYCLOSE-162`：inotify_rm_watch怎样先排入IN_IGNORED再销毁mark？
+- `LK-INOTIFYCLOSE-163`：读取IN_IGNORED后，close怎样释放inotify group与eventpoll？
 
 ## 固定实现
 
@@ -55,96 +56,100 @@ first partition   = LBA 2048, ext4
 storage           = q35 ICH9 AHCI SATA port 0
 ```
 
-## 已完成inotify场景
+## 已完成inotify cleanup场景
 
 ```text
-inotify_init1(IN_CLOEXEC) -> fd 6
-→ fsnotify group G with empty notification queue
-→ inotify_add_watch(/work, IN_CREATE|IN_CLOSE_WRITE) -> wd 1
-→ mark M mask includes CREATE, CLOSE_WRITE, UNMOUNT and EVENT_ON_CHILD
-→ epoll_create1 -> fd 7
-→ ADD attaches callback P to G.notification_waitq
-→ parent waits exclusively on EP.wq and schedules out
-→ helper openat creates /work/new.txt as fd 8
-→ fsnotify_create queues wd1 IN_CREATE name new.txt
-→ P links one epitem I and wakes parent
-→ helper write produces unrequested MODIFY hook, no user record
-→ helper close queues wd1 IN_CLOSE_WRITE name new.txt
-→ mask differs from queue tail, so no merge
-→ parent epoll_wait re-polls q_len=2 and returns EPOLLIN/data 0x494E4F36
-→ level-triggered I requeues
-→ parent read(6,buf,4096)
-→ copies two FIFO records, each 32 bytes
-→ read returns 64 and G.q_len becomes 0
+initial G.q_len=0 and level-triggered I stale-ready
+→ epoll_wait(...,0) re-polls empty queue
+→ remove I from EP.rdllist and return 0
+→ inotify_rm_watch(6,1)
+→ find M in IDR and take temporary reference
+→ detach M from G.marks_list
+→ clear ALIVE and call inotify freeing_mark callback
+→ queue wd1 IN_IGNORED before removing IDR entry
+→ G.q_len 0→1; callback P requeues I
+→ remove idr[1], set M.wd=-1, decrement watch ucount
+→ final active mark refs drop
+→ remove M from /work inode connector and release inode pin
+→ queue mark/connector storage for SRCU-safe workers
+→ rm_watch returns 0
+→ epoll_wait(...,0) returns EPOLLIN/data 0x494E4F36
+→ read(6) copies 16-byte wd1 IN_IGNORED record and q_len becomes 0
+→ EPOLL_CTL_DEL frees P and removes I; EP refcount 2→1
+→ close(6) sets group shutdown and flushes mark reaper
+→ mark M, overflow event, empty IDR, group G and inotify file are freed
+→ close(7) drops empty EP refcount 1→0 and queues RCU free
+→ fd 6/7 closed; /work/new.txt remains
 ```
 
 ## 当前精确状态
 
 ```text
-system_state       = SYSTEM_RUNNING
-current executor   = parent
-CPU/mode           = CPU0, x86-64 CPL 3
-parent state       = TASK_RUNNING, on_rq=1, on_cpu=1
+system_state        = SYSTEM_RUNNING
+current executor    = parent
+CPU/mode            = CPU0, x86-64 CPL 3
+parent state        = TASK_RUNNING, on_rq=1, on_cpu=1
 helper              = blocked outside inotify objects
-epoll_wait return  = 1
-epoll event         = EPOLLIN, data 0x494E4F36
-read return         = 64
-record 0            = wd1 IN_CREATE cookie0 len16 name new.txt
-record 1            = wd1 IN_CLOSE_WRITE cookie0 len16 name new.txt
-fd 6                = open blocking inotify file
-fsnotify group G    = active, q_len=0
-watch wd1 / mark M = active on /work inode
-group wait queue    = epoll callback P only
-fd 7                = open eventpoll file
-EP refcount         = 2
-EP rbr              = contains I
-EP rdllist          = contains stale-ready I
-EP wq               = empty
+last syscall        = close(7)
+last return         = 0
+stale cleanup wait  = 0
+rm_watch return     = 0
+ignored epoll wait  = 1, EPOLLIN/data 0x494E4F36
+ignored read        = 16, wd1 IN_IGNORED cookie0 len0
+EPOLL_CTL_DEL       = 0
+close(6)            = 0
+fd 6/7              = closed
+wd 1                = invalid, absent from IDR
+mark M              = freed
+/work connector     = detached; storage may await independent reaper
+fsnotify group G    = freed
+callback P          = synchronously freed
+epitem I            = logically dead; RCU storage free
+eventpoll EP        = logically dead; RCU storage free
 /work/new.txt       = exists
-fd 8                = closed
+global anon_inodefs = active
 next entry          = unselected
 ```
 
 ## 必须保持的技术边界
 
-1. inotify file的`private_data`是`fsnotify_group`，不是watched directory file。
-2. group notification queue与eventpoll ready list是两套不同队列。
-3. directory mark自动加入`FS_EVENT_ON_CHILD|FS_UNMOUNT`。
-4. 新group首个watch descriptor由IDR从1分配。
-5. callback P位于`G.notification_waitq`，sleeping parent W位于`EP.wq`。
-6. create成功后才调用`fsnotify_create`。
-7. 未订阅`IN_MODIFY`时，write hook不会生成用户record。
-8. `IN_CLOSE_WRITE`由file write mode选择，不保证fsync或durability。
-9. inotify merge只比较queue最后一条，且要求mask/wd/name全部相同。
-10. create与close-write不会合并，FIFO顺序保持。
-11. 多条notification records只产生一个fd-level epitem readiness。
-12. `FS_EVENT_ON_CHILD`是内部route bit，不输出到userspace mask。
-13. `struct inotify_event`头为16字节；`new.txt` padded name area为16字节。
-14. 两条record总read长度为64。
-15. read清空queue不会主动清除epoll ready membership。
-16. read event不会删除watch。
+1. eventpoll ready list与fsnotify notification queue是两套状态。
+2. zero-time wait仍执行re-poll；empty queue返回0并清除stale-ready membership。
+3. 清除ready membership不删除registration或callback。
+4. rm_watch先取得临时mark reference，再执行detach。
+5. mark先清ATTACHED并退出group list，随后清ALIVE。
+6. inotify backend在IDR removal前排入`IN_IGNORED`，所以record保存wd 1。
+7. event中的wd是入队快照，不受`M.wd=-1`影响。
+8. callback在parent未睡眠时只让epitemready，不执行task wakeup。
+9. IDR ref、group-list ref、syscall temp ref与connector attachment属于不同lifetime。
+10. mark最后ref下降后才从inode connector移除。
+11. watch removal归还目录inode pin，但不删除目录或文件。
+12. rm_watch不等待mark/connector storage物理释放。
+13. group close通过`flush_delayed_work(reaper_work)`等待mark SRCU销毁完成。
+14. connector使用独立worker，close返回不保证其storage已kfree。
+15. no-name `IN_IGNORED` record总长度为16字节。
+16. read清空queue后epitem再次stale；DEL直接删除它。
+17. callback同步free；epitem和eventpoll通过RCU释放storage。
+18. inotify final group free销毁empty IDR、overflow event、instance ucount与memcg ref。
+19. anon_inodefs全局对象不会因最后fd关闭而卸载。
+20. cleanup不会删除`/work/new.txt`。
 
 ## 下一建议场景
 
 ```text
-epoll_wait(7, events2, 1, 0)
-→ re-poll empty queue and remove stale-ready I
-→ return 0
-inotify_rm_watch(6, 1)
-→ mark destruction queues IN_IGNORED
-→ remove wd 1 from IDR and decrement watch ucount
-→ callback makes I ready again
-epoll_wait(7, events3, 1, 0)
-→ deliver EPOLLIN
-read(6)
-→ consume one 16-byte IN_IGNORED record with len 0
-EPOLL_CTL_DEL
-→ remove P and I
-close(6), close(7)
-→ destroy group and eventpoll
+socketpair(AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC, 0, sv)
+→ fd 6/7 form a connected unix socket pair
+epoll_create1(EPOLL_CLOEXEC) → fd 8
+epoll_ctl(8, ADD, 6, EPOLLIN|EPOLLRDHUP)
+parent epoll_wait blocks
+helper write(7,"hello",5)
+→ unix stream receive queue wakes epoll
+parent reads 5 bytes
+helper shutdown(7,SHUT_WR)
+→ parent observes EPOLLRDHUP and read EOF
 ```
 
-开始前固定mark destroy worker、`IN_IGNORED`排队时序、mark references、group shutdown、queue flush与eventpoll teardown顺序。
+开始前固定socket state、sk_receive_queue、socket wait queue、memory accounting、shutdown flags、callback顺序与scheduler顺序。
 
 ## 连续叙事与流程
 
