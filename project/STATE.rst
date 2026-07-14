@@ -22,12 +22,13 @@
    LK-COW-095..LK-COW-097
    LK-EXEC-098..LK-EXEC-100
    LK-EXIT-101..LK-EXIT-103
+   LK-OPEN-104..LK-OPEN-106
 
 最新三章：
 
-#. ``LK-EXIT-101``：_exit(42) 怎样进入 do_exit() 并释放进程运行资源？
-#. ``LK-EXIT-102``：exit_notify() 怎样发送 SIGCHLD、唤醒 parent 并留下 zombie？
-#. ``LK-EXIT-103``：parent 的 wait4() 怎样读取 status 并最终回收 child？
+#. ``LK-OPEN-104``：openat() 怎样保留 fd 并把 /work/demo.txt 解析成 negative dentry？
+#. ``LK-OPEN-105``：ext4_create() 怎样分配 inode 并把 demo.txt 写进目录？
+#. ``LK-OPEN-106``：VFS 怎样打开新 inode、发布 fd 6 并让 openat() 返回？
 
 固定来源
 --------
@@ -48,56 +49,60 @@
 #. native x86-64 ``fork()``；
 #. child private-anonymous COW write fault；
 #. child static ELF ``execve()``；
-#. child ``_exit(42)`` 与 parent ``wait4()`` 回收。
+#. child ``_exit(42)`` 与 parent ``wait4()`` 回收；
+#. parent ext4 ``openat(O_CREAT|O_EXCL)`` create-open。
 
-exit/wait 固定场景
-------------------
+openat 固定场景
+---------------
 
 ::
 
-   parent call         = wait4(child_pid, &status, 0, &rusage)
-   parent initial state= sleeping TASK_INTERRUPTIBLE on wait_chldexit
-   child call          = _exit(42)
-   threading           = parent and child single-threaded
-   child set           = parent has only this child
-   SIGCHLD             = default disposition; no explicit SIG_IGN or SA_NOCLDWAIT
-   ptrace/subreaper    = disabled
-   userspace buffers   = status and rusage mapped, writable and stable
-   failure policy      = no signal interruption or copy fault
+   current task       = parent after wait4 reaped child
+   userspace call     = openat(AT_FDCWD, "/work/demo.txt", O_CREAT|O_EXCL|O_WRONLY, 0644)
+   fd table           = 0..5 occupied; descriptor 6 is lowest free
+   O_CLOEXEC          = absent
+   umask              = 0022
+   filesystem         = writable ext4 /dev/sda1, journal enabled, data=ordered
+   parent directory   = /work, mode 0755, current uid owner, non-sticky
+   target             = absent from dcache and ext4 directory before call
+   directory layout   = one cached 4 KiB non-indexed block with free dirent space
+   metadata cache     = directory block, inode bitmap, group descriptor and inode table resident
+   sync policy        = no O_SYNC, sync mount, S_DIRSYNC or explicit fsync
+   failure policy     = no race, permission failure, LSM denial, ENOSPC or I/O error
 
 完整控制流
 ----------
 
 ::
 
-   parent wait4
-   → kernel_wait4 / do_wait
-   → child still live
-   → parent sleeps on wait_chldexit
-
-   child _exit(42)
-   → __x64_sys_exit
-   → do_exit(0x2a00)
-   → PF_EXITING / accounting finalized
-   → exit_mm
-   → exit_files / exit_fs / namespace and thread cleanup
-   → exit_notify
-   → EXIT_ZOMBIE
-   → do_notify_parent
-   → SIGCHLD: CLD_EXITED, si_status=42
-   → wake parent wait_chldexit
-   → do_task_dead / schedule away forever
-
-   parent resumes do_wait
-   → do_wait_pid
-   → wait_consider_task
-   → wait_task_zombie
-   → cmpxchg EXIT_ZOMBIE to EXIT_DEAD
-   → collect rusage and raw status 0x2a00
-   → release_task
-   → unlink process, parent-child and PID relations
-   → put_user(status) / copy rusage
-   → wait4 returns child PID
+   userspace openat
+   → entry_SYSCALL_64 / __x64_sys_openat
+   → do_sys_open / do_sys_openat2
+   → build_open_flags
+   → FD_ADD reserves fd 6
+   → alloc_empty_file
+   → path_init at process root
+   → RCU link_path_walk through cached /work
+   → O_EXCL final component leaves RCU walk
+   → mnt_want_write / inode_lock(/work)
+   → lookup_open
+   → d_lookup miss / d_alloc_parallel
+   → ext4_lookup scans cached directory block
+   → negative dentry /work/demo.txt
+   → ext4_create
+   → start JBD2 metadata handle
+   → allocate ext4 inode bitmap bit
+   → update group descriptor and inode table record
+   → initialize size-0 extent inode
+   → ext4_add_entry writes demo.txt dirent into cached /work block
+   → d_instantiate_new turns dentry positive
+   → ext4_journal_stop without forced commit wait
+   → release parent inode lock and mount write hold
+   → do_open / vfs_open / do_dentry_open
+   → file_get_write_access / ext4_file_open
+   → FMODE_OPENED | FMODE_CAN_WRITE
+   → fd_install(6, file)
+   → syscall return RAX=6
 
 当前精确状态
 ------------
@@ -105,42 +110,47 @@ exit/wait 固定场景
 * ``system_state``：``SYSTEM_RUNNING``；
 * current executor：parent；
 * CPU mode：x86-64 CPL 3；
-* ``wait4`` return：child PID；
-* userspace ``status``：``0x2a00``；
-* ``WIFEXITED(status)``：true；
-* ``WEXITSTATUS(status)``：42；
-* userspace ``rusage``：已填充；
-* parent waitqueue entry：已移除；
-* child mm/files/fs：已释放；
-* child zombie：已消费；
-* child process/PID visibility：已删除；
-* child task memory：最终释放受reference count与RCU约束；
-* parent children list：不再包含该child；
-* process lifecycle场景：complete；
+* ``openat`` result/RAX：6；
+* fd 6：published，close-on-exec bit clear；
+* ``struct file``：write-only、opened、``f_pos=0``；
+* pathname：``/work/demo.txt``；
+* dentry：positive；
+* inode：ext4 regular 0644，nlink 1，size 0；
+* file data blocks：0；
+* parent directory lock：released；
+* mount write hold：released；
+* create metadata：已加入JBD2 transaction；
+* journal commit/durability：尚未由本场景强制；
+* storage I/O：本场景没有发生；
+* open/create scenario：complete；
 * next runtime scenario：unselected。
 
 关键边界
 --------
 
-#. ``_exit(42)`` 形成raw wait status ``0x2a00``。
-#. child在成为zombie前已释放mm/files等重资源。
-#. 默认SIGCHLD不等于显式 ``SIG_IGN``，本场景不会autoreap。
-#. waitqueue wakeup不能只概括为“发送SIGCHLD”。
-#. ``EXIT_ZOMBIE``、scheduler dead state和 ``EXIT_DEAD`` 是不同阶段。
-#. ``wait4`` 返回PID，status通过pointer返回。
-#. ``release_task`` 删除process/PID关系，最终task memory可能延迟到RCU grace period。
+#. ``FD_ADD`` 先reserve fd，再执行pathname lookup与open。
+#. reserved slot的 ``open_fds`` bit已设置，但 ``fd[6]`` 在publish前仍为NULL。
+#. ``O_EXCL`` final lookup在parent directory inode lock下原子完成。
+#. negative dentry是已确认不存在的name缓存对象。
+#. ext4分配inode不会自动分配file data block。
+#. ``d_instantiate_new`` 是negative dentry变positive的内存可见边界。
+#. ``ext4_journal_stop`` 不等于transaction已经durable。
+#. ``fd_install`` 是完整 ``struct file`` 对fd lookup可见的publication边界。
 
 下一任务
 --------
 
-当前没有已选定场景。后续可选择新的独立主线，例如：
+当前没有已选定场景。优先候选是parent使用fd 6首次写入新文件：
 
 ::
 
-   anonymous mmap / page fault / reclaim / swap
-   或
-   socket / TCP send / receive
-   或
-   scheduler preemption / context switch
+   write(fd6, buf, 4096)
+   → page-cache folio allocation
+   → delayed-allocation reservation
+   → size grows from 0 to 4096
+   → dirty folio
+   → writeback allocates first physical extent
+   → data bio + metadata transaction
+   → optional fsync durability
 
-开始前必须重新固定用户态入口、对象状态、缓存状态、并发关系与失败策略。
+开始前必须固定是否使用普通write后显式fsync、extent allocation目标、cache状态、writeback触发者和失败策略。
