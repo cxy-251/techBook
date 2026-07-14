@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091"
+completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
@@ -65,6 +65,20 @@ barrier_result = "when barriers are enabled, durability ordering is provided by 
 cache_state = "target folio clean, uptodate, unlocked, and not under writeback"
 result = "userspace RAX=4096; file->f_pos=4096; superblock freeze protection and fd position guard released"
 failure_policy = "no ENOSPC, forced shutdown, copy fault, writeback error, journal error, flush error, or injected I/O failure"
+
+[completed_fork_scenario]
+name = "native x86-64 fork with COW setup"
+status = "complete"
+userspace_call = "fork() through native syscall number 57"
+process = "single-threaded SCHED_NORMAL parent with private user mm"
+clone_args = "flags=0; exit_signal=SIGCHLD; no pidfd, parent_tid, child_tid, new stack, TLS, vfork, ptrace, seccomp, or new namespaces"
+resource_copy = "new task_struct, kernel stack, cred, files_struct, fs_struct, sighand_struct, signal_struct, mm_struct, VMAs, page tables, PID and process-tree links"
+resource_sharing = "fd entries reference the same struct file open descriptions; nsproxy is reference-shared; ordinary private pages use COW"
+cow_state = "parent and child use separate mm/page-table roots; one fixed writable private anonymous folio remains shared through read-only PTEs"
+parent_result = "parent resumes in userspace with RAX equal to child PID"
+child_result = "child first enters ret_from_fork_asm and resumes through IRETQ with RAX=0"
+ordering = "scheduler does not guarantee whether parent or child executes the first post-fork user instruction first"
+failure_policy = "no pending signal, RLIMIT_NPROC failure, max_threads/PID exhaustion, allocation failure, LSM denial, cgroup rejection, or scheduler failure"
 
 [[chapter]]
 id = "LK-READ-074"
@@ -192,15 +206,39 @@ status = "complete"
 start = "generic_write_sync receives successful ext4_sync_file result"
 end = "userspace resumes at CPL3 with RAX=4096 and file->f_pos=4096"
 
+[[chapter]]
+id = "LK-FORK-092"
+title = "x86-64 的 fork() 怎样创建一个尚不可运行的 task_struct？"
+rst = "docs/tracks/linux-kernel/92-x86-fork-builds-inactive-task.rst"
+status = "complete"
+start = "single-threaded parent executes native syscall 57 fork()"
+end = "child task_struct, kernel stack, credentials and TASK_NEW scheduler state exist; resource-copy stage begins"
+
+[[chapter]]
+id = "LK-FORK-093"
+title = "copy_process() 怎样复制资源并建立 COW 子进程？"
+rst = "docs/tracks/linux-kernel/93-copy-process-builds-cow-child.rst"
+status = "complete"
+start = "copy_files() begins for clone_flags=0"
+end = "child resources, COW page tables, PID and process-tree links are published while child remains TASK_NEW"
+
+[[chapter]]
+id = "LK-FORK-094"
+title = "scheduler 怎样启动 child，并让 fork() 在父子进程返回不同结果？"
+rst = "docs/tracks/linux-kernel/94-fork-parent-and-child-return.rst"
+status = "complete"
+start = "kernel_clone calls wake_up_new_task(child)"
+end = "parent and child both reach userspace with child PID and zero respectively"
+
 [current]
-last_complete = "LK-WRITE-091"
-executor = "the writer task after returning to userspace"
-cpu_mode = "x86-64 CPL 3"
-paging = "writer user mm and user CR3 active when PTI is enabled"
+last_complete = "LK-FORK-094"
+executor = "parent and child tasks after both have reached userspace"
+cpu_mode = "x86-64 CPL 3 for each task when scheduled"
+paging = "separate parent and child user mm/page-table roots; PTI user CR3 active in userspace when enabled"
 interrupts = "normal userspace runtime state"
-current_task = "writer task in userspace after successful O_SYNC write"
+current_task = "scheduler-dependent parent or child; no fixed ordering"
 next_entry = "unselected runtime scenario"
-next_action = "choose a new deterministic kernel runtime scenario; preferred next path is native x86-64 fork() from a single-threaded process through kernel_clone, copy_process, page-table copy-on-write, PID/task creation, wake_up_new_task, and parent/child returns"
+next_action = "choose a new deterministic runtime scenario; preferred next path is the child storing to the fixed read-only private anonymous COW address, causing an x86 write-protection page fault through do_user_addr_fault, lock_vma_under_rcu or mmap_lock fallback, handle_mm_fault, do_wp_page, folio copy, writable child PTE installation, TLB update, and retry of the user store"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完整"
