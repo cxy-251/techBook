@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121"
+completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
@@ -55,7 +55,10 @@ chapter = [
   { id = "LK-SIGNAL-118", title = "rt_sigreturn() 怎样恢复被 SIGUSR1 中断的 clock_nanosleep 上下文？", rst = "docs/tracks/linux-kernel/118-rt-sigreturn-restores-interrupted-nanosleep.rst", status = "complete" },
   { id = "LK-PIPE-119", title = "pipe2() 怎样建立匿名管道并发布 fd 6/7？", rst = "docs/tracks/linux-kernel/119-pipe2-builds-anonymous-pipe-and-publishes-fds.rst", status = "complete" },
   { id = "LK-PIPE-120", title = "空管道 read() 怎样进入 exclusive wait queue 并阻塞？", rst = "docs/tracks/linux-kernel/120-empty-pipe-read-enters-exclusive-wait.rst", status = "complete" },
-  { id = "LK-PIPE-121", title = "pipe write() 怎样唤醒reader并让 read() 返回5？", rst = "docs/tracks/linux-kernel/121-pipe-write-wakes-reader-and-read-returns.rst", status = "complete" }
+  { id = "LK-PIPE-121", title = "pipe write() 怎样唤醒reader并让 read() 返回5？", rst = "docs/tracks/linux-kernel/121-pipe-write-wakes-reader-and-read-returns.rst", status = "complete" },
+  { id = "LK-PIPECLOSE-122", title = "close(7) 怎样撤销 write end 并把 writers 降为 0？", rst = "docs/tracks/linux-kernel/122-close-write-end-drops-pipe-writers.rst", status = "complete" },
+  { id = "LK-PIPECLOSE-123", title = "空管道在 writers=0 时，read() 为什么直接返回 EOF？", rst = "docs/tracks/linux-kernel/123-empty-pipe-without-writers-returns-eof.rst", status = "complete" },
+  { id = "LK-PIPECLOSE-124", title = "最后一次 close(6) 怎样释放pipe page、ring与pseudo inode？", rst = "docs/tracks/linux-kernel/124-final-read-end-close-frees-pipe.rst", status = "complete" }
 ]
 
 [origin]
@@ -146,22 +149,26 @@ result = "parent CPL3 on CPU0 at original post-SYSCALL RIP with raw RAX=-EINTR a
 [completed_pipe_scenario]
 name = "anonymous pipe blocking read and writer wakeup"
 status = "complete"
-userspace_calls = "pipe2(pipefd,O_CLOEXEC); parent read(6,buf,5); helper write(7,hello,5)"
-object_result = "pipefs inode; shared pipe_inode_info; two struct file endpoints; fd 6 read and fd 7 write; 16-slot 65536-byte ring"
-block_result = "empty pipe with writers=1 puts parent on rd_wait as WQ_FLAG_EXCLUSIVE TASK_INTERRUPTIBLE and schedules helper"
-write_result = "helper allocates anonymous page Q, inserts one 5-byte CAN_MERGE pipe_buffer and wakes parent"
-read_result = "parent resumes original stack, copies hello, advances tail and returns 5"
-final_result = "fd 6/7 remain open; head=tail=1; occupancy=0; page Q cached in tmp_page[0]"
+result = "fd 6/7 remain open; head=tail=1; occupancy=0; page Q cached in tmp_page[0]"
+
+[completed_pipe_close_scenario]
+name = "anonymous pipe write-end close, EOF read and final teardown"
+status = "complete"
+userspace_calls = "helper close(7); parent read(6,eofbuf,5); parent close(6)"
+write_close_result = "shared fd 7 removed; synchronous pipe_release changes writers 1 to 0 and files 2 to 1"
+eof_result = "empty ring with writers=0 returns zero without waiting or modifying eofbuf"
+final_close_result = "readers 1 to 0; files 1 to 0; Q, ring and pipe_inode_info freed; pseudo path references dropped"
+final_result = "parent CPL3 with close RAX=0; fd 6/7 and active pipe objects no longer accessible"
 
 [current]
-last_complete = "LK-PIPE-121"
-executor = "parent after successful pipe read return"
+last_complete = "LK-PIPECLOSE-124"
+executor = "parent after final anonymous pipe close"
 cpu_mode = "x86-64 CPL 3 on CPU0"
-paging = "parent mm remains active; user buffer contains hello"
+paging = "parent mm remains active; eofbuf remains XXXXX"
 interrupts = "normal userspace runtime state"
-current_task = "SCHED_NORMAL parent after anonymous pipe read returned 5; helper blocked outside pipe"
+current_task = "SCHED_NORMAL parent after pipe EOF and final endpoint teardown"
 next_entry = "unselected runtime scenario"
-next_action = "preferred next path is close write fd 7, observe empty-pipe EOF on read fd 6, then close fd 6 and free pipe objects"
+next_action = "preferred next path is FUTEX_WAIT_PRIVATE followed by helper atomic store and FUTEX_WAKE_PRIVATE"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完整"
