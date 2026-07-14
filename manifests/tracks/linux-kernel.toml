@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130"
+completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
@@ -64,7 +64,10 @@ chapter = [
   { id = "LK-FUTEX-127", title = "parent 被唤醒后，futex_wait 为什么返回0却不自动重读用户字？", rst = "docs/tracks/linux-kernel/127-futex-wait-returns-without-rechecking-user-word.rst", status = "complete" },
   { id = "LK-EVENTFD-128", title = "eventfd2() 怎样建立counter并发布fd 6？", rst = "docs/tracks/linux-kernel/128-eventfd2-creates-counter-and-publishes-fd.rst", status = "complete" },
   { id = "LK-EVENTFD-129", title = "eventfd read() 怎样在counter为0时进入locked wait queue？", rst = "docs/tracks/linux-kernel/129-empty-eventfd-read-enters-locked-wait-queue.rst", status = "complete" },
-  { id = "LK-EVENTFD-130", title = "eventfd write() 怎样唤醒reader并让read()返回counter？", rst = "docs/tracks/linux-kernel/130-eventfd-write-wakes-reader-and-read-returns-counter.rst", status = "complete" }
+  { id = "LK-EVENTFD-130", title = "eventfd write() 怎样唤醒reader并让read()返回counter？", rst = "docs/tracks/linux-kernel/130-eventfd-write-wakes-reader-and-read-returns-counter.rst", status = "complete" },
+  { id = "LK-EVENTFDCLOSE-131", title = "close(6) 怎样撤销eventfd fd并同步进入最后一次__fput()？", rst = "docs/tracks/linux-kernel/131-close-eventfd-fd-enters-final-fput.rst", status = "complete" },
+  { id = "LK-EVENTFDCLOSE-132", title = "eventfd_release() 怎样发送EPOLLHUP并释放eventfd_ctx？", rst = "docs/tracks/linux-kernel/132-eventfd-release-sends-hup-and-frees-ctx.rst", status = "complete" },
+  { id = "LK-EVENTFDCLOSE-133", title = "__fput() 怎样释放anon-inode path并让close()返回0？", rst = "docs/tracks/linux-kernel/133-final-eventfd-file-teardown-returns-close.rst", status = "complete" }
 ]
 
 [origin]
@@ -177,15 +180,25 @@ write_result = "helper writes u64 3, changes count 0 to 3, wakes parent and retu
 read_result = "parent resumes original stack, consumes full counter, copies value 3 and returns 8"
 final_result = "fd 6 and E remain active; E.count=0; wait queue has no waiter from this operation"
 
+[completed_eventfd_close_scenario]
+name = "eventfd final close and anon-inode file teardown"
+status = "complete"
+userspace_call = "parent close(6)"
+fd_result = "shared fd 6, open bit and close-on-exec bit removed before object teardown"
+release_result = "empty eventfd wait queue receives EPOLLHUP key; zero observer is awakened"
+ctx_result = "eventfd ctx kref 1 to 0; internal id returned to IDA; ctx freed"
+path_result = "per-file pseudo dentry and mount ref released; singleton anon inode and global mount remain"
+final_result = "parent CPL3 with RAX=0; fd, file, ctx and per-file path no longer accessible"
+
 [current]
-last_complete = "LK-EVENTFD-130"
-executor = "parent after successful eventfd read return"
+last_complete = "LK-EVENTFDCLOSE-133"
+executor = "parent after successful eventfd final close"
 cpu_mode = "x86-64 CPL 3 on CPU0"
-paging = "parent/helper mm remains active; userspace value contains u64 3"
+paging = "parent/helper mm remains active; userspace value still contains prior u64 3"
 interrupts = "normal userspace runtime state"
-current_task = "SCHED_NORMAL parent after eventfd read returned 8; helper blocked outside eventfd"
+current_task = "SCHED_NORMAL parent after close returned zero; helper blocked outside eventfd"
 next_entry = "unselected runtime scenario"
-next_action = "preferred next path is close fd 6, eventfd_release, EPOLLHUP notification and final ctx free"
+next_action = "preferred next path is epoll_create1 plus eventfd EPOLLIN callback and epoll_wait wakeup"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完整"
