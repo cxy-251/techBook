@@ -112,6 +112,9 @@ Linux Kernel
 #. `第一百零四章：openat() 怎样保留 fd 并把 /work/demo.txt 解析成 negative dentry？ <104-openat-resolves-negative-dentry.rst>`_
 #. `第一百零五章：ext4_create() 怎样分配 inode 并把 demo.txt 写进目录？ <105-ext4-create-allocates-inode-and-dirent.rst>`_
 #. `第一百零六章：VFS 怎样打开新 inode、发布 fd 6 并让 openat() 返回？ <106-vfs-opens-and-publishes-new-fd.rst>`_
+#. `第一百零七章：首次 buffered write 怎样只预留空间而不分配物理块？ <107-first-buffered-write-creates-delalloc-state.rst>`_
+#. `第一百零八章：fsync() 怎样让 writeback 分配第一个 unwritten extent 并提交数据？ <108-fsync-writeback-allocates-first-unwritten-extent.rst>`_
+#. `第一百零九章：data completion 怎样转换 extent，并让 fsync() 真正返回？ <109-write-completion-converts-extent-and-fsync-returns.rst>`_
 
 当前主线
 --------
@@ -128,20 +131,21 @@ Linux Kernel
    → child static execve complete
    → child exit + parent wait4 reap complete
    → parent openat("/work/demo.txt", O_CREAT|O_EXCL|O_WRONLY, 0644)
-   → reserve fd 6
-   → cached pathname walk to /work
-   → locked exclusive final lookup
-   → negative dentry
-   → ext4 inode bitmap/group descriptor/inode table transaction
-   → add demo.txt directory entry
-   → positive dentry, size-zero inode, no data blocks
-   → vfs_open / ext4_file_open
-   → fd_install publishes fd 6
-   → parent returns to CPL 3 with RAX=6
+   → fd 6 published for size-zero ext4 file
+   → write(fd6, buf, 4096)
+   → page-cache folio + one-block delayed reservation
+   → write returns before physical allocation
+   → fsync(fd6)
+   → ext4 writeback allocates physical block P as unwritten extent
+   → data bio through blk-mq / SCSI / libata / AHCI
+   → successful completion
+   → workqueue converts unwritten extent to written
+   → full JBD2 commit + required device flush
+   → parent returns to CPL 3 with fsync RAX=0
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-当前七个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap，以及ext4 ``openat(O_CREAT|O_EXCL)``。下一条runtime主线尚未选择。
+当前八个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``，以及新文件首次delalloc write + fsync。下一条runtime主线尚未选择。
 
 章节组织
 --------
