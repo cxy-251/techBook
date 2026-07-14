@@ -113,7 +113,7 @@ Linux Kernel
 #. `第一百零五章：ext4_create() 怎样分配 inode 并把 demo.txt 写进目录？ <105-ext4-create-allocates-inode-and-dirent.rst>`_
 #. `第一百零六章：VFS 怎样打开新 inode、发布 fd 6 并让 openat() 返回？ <106-vfs-opens-and-publishes-new-fd.rst>`_
 #. `第一百零七章：首次 buffered write 怎样只预留空间而不分配物理块？ <107-first-buffered-write-creates-delalloc-state.rst>`_
-#. `第一百零八章：fsync() 怎样让 writeback 分配第一个 unwritten extent 并提交数据？ <108-fsync-writeback-allocates-first-unwritten-extent.rst>`_
+#. `第一百零八章：fsync() 怎样让 writeback 分配第一个 unwritten extent并提交数据？ <108-fsync-writeback-allocates-first-unwritten-extent.rst>`_
 #. `第一百零九章：data completion 怎样转换 extent，并让 fsync() 真正返回？ <109-write-completion-converts-extent-and-fsync-returns.rst>`_
 #. `第一百一十章：unlinkat() 怎样锁住父目录并进入 ext4_unlink()？ <110-unlinkat-locks-parent-and-enters-ext4-unlink.rst>`_
 #. `第一百一十一章：ext4_unlink() 怎样删除名称，却让 fd 6 继续访问 inode？ <111-ext4-unlink-removes-name-and-keeps-open-inode.rst>`_
@@ -133,6 +133,9 @@ Linux Kernel
 #. `第一百二十五章：FUTEX_WAIT_PRIVATE 怎样建立private key并把parent排入hash bucket？ <125-futex-wait-private-enqueues-parent.rst>`_
 #. `第一百二十六章：FUTEX_WAKE_PRIVATE 怎样移除waiter并把parent放回runqueue？ <126-futex-wake-private-dequeues-and-wakes-parent.rst>`_
 #. `第一百二十七章：parent 被唤醒后，futex_wait 为什么返回0却不自动重读用户字？ <127-futex-wait-returns-without-rechecking-user-word.rst>`_
+#. `第一百二十八章：eventfd2() 怎样建立counter并发布fd 6？ <128-eventfd2-creates-counter-and-publishes-fd.rst>`_
+#. `第一百二十九章：eventfd read() 怎样在counter为0时进入locked wait queue？ <129-empty-eventfd-read-enters-locked-wait-queue.rst>`_
+#. `第一百三十章：eventfd write() 怎样唤醒reader并让read()返回counter？ <130-eventfd-write-wakes-reader-and-read-returns-counter.rst>`_
 
 当前主线
 --------
@@ -146,21 +149,18 @@ Linux Kernel
    → fork / COW / static exec / exit-wait complete
    → ext4 create-write-fsync-unlink-close lifecycle complete
    → natural and SIGUSR1-interrupted monotonic nanosleep complete
-   → anonymous pipe blocking read/writer wakeup and final teardown complete
-   → parent FUTEX_WAIT_PRIVATE expected=0
-   → private key K and per-mm bucket H
-   → stack futex_q enqueue and parent schedule-out
-   → helper release-store U=1
-   → helper FUTEX_WAKE_PRIVATE nr=1
-   → q removed, lock_ptr=NULL and parent runnable
-   → helper returns 1 and blocks outside futex
-   → parent restores original wait stack
-   → futex_unqueue observes waker removal
-   → parent CPL3 with wait RAX=0 and U=1
+   → anonymous pipe lifecycle complete
+   → private futex wait/wake complete
+   → eventfd2 creates shared O_RDWR fd 6 with count=0
+   → parent blocks in non-exclusive locked wait queue
+   → helper writes u64 3, count becomes 3 and parent becomes runnable
+   → parent restores original read stack and consumes full counter
+   → count returns to 0
+   → parent CPL3 with read RAX=8 and userspace value=3
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-当前十四个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``、新文件首次delalloc write + fsync、open-unlinked文件的final close/eviction、自然到期monotonic nanosleep、``SIGUSR1`` 中断nanosleep与 ``rt_sigreturn``、anonymous pipe blocking read/writer wakeup、pipe close/EOF/final teardown，以及private futex wait/release-store/wake。下一条runtime主线尚未选择。
+当前十五个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``、新文件首次delalloc write + fsync、open-unlinked文件的final close/eviction、自然到期monotonic nanosleep、``SIGUSR1`` 中断nanosleep与 ``rt_sigreturn``、anonymous pipe读写与final teardown、private futex wait/wake，以及eventfd counter blocking read/writer wakeup。下一条runtime主线尚未选择。
 
 章节组织
 --------
