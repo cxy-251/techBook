@@ -145,6 +145,9 @@ Linux Kernel
 #. `第一百三十七章：eventfd read() 怎样清零counter却暂时留下ready epitem？ <137-eventfd-read-clears-count-but-leaves-ready-item.rst>`_
 #. `第一百三十八章：零超时epoll_wait() 怎样重新poll并清理stale-ready item？ <138-zero-time-epoll-wait-removes-stale-ready-item.rst>`_
 #. `第一百三十九章：EPOLL_CTL_DEL与close()怎样拆除callback并释放eventfd/eventpoll？ <139-epoll-del-and-final-close-free-eventfd-eventpoll.rst>`_
+#. `第一百四十章：signalfd4() 怎样把阻塞信号变成可poll的fd并挂进epoll？ <140-signalfd4-creates-pollable-signal-fd-and-epoll-registration.rst>`_
+#. `第一百四十一章：tgkill() 怎样让blocked SIGUSR1经signalfd callback唤醒epoll_wait？ <141-tgkill-wakes-signalfd-epoll-waiter.rst>`_
+#. `第一百四十二章：parent怎样从epoll event进入signalfd read并取出128字节siginfo？ <142-epoll-returns-signalfd-event-and-read-dequeues-siginfo.rst>`_
 
 当前主线
 --------
@@ -160,19 +163,23 @@ Linux Kernel
    → natural and SIGUSR1-interrupted monotonic nanosleep complete
    → anonymous pipe lifecycle complete
    → private futex wait/wake complete
-   → eventfd read/wake and final close complete
-   → level-triggered eventfd epoll registration and first delivery complete
-   → parent reads eventfd count 5 and clears readiness
-   → EPOLLOUT callback does not match EPOLLIN interest
-   → zero-time epoll_wait re-polls and removes stale-ready membership
-   → EPOLL_CTL_DEL removes callback and epitem relationship
-   → close(6) releases eventfd ctx/file
-   → close(7) releases eventpoll file and ends EP through kfree_rcu
-   → parent CPL3 with close RAX=0 and fd 6/7 closed
+   → eventfd and eventpoll lifecycles complete
+   → parent/helper block SIGUSR1
+   → signalfd fd 6 and eventpoll fd 7 created
+   → epoll_ctl ADD installs callback on shared sighand signalfd wait queue
+   → parent blocks exclusively on eventpoll wait queue
+   → helper tgkill queues SI_TKILL SIGUSR1 in parent private pending
+   → NULL-key signalfd wake queues epitem and wakes parent
+   → parent re-polls signalfd and receives EPOLLIN data 0x51FD6
+   → epoll_wait returns 1
+   → parent read dequeues SIGUSR1 and copies one 128-byte signalfd_siginfo
+   → read returns 128
+   → fd 6/7 and registration remain active
+   → level-triggered epitem remains stale-ready until next scan
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-当前十八个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``、新文件首次delalloc write + fsync、open-unlinked文件的final close/eviction、自然到期monotonic nanosleep、``SIGUSR1`` 中断nanosleep与 ``rt_sigreturn``、anonymous pipe读写与final teardown、private futex wait/wake、eventfd counter blocking read/writer wakeup、eventfd final close、eventfd level-triggered epoll callback/wait delivery，以及eventfd/epoll stale-ready cleanup、registration deletion与final teardown。下一条runtime主线尚未选择。
+当前十九个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``、新文件首次delalloc write + fsync、open-unlinked文件的final close/eviction、自然到期monotonic nanosleep、``SIGUSR1`` 中断nanosleep与 ``rt_sigreturn``、anonymous pipe读写与final teardown、private futex wait/wake、eventfd counter blocking read/writer wakeup、eventfd final close、eventfd level-triggered epoll callback/wait delivery、eventfd/epoll cleanup，以及blocked ``SIGUSR1`` 通过signalfd与epoll交付并读取 ``signalfd_siginfo``。下一条runtime主线尚未选择。
 
 章节组织
 --------
