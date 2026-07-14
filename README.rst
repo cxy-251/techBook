@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第一百五十八章：inotify怎样建立目录watch并让parent阻塞在epoll_wait？ <docs/tracks/linux-kernel/158-inotify-watch-registers-with-epoll-and-blocks-parent.rst>`_
-* `第一百五十九章：helper创建并关闭new.txt时，fsnotify怎样排入两条inotify事件？ <docs/tracks/linux-kernel/159-fsnotify-queues-create-and-close-write-events.rst>`_
-* `第一百六十章：parent怎样从epoll event读取两条inotify_event记录？ <docs/tracks/linux-kernel/160-epoll-returns-inotify-and-read-consumes-two-records.rst>`_
+* `第一百六十一章：零超时epoll_wait怎样清除inotify的stale-ready item？ <docs/tracks/linux-kernel/161-zero-time-epoll-wait-removes-inotify-stale-ready-item.rst>`_
+* `第一百六十二章：inotify_rm_watch怎样先排入IN_IGNORED再销毁mark？ <docs/tracks/linux-kernel/162-inotify-rm-watch-queues-ignored-and-destroys-mark.rst>`_
+* `第一百六十三章：读取IN_IGNORED后，close怎样释放inotify group与eventpoll？ <docs/tracks/linux-kernel/163-read-ignored-and-final-close-free-inotify-eventpoll.rst>`_
 
 固定来源
 --------
@@ -50,24 +50,26 @@ techBook
    LK-PIDFD-152..LK-PIDFD-154
    LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157
    LK-INOTIFY-158..LK-INOTIFY-160
+   LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163
 
 最新场景
 --------
 
 ::
 
-   inotify_init1(IN_CLOEXEC) -> fd 6
-   → inotify_add_watch(/work, IN_CREATE|IN_CLOSE_WRITE) -> wd 1
-   → epoll_create1(EPOLL_CLOEXEC) -> fd 7
-   → EPOLL_CTL_ADD attaches callback to group notification_waitq
-   → parent blocks on eventpoll wait queue
-   → helper creates, writes and closes /work/new.txt through fd 8
-   → fsnotify queues IN_CREATE then IN_CLOSE_WRITE
-   → callback marks one epitem ready and wakes parent
-   → epoll_wait returns {EPOLLIN,data=0x494E4F36}
-   → read(6) returns two 32-byte records, total 64 bytes
+   zero-time epoll_wait re-polls empty inotify queue
+   → stale-ready item removed and wait returns 0
+   → inotify_rm_watch(6,1)
+   → queue wd1 IN_IGNORED before removing wd from IDR
+   → callback makes registration ready again
+   → mark detaches from group and /work inode connector
+   → zero-time epoll_wait returns EPOLLIN
+   → read(6) returns one 16-byte IN_IGNORED record
+   → EPOLL_CTL_DEL removes callback and epitem
+   → close(6) destroys fsnotify group and waits mark SRCU reaper
+   → close(7) releases empty eventpoll
 
-最终fd 6/7、watch wd 1与epoll registration仍active。inotify queue已经为空；level-triggered epitem仍暂留ready list，等待下一次re-poll清除stale-ready状态。
+最终fd 6/7均已关闭。wd 1、inotify mark、fsnotify group、inotify file与eventpoll file均已结束生命周期；``/work/new.txt``继续存在，全局anon_inodefs保持active。
 
 开始工作
 --------
