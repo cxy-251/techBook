@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第一百六十七章：EPOLL_CTL_DEL怎样从persistent-ready Unix socket拆除callback与epitem？ <docs/tracks/linux-kernel/167-epoll-del-detaches-unix-socket-callback-and-ready-item.rst>`_
-* `第一百六十八章：close(6)怎样释放socket A，却让dead SA继续被peer reference保持？ <docs/tracks/linux-kernel/168-close-first-unix-socket-notifies-peer-and-keeps-dead-socket-referenced.rst>`_
-* `第一百六十九章：close(7)与close(8)怎样释放两端Unix socket和空eventpoll？ <docs/tracks/linux-kernel/169-close-second-unix-socket-and-eventpoll-final-teardown.rst>`_
+* `第一百七十章：socket(AF_INET,SOCK_STREAM)怎样创建TCP endpoint并发布fd 6？ <docs/tracks/linux-kernel/170-inet-stream-socket-creates-tcp-endpoint-and-publishes-fd.rst>`_
+* `第一百七十一章：bind(127.0.0.1:28080)怎样验证本地地址并占用TCP端口？ <docs/tracks/linux-kernel/171-bind-loopback-address-claims-tcp-port.rst>`_
+* `第一百七十二章：listen(8)怎样建立空请求队列并把socket加入TCP监听哈希？ <docs/tracks/linux-kernel/172-listen-enters-tcp-listen-and-publishes-listener-hash.rst>`_
 
 固定来源
 --------
@@ -53,24 +53,26 @@ techBook
    LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163
    LK-UNIXSOCK-164..LK-UNIXSOCK-166
    LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169
+   LK-TCPLISTEN-170..LK-TCPLISTEN-172
 
 最新场景
 --------
 
 ::
 
-   persistent-ready fd 6 remains after peer SHUT_WR and EOF read
-   → EPOLL_CTL_DEL removes socket wait callback P and epitem I
-   → F6.f_ep becomes NULL; EP refcount 2→1
-   → close(6) releases socket A file and sockfs VFS objects
-   → SA becomes orphan/dead, TCP_CLOSE and SHUTDOWN_MASK
-   → peer SB gains full SHUTDOWN_MASK and HUP semantics
-   → SA remains alive because unix_peer(SB) still holds it
-   → close(7) clears unix_peer(SB) and drops the final SA peer reference
-   → SA and SB complete unix_sock_destructor teardown
-   → close(8) releases empty eventpoll; EP storage is RCU-deferred
+   socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, 0)
+   → create sockfs inode, struct socket and tcp_sock
+   → select inet_stream_ops and tcp_prot
+   → publish blocking close-on-exec fd 6
+   → bind fd 6 to 127.0.0.1:28080
+   → create TCP bind and bind2 buckets
+   → keep socket in TCP_CLOSE without packet I/O
+   → listen(fd 6, backlog 8)
+   → initialize empty request/accept queue
+   → TCP_CLOSE to TCP_LISTEN
+   → insert listener into exact-address lhash2 bucket
 
-最终fd 6/7/8均已关闭。两个Unix socket、两份sockfs file与eventpoll均退出活动对象图；全局sockfs和anon_inodefs继续active。
+最终fd 6保持open。server listener绑定 ``127.0.0.1:28080``，bind hash与listener hash均active；当前没有client、request socket、accepted child或skb。
 
 开始工作
 --------
