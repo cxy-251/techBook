@@ -16,15 +16,16 @@ LK-OPEN-104..LK-OPEN-106
 LK-DELALLOC-107..LK-DELALLOC-109
 LK-UNLINK-110..LK-UNLINK-112
 LK-SLEEP-113..LK-SLEEP-115
+LK-SIGNAL-116..LK-SIGNAL-118
 ```
 
-十个运行期实验已闭环：cold read、O_SYNC write、fork、child COW write fault、static ELF execve、child exit + parent wait4 reap、ext4 openat create-open、新文件首次delalloc write + fsync、open-unlinked文件final close与回收、monotonic nanosleep + hrtimer/APIC/scheduler wakeup。
+十一个运行期实验已闭环：cold read、O_SYNC write、fork、child COW write fault、static ELF execve、child exit + parent wait4 reap、ext4 openat create-open、新文件首次delalloc write + fsync、open-unlinked文件final close与回收、自然到期monotonic nanosleep，以及SIGUSR1中断nanosleep + rt_sigreturn。
 
 最新三章：
 
-- `LK-SLEEP-113`：clock_nanosleep() 怎样建立 hrtimer 并让 parent 阻塞？
-- `LK-SLEEP-114`：local APIC timer interrupt 怎样运行 hrtimer callback 并唤醒 parent？
-- `LK-SLEEP-115`：scheduler 怎样恢复 parent，并让 clock_nanosleep() 返回 0？
+- `LK-SIGNAL-116`：tgkill() 怎样排入 SIGUSR1 并唤醒 nanosleep 中的 parent？
+- `LK-SIGNAL-117`：parent 怎样取消 hrtimer、写回 remaining 并进入 SIGUSR1 handler？
+- `LK-SIGNAL-118`：rt_sigreturn() 怎样恢复被 SIGUSR1 中断的 clock_nanosleep 上下文？
 
 ## 固定实现
 
@@ -44,106 +45,132 @@ storage           = q35 ICH9 AHCI SATA port 0
 
 旧章节中的 `Linux 6.12.95` 是历史显示标签错误；固定commit始终是Linux 7.2-rc1。
 
-## 已完成 nanosleep 固定场景
+## 已完成 interrupted nanosleep 固定场景
 
 ```text
-current task       = parent, SCHED_NORMAL
-userspace call     = clock_nanosleep(CLOCK_MONOTONIC, 0, {0,10ms}, NULL)
+parent             = single-threaded SCHED_NORMAL, TGID=TID=P
+helper             = separate same-UID process H
 CPUs online        = CPU0 only
+parent call        = clock_nanosleep(CLOCK_MONOTONIC, 0, {0,10ms}, &remaining)
 timer slack        = 0 ns
-hrtimer mode       = high-resolution hard relative CLOCK_MONOTONIC
-clockevent         = CPU0 lapic-deadline one-shot
-runnable peers     = none; idle/0 only while parent sleeps
-signal/freezer     = none
-migration/hotplug  = none
-delivery           = first local APIC interrupt at or after expiry
-failure policy     = no copy, validation, timer or scheduler failure
+expiry             = E=T0+10ms
+signal send        = tgkill(P,P,SIGUSR1) at T0+4ms
+handler flags       = SA_SIGINFO | SA_RESTORER
+absent flags        = SA_RESTART | SA_NODEFER | SA_ONSTACK
+initial signal mask = SIGUSR1 unblocked, no other pending signal
+scheduling          = helper blocks after send; parent resumes before E
+failure policy      = no permission/copy/frame/FPU/timer/scheduler failure
 ```
 
 ## 已执行控制流
 
 ```text
-clock_nanosleep
-→ __x64_sys_clock_nanosleep
-→ get_timespec64 / validate
-→ common_nsleep_timens
-→ hrtimer_nanosleep(HRTIMER_MODE_REL)
-→ on-stack hrtimer_sleeper
-→ callback hrtimer_wakeup; t.task=parent
-→ expiry E=now+10ms; slack=0
-→ enqueue CPU0 monotonic hrtimer
-→ program lapic TSC deadline
+parent relative clock_nanosleep
+→ queue on-stack CPU0 monotonic hrtimer
 → parent TASK_INTERRUPTIBLE|TASK_FREEZABLE
-→ schedule / __schedule
-→ dequeue parent; switch to idle/0
-→ LOCAL_TIMER_VECTOR
-→ sysvec_apic_timer_interrupt
-→ local_apic_timer_interrupt
-→ hrtimer_interrupt
-→ remove timer / run hrtimer_wakeup
-→ t.task=NULL
-→ wake_up_process / try_to_wake_up
+→ context switch to helper
+
+helper tgkill(P,P,SIGUSR1)
+→ do_tkill / do_send_specific
+→ SI_TKILL siginfo, si_pid=H
+→ parent private pending queue
+→ set TIF_SIGPENDING
+→ signal_wake_up_state / try_to_wake_up
 → parent TASK_RUNNING on CPU0 runqueue
-→ reschedule idle/0 to parent
-→ parent resumes original schedule()
-→ hrtimer_cancel sees inactive timer
-→ do_nanosleep returns 0
-→ destroy_hrtimer_on_stack
-→ userspace RAX=0
+→ helper blocks
+
+scheduler restores parent original do_nanosleep stack
+→ hrtimer_cancel removes still-active timer
+→ callback never ran, so t.task remains parent
+→ signal_pending ends sleep loop
+→ calculate remaining = E - actual cancel time
+→ 0 < remaining < 6ms
+→ put_timespec64
+→ -ERESTART_RESTARTBLOCK
+→ save absolute restart expiry E
+→ destroy hrtimer on stack
+
+exit_to_user_mode_loop sees TIF_SIGPENDING
+→ get_signal dequeues SIGUSR1
+→ handle_signal changes restart-block error to -EINTR
+→ x64_setup_rt_frame on normal user stack
+→ save post-SYSCALL RIP, RAX=-EINTR, old RSP/mask/FPU
+→ handler args in RDI/RSI/RDX
+→ enter CPL3 sigusr1_handler
+
+handler RET
+→ sa_restorer / __restore_rt
+→ __x64_sys_rt_sigreturn
+→ restore signal mask and altstack state
+→ restore general registers and FPU/XSAVE
+→ restart_block.fn=do_no_restart_syscall
+→ orig_ax=-1
+→ CPL3 at original post-SYSCALL RIP with raw RAX=-EINTR
 ```
 
 ## 当前精确状态
 
 ```text
-system_state       = SYSTEM_RUNNING
-runtime scenario   = monotonic nanosleep complete
-current executor   = parent
+system_state        = SYSTEM_RUNNING
+runtime scenario    = SIGUSR1-interrupted relative nanosleep complete
+current executor    = parent
 CPU                 = CPU0
 CPU mode            = x86-64 CPL 3
 scheduling class    = SCHED_NORMAL
 parent state        = TASK_RUNNING
 parent on_rq        = 1
 parent on_cpu       = 1
-syscall return      = 0
-requested interval  = 10 ms monotonic
-elapsed semantics   = not earlier than 10 ms
-hrtimer object      = destroyed on stack
-hrtimer queue       = no timer from this sleep
-APIC deadline       = consumed
-signal/restart      = none
+current user RIP    = original clock_nanosleep post-SYSCALL instruction
+raw syscall result  = -EINTR
+libc-visible result = usually positive EINTR
+remaining           = positive, 0 < remaining < 6ms
+signal info         = SIGUSR1 / SI_TKILL / si_pid=H
+handler             = completed and returned normally
+signal mask         = restored; SIGUSR1 unblocked
+pending signal      = consumed; no other pending signal
+TIF_SIGPENDING      = clear
+rt signal frame     = inactive
+user RSP            = restored
+FPU/XSAVE            = restored
+restart block       = do_no_restart_syscall
+orig_ax             = -1
+sleep hrtimer       = cancelled, dequeued, destroyed on stack
+hrtimer callback    = not executed
 next entry          = unselected runtime scenario
 ```
 
 ## 必须保持的技术边界
 
-1. `clock_nanosleep` 使用hrtimer，不使用timer wheel。
-2. relative interval在enqueue时转换成absolute monotonic expiry。
-3. timer slack为0时soft expiry与hard expiry一致。
-4. 设置task state不等于已sleep；scheduler context switch才让task离开CPU。
-5. hrtimer callback运行时`current`仍是被interrupt打断的idle task。
-6. `wake_up_process`只把task放回runqueue，不直接恢复其调用栈。
-7. parent从原`schedule()`调用点继续执行。
-8. `t.task=NULL`表示timer自然到期。
-9. nanosleep保证不早于期限，不保证精确在期限瞬间返回。
-10. 无signal时不进入restart block或remaining-time copyout。
+1. `tgkill`以TGID+TID定位thread，并产生`SI_TKILL`。
+2. thread-directed signal进入target private pending queue。
+3. signal wakeup只让task runnable，不直接运行handler。
+4. parent先恢复原kernel stack，再取消still-active hrtimer。
+5. callback未执行时`t.task`不会被清空。
+6. remaining按实际cancel时间计算，不是精确6ms。
+7. `-ERESTART_RESTARTBLOCK`在实际交付handler时无条件变成`-EINTR`。
+8. `SA_RESTART`不能自动重启这一条被handler打断的clock_nanosleep。
+9. signal frame保存post-SYSCALL RIP和`RAX=-EINTR`。
+10. handler的普通`RET`进入`sa_restorer`，不是直接回原代码。
+11. `rt_sigreturn`恢复mask、RIP/RSP、寄存器和FPU state。
+12. `orig_ax=-1`与`do_no_restart_syscall`阻止旧sleep被restart。
+13. signal frame结束后不再active，但kernel不会专门清零用户栈旧字节。
 
 ## 下一建议场景
 
-优先候选是被`SIGUSR1`中断的relative nanosleep：
+优先候选是anonymous pipe阻塞read与writer wakeup：
 
 ```text
-parent clock_nanosleep(..., &remaining)
-→ helper sends SIGUSR1 before expiry
-→ signal_wake_up / try_to_wake_up
-→ parent resumes do_nanosleep
-→ cancel still-active hrtimer
-→ calculate and copy remaining time
-→ syscall exit builds rt signal frame
-→ userspace handler
-→ rt_sigreturn restores context
+pipe2(pipefd, O_CLOEXEC)
+→ allocate pipe_inode_info and read/write struct file
+→ reader read(pipefd[0], buf, 5) on empty pipe
+→ add reader to pipe wait queue and schedule out
+→ writer write(pipefd[1], "hello", 5)
+→ allocate pipe_buffer page and copy bytes
+→ wake reader
+→ reader consumes buffer and returns 5
 ```
 
-开始前固定helper task、signal action、SA_RESTART、send time、remaining time和调度顺序。
+开始前固定fd编号、pipe capacity、reader/writer数量、packet mode、signal状态、scheduler顺序与page allocation结果。
 
 ## 连续叙事与流程
 
