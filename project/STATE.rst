@@ -46,17 +46,18 @@
    LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169
    LK-TCPLISTEN-170..LK-TCPLISTEN-172
    LK-TCPCONNECT-173..LK-TCPCONNECT-175
+   LK-TCPHANDSHAKE-176..LK-TCPHANDSHAKE-178
 
 最新三章：
 
-#. ``LK-TCPCONNECT-173``：client connect怎样选择loopback路由、自动端口并进入TCP_SYN_SENT？
-#. ``LK-TCPCONNECT-174``：tcp_connect怎样构造SYN并通过lo命中server listener？
-#. ``LK-TCPCONNECT-175``：listener怎样创建request_sock并把SYN-ACK排入client backlog？
+#. ``LK-TCPHANDSHAKE-176``：release_sock怎样处理SYN-ACK并让client发送最终ACK？
+#. ``LK-TCPHANDSHAKE-177``：最终ACK怎样把request_sock替换成ESTABLISHED server child？
+#. ``LK-TCPHANDSHAKE-178``：blocking connect为什么无需真正睡眠就返回0？
 
 进度
 ----
 
-当前已经完成175章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
+当前已经完成178章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
 
 固定来源
 --------
@@ -74,7 +75,7 @@
 
 ::
 
-   runtime relation       = continues chapters 170..172 TCP listener
+   runtime relation       = continues chapters 170..175 TCP loopback active open
    CPUs online            = CPU0 only
    network namespace      = N
    loopback device        = lo UP, MTU 65536
@@ -86,78 +87,82 @@
    client fd              = 7
    client endpoint        = 127.0.0.1:40000
    remote endpoint        = 127.0.0.1:28080
-   ip_local_port_range    = 32768..60999
    client ISN             = C_ISN 0x13572468
    server ISN             = S_ISN 0x24681357
-   client timestamp       = C_TS0 0x10203040
+   client timestamp SYN   = C_TS0 0x10203040
    server timestamp       = S_TS0 0x50607080
+   client final ACK TS    = C_TS1 > C_TS0
    client/server wscale   = 7 / 7
    MSS                    = 65495
    timestamps/SACK/WS     = enabled
    TFO/ECN/MD5/AO/MPTCP   = disabled
+   defer accept           = disabled
    failures/races         = none
+   connect scheduling     = none
 
-完整控制流
-----------
+本批完整控制流
+--------------
 
 ::
 
-   client socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0)
-   → reuse AF_INET TCP creation path
-   → publish blocking close-on-exec fd 7
-   → CS.state=SS_UNCONNECTED; C.sk_state=TCP_CLOSE
+   inet_wait_for_connect has installed CW
+   → release_sock(C)
+   → __release_sock detaches C.sk_backlog
+   → sk_backlog_rcv(C,SYN-ACK)
+   → tcp_v4_do_rcv
+   → tcp_rcv_synsent_state_process
+   → validate ACK=C_ISN+1
+   → tcp_ack advances snd_una
+   → remove original CSYN from retransmission tree
+   → set rcv_nxt=S_ISN+1
+   → apply MSS/SACK/timestamp/window-scale negotiation
+   → tcp_finish_connect
+   → C: TCP_SYN_SENT → TCP_ESTABLISHED
+   → C.sk_state_change sets CW.WQ_FLAG_WOKEN
+   → construct final ACK CACK
+   → CACK seq=C_ISN+1, ack=S_ISN+1, ACK only
+   → IPv4 output → dev_queue_xmit → loopback_xmit
+   → queue CACK to CPU0 input backlog
+   → rcu_read_unlock_bh runs pending NET_RX softirq
 
-   connect(7,127.0.0.1:28080)
-   → __sys_connect copies sockaddr_in
-   → inet_stream_connect locks C
-   → tcp_v4_connect validates AF_INET destination
-   → ip_route_connect selects RTN_LOCAL route and lo
-   → route selects source address 127.0.0.1
-   → tcp_set_state(C,TCP_SYN_SENT)
-   → inet_hash_connect scans ephemeral range
-   → fixed scenario chooses local port 40000
-   → create CTB/CTB2 and set SOCK_CONNECT_BIND
-   → insert client C into ehash
-   → commit local/remote tuple and dst
-   → secure sequence function yields C_ISN
+   tcp_v4_rcv(CACK)
+   → ehash lookup finds TCP_NEW_SYN_RECV request R
+   → tcp_check_req validates final ACK and receive window
+   → tcp_v4_syn_recv_sock
+   → tcp_create_openreq_child
+   → inet_csk_clone_lock creates full child H
+   → H starts in TCP_SYN_RECV
+   → H tuple = 127.0.0.1:28080 ← 127.0.0.1:40000
+   → H rcv_nxt=C_ISN+1
+   → H snd_una=snd_nxt=write_seq=S_ISN+1
+   → restore negotiated TCP options
+   → __inet_inherit_port joins H to server bind/bind2 owners
+   → inet_ehash_nolisten replaces R ehash identity with H
+   → own_req=true
+   → delete R request timer
+   → request qlen/young 1/1 → 0/0
+   → inet_csk_reqsk_queue_add reuses R as accept node
+   → R.sk=H
+   → accept head/tail=R/R
+   → L.sk_ack_backlog 0 → 1
+   → tcp_child_process feeds CACK to H
+   → H: TCP_SYN_RECV → TCP_ESTABLISHED
+   → L.sk_data_ready publishes accept readiness
+   → NET_RX returns to client ACK output
+   → finish SSYNACK backlog processing
+   → C.sk_backlog.len=0
+   → first release_sock releases C ownership
 
-   tcp_connect(C)
-   → tcp_connect_init derives PMTU, MSS, receive window and scale
-   → allocate original SYN skb CSYN
-   → seq=C_ISN; end_seq=C_ISN+1
-   → queue CSYN in retransmission tree
-   → send clone XSYN through tcp_transmit_skb
-   → ip_queue_xmit builds IPv4 header
-   → dev_queue_xmit selects lo
-   → loopback_xmit orphans clone and calls __netif_rx
-   → CPU0 backlog raises NET_RX softirq
-   → IPv4 local delivery enters tcp_v4_rcv
-   → ehash direction does not match client C
-   → exact-address listener lookup finds L
-
-   tcp_v4_do_rcv(L,XSYN)
-   → TCP_LISTEN branch calls tcp_v4_conn_request
-   → no syncookie or queue overflow
-   → inet_reqsk_alloc creates request R
-   → R.state=TCP_NEW_SYN_RECV and holds listener reference
-   → parse MSS/SACK/timestamp/window-scale options
-   → R records C_ISN and rcv_nxt=C_ISN+1
-   → fixed server sequence is S_ISN
-   → inet_csk_reqsk_queue_hash_add inserts R into ehash
-   → arm request retransmission timer
-   → set rsk_refcnt to 3, then caller put leaves 2
-   → request qlen/young become 1/1
-   → tcp_v4_send_synack builds seq=S_ISN, ack=C_ISN+1
-   → SYN-ACK traverses IPv4 output and lo
-   → reverse ehash lookup finds client C
-   → parent owns C, so tcp_add_backlog queues SYN-ACK
-
-   return to client connect path
-   → tcp_connect commits snd_nxt=C_ISN+1 and arms SYN timer
-   → tcp_v4_connect returns 0
-   → CS.state becomes SS_CONNECTING
-   → inet_wait_for_connect installs wait entry CW
-   → stop immediately before release_sock(C)
+   wait_woken(CW,TASK_INTERRUPTIBLE,timeo)
+   → sees WQ_FLAG_WOKEN
+   → skips schedule_timeout
+   → restores TASK_RUNNING and clears wake flag
+   → lock_sock(C)
+   → loop condition sees TCP_ESTABLISHED
+   → remove CW from sk_sleep(C)
+   → __inet_stream_connect sets CS.state=SS_CONNECTED
+   → outer release_sock(C)
+   → connect returns 0 to x86-64 userspace
 
 当前精确状态
 ------------
@@ -165,78 +170,87 @@
 * ``system_state``：``SYSTEM_RUNNING``；
 * current executor：parent；
 * CPU：CPU0；
-* CPU mode：x86-64 kernel process context；
-* current syscall：blocking ``connect(7,127.0.0.1:28080)``；
-* parent：``TASK_RUNNING``，尚未schedule；
-* client socket user lock：由parent持有；
-* connect wait entry ``CW``：已经加入 ``sk_sleep(C)``；
+* CPU mode：x86-64 CPL 3；
+* last syscall/result：``connect(7,127.0.0.1:28080)=0``；
+* parent：``TASK_RUNNING``；
+* scheduler：本次connect wait没有调用 ``schedule_timeout``；
+* wait entry ``CW``：已删除；
+* ``CW.WQ_FLAG_WOKEN``：已清除；
 * server fd 6：open、blocking、close-on-exec；
-* server ``L``：``TCP_LISTEN``；
+* server listener ``L``：``TCP_LISTEN``；
 * server endpoint：``127.0.0.1:28080``；
-* server bind hash与listener lhash2：active；
+* listener bind hash与lhash2：active；
+* SYN request qlen/young：0/0；
+* listener ``sk_ack_backlog=1``；
+* accept queue：head/tail均为R；
+* accept node ``R``：active， ``R.sk=H``；
+* R的 ``TCP_NEW_SYN_RECV`` ehash身份：removed/replaced；
+* R request timer：deleted；
+* server child ``H``：``TCP_ESTABLISHED``；
+* H tuple：``127.0.0.1:28080 ← 127.0.0.1:40000``；
+* H established ehash：active；
+* H bind/bind2 ownership：active；
+* H ``snd_una=snd_nxt=S_ISN+1``；
+* H ``rcv_nxt=C_ISN+1``；
+* H ``sk_socket=NULL``；
+* H sockfs inode/file/fd：none；
 * client fd 7：open、blocking、close-on-exec；
-* client ``CS``：``SS_CONNECTING``；
-* client ``C``：``TCP_SYN_SENT``；
+* client ``CS``：``SS_CONNECTED``；
+* client ``C``：``TCP_ESTABLISHED``；
 * client tuple：``127.0.0.1:40000 → 127.0.0.1:28080``；
 * client bind/bind2 ownership：active，``SOCK_CONNECT_BIND`` set；
 * client ehash：active；
 * client dst：local route through ``lo``；
-* client retransmission tree：contains original CSYN；
-* client SYN retransmission timer：armed；
-* client ``snd_una=C_ISN``、``snd_nxt=C_ISN+1``；
-* client socket backlog：contains one SYN-ACK；
-* request ``R``：``TCP_NEW_SYN_RECV``；
-* request tuple：``127.0.0.1:28080 ← 127.0.0.1:40000``；
-* request ehash：active；
-* request timer：armed；
-* request ``rsk_refcnt=2``；
-* request qlen/young：1/1；
-* accept queue：empty；
-* full server child：none；
-* final ACK：not sent；
-* next runtime entry：``release_sock(C)``。
+* client ``snd_una=snd_nxt=C_ISN+1``；
+* client ``rcv_nxt=S_ISN+1``；
+* client retransmission tree：empty；
+* client socket backlog：empty；
+* packet与CPU0 NET_RX backlog：empty；
+* next runtime entry：``accept4(6,...,SOCK_CLOEXEC)``；
+* next lowest free fd：8。
 
 关键边界
 --------
 
-#. client创建复用第170章的对象创建路径，本章只新增fd 7与独立tcp_sock C。
-#. ``ip_route_connect``先选择local route与source address，local port随后由``inet_hash_connect``确定。
-#. source port 40000是固定随机状态下的结果，不是Linux API保证。
-#. connect自动端口加入bind/bind2并设置``SOCK_CONNECT_BIND``，与用户显式bind锁不同。
-#. client在SYN发出前已经加入ehash，供反向SYN-ACK查找。
-#. original CSYN留在TCP retransmission tree；device层发送clone XSYN。
-#. local route仍经过IP output、device output、``loopback_xmit``与NET_RX receive。
-#. 单CPUloopback可以在``connect()``发送路径内嵌套运行NET_RX softirq。
-#. SYN按目的地址和端口命中server的具体地址lhash2。
-#. 普通SYN建立真实request R；syncookie分支不会保留相同对象。
-#. ``TCP_NEW_SYN_RECV`` request不是完整的server child。
-#. request在发送SYN-ACK前先进入ehash并启动timer。
-#. request qlen为1时accept queue仍为空。
-#. parent持有client socket lock时，SYN-ACK只能进入``C.sk_backlog``。
-#. ``SS_CONNECTING``与``TCP_SYN_SENT``属于不同层，可以同时存在。
-#. wait entry CW先安装，之后才释放socket lock，避免处理backlog时的wakeup丢失。
-#. 第175章尚未完成握手，不允许提前写client ESTABLISHED、server child或connect返回。
-#. 单章末尾只记录本章状态，不再加入“本批三章总结”。
+#. ``release_sock`` 先清空socket backlog，再释放socket用户ownership。
+#. client SYN-ACK由parent process context通过 ``sk_backlog_rcv`` 消费。
+#. ``tcp_ack`` 确认original SYN后消除其retransmission identity。
+#. client sequence空间固定为 ``snd_una=snd_nxt=C_ISN+1`` 与 ``rcv_nxt=S_ISN+1``。
+#. client ``TCP_ESTABLISHED`` 写入发生在socket API ``SS_CONNECTED`` 之前。
+#. state-change wakeup通过 ``CW.WQ_FLAG_WOKEN`` 跨越 ``release_sock`` 与 ``wait_woken`` 的时序间隙。
+#. final ACK通过 ``lo`` 重新进入CPU0 backlog，并可在 ``rcu_read_unlock_bh`` 时嵌套运行NET_RX。
+#. final ACK按完整server方向四元组命中R。
+#. R是轻量request；H是新分配的完整child。
+#. child clone后先处于 ``TCP_SYN_RECV``，处理CACK后进入 ``TCP_ESTABLISHED``。
+#. ``__inet_inherit_port`` 为H建立真实bind/bind2 owner关系。
+#. ehash先从R切换到H，再把连接发布到accept queue。
+#. SYN阶段qlen/young归零不代表accept queue为空。
+#. 同一个R转为accept FIFO节点，保存 ``R.sk=H``，不能提前描述为释放。
+#. H没有用户态socket/file/fd； ``accept4`` 才完成graft和fd发布。
+#. listener ``sk_data_ready`` 发布连接可接受状态，本场景没有accept waiter。
+#. ``wait_woken`` 看见提前设置的wake flag后不执行scheduler。
+#. blocking API允许等待，不保证实际发生task switch。
+#. ``connect()=0`` 与server尚未调用accept可以同时成立。
+#. 下一批不得重新讲三次握手，应直接进入accept queue removal与fd 8发布。
 
 下一任务
 --------
 
 ::
 
-   release_sock(C)
-   → __release_sock drains SYN-ACK from C.sk_backlog
-   → tcp_rcv_synsent_state_process validates ACK and options
-   → client C enters TCP_ESTABLISHED
-   → remove/ack original SYN retransmission state
-   → send final ACK through lo
-   → server ehash lookup finds request R
-   → tcp_check_req creates full server child
-   → child inherits listener bind ownership and tuple
-   → replace request hash identity with child
-   → child enters TCP_ESTABLISHED
-   → add child to listener accept queue
-   → state-change/data-ready wakeups become visible
-   → wait_woken observes wake flag without necessarily scheduling
-   → connect(7,...) returns 0
+   accept4(6,user_addr,user_addrlen,SOCK_CLOEXEC)
+   → __sys_accept4_file resolves F6/S/L
+   → tcp_accept checks non-empty accept queue
+   → reqsk_queue_remove returns R and H
+   → L.sk_ack_backlog 1 → 0
+   → finish R accept-node lifetime
+   → allocate accepted struct socket AS
+   → inet_accept grafts H to AS
+   → AS.state=SS_CONNECTED
+   → create blocking close-on-exec sockfs file F8
+   → reserve fd 8 and set close-on-exec fdtable bit
+   → publish F8 with fd_install
+   → copy peer sockaddr 127.0.0.1:40000
+   → accept4 returns 8
 
-开始前必须固定``release_sock`` backlog顺序、client final ACK sequence、request引用删除、child bind继承与ehash替换、accept queue计数、wakeup flag以及parent是否真正调用scheduler。
+开始前必须固定accept地址缓冲区、``SOCK_CLOEXEC``与blocking语义、queue removal时R/H引用、``sock_graft``写入H.sk_socket/sk_wq的位置、accepted socket file创建顺序、fd reserve/publish顺序与失败回滚边界。

@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第一百七十三章：client connect怎样选择loopback路由、自动端口并进入TCP_SYN_SENT？ <docs/tracks/linux-kernel/173-client-connect-selects-loopback-route-and-ephemeral-port.rst>`_
-* `第一百七十四章：tcp_connect怎样构造SYN并通过lo命中server listener？ <docs/tracks/linux-kernel/174-tcp-syn-traverses-loopback-and-finds-listener.rst>`_
-* `第一百七十五章：listener怎样创建request_sock并把SYN-ACK排入client backlog？ <docs/tracks/linux-kernel/175-listener-creates-request-and-queues-synack-to-client-backlog.rst>`_
+* `第一百七十六章：release_sock怎样处理SYN-ACK并让client发送最终ACK？ <docs/tracks/linux-kernel/176-release-sock-processes-synack-and-sends-final-ack.rst>`_
+* `第一百七十七章：最终ACK怎样把request_sock替换成ESTABLISHED server child？ <docs/tracks/linux-kernel/177-final-ack-replaces-request-with-established-server-child.rst>`_
+* `第一百七十八章：blocking connect为什么无需真正睡眠就返回0？ <docs/tracks/linux-kernel/178-blocking-connect-skips-schedule-and-returns-zero.rst>`_
 
 固定来源
 --------
@@ -55,6 +55,7 @@ techBook
    LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169
    LK-TCPLISTEN-170..LK-TCPLISTEN-172
    LK-TCPCONNECT-173..LK-TCPCONNECT-175
+   LK-TCPHANDSHAKE-176..LK-TCPHANDSHAKE-178
 
 最新场景
 --------
@@ -62,19 +63,21 @@ techBook
 ::
 
    server fd 6: 127.0.0.1:28080 TCP_LISTEN
-   → client socket publishes blocking close-on-exec fd 7
-   → local route selects 127.0.0.1 and lo
-   → connect autobinds 127.0.0.1:40000
-   → client enters TCP_SYN_SENT and ehash
-   → tcp_connect builds SYN with C_ISN
-   → SYN traverses IPv4 output and loopback receive
-   → exact-address lhash2 finds server listener
-   → listener allocates TCP_NEW_SYN_RECV request R
-   → R enters ehash, arms request timer and raises qlen to 1
-   → server sends SYN-ACK with S_ISN
-   → SYN-ACK traverses lo and is queued in client C.sk_backlog
+   → client fd 7 processes SYN-ACK from C.sk_backlog
+   → client enters TCP_ESTABLISHED and wakes connect wait entry
+   → final ACK traverses IPv4 output and lo
+   → server ehash finds TCP_NEW_SYN_RECV request R
+   → create full server child H and inherit port 28080
+   → replace R's ehash identity with H
+   → request qlen/young become 0/0
+   → reuse R as accept FIFO node with R.sk=H
+   → H enters TCP_ESTABLISHED
+   → listener sk_ack_backlog becomes 1
+   → wait_woken observes WQ_FLAG_WOKEN without scheduling
+   → CS becomes SS_CONNECTED
+   → connect(7,127.0.0.1:28080) returns 0
 
-最终fd 6/7保持open。client仍为 ``SS_CONNECTING/TCP_SYN_SENT``，parent持有client socket lock并已经安装connect wait entry；request R在ehash中，accept queue仍为空。下一章从 ``release_sock(C)`` 处理SYN-ACK开始。
+最终fd 6/7保持open。client fd 7已经连接；server child ``H`` 已在accept queue中，却尚无 ``struct socket``、file或fd。下一章从 ``accept4(6,...,SOCK_CLOEXEC)`` 取出R/H并发布fd 8开始。
 
 开始工作
 --------

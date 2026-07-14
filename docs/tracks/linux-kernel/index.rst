@@ -30,16 +30,17 @@ Linux Kernel
    → private futex wait/wake complete
    → eventfd, signalfd, timerfd, pidfd and inotify eventpoll lifecycles complete
    → Unix stream socketpair data, half-close and final teardown complete
-   → server fd 6 binds 127.0.0.1:28080 and enters TCP_LISTEN
-   → client fd 7 selects local route and source port 40000
-   → client enters TCP_SYN_SENT and established hash
-   → client SYN traverses IPv4 output and loopback receive
-   → exact-address listener lookup finds server L
-   → listener creates TCP_NEW_SYN_RECV request R
-   → R enters ehash, arms timer and sends SYN-ACK
-   → SYN-ACK traverses lo and enters client socket backlog
-   → parent has installed connect wait entry but still owns client socket
-   → stop before release_sock(C) processes SYN-ACK
+   → server fd 6 listens on 127.0.0.1:28080
+   → client fd 7 autobinds 127.0.0.1:40000 and sends SYN
+   → listener creates request R and sends SYN-ACK
+   → release_sock drains SYN-ACK from client backlog
+   → client enters TCP_ESTABLISHED and sends final ACK
+   → final ACK replaces R's ehash identity with server child H
+   → R becomes accept FIFO node and H enters TCP_ESTABLISHED
+   → wait_woken skips scheduling because WQ_FLAG_WOKEN is already set
+   → client socket API state becomes SS_CONNECTED
+   → connect returns 0
+   → server accept queue contains one unaccepted child
 
 完成范围
 --------
@@ -77,34 +78,36 @@ Linux Kernel
    LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169
    LK-TCPLISTEN-170..LK-TCPLISTEN-172
    LK-TCPCONNECT-173..LK-TCPCONNECT-175
+   LK-TCPHANDSHAKE-176..LK-TCPHANDSHAKE-178
 
 固定commit的 ``Makefile`` 标识为Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定commit为准。
 
 进度
 ----
 
-当前完成175章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
+当前完成178章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
 
 最新三章
 --------
 
-#. `第一百七十三章：client connect怎样选择loopback路由、自动端口并进入TCP_SYN_SENT？ <173-client-connect-selects-loopback-route-and-ephemeral-port.rst>`_
-#. `第一百七十四章：tcp_connect怎样构造SYN并通过lo命中server listener？ <174-tcp-syn-traverses-loopback-and-finds-listener.rst>`_
-#. `第一百七十五章：listener怎样创建request_sock并把SYN-ACK排入client backlog？ <175-listener-creates-request-and-queues-synack-to-client-backlog.rst>`_
+#. `第一百七十六章：release_sock怎样处理SYN-ACK并让client发送最终ACK？ <176-release-sock-processes-synack-and-sends-final-ack.rst>`_
+#. `第一百七十七章：最终ACK怎样把request_sock替换成ESTABLISHED server child？ <177-final-ack-replaces-request-with-established-server-child.rst>`_
+#. `第一百七十八章：blocking connect为什么无需真正睡眠就返回0？ <178-blocking-connect-skips-schedule-and-returns-zero.rst>`_
 
 下一候选
 --------
 
 ::
 
-   release_sock(C)
-   → drain SYN-ACK from client socket backlog
-   → client enters TCP_ESTABLISHED
-   → send final ACK through loopback
-   → server lookup finds request R
-   → create and hash full server child
-   → add child to accept queue
-   → connect wait observes wakeup and returns 0
+   accept4(6,...,SOCK_CLOEXEC)
+   → remove R/H from listener accept queue
+   → sk_ack_backlog 1 → 0
+   → allocate accepted struct socket
+   → graft H to accepted socket
+   → create sockfs file
+   → publish close-on-exec fd 8
+   → copy peer sockaddr
+   → return 8
 
 章节组织
 --------
