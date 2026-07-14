@@ -26,15 +26,16 @@ LK-EPOLL-134..LK-EPOLL-136
 LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139
 LK-SIGNALFD-140..LK-SIGNALFD-142
 LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145
+LK-TIMERFD-146..LK-TIMERFD-148
 ```
 
-二十个运行期实验已闭环：cold read、O_SYNC write、fork、child COW、static ELF exec、exit/wait、ext4 create、delalloc+fsync、open-unlinked final close、自然到期nanosleep、SIGUSR1中断nanosleep、anonymous pipe读写与teardown、private futex wait/wake、eventfd counter read/wake、eventfd final close、eventfd level-triggered epoll wake、eventfd/epoll cleanup、blocked SIGUSR1通过signalfd+epoll交付，以及signalfd/epoll cleanup与final teardown。
+二十一个运行期实验已闭环：cold read、O_SYNC write、fork、child COW、static ELF exec、exit/wait、ext4 create、delalloc+fsync、open-unlinked final close、自然到期nanosleep、SIGUSR1中断nanosleep、anonymous pipe读写与teardown、private futex wait/wake、eventfd counter read/wake、eventfd final close、eventfd level-triggered epoll wake、eventfd/epoll cleanup、blocked SIGUSR1通过signalfd+epoll交付、signalfd/epoll cleanup，以及one-shot timerfd通过LAPIC/hrtimer/epoll交付。
 
 最新三章：
 
-- `LK-SIGNALFDCLOSE-143`：零超时epoll_wait() 怎样清理signalfd的stale-ready item？
-- `LK-SIGNALFDCLOSE-144`：EPOLL_CTL_DEL 怎样拆除signalfd callback与epitem？
-- `LK-SIGNALFDCLOSE-145`：close() 怎样释放signalfd与eventpoll，却保留共享sighand wait queue？
+- `LK-TIMERFD-146`：timerfd怎样建立一次性hrtimer并让parent阻塞在epoll_wait？
+- `LK-TIMERFD-147`：local APIC定时器中断怎样让timerfd callback唤醒epoll_wait？
+- `LK-TIMERFD-148`：parent怎样从epoll event进入timerfd read并取出expiration count？
 
 ## 固定实现
 
@@ -54,155 +55,175 @@ storage           = q35 ICH9 AHCI SATA port 0
 
 旧章节中的 `Linux 6.12.95` 是历史显示标签错误；固定commit始终是Linux 7.2-rc1。
 
-## 已完成 signalfd cleanup 固定场景
+## 已完成 timerfd + epoll 固定场景
 
 ```text
-runtime relation = continuation of LK-SIGNALFD-140..142
+runtime relation = independent after LK-SIGNALFDCLOSE-145
 CPUs online      = CPU0 only
 process          = parent + helper threads in one TGID
 files table      = shared through CLONE_FILES
-signal state     = shared signal_struct and sighand_struct
 scheduler        = both SCHED_NORMAL
-blocked mask     = parent/helper both contain SIGUSR1
-pending state    = no private/shared SIGUSR1
-signalfd fd      = 6, blocking, close-on-exec
-signalfd file    = F6
-signalfd ctx     = S
+high-res timers  = enabled
+PREEMPT_RT       = disabled
+clock-event      = CPU0 local APIC one-shot
+timerfd call     = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC)
+timerfd fd       = 6, blocking, close-on-exec
+timer value      = relative 20ms
+timer interval   = 0, one-shot
+settime flags    = 0
+cancel-on-set    = disabled
 epoll fd         = 7, close-on-exec
-eventpoll file   = F7
-eventpoll object = EP
-registration     = one level-triggered EPOLLIN epitem I
-event data       = 0x51FD6
-callback P       = non-exclusive on shared sighand->signalfd_wqh
-entry ready      = stale I on EP.rdllist
-stale check      = epoll_wait(7, events2, 1, 0)
-delete call      = epoll_ctl(7, EPOLL_CTL_DEL, 6, NULL)
-final closes     = close(6), close(7)
-concurrency      = no signal/callback/ctl/wait/close race
-failure policy   = no fd/copy/VFS/slab/signal/scheduler failure
+registration     = level-triggered EPOLLIN
+event data       = 0x71FD6
+callback P       = non-exclusive on timerfd ctx T.wqh
+parent wait      = epoll_wait(7, events, 1, -1)
+read call        = read(6, &expirations, 8)
+failure policy   = no fd/copy/allocation/timer/signal/scheduler failure
 ```
 
 ## 已执行控制流
 
 ```text
-epoll_wait(7, events2, 1, 0)
-→ zero timeout sets timed_out=1
-→ stale I makes initial ready check true
-→ ep_start_scan moves I to local scan batch
-→ ep_item_poll temporarily pins F6
-→ signalfd_poll checks private/shared pending under sighand siglock
-→ no SIGUSR1 remains, so no EPOLLIN
-→ no event copied and I not requeued
-→ EP.rdllist becomes empty
-→ return 0 without sleeping
+timerfd_create
+→ allocate timerfd_ctx T
+→ initialize T.wqh/cancel_lock and embedded monotonic hrtimer
+→ callback = timerfd_tmrproc
+→ create [timerfd] file F6
+→ publish fd 6
 
-epoll_ctl(7, DEL, 6, NULL)
-→ lock EP.mtx and find I
-→ remove P from shared signalfd_wqh
-→ waitqueue lock synchronizes callback removal
-→ free P synchronously
-→ epi_fget temporarily pins F6
-→ under F6.f_lock set F6.f_ep=NULL
-→ remove reverse link and free last epitems_head
-→ erase I from EP.rbr
-→ kfree_rcu(I)
-→ EP.refcount 2 -> 1
+timerfd_settime(relative 20ms, interval 0)
+→ lock T.wqh
+→ inactive timer cancel result 0
+→ reset ticks/expired/tintv
+→ convert relative value to absolute monotonic expiry
+→ enqueue T.t.tmr on CPU0 hard-hrtimer base
+→ reprogram LAPIC clock-event when required
 → return 0
 
-close(6)
-→ remove shared fd 6 and cloexec bit
-→ synchronous final __fput(F6)
-→ eventpoll release uses F6.f_ep=NULL fast path
-→ signalfd_release kfree(S)
-→ free [signalfd] pseudo path/file
-→ return 0
-→ shared sighand->signalfd_wqh remains active and empty
+epoll_create1 / epoll_ctl ADD
+→ create EP/F7 and publish fd 7
+→ allocate epitem I
+→ store EPOLLIN|ERR|HUP and data 0x71FD6
+→ attach I to F6 and EP.rbr
+→ EP.refcount 1 -> 2
+→ timerfd_poll installs callback P on T.wqh
+→ ticks=0, ready list empty
 
-close(7)
-→ remove shared fd 7 and cloexec bit
-→ synchronous final __fput(F7)
-→ ep_eventpoll_release / ep_clear_and_put
-→ empty pollwait drain and empty tree drain
-→ EP.refcount 1 -> 0
-→ ep_free / kfree_rcu(EP)
-→ free [eventpoll] pseudo path/file
-→ return 0
+parent epoll_wait
+→ stack waiter W on EP.wq
+→ parent TASK_INTERRUPTIBLE
+→ schedule out
+→ CPU0 idle
+
+LAPIC timer deadline
+→ sysvec_apic_timer_interrupt
+→ local_apic_timer_interrupt
+→ hrtimer_interrupt
+→ remove expired T.t.tmr from CPU0 tree
+→ run timerfd_tmrproc outside CPU-base lock
+→ lock T.wqh
+→ T.expired 0 -> 1
+→ T.ticks 0 -> 1
+→ EPOLLIN wake invokes P
+→ P queues I on EP.rdllist
+→ wake W and make parent runnable
+→ W auto-removes from EP.wq
+→ callback returns HRTIMER_NORESTART
+→ T.t.tmr remains inactive
+
+parent resumes epoll_wait
+→ re-poll timerfd and confirm ticks=1
+→ copy {EPOLLIN,data=0x71FD6}
+→ level-triggered I requeued
+→ epoll_wait returns 1
+
+parent read(6, &expirations, 8)
+→ timerfd_read_iter locks T.wqh
+→ condition ticks!=0 already true
+→ save ticks=1
+→ T.expired 1 -> 0
+→ T.ticks 1 -> 0
+→ no periodic restart because tintv=0
+→ copy u64 1
+→ return 8
 ```
 
 ## 当前精确状态
 
 ```text
 system_state          = SYSTEM_RUNNING
-runtime scenario      = signalfd/eventpoll lifecycle complete
+runtime scenario      = one-shot timerfd/epoll delivery complete
 current executor      = parent
 CPU                   = CPU0
 CPU mode              = x86-64 CPL 3
 scheduling class      = SCHED_NORMAL
 parent state          = TASK_RUNNING
 parent on_rq/on_cpu   = 1 / 1
-last syscall          = close(7)
-last return           = 0
-zero epoll_wait return= 0
-epoll DEL return      = 0
-close(6) return       = 0
-fd 6                  = closed and unallocated
-fd 7                  = closed and unallocated
-signalfd F6/S         = freed
-callback P            = synchronously freed
-epitem I              = logically dead; kfree_rcu pending/completed
-eventpoll F7          = freed
-eventpoll EP          = logically dead; kfree_rcu pending/completed
-shared sighand        = active
-shared signalfd_wqh   = active and empty
-blocked masks         = both still contain SIGUSR1
-parent private pending= no SIGUSR1
-shared pending        = no SIGUSR1
-singleton anon inode  = active
-global anon_inode_mnt = mounted
-helper                = blocked outside old signalfd/eventpoll
+helper                = blocked outside timerfd/epoll
+epoll_wait return     = 1
+event mask/data       = EPOLLIN / 0x71FD6
+timerfd read return   = 8
+userspace expirations = 1
+fd 6                  = open timerfd F6
+timerfd ctx T         = active
+T hrtimer             = inactive, not queued
+T tintv               = 0
+T expired             = 0
+T ticks               = 0
+callback P            = attached to T.wqh
+fd 7                  = open eventpoll F7
+EP.refcount           = 2
+EP.rbr                = contains I
+EP.rdllist            = contains stale-ready I
+EP.wq                 = empty
+actual timerfd EPOLLIN= false
+blocked masks         = parent/helper still contain SIGUSR1
+pending SIGUSR1       = none
 filesystem I/O        = none
 next entry            = unselected runtime scenario
 ```
 
 ## 必须保持的技术边界
 
-1. zero-time epoll会验证ready candidate，但不会等待新事件。
-2. ready-list membership不是永久readiness事实。
-3. re-poll无匹配event时，只删除ready membership，不删除registration。
-4. `EPOLL_CTL_DEL`使用`(file, fd)` key；event参数可以为NULL。
-5. callback entry必须先从target wait queue移除，再释放epitem。
-6. waitqueue lock把callback执行与callback removal串行化。
-7. `P`同步释放，`I`通过`kfree_rcu`延迟回收storage。
-8. 最后watcher删除时`F6->f_ep=NULL`。
-9. epitem持有一个eventpoll ref；DEL使`EP.refcount`从2降为1。
-10. signalfd ctx与shared sighand wait queue是不同对象。
-11. `signalfd_release`只释放private ctx，不销毁`signalfd_wqh`。
-12. `signalfd_cleanup/wake_up_pollfree`属于sighand teardown，不属于file close。
-13. 显式DEL使signalfd close的eventpoll release走fast path。
-14. eventpoll close即使tree为空也保持pollwait-first、tree-second两遍drain。
-15. `EP.refcount`从1归零后由`ep_free`结束逻辑生命周期。
-16. 关闭signalfd不会解除SIGUSR1 block或恢复旧signal mask。
-17. per-file pseudo path结束，全局anon_inodefs继续存在。
-18. 整个场景没有磁盘I/O、journal或writeback。
+1. timerfd ctx内嵌hrtimer、ticks、expired、interval与wait queue。
+2. create只初始化timer，settime才arm。
+3. relative timer由hrtimer core转换成absolute monotonic expiry。
+4. LAPIC clock-event产生硬件interrupt，不直接操作timerfd ctx。
+5. `hrtimer_interrupt`在per-CPU base中选择到期timer。
+6. callback前timer从active tree移除，并由`base->running`标记。
+7. callback在CPU-base lock外运行，在`T.wqh.lock`下修改ticks。
+8. target callback P和sleeping task waiter W属于不同wait queue。
+9. callback只建立ready candidate，epoll交付前必须re-poll target。
+10. one-shot callback返回`HRTIMER_NORESTART`。
+11. epoll delivery不消费expiration count。
+12. timerfd read要求至少8字节，并在锁内清零ticks/expired。
+13. `tintv=0`使read不执行periodic restart。
+14. timerfd read不会主动清除epoll ready-list membership。
+15. read后I是stale-ready candidate，fd与registration仍active。
+16. 整个场景没有磁盘I/O、journal或writeback。
 
 ## 下一建议场景
 
-优先候选是`timerfd_create`与epoll组合：
+优先接续是timerfd/epoll cleanup：
 
 ```text
-timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC) -> fd 6
-timerfd_settime(one-shot relative 20ms)
-epoll_create1(EPOLL_CLOEXEC) -> fd 7
-epoll_ctl ADD timerfd EPOLLIN
-parent epoll_wait blocks
-→ local APIC timer interrupt
-→ hrtimer callback increments expirations
-→ timerfd poll callback queues epitem and wakes parent
-→ epoll_wait returns EPOLLIN
-→ read(fd 6, &expirations, 8) returns one expiration
-```
+epoll_wait(7, events2, 1, 0)
+→ timerfd_poll sees ticks=0
+→ remove stale-ready I
+→ return 0
 
-开始前固定absolute/relative mode、clockid、cancel-on-set、interval、hrtimer base、expiration count、callback和scheduler顺序。
+epoll_ctl(7, DEL, 6, NULL)
+→ remove P from T.wqh
+→ erase I and kfree_rcu
+
+close(6)
+→ hrtimer_cancel sees inactive timer
+→ timerfd_release kfree_rcu(T)
+
+close(7)
+→ empty eventpoll drain
+→ kfree_rcu(EP)
+```
 
 ## 连续叙事与流程
 
