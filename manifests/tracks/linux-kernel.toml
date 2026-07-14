@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133; LK-EPOLL-134..LK-EPOLL-136; LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139; LK-SIGNALFD-140..LK-SIGNALFD-142; LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145"
+completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133; LK-EPOLL-134..LK-EPOLL-136; LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139; LK-SIGNALFD-140..LK-SIGNALFD-142; LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145; LK-TIMERFD-146..LK-TIMERFD-148"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
@@ -18,7 +18,7 @@ chapter = [
   { id = "LK-READ-081", title = "blk-mq completion 怎样结束 bio，并让 ext4 folio 变成 uptodate？", rst = "docs/tracks/linux-kernel/81-block-completion-marks-ext4-folio-uptodate.rst", status = "complete" },
   { id = "LK-READ-082", title = "reader task 怎样复制 folio，并让 read() 返回用户态？", rst = "docs/tracks/linux-kernel/82-reader-copies-folio-and-returns-from-read.rst", status = "complete" },
   { id = "LK-WRITE-083", title = "x86-64 的 write() 怎样进入 ext4 buffered write？", rst = "docs/tracks/linux-kernel/83-x86-write-enters-ext4-buffered-path.rst", status = "complete" },
-  { id = "LK-WRITE-084", title = "ext4 怎样把用户数据复制进 page-cache folio 并标脏？", rst = "docs/tracks/linux-kernel/84-ext4-copies-user-data-into-dirty-folio.rst", status = "complete" },
+  { id = "LK-WRITE-084", title = "ext4 怎样把用户数据复制进 page-cache folio并标脏？", rst = "docs/tracks/linux-kernel/84-ext4-copies-user-data-into-dirty-folio.rst", status = "complete" },
   { id = "LK-WRITE-085", title = "O_SYNC write 怎样进入 ext4 writeback？", rst = "docs/tracks/linux-kernel/85-osync-write-enters-ext4-writeback.rst", status = "complete" },
   { id = "LK-WRITE-086", title = "ext4 writeback 怎样把 dirty folio 变成 WRITE bio？", rst = "docs/tracks/linux-kernel/86-ext4-writeback-builds-write-bio.rst", status = "complete" },
   { id = "LK-WRITE-087", title = "WRITE bio 怎样变成 AHCI command 并写入 PxCI？", rst = "docs/tracks/linux-kernel/87-write-bio-becomes-ahci-command.rst", status = "complete" },
@@ -79,7 +79,10 @@ chapter = [
   { id = "LK-SIGNALFD-142", title = "parent怎样从epoll event进入signalfd read并取出128字节siginfo？", rst = "docs/tracks/linux-kernel/142-epoll-returns-signalfd-event-and-read-dequeues-siginfo.rst", status = "complete" },
   { id = "LK-SIGNALFDCLOSE-143", title = "零超时epoll_wait() 怎样清理signalfd的stale-ready item？", rst = "docs/tracks/linux-kernel/143-zero-time-epoll-wait-removes-signalfd-stale-ready-item.rst", status = "complete" },
   { id = "LK-SIGNALFDCLOSE-144", title = "EPOLL_CTL_DEL 怎样拆除signalfd callback与epitem？", rst = "docs/tracks/linux-kernel/144-epoll-del-detaches-signalfd-callback.rst", status = "complete" },
-  { id = "LK-SIGNALFDCLOSE-145", title = "close() 怎样释放signalfd与eventpoll，却保留共享sighand wait queue？", rst = "docs/tracks/linux-kernel/145-final-close-frees-signalfd-and-eventpoll.rst", status = "complete" }
+  { id = "LK-SIGNALFDCLOSE-145", title = "close() 怎样释放signalfd与eventpoll，却保留共享sighand wait queue？", rst = "docs/tracks/linux-kernel/145-final-close-frees-signalfd-and-eventpoll.rst", status = "complete" },
+  { id = "LK-TIMERFD-146", title = "timerfd怎样建立一次性hrtimer并让parent阻塞在epoll_wait？", rst = "docs/tracks/linux-kernel/146-timerfd-creates-arms-and-registers-with-epoll.rst", status = "complete" },
+  { id = "LK-TIMERFD-147", title = "local APIC定时器中断怎样让timerfd callback唤醒epoll_wait？", rst = "docs/tracks/linux-kernel/147-lapic-hrtimer-callback-wakes-timerfd-epoll.rst", status = "complete" },
+  { id = "LK-TIMERFD-148", title = "parent怎样从epoll event进入timerfd read并取出expiration count？", rst = "docs/tracks/linux-kernel/148-epoll-returns-timerfd-event-and-read-consumes-expiration.rst", status = "complete" }
 ]
 
 [origin]
@@ -243,15 +246,27 @@ signalfd_close_result = "S and F6 freed; shared sighand and signalfd_wqh remain 
 epoll_close_result = "empty EP drains; refcount 1 to 0; EP and F7 end lifetime through kfree_rcu and generic file teardown"
 final_result = "parent CPL3 after close(7) returns 0; fd 6/7 closed; no pending SIGUSR1; shared sighand wait queue remains"
 
+[completed_timerfd_scenario]
+name = "one-shot monotonic timerfd delivered through local APIC hrtimer and level-triggered epoll"
+status = "complete"
+userspace_calls = "timerfd_create(CLOCK_MONOTONIC,TFD_CLOEXEC); timerfd_settime(relative 20ms one-shot); epoll_create1; epoll_ctl ADD; epoll_wait; read timerfd"
+registration_result = "timerfd fd 6 and epoll fd 7 open; callback P attached to T.wqh; EP.rbr contains I; ready list initially empty"
+block_result = "parent stack waiter W sleeps exclusively on EP.wq while CPU0 enters idle"
+interrupt_result = "LAPIC vector enters hrtimer_interrupt; timerfd_tmrproc changes expired 0 to 1 and ticks 0 to 1"
+wake_result = "EPOLLIN callback queues I, wakes W, and parent becomes runnable; one-shot hrtimer stays inactive"
+epoll_result = "parent re-polls timerfd, receives events[0]={EPOLLIN,data=0x71FD6}, and epoll_wait returns 1"
+read_result = "read returns 8; userspace expiration count is 1; T.expired and T.ticks return to zero; no periodic restart"
+final_result = "fd 6/7 and registration remain active; embedded hrtimer inactive; level-triggered I remains stale-ready in EP.rdllist"
+
 [current]
-last_complete = "LK-SIGNALFDCLOSE-145"
-executor = "parent after successful signalfd and eventpoll final closes"
+last_complete = "LK-TIMERFD-148"
+executor = "parent after timerfd read returned one 8-byte expiration count"
 cpu_mode = "x86-64 CPL 3 on CPU0"
-paging = "parent/helper mm remains active; prior signalfd_siginfo remains only in userspace memory"
-interrupts = "normal userspace runtime state"
-current_task = "SCHED_NORMAL parent after close(7) returned zero; helper blocked outside old objects"
+paging = "parent/helper mm remains active; userspace expiration buffer contains u64 value 1"
+interrupts = "normal userspace runtime state after LAPIC hrtimer interrupt completed"
+current_task = "SCHED_NORMAL parent; helper blocked outside timerfd/epoll"
 next_entry = "unselected runtime scenario"
-next_action = "preferred next path is timerfd_create plus one-shot monotonic expiration, epoll wake and timerfd read"
+next_action = "preferred next path is zero-time epoll stale-ready cleanup, EPOLL_CTL_DEL, close timerfd and close eventpoll"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完整"
