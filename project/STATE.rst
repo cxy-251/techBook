@@ -23,12 +23,13 @@
    LK-EXEC-098..LK-EXEC-100
    LK-EXIT-101..LK-EXIT-103
    LK-OPEN-104..LK-OPEN-106
+   LK-DELALLOC-107..LK-DELALLOC-109
 
 最新三章：
 
-#. ``LK-OPEN-104``：openat() 怎样保留 fd 并把 /work/demo.txt 解析成 negative dentry？
-#. ``LK-OPEN-105``：ext4_create() 怎样分配 inode 并把 demo.txt 写进目录？
-#. ``LK-OPEN-106``：VFS 怎样打开新 inode、发布 fd 6 并让 openat() 返回？
+#. ``LK-DELALLOC-107``：首次 buffered write 怎样只预留空间而不分配物理块？
+#. ``LK-DELALLOC-108``：fsync() 怎样让 writeback 分配第一个 unwritten extent 并提交数据？
+#. ``LK-DELALLOC-109``：data completion 怎样转换 extent，并让 fsync() 真正返回？
 
 固定来源
 --------
@@ -50,59 +51,68 @@
 #. child private-anonymous COW write fault；
 #. child static ELF ``execve()``；
 #. child ``_exit(42)`` 与 parent ``wait4()`` 回收；
-#. parent ext4 ``openat(O_CREAT|O_EXCL)`` create-open。
+#. ext4 ``openat(O_CREAT|O_EXCL)``；
+#. 新文件首次delalloc buffered write与显式 ``fsync``。
 
-openat 固定场景
----------------
+本批固定场景
+------------
 
 ::
 
-   current task       = parent after wait4 reaped child
-   userspace call     = openat(AT_FDCWD, "/work/demo.txt", O_CREAT|O_EXCL|O_WRONLY, 0644)
-   fd table           = 0..5 occupied; descriptor 6 is lowest free
-   O_CLOEXEC          = absent
-   umask              = 0022
-   filesystem         = writable ext4 /dev/sda1, journal enabled, data=ordered
-   parent directory   = /work, mode 0755, current uid owner, non-sticky
-   target             = absent from dcache and ext4 directory before call
-   directory layout   = one cached 4 KiB non-indexed block with free dirent space
-   metadata cache     = directory block, inode bitmap, group descriptor and inode table resident
-   sync policy        = no O_SYNC, sync mount, S_DIRSYNC or explicit fsync
-   failure policy     = no race, permission failure, LSM denial, ENOSPC or I/O error
+   current task       = parent
+   fd                 = 6, write-only, f_pos=0 before write
+   path               = /work/demo.txt
+   initial inode      = regular 0644, nlink=1, size=0, data blocks=0
+   userspace calls    = write(6, buf, 4096); fsync(6)
+   ext4 block/page    = 4 KiB
+   mount              = data=ordered,delalloc,dioread_nolock,barrier
+   bigalloc/inline    = disabled
+   fast commit        = disabled
+   quota              = disabled
+   cache state        = page-cache index 0 absent; allocation metadata resident
+   allocation         = one free physical block P
+   background WB      = none before write returns
+   failure policy     = no signal, ENOSPC, allocation, copy or I/O failure
 
 完整控制流
 ----------
 
 ::
 
-   userspace openat
-   → entry_SYSCALL_64 / __x64_sys_openat
-   → do_sys_open / do_sys_openat2
-   → build_open_flags
-   → FD_ADD reserves fd 6
-   → alloc_empty_file
-   → path_init at process root
-   → RCU link_path_walk through cached /work
-   → O_EXCL final component leaves RCU walk
-   → mnt_want_write / inode_lock(/work)
-   → lookup_open
-   → d_lookup miss / d_alloc_parallel
-   → ext4_lookup scans cached directory block
-   → negative dentry /work/demo.txt
-   → ext4_create
-   → start JBD2 metadata handle
-   → allocate ext4 inode bitmap bit
-   → update group descriptor and inode table record
-   → initialize size-0 extent inode
-   → ext4_add_entry writes demo.txt dirent into cached /work block
-   → d_instantiate_new turns dentry positive
-   → ext4_journal_stop without forced commit wait
-   → release parent inode lock and mount write hold
-   → do_open / vfs_open / do_dentry_open
-   → file_get_write_access / ext4_file_open
-   → FMODE_OPENED | FMODE_CAN_WRITE
-   → fd_install(6, file)
-   → syscall return RAX=6
+   write(6, buf, 4096)
+   → __x64_sys_write / ksys_write / vfs_write
+   → ext4_file_write_iter / ext4_buffered_write_iter
+   → generic_perform_write
+   → ext4_da_write_begin
+   → allocate and attach page-cache folio index 0
+   → ext4_da_map_blocks finds hole
+   → reserve one cluster
+   → extent-status tree delayed [0,1)
+   → copy 4096 bytes from userspace
+   → dirty folio
+   → i_size=4096, i_disksize=0
+   → write returns 4096, f_pos=4096
+
+   fsync(6)
+   → ext4_sync_file
+   → file_write_and_wait_range
+   → ext4_writepages / ext4_do_writepages
+   → collect BH_Delay logical block 0
+   → JBD2 EXT4_HT_WRITE_PAGE handle
+   → ext4_map_blocks / allocator
+   → reserve consumed; physical block P allocated
+   → create one-block unwritten extent
+   → map folio buffer to P
+   → REQ_SYNC data bio
+   → blk-mq / SCSI WRITE / libata / AHCI
+   → successful data completion
+   → ext4_end_bio defers completion
+   → ext4_end_io_rsv_work
+   → unwritten-to-written extent conversion
+   → folio_end_writeback
+   → full JBD2 commit
+   → standalone blkdev_issue_flush
+   → fsync returns 0
 
 当前精确状态
 ------------
@@ -110,47 +120,54 @@ openat 固定场景
 * ``system_state``：``SYSTEM_RUNNING``；
 * current executor：parent；
 * CPU mode：x86-64 CPL 3；
-* ``openat`` result/RAX：6；
-* fd 6：published，close-on-exec bit clear；
-* ``struct file``：write-only、opened、``f_pos=0``；
+* fd 6：仍打开，write-only；
+* ``file->f_pos``：4096；
 * pathname：``/work/demo.txt``；
-* dentry：positive；
-* inode：ext4 regular 0644，nlink 1，size 0；
-* file data blocks：0；
-* parent directory lock：released；
-* mount write hold：released；
-* create metadata：已加入JBD2 transaction；
-* journal commit/durability：尚未由本场景强制；
-* storage I/O：本场景没有发生；
-* open/create scenario：complete；
+* inode：ext4 regular 0644，nlink 1；
+* ``i_size``：4096；
+* ``i_disksize``：4096；
+* ``i_blocks``：8个512-byte sectors；
+* extent：logical block 0 → physical block ``P``，written；
+* delayed reservation：0；
+* page-cache folio：uptodate、clean、not under writeback；
+* data request：complete并released；
+* unwritten conversion：complete；
+* target JBD2 transaction：committed；
+* required device flush：complete；
+* durability：create dirent、inode size、extent与4096-byte data满足本次fsync；
+* home-block checkpoint：不要求已经完成；
 * next runtime scenario：unselected。
 
 关键边界
 --------
 
-#. ``FD_ADD`` 先reserve fd，再执行pathname lookup与open。
-#. reserved slot的 ``open_fds`` bit已设置，但 ``fd[6]`` 在publish前仍为NULL。
-#. ``O_EXCL`` final lookup在parent directory inode lock下原子完成。
-#. negative dentry是已确认不存在的name缓存对象。
-#. ext4分配inode不会自动分配file data block。
-#. ``d_instantiate_new`` 是negative dentry变positive的内存可见边界。
-#. ``ext4_journal_stop`` 不等于transaction已经durable。
-#. ``fd_install`` 是完整 ``struct file`` 对fd lookup可见的publication边界。
+#. page-cache folio allocation与physical block allocation相互独立。
+#. delalloc reservation只改变空间accounting，write返回时没有physical block。
+#. ``i_size`` 可以领先于 ``i_disksize``。
+#. writeback消费reservation并建立unwritten extent。
+#. unwritten extent防止data I/O失败时暴露stale block内容。
+#. data completion与written conversion是两个阶段。
+#. folio writeback直到conversion完成后才结束。
+#. journal commit durable不等于metadata home-block checkpoint完成。
+#. ``fsync`` 不改变file position，也不关闭fd。
 
 下一任务
 --------
 
-当前没有已选定场景。优先候选是parent使用fd 6首次写入新文件：
+优先候选是文件仍被fd 6打开时删除pathname，再关闭最后一个open reference：
 
 ::
 
-   write(fd6, buf, 4096)
-   → page-cache folio allocation
-   → delayed-allocation reservation
-   → size grows from 0 to 4096
-   → dirty folio
-   → writeback allocates first physical extent
-   → data bio + metadata transaction
-   → optional fsync durability
+   unlinkat(AT_FDCWD, "/work/demo.txt", 0)
+   → pathname lookup finds positive dentry
+   → lock /work and ext4_unlink
+   → remove directory entry
+   → inode nlink 1 → 0
+   → add inode to ext4 orphan tracking
+   → pathname no longer resolves, fd 6 remains valid
+   → close(6)
+   → file_close_fd / __fput
+   → final inode eviction
+   → free extent P, inode bitmap bit and inode object
 
-开始前必须固定是否使用普通write后显式fsync、extent allocation目标、cache状态、writeback触发者和失败策略。
+开始前必须固定directory/inode cache、journal transaction、fd reference count、unlink与close之间是否发生额外I/O，以及无race/ENOSPC/I/O failure策略。
