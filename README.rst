@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第九十八章：x86-64 的 execve() 怎样打开静态 ELF 并进入 load_elf_binary()？ <docs/tracks/linux-kernel/98-execve-opens-static-elf.rst>`_
-* `第九十九章：begin_new_exec() 怎样替换旧 mm 并建立静态 ELF 映射？ <docs/tracks/linux-kernel/99-begin-new-exec-replaces-mm-and-maps-elf.rst>`_
-* `第一百章：start_thread() 怎样让 execve 进入新静态 ELF 的第一条指令？ <docs/tracks/linux-kernel/100-exec-enters-new-static-elf-image.rst>`_
+* `第一百零一章：_exit(42) 怎样进入 do_exit() 并释放进程运行资源？ <docs/tracks/linux-kernel/101-child-exit-tears-down-runtime-resources.rst>`_
+* `第一百零二章：exit_notify() 怎样发送 SIGCHLD、唤醒 parent 并留下 zombie？ <docs/tracks/linux-kernel/102-exit-notify-wakes-parent-and-leaves-zombie.rst>`_
+* `第一百零三章：parent 的 wait4() 怎样读取 status 并最终回收 child？ <docs/tracks/linux-kernel/103-parent-wait4-reaps-child.rst>`_
 
 固定来源
 --------
@@ -30,26 +30,23 @@ techBook
    LK-FORK-092..LK-FORK-094
    LK-COW-095..LK-COW-097
    LK-EXEC-098..LK-EXEC-100
+   LK-EXIT-101..LK-EXIT-103
 
 最新场景
 --------
 
-fork child执行静态 ``ET_EXEC``：
-
 ::
 
-   execve("/bin/static-demo", argv, envp)
-   → open executable / new bprm mm
-   → copy argv and envp
-   → search_binary_handler / load_elf_binary
-   → begin_new_exec / current->mm replacement
-   → close-on-exec / signal reset / credential commit
-   → PT_LOAD VMAs / user stack / auxv
-   → start_thread
-   → first cached text instruction fault
-   → execute ELF e_entry
+   parent wait4(child_pid, &status, 0, &rusage)
+   → child _exit(42)
+   → do_exit / release runtime resources
+   → EXIT_ZOMBIE / SIGCHLD / wake parent
+   → wait_task_zombie
+   → status = 0x2a00
+   → WEXITSTATUS(status) = 42
+   → release_task
 
-当前task与PID保持不变，旧child mm已经释放，fd 5因 ``FD_CLOEXEC`` 关闭。新static程序位于CPL 3，已经开始执行 ``e_entry`` 第一条指令。
+parent返回child PID；child的process/PID关系已回收，最终task memory按reference count与RCU完成释放。
 
 开始工作
 --------
