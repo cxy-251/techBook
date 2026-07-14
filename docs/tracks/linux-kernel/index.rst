@@ -101,7 +101,7 @@ Linux Kernel
 #. `第九十三章：copy_process() 怎样复制资源并建立 COW 子进程？ <93-copy-process-builds-cow-child.rst>`_
 #. `第九十四章：scheduler 怎样启动 child，并让 fork() 在父子进程返回不同结果？ <94-fork-parent-and-child-return.rst>`_
 #. `第九十五章：child 写只读 COW 地址时，x86 #PF 怎样进入 do_wp_page？ <95-x86-cow-write-fault-enters-do-wp-page.rst>`_
-#. `第九十六章：wp_page_copy() 怎样分配新 folio 并替换 child PTE？ <96-wp-page-copy-replaces-child-pte.rst>`_
+#. `第九十六章：wp_page_copy() 怎样分配新 folio并替换 child PTE？ <96-wp-page-copy-replaces-child-pte.rst>`_
 #. `第九十七章：page fault 返回后，CPU 怎样重试 store 并完成 COW 隔离？ <97-page-fault-return-retries-child-store.rst>`_
 #. `第九十八章：x86-64 的 execve() 怎样打开静态 ELF 并进入 load_elf_binary()？ <98-execve-opens-static-elf.rst>`_
 #. `第九十九章：begin_new_exec() 怎样替换旧 mm 并建立静态 ELF 映射？ <99-begin-new-exec-replaces-mm-and-maps-elf.rst>`_
@@ -127,6 +127,9 @@ Linux Kernel
 #. `第一百一十九章：pipe2() 怎样建立匿名管道并发布 fd 6/7？ <119-pipe2-builds-anonymous-pipe-and-publishes-fds.rst>`_
 #. `第一百二十章：空管道 read() 怎样进入 exclusive wait queue 并阻塞？ <120-empty-pipe-read-enters-exclusive-wait.rst>`_
 #. `第一百二十一章：pipe write() 怎样唤醒reader并让 read() 返回5？ <121-pipe-write-wakes-reader-and-read-returns.rst>`_
+#. `第一百二十二章：close(7) 怎样撤销 write end 并把 writers 降为 0？ <122-close-write-end-drops-pipe-writers.rst>`_
+#. `第一百二十三章：空管道在 writers=0 时，read() 为什么直接返回 EOF？ <123-empty-pipe-without-writers-returns-eof.rst>`_
+#. `第一百二十四章：最后一次 close(6) 怎样释放pipe page、ring与pseudo inode？ <124-final-read-end-close-frees-pipe.rst>`_
 
 当前主线
 --------
@@ -140,18 +143,19 @@ Linux Kernel
    → fork / COW / static exec / exit-wait complete
    → ext4 create-write-fsync-unlink-close lifecycle complete
    → natural and SIGUSR1-interrupted monotonic nanosleep complete
-   → pipe2 creates fd 6 read end and fd 7 write end
-   → parent blocks in empty-pipe exclusive rd_wait
-   → helper writes "hello" into one anonymous pipe_buffer
-   → sync wakeup makes parent runnable
-   → parent restores original read stack and consumes 5 bytes
-   → ring returns to head=tail=1, occupancy=0
-   → anonymous page is cached in pipe->tmp_page[0]
-   → parent CPL3 with read RAX=5 and user buffer "hello"
+   → anonymous pipe blocking read/writer wakeup complete
+   → helper closes shared write fd 7
+   → writers becomes 0 while read fd 6 remains
+   → parent empty-pipe read returns EOF=0 without sleeping
+   → parent closes final read fd 6
+   → files becomes 0 and free_pipe_info runs
+   → cached page Q, ring and pipe_inode_info are freed
+   → final pseudo dentry/inode references are dropped
+   → parent CPL3 with close RAX=0 and no active pipe object
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-当前十二个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``、新文件首次delalloc write + fsync、open-unlinked文件的final close/eviction、自然到期monotonic nanosleep、``SIGUSR1`` 中断nanosleep与 ``rt_sigreturn``，以及anonymous pipe的blocking read与writer wakeup。下一条runtime主线尚未选择。
+当前十三个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``、新文件首次delalloc write + fsync、open-unlinked文件的final close/eviction、自然到期monotonic nanosleep、``SIGUSR1`` 中断nanosleep与 ``rt_sigreturn``、anonymous pipe的blocking read与writer wakeup，以及pipe write-end close、EOF read与final teardown。下一条runtime主线尚未选择。
 
 章节组织
 --------
