@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124"
+completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
@@ -58,7 +58,10 @@ chapter = [
   { id = "LK-PIPE-121", title = "pipe write() 怎样唤醒reader并让 read() 返回5？", rst = "docs/tracks/linux-kernel/121-pipe-write-wakes-reader-and-read-returns.rst", status = "complete" },
   { id = "LK-PIPECLOSE-122", title = "close(7) 怎样撤销 write end 并把 writers 降为 0？", rst = "docs/tracks/linux-kernel/122-close-write-end-drops-pipe-writers.rst", status = "complete" },
   { id = "LK-PIPECLOSE-123", title = "空管道在 writers=0 时，read() 为什么直接返回 EOF？", rst = "docs/tracks/linux-kernel/123-empty-pipe-without-writers-returns-eof.rst", status = "complete" },
-  { id = "LK-PIPECLOSE-124", title = "最后一次 close(6) 怎样释放pipe page、ring与pseudo inode？", rst = "docs/tracks/linux-kernel/124-final-read-end-close-frees-pipe.rst", status = "complete" }
+  { id = "LK-PIPECLOSE-124", title = "最后一次 close(6) 怎样释放pipe page、ring与pseudo inode？", rst = "docs/tracks/linux-kernel/124-final-read-end-close-frees-pipe.rst", status = "complete" },
+  { id = "LK-FUTEX-125", title = "FUTEX_WAIT_PRIVATE 怎样建立private key并把parent排入hash bucket？", rst = "docs/tracks/linux-kernel/125-futex-wait-private-enqueues-parent.rst", status = "complete" },
+  { id = "LK-FUTEX-126", title = "FUTEX_WAKE_PRIVATE 怎样移除waiter并把parent放回runqueue？", rst = "docs/tracks/linux-kernel/126-futex-wake-private-dequeues-and-wakes-parent.rst", status = "complete" },
+  { id = "LK-FUTEX-127", title = "parent 被唤醒后，futex_wait 为什么返回0却不自动重读用户字？", rst = "docs/tracks/linux-kernel/127-futex-wait-returns-without-rechecking-user-word.rst", status = "complete" }
 ]
 
 [origin]
@@ -154,21 +157,27 @@ result = "fd 6/7 remain open; head=tail=1; occupancy=0; page Q cached in tmp_pag
 [completed_pipe_close_scenario]
 name = "anonymous pipe write-end close, EOF read and final teardown"
 status = "complete"
-userspace_calls = "helper close(7); parent read(6,eofbuf,5); parent close(6)"
-write_close_result = "shared fd 7 removed; synchronous pipe_release changes writers 1 to 0 and files 2 to 1"
-eof_result = "empty ring with writers=0 returns zero without waiting or modifying eofbuf"
-final_close_result = "readers 1 to 0; files 1 to 0; Q, ring and pipe_inode_info freed; pseudo path references dropped"
-final_result = "parent CPL3 with close RAX=0; fd 6/7 and active pipe objects no longer accessible"
+result = "parent CPL3 with close RAX=0; fd 6/7 and active pipe objects no longer accessible"
+
+[completed_futex_scenario]
+name = "private futex wait, release store and wake"
+status = "complete"
+userspace_calls = "parent FUTEX_WAIT_PRIVATE expected 0; helper release-store U=1; helper FUTEX_WAKE_PRIVATE nr=1"
+key_result = "private key uses shared mm, page-aligned virtual base and byte offset; selected per-mm bucket H"
+wait_result = "parent stack futex_q enqueued after U==0 verification; parent scheduled out interruptibly"
+wake_result = "helper removes q, sets lock_ptr NULL, wakes parent and returns 1"
+return_result = "parent resumes original stack and returns 0 without kernel reread of U"
+final_result = "parent CPL3; U=1; H waiters=0; q lifetime ended; user acquire load still required by language protocol"
 
 [current]
-last_complete = "LK-PIPECLOSE-124"
-executor = "parent after final anonymous pipe close"
+last_complete = "LK-FUTEX-127"
+executor = "parent after successful private futex wait return"
 cpu_mode = "x86-64 CPL 3 on CPU0"
-paging = "parent mm remains active; eofbuf remains XXXXX"
+paging = "parent/helper shared mm remains active; U is resident private anonymous word with value 1"
 interrupts = "normal userspace runtime state"
-current_task = "SCHED_NORMAL parent after pipe EOF and final endpoint teardown"
+current_task = "SCHED_NORMAL parent after futex wait returned zero; helper blocked outside futex"
 next_entry = "unselected runtime scenario"
-next_action = "preferred next path is FUTEX_WAIT_PRIVATE followed by helper atomic store and FUTEX_WAKE_PRIVATE"
+next_action = "preferred next path is eventfd2 counter blocking read followed by helper write and reader wakeup"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完整"
