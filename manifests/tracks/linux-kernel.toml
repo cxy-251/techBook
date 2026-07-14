@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133"
+completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133; LK-EPOLL-134..LK-EPOLL-136"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
@@ -67,7 +67,10 @@ chapter = [
   { id = "LK-EVENTFD-130", title = "eventfd write() 怎样唤醒reader并让read()返回counter？", rst = "docs/tracks/linux-kernel/130-eventfd-write-wakes-reader-and-read-returns-counter.rst", status = "complete" },
   { id = "LK-EVENTFDCLOSE-131", title = "close(6) 怎样撤销eventfd fd并同步进入最后一次__fput()？", rst = "docs/tracks/linux-kernel/131-close-eventfd-fd-enters-final-fput.rst", status = "complete" },
   { id = "LK-EVENTFDCLOSE-132", title = "eventfd_release() 怎样发送EPOLLHUP并释放eventfd_ctx？", rst = "docs/tracks/linux-kernel/132-eventfd-release-sends-hup-and-frees-ctx.rst", status = "complete" },
-  { id = "LK-EVENTFDCLOSE-133", title = "__fput() 怎样释放anon-inode path并让close()返回0？", rst = "docs/tracks/linux-kernel/133-final-eventfd-file-teardown-returns-close.rst", status = "complete" }
+  { id = "LK-EVENTFDCLOSE-133", title = "__fput() 怎样释放anon-inode path并让close()返回0？", rst = "docs/tracks/linux-kernel/133-final-eventfd-file-teardown-returns-close.rst", status = "complete" },
+  { id = "LK-EPOLL-134", title = "epoll_ctl(ADD) 怎样把eventfd callback挂进wait queue？", rst = "docs/tracks/linux-kernel/134-epoll-add-attaches-eventfd-callback.rst", status = "complete" },
+  { id = "LK-EPOLL-135", title = "epoll_wait() 怎样把parent挂到eventpoll自己的wait queue？", rst = "docs/tracks/linux-kernel/135-epoll-wait-blocks-on-eventpoll-wq.rst", status = "complete" },
+  { id = "LK-EPOLL-136", title = "eventfd write怎样触发epoll callback并让epoll_wait返回1？", rst = "docs/tracks/linux-kernel/136-eventfd-write-wakes-epoll-and-delivers-level-event.rst", status = "complete" }
 ]
 
 [origin]
@@ -190,15 +193,25 @@ ctx_result = "eventfd ctx kref 1 to 0; internal id returned to IDA; ctx freed"
 path_result = "per-file pseudo dentry and mount ref released; singleton anon inode and global mount remain"
 final_result = "parent CPL3 with RAX=0; fd, file, ctx and per-file path no longer accessible"
 
+[completed_epoll_scenario]
+name = "level-triggered epoll monitoring an eventfd"
+status = "complete"
+userspace_calls = "eventfd2(0,EFD_CLOEXEC); epoll_create1(EPOLL_CLOEXEC); epoll_ctl ADD EPOLLIN; epoll_wait; helper write u64 5"
+registration_result = "epitem I in EP.rbr; non-exclusive callback entry P attached to eventfd E.wqh; ready list initially empty"
+block_result = "parent stack entry W waits exclusively on EP.wq in TASK_INTERRUPTIBLE state"
+wake_result = "helper changes E.count 0 to 5; EPOLLIN callback links I to EP.rdllist and wakes parent"
+delivery_result = "events[0]={EPOLLIN,data=0xEFD6}; epoll_wait returns 1"
+final_result = "fd 6/7 open; E.count=5; level-triggered I remains in EP.rdllist"
+
 [current]
-last_complete = "LK-EVENTFDCLOSE-133"
-executor = "parent after successful eventfd final close"
+last_complete = "LK-EPOLL-136"
+executor = "parent after successful level-triggered epoll_wait return"
 cpu_mode = "x86-64 CPL 3 on CPU0"
-paging = "parent/helper mm remains active; userspace value still contains prior u64 3"
+paging = "parent/helper mm remains active; userspace events[0] contains EPOLLIN and data 0xEFD6"
 interrupts = "normal userspace runtime state"
-current_task = "SCHED_NORMAL parent after close returned zero; helper blocked outside eventfd"
+current_task = "SCHED_NORMAL parent after epoll_wait returned 1; helper blocked outside eventfd"
 next_entry = "unselected runtime scenario"
-next_action = "preferred next path is epoll_create1 plus eventfd EPOLLIN callback and epoll_wait wakeup"
+next_action = "preferred next path is read eventfd count 5, zero-time epoll_wait stale-ready cleanup, then EPOLL_CTL_DEL and final closes"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完整"
