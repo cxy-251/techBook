@@ -34,12 +34,13 @@
    LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133
    LK-EPOLL-134..LK-EPOLL-136
    LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139
+   LK-SIGNALFD-140..LK-SIGNALFD-142
 
 最新三章：
 
-#. ``LK-EPOLLCLOSE-137``：eventfd read() 怎样清零counter却暂时留下ready epitem？
-#. ``LK-EPOLLCLOSE-138``：零超时epoll_wait() 怎样重新poll并清理stale-ready item？
-#. ``LK-EPOLLCLOSE-139``：EPOLL_CTL_DEL与close()怎样拆除callback并释放eventfd/eventpoll？
+#. ``LK-SIGNALFD-140``：signalfd4() 怎样把阻塞信号变成可poll的fd并挂进epoll？
+#. ``LK-SIGNALFD-141``：tgkill() 怎样让blocked SIGUSR1经signalfd callback唤醒epoll_wait？
+#. ``LK-SIGNALFD-142``：parent怎样从epoll event进入signalfd read并取出128字节siginfo？
 
 固定来源
 --------
@@ -72,173 +73,187 @@
 #. eventfd counter blocking read与writer wakeup；
 #. eventfd final close与anon-inode file teardown；
 #. eventfd通过level-triggered epoll callback唤醒 ``epoll_wait``；
-#. eventfd readiness消费、stale-ready清理、registration删除与eventpoll final teardown。
+#. eventfd readiness消费、stale-ready清理、registration删除与eventpoll final teardown；
+#. blocked ``SIGUSR1`` 通过signalfd与epoll交付并读取 ``signalfd_siginfo``。
 
 本批固定场景
 ------------
 
 ::
 
-   runtime relation    = continuation of LK-EPOLL-134..136
+   runtime relation    = independent scenario after LK-EPOLLCLOSE-139
    CPUs online         = CPU0 only
    process             = parent + helper threads, same TGID
    files table         = shared through CLONE_FILES
+   signal structures   = shared signal_struct and sighand_struct
    scheduling          = both SCHED_NORMAL
-   current executor    = parent
-   eventfd fd          = 6
+   occupied fds        = 0..5
+   blocked masks       = parent/helper both contain SIGUSR1
+   initial pending     = no private/shared SIGUSR1
+   signalfd call       = signalfd4(-1, mask(SIGUSR1), SFD_CLOEXEC)
+   signalfd fd         = 6, blocking
+   epoll call          = epoll_create1(EPOLL_CLOEXEC)
    epoll fd            = 7
-   eventfd count       = 5 at entry
-   eventfd mode        = blocking, non-semaphore
-   registration        = one level-triggered EPOLLIN epitem I
+   registration        = EPOLL_CTL_ADD fd 6 with EPOLLIN
    stored mask         = EPOLLIN | EPOLLERR | EPOLLHUP
-   event data          = 0xEFD6
-   callback entry      = P, non-exclusive, attached to E.wqh
-   ready state         = I initially on EP.rdllist
-   parent read         = read(6, &value, 8)
-   stale check         = epoll_wait(7, events2, 1, 0)
-   delete call         = epoll_ctl(7, EPOLL_CTL_DEL, 6, NULL)
-   final closes        = close(6), then close(7)
-   concurrency         = no writer, waiter, ctl or close race
-   failure policy      = no fd, copy, signal, VFS, slab or scheduler failure
+   trigger mode        = level-triggered
+   event data          = 0x51FD6
+   callback entry      = P, non-exclusive, on sighand->signalfd_wqh
+   parent wait         = epoll_wait(7, events, 1, -1)
+   helper signal       = tgkill(tgid, parent_tid, SIGUSR1)
+   read call           = read(6, &ssi, 128)
+   scheduler order     = parent blocks; helper sends and blocks; parent resumes
+   failure policy      = no fd, copy, allocation, permission, signal or scheduler failure
 
 完整控制流
 ----------
 
 ::
 
-   parent read(6, &value, 8)
-   → eventfd_read locks E.wqh.lock with IRQ disabled
-   → count is 5, so no wait path
-   → non-semaphore eventfd_ctx_do_read returns full value 5
-   → E.count 5 -> 0
-   → wake_up_locked_poll(E.wqh, EPOLLOUT)
-   → callback P invokes ep_poll_callback
-   → EPOLLOUT does not match I interest
-   → no ready-list mutation and no task wake
-   → P remains attached to E.wqh
-   → copy value 5 to userspace
-   → read returns 8
+   parent/helper already block SIGUSR1
 
-   parent epoll_wait(7, events2, 1, 0)
-   → zero timeout sets timed_out=1
-   → initial ep_events_available is true because I is still queued
-   → ep_send_events locks EP.mtx
-   → ep_start_scan moves I from EP.rdllist to local scan batch
-   → ep_deliver_event removes I from scan batch
-   → ep_item_poll re-polls eventfd
-   → E.count=0 reports EPOLLOUT only
-   → mask with EPOLLIN|ERR|HUP yields zero
-   → no event copied and no level-triggered requeue
-   → ep_done_scan leaves EP.rdllist empty
-   → epoll_wait returns 0 without sleeping
+   parent signalfd4(-1, {SIGUSR1}, SFD_CLOEXEC)
+   → validate size and flags
+   → remove SIGKILL/SIGSTOP from selectable set
+   → invert user set for next_signal/dequeue_signal mask semantics
+   → allocate signalfd_ctx S
+   → create [signalfd] anon-inode file F6
+   → publish blocking close-on-exec fd 6
 
-   parent epoll_ctl(7, EPOLL_CTL_DEL, 6, NULL)
-   → resolve F7 and F6 with temporary file references
-   → lock EP.mtx and find I in EP.rbr
-   → ep_unregister_pollwait removes P from E.wqh
-   → free P synchronously from pwq_cache
-   → epi_fget temporarily pins F6
-   → under F6.f_lock clear F6.f_ep and remove I.fllink
-   → free last epitems_head
-   → erase I from EP.rbr
-   → I is already absent from EP.rdllist
-   → kfree_rcu(I)
-   → EP.refcount 2 -> 1
-   → epoll_ctl returns 0
+   parent epoll_create1(EPOLL_CLOEXEC)
+   → allocate eventpoll EP
+   → initialize EP.mtx/lock/wq/poll_wait/rbr/rdllist
+   → publish [eventpoll] file F7 as fd 7
 
-   parent close(6)
-   → remove shared fd 6 publication and cloexec bit
-   → final synchronous __fput(F6)
-   → eventpoll_release sees F6.f_ep=NULL
-   → eventfd_release sends EPOLLHUP to empty E.wqh
-   → E.kref 1 -> 0
-   → return internal id and free eventfd ctx
-   → release [eventfd] pseudo path and file
-   → close(6) returns 0
+   parent epoll_ctl(7, ADD, 6, {EPOLLIN,data=0x51FD6})
+   → allocate epitem I keyed by (F6, fd 6)
+   → store EPOLLIN | EPOLLERR | EPOLLHUP
+   → attach I to F6.f_ep and EP.rbr
+   → EP.refcount 1 -> 2
+   → signalfd_poll installs eppoll_entry P
+   → P.wait.func = ep_poll_callback
+   → add P non-exclusively to shared sighand->signalfd_wqh
+   → no private/shared SIGUSR1, so initial readiness is zero
+   → EP.rdllist remains empty
 
-   parent close(7)
-   → remove shared fd 7 publication and cloexec bit
-   → final synchronous __fput(F7)
-   → ep_eventpoll_release / ep_clear_and_put
-   → EP.poll_wait empty
-   → empty pollwait and tree drain passes under EP.mtx
-   → EP.refcount 1 -> 0
-   → ep_free destroys mutex/user/wakeup-source state
-   → kfree_rcu(EP)
-   → release [eventpoll] pseudo path and file
-   → close(7) returns 0
+   parent epoll_wait(7, events, 1, -1)
+   → create stack wait entry W
+   → under EP.lock set TASK_INTERRUPTIBLE
+   → add W exclusively to EP.wq
+   → parent schedules out
+   → helper becomes current
+
+   helper tgkill(tgid, parent_tid, SIGUSR1)
+   → prepare SI_TKILL info
+   → locate exact parent task and validate TGID
+   → choose parent private pending queue
+   → allocate sigqueue Q with sender TGID/UID
+   → signalfd_notify(parent, SIGUSR1)
+   → ordinary wake_up on shared signalfd_wqh with NULL poll key
+   → P invokes ep_poll_callback
+   → callback appends I to EP.rdllist
+   → callback wakes exclusive W on EP.wq
+   → parent TASK_INTERRUPTIBLE -> TASK_RUNNING
+   → W auto-removes from EP.wq
+   → signal path sets parent pending SIGUSR1 bit
+   → complete_signal sees blocked PIDTYPE_PID signal and performs no signal_wake_up
+   → helper tgkill returns 0 and helper blocks outside objects
+
+   scheduler restores parent epoll_wait stack
+   → parent re-enters epoll ready scan
+   → signalfd_poll locks shared sighand siglock
+   → parent private pending contains selectable SIGUSR1
+   → target reports EPOLLIN
+   → copy events[0] = {EPOLLIN, data=0x51FD6}
+   → level-triggered I returns to EP.rdllist
+   → epoll_wait returns 1
+
+   parent read(6, &ssi, 128)
+   → signalfd_read_iter accepts one-record buffer
+   → signalfd_dequeue locks sighand siglock
+   → dequeue_signal removes parent private pending SIGUSR1 and Q
+   → no blocking read wait path
+   → signalfd_copyinfo zeroes 128-byte record
+   → ssi_signo=SIGUSR1, ssi_code=SI_TKILL
+   → ssi_pid=shared TGID, ssi_uid=sender UID, ssi_tid=0
+   → copy one record to userspace
+   → read returns 128
+   → read does not remove I from EP.rdllist
 
 当前精确状态
 ------------
 
 * ``system_state``：``SYSTEM_RUNNING``；
-* runtime scenario：level-triggered eventfd/epoll lifecycle complete；
+* runtime scenario：blocked SIGUSR1 signalfd+epoll delivery complete；
 * current executor：parent；
 * CPU：CPU0；
 * CPU mode：x86-64 CPL 3；
 * scheduling class：``SCHED_NORMAL``；
 * parent state：``TASK_RUNNING``；
 * parent ``on_rq=1``、 ``on_cpu=1``；
-* last syscall：``close(7)``；
-* last result/RAX：0；
-* eventfd read result：8，userspace value=5；
-* zero-time epoll_wait result：0；
-* ``EPOLL_CTL_DEL`` result：0；
-* ``close(6)`` result：0；
-* shared fd 6：closed and unallocated；
-* shared fd 7：closed and unallocated；
-* callback entry ``P``：freed synchronously during DEL；
-* eventfd file ``F6``：freed；
-* eventfd ctx ``E``：freed；
-* eventfd internal id：returned to ``eventfd_ida``；
-* epitem ``I``：unregistered and no longer accessible；
-* ``I`` storage：queued/freed through ``kfree_rcu`` grace period；
-* eventpoll file ``F7``：freed；
-* eventpoll ``EP``：logical lifetime ended；
-* ``EP`` storage：queued/freed through ``kfree_rcu`` grace period；
-* ``EP->rbr`` 与 ``EP->rdllist``：释放前均为空；
-* singleton ``anon_inode_inode``：仍active；
-* global ``anon_inode_mnt``：仍mounted；
-* helper：仍阻塞在eventfd之外；
-* shared ``files_struct``：仍active，fd 0..5保持原状；
+* helper：阻塞在signalfd/epoll之外；
+* helper ``tgkill`` result：0；
+* parent ``epoll_wait`` result：1；
+* ``events[0].events``：``EPOLLIN``；
+* ``events[0].data.u64``：``0x51FD6``；
+* parent signalfd ``read`` result：128；
+* ``ssi_signo``：``SIGUSR1``；
+* ``ssi_code``：``SI_TKILL``；
+* ``ssi_pid``：shared TGID；
+* ``ssi_uid``：sender UID；
+* ``ssi_tid``：0；
+* parent/helper blocked mask：仍包含 ``SIGUSR1``；
+* parent private pending：不含 ``SIGUSR1``；
+* shared pending：不含 ``SIGUSR1``；
+* sigqueue ``Q``：已dequeue；
+* shared fd 6：open blocking signalfd file ``F6``，close-on-exec；
+* signalfd ctx ``S``：active；
+* shared fd 7：open eventpoll file ``F7``，close-on-exec；
+* eventpoll ``EP``：active， ``refcount=2``；
+* callback ``P``：仍挂在共享 ``sighand->signalfd_wqh``；
+* ``EP->rbr``：包含epitem ``I``；
+* ``EP->rdllist``：包含stale-ready ``I``；
+* ``EP->ovflist``：``EP_UNACTIVE_PTR``；
+* ``EP->wq``：无parent waiter；
+* actual signalfd EPOLLIN readiness：false；
 * filesystem/block I/O：none；
 * next runtime scenario：unselected。
 
 关键边界
 --------
 
-#. eventfd read清除counter，但不直接扫描或清除epoll ready list。
-#. read发送 ``EPOLLOUT`` wake；不匹配 ``EPOLLIN`` interest时callback不改变ready state。
-#. epoll ready list保存需要重新验证的candidate，不是永久readiness事实。
-#. 零超时epoll_wait仍会re-poll现有candidate，只是不等待新事件。
-#. re-poll不匹配时只清除ready membership，不删除registration。
-#. ``EPOLL_CTL_DEL`` 不读取用户event结构，event参数可以为NULL。
-#. callback entry必须先从目标wait queue移除，之后才能释放epitem。
-#. ``epi_fget`` 临时pin target file，防止与final ``__fput`` 竞态。
-#. 最后watcher移除时 ``F6->f_ep`` 被设为NULL。
-#. DEL只删除relationship，不关闭fd 6或fd 7。
-#. epitem为eventpoll增加一个ref；DEL使 ``EP->refcount`` 从2降回1。
-#. ``kfree_rcu(I)`` 与 ``kfree_rcu(EP)`` 结束合法访问，但physical memory回收可晚于syscall返回。
-#. 显式DEL使close eventfd时无需走反向registration清理。
-#. eventpoll close在空RB tree上完成两遍空drain，再释放基础reference。
-#. 两份anon-inode pseudo file各自释放per-file dentry与mount reference；全局anon_inodefs继续存在。
+#. signalfd不会自动block signal；blocked mask由用户程序管理。
+#. signalfd ctx保存用户集合的内部反转mask。
+#. shared signalfd fd不意味着thread-private pending queue共享。
+#. callback ``P`` 挂在sighand signalfd queue，task waiter ``W`` 挂在eventpoll queue。
+#. ``P`` non-exclusive； ``W`` exclusive。
+#. tgkill把SIGUSR1放进parent private pending， ``si_code=SI_TKILL``。
+#. ``SI_TKILL`` 的sender pid字段是TGID，不是helper TID。
+#. ``signalfd_notify`` 先于pending bit设置，并使用NULL poll key。
+#. NULL key只把epitem标成candidate，最终readiness必须重新poll。
+#. parent由epoll callback链唤醒，不是由普通 ``signal_wake_up`` 唤醒。
+#. blocked PIDTYPE_PID signal不会建立用户signal frame。
+#. epoll交付不消费signal；signalfd read才执行dequeue。
+#. ``signalfd_siginfo`` 固定为128 bytes。
+#. signalfd read不修改blocked mask或registration。
+#. read后level-triggered epitem可能暂留ready list，等待下次scan重新验证。
 
 下一任务
 --------
 
-当前没有已选定场景。优先候选是 ``signalfd4`` 与epoll组合：
+当前没有已选定场景。优先接续是清理stale-ready并释放对象：
 
 ::
 
-   block SIGUSR1 in parent/helper
-   → signalfd4(-1, mask(SIGUSR1), SFD_CLOEXEC) creates fd 6
-   → epoll_create1 creates fd 7
-   → EPOLL_CTL_ADD signalfd EPOLLIN
-   → parent epoll_wait blocks
-   → helper tgkill sends SIGUSR1 to parent
-   → blocked signal becomes pending
-   → signalfd poll callback marks epitem ready
-   → epoll_wait returns EPOLLIN
-   → read signalfd_siginfo consumes pending signal
+   epoll_wait(7, events, 1, 0)
+   → re-poll signalfd and remove stale-ready I
+   → return 0
 
-开始前必须固定signal target、private/shared pending queue、thread masks、signalfd wait queue、task wake规则、epoll callback与read dequeue顺序。
+   epoll_ctl(7, EPOLL_CTL_DEL, 6, NULL)
+   → unregister P and erase I
+
+   close(6)
+   → signalfd_release frees S
+
+   close(7)
+   → eventpoll release ends EP through kfree_rcu
