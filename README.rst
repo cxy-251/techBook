@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第一百二十五章：FUTEX_WAIT_PRIVATE 怎样建立private key并把parent排入hash bucket？ <docs/tracks/linux-kernel/125-futex-wait-private-enqueues-parent.rst>`_
-* `第一百二十六章：FUTEX_WAKE_PRIVATE 怎样移除waiter并把parent放回runqueue？ <docs/tracks/linux-kernel/126-futex-wake-private-dequeues-and-wakes-parent.rst>`_
-* `第一百二十七章：parent 被唤醒后，futex_wait 为什么返回0却不自动重读用户字？ <docs/tracks/linux-kernel/127-futex-wait-returns-without-rechecking-user-word.rst>`_
+* `第一百二十八章：eventfd2() 怎样建立counter并发布fd 6？ <docs/tracks/linux-kernel/128-eventfd2-creates-counter-and-publishes-fd.rst>`_
+* `第一百二十九章：eventfd read() 怎样在counter为0时进入locked wait queue？ <docs/tracks/linux-kernel/129-empty-eventfd-read-enters-locked-wait-queue.rst>`_
+* `第一百三十章：eventfd write() 怎样唤醒reader并让read()返回counter？ <docs/tracks/linux-kernel/130-eventfd-write-wakes-reader-and-read-returns-counter.rst>`_
 
 固定来源
 --------
@@ -39,24 +39,25 @@ techBook
    LK-PIPE-119..LK-PIPE-121
    LK-PIPECLOSE-122..LK-PIPECLOSE-124
    LK-FUTEX-125..LK-FUTEX-127
+   LK-EVENTFD-128..LK-EVENTFD-130
 
 最新场景
 --------
 
 ::
 
-   private atomic user word U = 0
-   → parent FUTEX_WAIT_PRIVATE expected=0
-   → build key from shared mm + virtual page base + page offset
-   → enqueue stack futex_q in per-mm hash bucket H
-   → parent TASK_INTERRUPTIBLE and schedules out
-   → helper release-store U=1
-   → helper FUTEX_WAKE_PRIVATE nr=1
-   → remove q, set q.lock_ptr=NULL and wake parent
-   → helper returns 1
-   → parent resumes original futex stack and returns 0
+   eventfd2(0, EFD_CLOEXEC)
+   → allocate eventfd_ctx and anon-inode file
+   → publish shared fd 6 with count=0
+   → parent read(6, &value, 8)
+   → non-exclusive TASK_INTERRUPTIBLE wait on ctx->wqh
+   → helper write(6, value=3, 8)
+   → count 0 → 3 and wake parent
+   → parent consumes full counter 3
+   → count 3 → 0
+   → read returns 8 with value=3
 
-最终U仍为1，bucket H已没有本次waiter。kernel不会在wake成功后自动重读U；用户代码仍必须在condition loop中执行acquire load并重新判断。
+最终fd 6仍打开；parent位于CPU0、CPL 3，read返回8，用户buffer为3。eventfd counter已清零，wait queue不再包含本次waiter。
 
 开始工作
 --------
