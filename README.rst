@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第九十五章：child 写只读 COW 地址时，x86 #PF 怎样进入 do_wp_page？ <docs/tracks/linux-kernel/95-x86-cow-write-fault-enters-do-wp-page.rst>`_
-* `第九十六章：wp_page_copy() 怎样分配新 folio 并替换 child PTE？ <docs/tracks/linux-kernel/96-wp-page-copy-replaces-child-pte.rst>`_
-* `第九十七章：page fault 返回后，CPU 怎样重试 store 并完成 COW 隔离？ <docs/tracks/linux-kernel/97-page-fault-return-retries-child-store.rst>`_
+* `第九十八章：x86-64 的 execve() 怎样打开静态 ELF 并进入 load_elf_binary()？ <docs/tracks/linux-kernel/98-execve-opens-static-elf.rst>`_
+* `第九十九章：begin_new_exec() 怎样替换旧 mm 并建立静态 ELF 映射？ <docs/tracks/linux-kernel/99-begin-new-exec-replaces-mm-and-maps-elf.rst>`_
+* `第一百章：start_thread() 怎样让 execve 进入新静态 ELF 的第一条指令？ <docs/tracks/linux-kernel/100-exec-enters-new-static-elf-image.rst>`_
 
 固定来源
 --------
@@ -29,26 +29,29 @@ techBook
    LK-WRITE-083..LK-WRITE-091
    LK-FORK-092..LK-FORK-094
    LK-COW-095..LK-COW-097
+   LK-EXEC-098..LK-EXEC-100
 
 最新场景
 --------
 
-child 向 fork 后的只读 private anonymous COW 地址执行 store：
+fork child执行静态 ``ET_EXEC``：
 
 ::
 
-   userspace store
-   → x86 #PF
-   → do_user_addr_fault
-   → handle_mm_fault / do_wp_page
-   → wp_page_copy
-   → 分配并复制 4 KiB folio
-   → child writable PTE
-   → IRETQ 重试原 store
+   execve("/bin/static-demo", argv, envp)
+   → open executable / new bprm mm
+   → copy argv and envp
+   → search_binary_handler / load_elf_binary
+   → begin_new_exec / current->mm replacement
+   → close-on-exec / signal reset / credential commit
+   → PT_LOAD VMAs / user stack / auxv
+   → start_thread
+   → first cached text instruction fault
+   → execute ELF e_entry
 
-最终 child 映射并修改 new folio，parent仍映射 old folio；child ``min_flt`` 增加 1。下一运行期场景尚未选择，优先候选是 child ``execve()``。
+当前task与PID保持不变，旧child mm已经释放，fd 5因 ``FD_CLOEXEC`` 关闭。新static程序位于CPL 3，已经开始执行 ``e_entry`` 第一条指令。
 
 开始工作
 --------
 
-新的对话或助手先阅读 ``AGENTS.md``、``project/STATE.rst``、章节目录和 manifest。
+新的对话或助手先阅读 ``AGENTS.md``、``project/STATE.rst``、章节目录和manifest。
