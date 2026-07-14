@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133; LK-EPOLL-134..LK-EPOLL-136; LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139; LK-SIGNALFD-140..LK-SIGNALFD-142; LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145; LK-TIMERFD-146..LK-TIMERFD-148; LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151; LK-PIDFD-152..LK-PIDFD-154; LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157; LK-INOTIFY-158..LK-INOTIFY-160; LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163; LK-UNIXSOCK-164..LK-UNIXSOCK-166; LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169"
+completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133; LK-EPOLL-134..LK-EPOLL-136; LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139; LK-SIGNALFD-140..LK-SIGNALFD-142; LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145; LK-TIMERFD-146..LK-TIMERFD-148; LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151; LK-PIDFD-152..LK-PIDFD-154; LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157; LK-INOTIFY-158..LK-INOTIFY-160; LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163; LK-UNIXSOCK-164..LK-UNIXSOCK-166; LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169; LK-TCPLISTEN-170..LK-TCPLISTEN-172"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
@@ -103,7 +103,10 @@ chapter = [
   { id = "LK-UNIXSOCK-166", title = "shutdown(SHUT_WR)怎样让peer收到EPOLLRDHUP并让read返回EOF？", rst = "docs/tracks/linux-kernel/166-unix-stream-shutdown-wakes-rdhup-and-read-returns-eof.rst", status = "complete" },
   { id = "LK-UNIXSOCKCLOSE-167", title = "EPOLL_CTL_DEL怎样从persistent-ready Unix socket拆除callback与epitem？", rst = "docs/tracks/linux-kernel/167-epoll-del-detaches-unix-socket-callback-and-ready-item.rst", status = "complete" },
   { id = "LK-UNIXSOCKCLOSE-168", title = "close(6)怎样释放socket A，却让dead SA继续被peer reference保持？", rst = "docs/tracks/linux-kernel/168-close-first-unix-socket-notifies-peer-and-keeps-dead-socket-referenced.rst", status = "complete" },
-  { id = "LK-UNIXSOCKCLOSE-169", title = "close(7)与close(8)怎样释放两端Unix socket和空eventpoll？", rst = "docs/tracks/linux-kernel/169-close-second-unix-socket-and-eventpoll-final-teardown.rst", status = "complete" }
+  { id = "LK-UNIXSOCKCLOSE-169", title = "close(7)与close(8)怎样释放两端Unix socket和空eventpoll？", rst = "docs/tracks/linux-kernel/169-close-second-unix-socket-and-eventpoll-final-teardown.rst", status = "complete" },
+  { id = "LK-TCPLISTEN-170", title = "socket(AF_INET,SOCK_STREAM)怎样创建TCP endpoint并发布fd 6？", rst = "docs/tracks/linux-kernel/170-inet-stream-socket-creates-tcp-endpoint-and-publishes-fd.rst", status = "complete" },
+  { id = "LK-TCPLISTEN-171", title = "bind(127.0.0.1:28080)怎样验证本地地址并占用TCP端口？", rst = "docs/tracks/linux-kernel/171-bind-loopback-address-claims-tcp-port.rst", status = "complete" },
+  { id = "LK-TCPLISTEN-172", title = "listen(8)怎样建立空请求队列并把socket加入TCP监听哈希？", rst = "docs/tracks/linux-kernel/172-listen-enters-tcp-listen-and-publishes-listener-hash.rst", status = "complete" }
 ]
 
 [origin]
@@ -181,19 +184,28 @@ second_close_result = "SB clears final peer pointer; final SA peer ref drops; un
 epoll_close_result = "empty eventpoll refcount 1 to 0; EP logical lifetime ends and storage is kfree_rcu"
 final_result = "fd 6/7/8 closed; both Unix sockets and sockfs files freed; global sockfs and anon_inodefs remain"
 
+[completed_tcp_listener_scenario]
+name = "TCP IPv4 loopback server endpoint creation, explicit bind and listener publication"
+status = "complete"
+userspace_calls = "socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0); bind(6,127.0.0.1:28080); listen(6,8)"
+socket_result = "fd 6 is a blocking close-on-exec sockfs file backed by an AF_INET tcp_sock in SS_UNCONNECTED/TCP_CLOSE"
+bind_result = "127.0.0.1 is accepted as RTN_LOCAL; port 28080 gains bind and bind2 ownership; state remains TCP_CLOSE"
+listen_result = "empty request/accept queue initialized; sk_max_ack_backlog 8; state TCP_LISTEN; listener inserted into exact-address lhash2"
+final_result = "fd 6 open at 127.0.0.1:28080; no client, request socket, child, route cache, skb or packet"
+
 [progress]
-completed_chapters = 169
+completed_chapters = 172
 total_chapters = "unfixed"
 remaining_chapters = "unknown"
 planning_rule = "follow source-reading scope and natural narrative closure"
 
 [current]
-last_complete = "LK-UNIXSOCKCLOSE-169"
-executor = "parent after final close of Unix socketpair and eventpoll"
+last_complete = "LK-TCPLISTEN-172"
+executor = "parent after TCP IPv4 loopback listener publication"
 cpu_mode = "x86-64 CPL 3 on CPU0"
-current_task = "SCHED_NORMAL parent; helper blocked outside released objects"
-next_entry = "unselected runtime scenario"
-next_action = "preferred next path is TCP IPv4 loopback server bind listen plus client connect and accept"
+current_task = "SCHED_NORMAL parent; helper blocked outside listener objects"
+next_entry = "client socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0)"
+next_action = "create client fd 7, connect to 127.0.0.1:28080, select loopback route and ephemeral port, send SYN and create request socket"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完整"
