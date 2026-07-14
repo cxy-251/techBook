@@ -4,28 +4,22 @@
 
 `techBook` 当前只写 Linux Kernel。
 
-已经完成：
-
 ```text
 LK-BOOT-001..LK-BOOT-073
 LK-READ-074..LK-READ-082
 LK-WRITE-083..LK-WRITE-091
 LK-FORK-092..LK-FORK-094
 LK-COW-095..LK-COW-097
+LK-EXEC-098..LK-EXEC-100
 ```
 
-四个运行期实验已闭环：
-
-- cold-miss `read(fd, buf, 4096)`；
-- ext4 `O_SYNC write(fd, buf, 4096)`；
-- native x86-64 `fork()`；
-- child private-anonymous COW write fault。
+五个运行期实验已闭环：cold read、O_SYNC write、fork、child COW write fault、static ELF execve。
 
 最新三章：
 
-- `LK-COW-095`：child 写只读 COW 地址时，x86 #PF 怎样进入 do_wp_page？
-- `LK-COW-096`：wp_page_copy() 怎样分配新 folio 并替换 child PTE？
-- `LK-COW-097`：page fault 返回后，CPU 怎样重试 store 并完成 COW 隔离？
+- `LK-EXEC-098`：x86-64 的 execve() 怎样打开静态 ELF 并进入 load_elf_binary()？
+- `LK-EXEC-099`：begin_new_exec() 怎样替换旧 mm 并建立静态 ELF 映射？
+- `LK-EXEC-100`：start_thread() 怎样让 execve 进入新静态 ELF 的第一条指令？
 
 ## 固定实现
 
@@ -43,161 +37,123 @@ first partition   = LBA 2048, ext4
 storage           = q35 ICH9 AHCI SATA port 0
 ```
 
-固定 commit 的 `Makefile` 标识为 Linux 7.2-rc1。旧章节中的 `Linux 6.12.95` 是历史显示标签错误。
+旧章节中的 `Linux 6.12.95` 是历史显示标签错误；固定commit始终是Linux 7.2-rc1。
 
-## 已完成 COW 固定场景
+## 已完成 exec 固定场景
 
 ```text
-current task       = fork child
-userspace action   = store one 32-bit value to address A
-VMA                = private anonymous, VM_READ | VM_WRITE
-child PTE          = present, user, read-only
-parent PTE         = present, user, read-only
-old folio          = normal 4 KiB anonymous folio
-sharing            = parent and child both map old folio
-fault code         = X86_PF_PROT | X86_PF_WRITE | X86_PF_USER
-reuse              = impossible; actual wp_page_copy required
-excluded           = THP, KSM, userfaultfd, swap, migration, zero page,
-                     device-private page, GUP pin, pkey, shadow stack
-failure policy     = no allocation, memcg, copy, signal or OOM failure
+current task       = fork child after COW store
+userspace call     = execve("/bin/static-demo", argv, envp)
+argv               = ["/bin/static-demo", "cow-complete"]
+envp               = ["LANG=C", "PATH=/bin"]
+executable         = ext4 regular 0755 x86-64 static non-PIE ET_EXEC
+PT_INTERP          = absent
+credentials        = no setuid/setgid/file capabilities
+ptrace/seccomp     = disabled
+close-on-exec      = fd 5 has FD_CLOEXEC
+cache state        = pathname metadata, ELF headers, phdrs and entry text folio resident
+failure policy     = no lookup, permission, allocation, ELF, LSM, signal or page-fault failure
 ```
 
-## 已执行 COW 控制流
+## 已执行 exec 控制流
 
 ```text
-child userspace store
-→ x86 vector 14 #PF
-→ asm_exc_page_fault / exc_page_fault
-→ CR2 fault address
-→ do_user_addr_fault
-→ FAULT_FLAG_WRITE | FAULT_FLAG_USER
-→ per-VMA lock or mmap_read_lock fallback
-→ handle_mm_fault
-→ __handle_mm_fault
-→ handle_pte_fault
-→ do_wp_page
-→ reject PageAnonExclusive/wp_can_reuse_anon_folio
-→ folio_get(old)
-→ release child PTL
-→ wp_page_copy
-→ allocate and memcg-charge new small anonymous folio
-→ copy PAGE_SIZE old contents
-→ mark new folio uptodate
-→ MMU notifier invalidate start
-→ reacquire PTL and revalidate orig_pte
-→ ptep_clear_flush child old translation
-→ add exclusive anonymous rmap and LRU state
-→ install writable/young/dirty child PTE
-→ remove child rmap from old folio
-→ MMU notifier invalidate end
-→ child min_flt increment
-→ irqentry_exit / IRETQ
-→ CPU retries original store
-→ store succeeds on child new folio
+userspace execve
+→ entry_SYSCALL_64 / __x64_sys_execve
+→ do_execveat_common
+→ do_open_execat
+→ alloc_bprm / bprm_mm_init
+→ bprm temporary stack VMA
+→ copy argv/envp from old mm into bprm mm
+→ bprm_execve / prepare creds
+→ search_binary_handler
+→ prepare_binprm / load_elf_binary
+→ validate static ET_EXEC; no interpreter
+→ begin_new_exec / point_of_no_return
+→ exec_mmap
+→ current->mm = new mm
+→ close fd 5 through do_close_on_exec
+→ reset thread and caught signal handlers
+→ commit non-privileged creds
+→ setup_new_exec / release old child mm
+→ setup_arg_pages
+→ map static PT_LOAD VMAs
+→ BSS / brk / argc / argv / envp / auxv
+→ finalize_exec
+→ start_thread rewrites current pt_regs
+→ syscall exit to ELF e_entry
+→ missing text PTE instruction #PF
+→ filemap_fault cache hit
+→ install executable PTE
+→ minor fault accounting
+→ IRETQ retry
+→ first instruction at e_entry executes
 ```
 
 ## 当前精确状态
 
 ```text
 system_state       = SYSTEM_RUNNING
-runtime scenario   = COW write fault complete
-current executor   = child
+runtime scenario   = static execve complete
+current executor   = original fork child task
 CPU mode           = x86-64 CPL 3
-current location   = instruction after completed store
-child virtual A    = new anonymous folio
-child PTE          = present, user, writable, young, dirty
-child folio        = uptodate, exclusive, contains modified value
-parent virtual A   = old anonymous folio
-parent PTE         = present, user, read-only
-parent folio       = retains original value
-child min_flt      = incremented by one
-child maj_flt      = unchanged
-next entry         = unselected runtime scenario
+PID/TGID            = unchanged by exec
+current image       = /bin/static-demo
+current RIP         = ELF e_entry, first instruction executing
+current mm          = new executable mm
+old child mm        = released
+parent mm           = unchanged
+fd 5                = closed by FD_CLOEXEC
+other fds           = retained unless CLOEXEC
+signal handlers     = caught handlers reset
+credentials         = committed without privilege elevation
+entry VMA           = ext4 file-backed private read+execute
+entry PTE           = present, user, young, read-only, executable
+entry fault         = cache-hit minor instruction fault
+next entry          = unselected runtime scenario
 ```
 
 ## 下一建议场景
 
-优先候选是 child执行 native `execve()`，继续进程生命周期主线。
+优先候选是static child调用 `_exit(42)`，parent随后执行 `wait4()`：
+
+```text
+child _exit(42)
+→ __x64_sys_exit / do_exit
+→ exit_signals
+→ exit_mm
+→ exit_files / exit_fs
+→ exit_notify
+→ SIGCHLD to parent
+→ EXIT_ZOMBIE
+→ parent wait4
+→ do_wait
+→ copy exit status/rusage
+→ release_task
+→ PID/task final release
+```
 
 开始前必须固定：
 
 ```text
-current task       = child after completed COW store
-userspace call     = native execve(path, argv, envp)
-executable path    = exact path on ext4
-ELF form           = static or dynamically linked; must choose one
-interpreter        = exact PT_INTERP path when dynamic
-argv/envp          = fixed small arrays
-credentials        = no setuid/setgid/file capabilities unless explicitly selected
-ptrace/seccomp     = disabled
-files              = define any FD_CLOEXEC descriptors
-cache state        = define pathname/dentry/inode/page-cache state
-failure policy     = no lookup, permission, allocation, ELF, interpreter or LSM failure
+parent state        = running or already sleeping in wait4; choose one
+child exit code     = 42
+threading           = both parent and child single-threaded
+ptrace/subreaper    = disabled
+children            = only this child
+signals             = default SIGCHLD disposition; no SA_NOCLDWAIT
+wait options        = exact wait4/waitid arguments
+failure policy      = no signal interruption or userspace copy fault
 ```
 
-预计核对：
-
-```text
-entry_SYSCALL_64 / __x64_sys_execve
-→ do_execveat_common
-→ filename/path lookup
-→ bprm_execve
-→ prepare_binprm
-→ search_binary_handler
-→ load_elf_binary
-→ begin_new_exec
-→ new mm / ELF PT_LOAD mappings
-→ interpreter loading if selected
-→ argv/envp/auxv user stack
-→ close-on-exec and signal reset
-→ old mm release
-→ start_thread
-→ return to new userspace entry point
-```
-
-不要默认动态 ELF 或静态 ELF；两者路径差异很大。不要把 exec描述成创建新进程：PID/task通常保留，当前 image和 mm被替换。
-
-## 必须保持的技术边界
-
-1. 不同运行期实验之间不是自动连续时间线。
-2. VMA writable与 PTE writable是不同权限层次。
-3. fork后的 write fault存在 exclusive reuse优化；只有固定共享状态后才能写死 copy。
-4. 新 folio分配、PAGE_SIZE copy、PTE替换、TLB flush和用户 store重试必须分开。
-5. `wp_page_copy()` 返回时原用户 store尚未执行。
-6. page fault通过 IRETQ返回 faulting RIP，不使用 SYSRETQ。
-7. child COW只修改 child页表；parent PTE不自动恢复 writable。
-8. minor fault可以包含物理页分配与 4 KiB copy。
-9. exec创建新 image，不创建新 PID/task。
-10. static/dynamic ELF、interpreter与page-cache状态必须在 exec场景开始前固定。
+不要把exec描述为创建新进程；task/PID保留。不要把ELF mmap描述成已填满PTE。不要把successful exec写成返回旧call site。
 
 ## 连续叙事
 
-每段交代当前执行者、CPU mode、关键对象、锁/引用、状态变化、下一入口和固定源码依据。不能用“触发 COW”“加载 ELF”“替换进程”跳过实际对象转换。
+每段交代当前执行者、CPU mode、关键对象、锁/引用、状态变化、下一入口和固定源码依据。场景结束后不要虚构用户程序下一条动作。
 
-## 章节边界
+## 章节边界与流程
 
-遇到执行者、CPU mode、数据结构所有权、运行环境或 subsystem交接时换章。章节正文不添加上一章、下一章或目录导航；资料使用可点击 RST链接。
+遇到执行者、CPU mode、对象所有权或subsystem交接时换章。章节正文不添加上一章/下一章导航；资料使用可点击RST链接。
 
-## 连续推进模式
-
-1. 读取最新 `AGENTS.md`、`project/STATE.rst`、manifest和当前入口；
-2. 固定新的运行期场景；
-3. 读取 fixed source；
-4. 确定自然边界；
-5. 写完并核对章节；
-6. 更新目录、STATE、manifest、README和接续入口。
-
-## 状态语义
-
-- `draft`：正文正在编写，或关键事实链尚未核对完整；
-- `verified`：关键结论已依据固定源码或规范核对，章节仍在续写；
-- `complete`：章节到达自然终点，关键事实已经核对。
-
-## 接手顺序
-
-1. `AGENTS.md`；
-2. `project/STATE.rst`；
-3. `docs/tracks/linux-kernel/index.rst`；
-4. 已完成章节；
-5. `manifests/tracks/linux-kernel.toml`；
-6. `main` 最近相关提交。
+继续时依次读取：`AGENTS.md`、`project/STATE.rst`、章节目录、已完成章节、manifest和main最近提交。读取fixed source，写三章，随后同步目录、README、manifest、STATE与AGENTS。
