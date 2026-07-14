@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第一百零一章：_exit(42) 怎样进入 do_exit() 并释放进程运行资源？ <docs/tracks/linux-kernel/101-child-exit-tears-down-runtime-resources.rst>`_
-* `第一百零二章：exit_notify() 怎样发送 SIGCHLD、唤醒 parent 并留下 zombie？ <docs/tracks/linux-kernel/102-exit-notify-wakes-parent-and-leaves-zombie.rst>`_
-* `第一百零三章：parent 的 wait4() 怎样读取 status 并最终回收 child？ <docs/tracks/linux-kernel/103-parent-wait4-reaps-child.rst>`_
+* `第一百零四章：openat() 怎样保留 fd 并把 /work/demo.txt 解析成 negative dentry？ <docs/tracks/linux-kernel/104-openat-resolves-negative-dentry.rst>`_
+* `第一百零五章：ext4_create() 怎样分配 inode 并把 demo.txt 写进目录？ <docs/tracks/linux-kernel/105-ext4-create-allocates-inode-and-dirent.rst>`_
+* `第一百零六章：VFS 怎样打开新 inode、发布 fd 6 并让 openat() 返回？ <docs/tracks/linux-kernel/106-vfs-opens-and-publishes-new-fd.rst>`_
 
 固定来源
 --------
@@ -31,22 +31,23 @@ techBook
    LK-COW-095..LK-COW-097
    LK-EXEC-098..LK-EXEC-100
    LK-EXIT-101..LK-EXIT-103
+   LK-OPEN-104..LK-OPEN-106
 
 最新场景
 --------
 
 ::
 
-   parent wait4(child_pid, &status, 0, &rusage)
-   → child _exit(42)
-   → do_exit / release runtime resources
-   → EXIT_ZOMBIE / SIGCHLD / wake parent
-   → wait_task_zombie
-   → status = 0x2a00
-   → WEXITSTATUS(status) = 42
-   → release_task
+   openat(AT_FDCWD, "/work/demo.txt", O_CREAT|O_EXCL|O_WRONLY, 0644)
+   → reserve fd 6
+   → RCU pathname walk to /work
+   → exclusive final lookup / negative dentry
+   → ext4 inode and directory entry metadata transaction
+   → vfs_open / ext4_file_open
+   → fd_install(6, file)
+   → userspace RAX = 6
 
-parent返回child PID；child的process/PID关系已回收，最终task memory按reference count与RCU完成释放。
+最终文件mode为0644、nlink为1、size为0，尚未分配data block。create metadata已进入JBD2 transaction，但 ``openat`` 返回不保证transaction已经持久化。
 
 开始工作
 --------
