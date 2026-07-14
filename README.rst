@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第八十九章：ext4 fsync 怎样选择 fast commit 或完整 JBD2 commit？ <docs/tracks/linux-kernel/89-ext4-fsync-chooses-fast-or-full-jbd2-commit.rst>`_
-* `第九十章：ext4 barrier 怎样把 journal 顺序落实到设备 cache？ <docs/tracks/linux-kernel/90-ext4-barrier-flushes-device-cache.rst>`_
-* `第九十一章：O_SYNC write 怎样提交 file position 并返回用户态？ <docs/tracks/linux-kernel/91-osync-write-returns-to-userspace.rst>`_
+* `第九十二章：x86-64 的 fork() 怎样创建一个尚不可运行的 task_struct？ <docs/tracks/linux-kernel/92-x86-fork-builds-inactive-task.rst>`_
+* `第九十三章：copy_process() 怎样复制资源并建立 COW 子进程？ <docs/tracks/linux-kernel/93-copy-process-builds-cow-child.rst>`_
+* `第九十四章：scheduler 怎样启动 child，并让 fork() 在父子进程返回不同结果？ <docs/tracks/linux-kernel/94-fork-parent-and-child-return.rst>`_
 
 固定来源
 --------
@@ -33,42 +33,40 @@ techBook
    LK-BOOT-001..LK-BOOT-073
    LK-READ-074..LK-READ-082
    LK-WRITE-083..LK-WRITE-091
+   LK-FORK-092..LK-FORK-094
 
 运行期实验
 ----------
 
-``read(fd, buf, 4096)`` cold page-cache miss 已完整闭环：
+已经完整闭环：
+
+#. ``read(fd, buf, 4096)`` cold page-cache miss；
+#. ``O_SYNC write(fd, buf, 4096)`` buffered ext4 overwrite；
+#. native x86-64 ``fork()``。
+
+fork 主线：
 
 ::
 
-   userspace syscall
-   → VFS / ext4 / page cache
-   → block / SCSI / libata / AHCI
-   → completion interrupt
-   → user copy
-   → userspace RAX=4096
-
-``O_SYNC write(fd, buf, 4096)`` buffered overwrite 也已完整闭环：
-
-::
-
-   userspace write
-   → VFS / ext4 buffered copy
-   → dirty folio / WB_SYNC_ALL
-   → ext4 WRITE bio
-   → block / SCSI / libata / AHCI
-   → folio_end_writeback
-   → fast commit 或完整 JBD2 commit
-   → commit barrier 或 standalone FLUSH CACHE
-   → file->f_pos = 4096
-   → userspace RAX = 4096
+   userspace fork()
+   → entry_SYSCALL_64 / __x64_sys_fork
+   → kernel_clone / copy_process
+   → new task_struct and kernel stack
+   → independent files/fs/sighand/signal/mm
+   → dup_mmap / copy_page_range
+   → parent and child read-only COW PTEs
+   → PID and process-tree publication
+   → wake_up_new_task
+   → parent returns child PID
+   → child ret_from_fork_asm / IRETQ
+   → child returns 0
 
 当前状态
 --------
 
-第二个运行期场景已经结束。writer task 位于 x86-64 CPL 3，``write()`` 返回 4096，``file->f_pos`` 为 4096，target folio clean、uptodate、unlocked。data request、journal durability 与需要的 barrier/flush 均已完成，相关 locks 与 freeze protection 已释放。
+parent与 child均已回到 CPL 3。parent观察到 child PID，child观察到 0。两者拥有不同 ``task_struct``、kernel stack、``mm_struct`` 和页表根；固定 private anonymous folio仍由父子只读 PTE共享，普通 fork没有立即复制其 4096-byte内容。
 
-下一条 kernel runtime 主线尚未选择。建议从单线程进程直接执行 native x86-64 ``fork()`` syscall 开始，继续贯通 ``kernel_clone()``、``copy_process()``、PID、task、page-table COW、scheduler 与父子进程分别返回。
+下一条 runtime scenario尚未选择。优先候选是 child对该 private anonymous地址执行一次 userspace store，追踪 x86 protection fault、``do_user_addr_fault()``、``handle_mm_fault()`` 与真正的 COW folio复制。
 
 开始工作
 --------
