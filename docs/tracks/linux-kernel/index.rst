@@ -103,6 +103,9 @@ Linux Kernel
 #. `第九十五章：child 写只读 COW 地址时，x86 #PF 怎样进入 do_wp_page？ <95-x86-cow-write-fault-enters-do-wp-page.rst>`_
 #. `第九十六章：wp_page_copy() 怎样分配新 folio 并替换 child PTE？ <96-wp-page-copy-replaces-child-pte.rst>`_
 #. `第九十七章：page fault 返回后，CPU 怎样重试 store 并完成 COW 隔离？ <97-page-fault-return-retries-child-store.rst>`_
+#. `第九十八章：x86-64 的 execve() 怎样打开静态 ELF 并进入 load_elf_binary()？ <98-execve-opens-static-elf.rst>`_
+#. `第九十九章：begin_new_exec() 怎样替换旧 mm 并建立静态 ELF 映射？ <99-begin-new-exec-replaces-mm-and-maps-elf.rst>`_
+#. `第一百章：start_thread() 怎样让 execve 进入新静态 ELF 的第一条指令？ <100-exec-enters-new-static-elf-image.rst>`_
 
 当前主线
 --------
@@ -115,21 +118,23 @@ Linux Kernel
    → read(fd, buf, 4096) cold miss complete
    → O_SYNC write(fd, buf, 4096) complete
    → native fork() complete
-   → parent/child read-only PTEs share anonymous folio
-   → child userspace store
-   → x86 #PF: protection + write + user
-   → do_user_addr_fault / handle_mm_fault
-   → handle_pte_fault / do_wp_page
-   → exclusive reuse rejected
-   → wp_page_copy
-   → allocate and copy 4 KiB anonymous folio
-   → replace child PTE and flush child TLB
-   → IRETQ retries original store
-   → child sees modified new folio; parent retains old folio
+   → child COW write fault complete
+   → child execve("/bin/static-demo", argv, envp)
+   → open executable / copy argv and envp into bprm mm
+   → search_binary_handler / load_elf_binary
+   → begin_new_exec / exec_mmap
+   → current task keeps PID and switches to new mm
+   → close-on-exec / signal reset / credential commit
+   → static ET_EXEC PT_LOAD VMAs and user stack
+   → start_thread rewrites pt_regs
+   → syscall exit to new e_entry
+   → cached text minor instruction fault
+   → executable PTE installed
+   → static program executes its first instruction
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-当前四个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()`` 和 child COW write fault。下一条 runtime主线尚未选择，优先候选是 child ``execve()`` 替换当前进程映像。
+当前五个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault和static ``execve()``。下一条runtime主线尚未选择。
 
 章节组织
 --------
