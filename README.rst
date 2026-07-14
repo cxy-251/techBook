@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第一百五十二章：pidfd_open() 怎样建立pidfs file并让epoll_wait监视child？ <docs/tracks/linux-kernel/152-pidfd-open-registers-child-with-epoll.rst>`_
-* `第一百五十三章：child _exit(42) 怎样通过pid->wait_pidfd唤醒epoll_wait？ <docs/tracks/linux-kernel/153-child-exit-wakes-pidfd-epoll-waiter.rst>`_
-* `第一百五十四章：waitid(P_PIDFD) 怎样读取退出状态并回收child？ <docs/tracks/linux-kernel/154-waitid-pidfd-reaps-child-after-epoll-event.rst>`_
+* `第一百五十五章：reap之后的pidfd为什么让epoll_wait返回EPOLLIN|EPOLLHUP？ <docs/tracks/linux-kernel/155-post-reap-pidfd-delivers-epollhup.rst>`_
+* `第一百五十六章：EPOLL_CTL_DEL怎样拆除pidfd callback与epitem？ <docs/tracks/linux-kernel/156-epoll-del-detaches-pidfd-callback.rst>`_
+* `第一百五十七章：close()怎样释放pidfs inode、旧struct pid与eventpoll？ <docs/tracks/linux-kernel/157-final-close-frees-pidfd-pid-identity-and-eventpoll.rst>`_
 
 固定来源
 --------
@@ -48,25 +48,23 @@ techBook
    LK-TIMERFD-146..LK-TIMERFD-148
    LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151
    LK-PIDFD-152..LK-PIDFD-154
+   LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157
 
 最新场景
 --------
 
 ::
 
-   parent pidfd_open(child_pid, 0) -> fd 6
-   → pidfs inode pins the child's struct pid
-   → epoll_create1(EPOLL_CLOEXEC) -> fd 7
-   → EPOLL_CTL_ADD attaches callback to pid->wait_pidfd
-   → parent blocks in epoll_wait
-   → child _exit(42) enters EXIT_ZOMBIE
-   → do_notify_pidfd queues the epitem and wakes parent
-   → epoll_wait returns {EPOLLIN, data=0x50494436}
-   → waitid(P_PIDFD, 6, ..., WEXITED, NULL) returns 0
-   → siginfo reports CLD_EXITED and status 42
-   → child is reaped and numeric PID becomes reusable
+   post-reap epoll_wait(..., 0)
+   → pidfd_poll sees no task linkage
+   → deliver EPOLLIN|EPOLLHUP
+   → level-triggered epitem remains ready
+   → EPOLL_CTL_DEL removes callback and epitem
+   → close(6) prunes pidfs dentry and evicts pidfs inode
+   → final pid references release exit metadata and old struct pid
+   → close(7) releases empty eventpoll
 
-最终fd 6/7与registration仍active。child task已经回收，pidfs inode仍保持旧 ``struct pid``，因此pidfd不会因数字PID复用而指向新进程。level-triggered epitem仍在ready list；下一次pidfd poll将报告 ``EPOLLIN|EPOLLHUP``。
+最终fd 6/7均已关闭。旧child task、pidfd file、pidfs dentry/inode、旧 ``struct pid``、exit metadata、epitem与eventpoll均已退出活动对象图；全局pidfs mount和anon_inodefs继续存在。
 
 开始工作
 --------
