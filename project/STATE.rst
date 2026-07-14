@@ -18,12 +18,13 @@
    LK-BOOT-001..LK-BOOT-073
    LK-READ-074..LK-READ-082
    LK-WRITE-083..LK-WRITE-091
+   LK-FORK-092..LK-FORK-094
 
 最新三章：
 
-#. ``LK-WRITE-089``：ext4 fsync 怎样选择 fast commit 或完整 JBD2 commit？
-#. ``LK-WRITE-090``：ext4 barrier 怎样把 journal 顺序落实到设备 cache？
-#. ``LK-WRITE-091``：O_SYNC write 怎样提交 file position 并返回用户态？
+#. ``LK-FORK-092``：x86-64 的 fork() 怎样创建一个尚不可运行的 task_struct？
+#. ``LK-FORK-093``：copy_process() 怎样复制资源并建立 COW 子进程？
+#. ``LK-FORK-094``：scheduler 怎样启动 child，并让 fork() 在父子进程返回不同结果？
 
 完整章节列表见 ``docs/tracks/linux-kernel/index.rst``，机器可读接续信息见 ``manifests/tracks/linux-kernel.toml``。
 
@@ -43,124 +44,133 @@
 已完成的运行期实验
 ------------------
 
-``read(fd, buf, 4096)`` cold page-cache miss 已完整闭环：VFS、ext4、page cache、block、SCSI、libata、AHCI、completion、user copy 与 syscall return 均已完成。
+#. ``read(fd, buf, 4096)`` cold page-cache miss；
+#. ``O_SYNC write(fd, buf, 4096)`` buffered ext4 overwrite；
+#. native x86-64 ``fork()``。
 
-``O_SYNC write(fd, buf, 4096)`` buffered overwrite 也已完整闭环：page-cache copy、writeback、storage data command、journal durability、barrier/flush、position commit 与 syscall return 均已完成。
-
-O_SYNC write 固定场景
----------------------
+fork 固定场景
+-------------
 
 ::
 
-   userspace call       = write(fd, buf, 4096)
-   ABI                  = native x86-64 SYSCALL
-   open flags           = O_WRONLY | O_SYNC
-   file                 = independent already-open regular ext4 file
-   filesystem           = /dev/sda1, journal enabled, data=ordered, delalloc enabled
-   initial f_pos        = 0
-   final f_pos          = 4096
-   file size            = at least 4096 bytes
-   filesystem block     = 4096 bytes
-   write type           = full-block overwrite, not extending
-   extent               = logical block 0 already initialized and mapped
-   I/O mode             = buffered; not O_DIRECT; not DAX
-   excluded             = inline data, fscrypt, fs-verity, atomic write
-   failure policy       = no copy, writeback, journal, flush or storage error
+   userspace call      = native fork() syscall number 57
+   process             = single-threaded SCHED_NORMAL userspace process
+   clone flags         = 0
+   exit signal         = SIGCHLD
+   ptrace/seccomp      = disabled for the scenario
+   namespaces          = inherited; no CLONE_NEW*
+   files/fs/signals    = ordinary fork copy semantics, no CLONE_* sharing
+   memory              = private user mm with one present writable private anonymous 4 KiB folio
+   special exclusions  = no THP, hugetlb, userfaultfd, pinning, swap, VM_DONTCOPY or VM_WIPEONFORK
+   failure policy      = no pending signal, limit, PID, allocation, LSM, cgroup or scheduler failure
 
 完整控制流
 ----------
 
 ::
 
-   userspace write(fd, buf, 4096)
-   → entry_SYSCALL_64 / __x64_sys_write
-   → ksys_write / vfs_write / new_sync_write
-   → ext4_file_write_iter / ext4_buffered_write_iter
-   → generic_perform_write
-   → ext4_da_write_begin
-   → copy_folio_from_iter_atomic
-   → ext4_da_write_end
-   → dirty page-cache folio
-   → generic_write_sync
-   → vfs_fsync_range(file, 0, 4095, datasync=0)
-   → ext4_sync_file
-   → file_write_and_wait_range
-   → WB_SYNC_ALL / ext4_writepages
-   → folio_clear_dirty_for_io
-   → ext4_bio_write_folio / PG_writeback
-   → REQ_OP_WRITE | REQ_SYNC bio
-   → blk-mq / SCSI WRITE
-   → libata ATA WRITE
-   → AHCI H2D FIS / PRDT / PxCI
-   → AHCI completion interrupt
-   → SCSI / blk-mq / bio completion
-   → ext4_end_bio / folio_end_writeback
-   → file_write_and_wait_range returns 0
-   → ext4_fsync_journal(inode, false, &needs_barrier)
-   → choose i_sync_tid
-   → already committed / fast commit / full JBD2 commit
-   → commit barrier or standalone blkdev_issue_flush
-   → file_check_and_advance_wb_err
-   → ext4_sync_file returns 0
-   → generic_write_sync returns 4096
-   → new_sync_write: local pos = 4096
-   → vfs_write: accounting / file_end_write
-   → ksys_write: file->f_pos = 4096
-   → pt_regs->ax = 4096
-   → syscall_exit_to_user_mode
-   → SYSRETQ or IRETQ
-   → userspace RAX = 4096
+   userspace fork()
+   → entry_SYSCALL_64
+   → x64_sys_call / __x64_sys_fork
+   → kernel_clone_args: flags=0, exit_signal=SIGCHLD
+   → kernel_clone
+   → copy_process
+   → signal serialization / pending-signal check
+   → dup_task_struct
+   → independent task_struct and kernel stack
+   → copy_creds
+   → sched_fork
+   → TASK_NEW
+   → copy_files: new files_struct and fd table
+   → fd entries retain references to shared struct file objects
+   → copy_fs
+   → copy_sighand / copy_signal
+   → copy_mm
+   → dup_mm / dup_mmap
+   → duplicate VMA Maple Tree
+   → copy_page_range
+   → write-protect parent private PTE
+   → install read-only child private PTE
+   → parent and child share anonymous folio through COW mappings
+   → copy_namespaces: reference-share nsproxy
+   → copy_thread
+   → childregs->ax = 0
+   → child first return address = ret_from_fork_asm
+   → alloc_pid
+   → PID and process-tree publication under tasklist_lock
+   → copy_process returns child task
+   → wake_up_new_task
+   → TASK_RUNNING / runqueue enqueue
+   → parent returns child PID through normal syscall exit
+   → child first schedule enters ret_from_fork_asm
+   → schedule_tail / syscall_exit_to_user_mode
+   → child IRETQ to userspace with RAX=0
 
 当前精确状态
 ------------
 
-* ``system_state``：``SYSTEM_RUNNING``；
-* 当前执行者：完成 O_SYNC write 的原 writer task；
-* CPU mode：x86-64 CPL 3；
-* syscall result / ``RAX``：4096；
-* ``file->f_pos``：4096；
-* target folio：clean、uptodate、unlocked，``PG_writeback=0``；
-* data bio/request/SCSI/ATA/AHCI command：已完成并释放；
-* journal requirement：已由 already-committed、fast commit 或 full JBD2 commit成功满足；
-* barrier-enabled路径：commit内 barrier或 standalone FLUSH CACHE 已完成；
-* writeback error：无，file error cursor已检查；
-* superblock freeze protection：已释放；
-* fd position guard/lock：已释放；
-* ``kiocb`` 与 local ``pos``：调用栈已经退出；
-* current runtime scenario：complete。
+parent：
+
+* CPU mode：调度运行时为 x86-64 CPL 3；
+* fork返回值：child PID；
+* mm/page-table root：parent独立对象。
+
+child：
+
+* CPU mode：调度运行时为 x86-64 CPL 3；
+* fork返回值：0；
+* PID/TGID：新分配的 child PID；
+* ``real_parent``：parent；
+* ``exit_signal``：``SIGCHLD``；
+* 首次用户态进入：``ret_from_fork_asm`` → IRETQ。
+
+共同状态：
+
+* parent与 child ``task_struct``、kernel stack、cred、files、fs、sighand、signal、mm和页表根均为不同对象；
+* 对应 fd entries仍引用相同 ``struct file`` open descriptions；
+* namespace objects相同；
+* 固定 private anonymous folio仍由父子只读 PTE共享；
+* 普通 fork没有立即复制该 folio的 4096-byte内容；
+* parent或 child谁先执行 fork后的第一条用户指令没有固定顺序；
+* fork runtime scenario：complete。
 
 关键边界
 --------
 
-#. fast commit、full JBD2 commit与 already-committed是运行时分支，不能凭未固定 mount state写死其中一个。
-#. fast-commit tail或 full commit record可以携带 ``REQ_PREFLUSH|REQ_FUA``。
-#. journal commit无法替本次 fsync携带 barrier时，ext4单独执行 ``blkdev_issue_flush``。
-#. standalone flush没有 payload、sector或 folio；SCSI将其表示为 SYNCHRONIZE CACHE，libata翻译为 ATA FLUSH CACHE/EXT。
-#. transaction commit不等于所有 metadata已经 checkpoint回 home blocks。
-#. ``kiocb->ki_pos``、local ``pos``、共享 ``file->f_pos`` 按顺序逐层提交。
-#. 运行期场景结束后，不能虚构用户程序的下一条 syscall。
+#. ``TASK_NEW``、task publication与 runqueue enqueue是三个不同阶段。
+#. files_struct独立不等于 open file description独立。
+#. 新 mm和新页表根不等于所有物理数据页已经复制。
+#. COW建立需要同时 write-protect parent与 child的 private PTE。
+#. child ``RAX=0`` 由 ``copy_thread()`` 预置，不重新执行 syscall入口。
+#. parent通过普通 syscall return返回 child PID；child首次用户态返回经过 ``ret_from_fork_asm`` 与 IRETQ。
+#. scheduler不保证 parent或 child谁先运行。
+#. fork结束后不能虚构任一进程下一条用户指令。
 
 下一任务
 --------
 
-当前没有已选定的 runtime scenario。建议下一批固定为单线程 x86-64 用户进程直接执行 native ``fork()`` syscall：
+当前没有已选定的 runtime scenario。优先候选是一个独立的 child COW write-fault实验：child对固定 private anonymous地址执行一次 userspace store。
+
+预期入口需重新从固定源码核对：
 
 ::
 
-   userspace fork()
-   → entry_SYSCALL_64 / __x64_sys_fork
-   → kernel_clone
-   → copy_process
-   → task_struct / PID / credentials / files / fs / signals
-   → copy_mm
-   → page-table copy-on-write
-   → copy_thread
-   → wake_up_new_task
-   → scheduler first runs child
-   → parent returns child PID
-   → child returns 0
+   child userspace store to read-only private PTE
+   → x86 #PF with user/write/protection error bits
+   → exc_page_fault
+   → do_user_addr_fault
+   → VMA lookup and permissions
+   → handle_mm_fault
+   → __handle_mm_fault
+   → do_wp_page
+   → wp_page_copy or exclusive-page reuse branch
+   → allocate/charge/copy anonymous folio when required
+   → reverse-map and RSS updates
+   → install writable child PTE
+   → TLB update
+   → retry and complete original userspace store
 
-下一批开始前必须从固定 commit重新核对实际函数链，并记录明确的 fork flags、单线程条件、无 ptrace/seccomp/error和父子返回状态。
+开始前必须固定 folio reference/mapcount状态，确保真正进入复制分支；不能只凭“fork后写入”假设一定复制，因为 exclusive-page reuse等优化可能改变结果。
 
 资料格式
 --------
