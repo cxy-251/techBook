@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第一百六十四章：socketpair怎样建立双向Unix stream并让parent阻塞在epoll_wait？ <docs/tracks/linux-kernel/164-unix-socketpair-registers-with-epoll-and-blocks-parent.rst>`_
-* `第一百六十五章：helper写入hello时，Unix stream skb怎样唤醒epoll并让read返回5？ <docs/tracks/linux-kernel/165-unix-stream-write-wakes-epoll-and-read-consumes-skb.rst>`_
-* `第一百六十六章：shutdown(SHUT_WR)怎样让peer收到EPOLLRDHUP并让read返回EOF？ <docs/tracks/linux-kernel/166-unix-stream-shutdown-wakes-rdhup-and-read-returns-eof.rst>`_
+* `第一百六十七章：EPOLL_CTL_DEL怎样从persistent-ready Unix socket拆除callback与epitem？ <docs/tracks/linux-kernel/167-epoll-del-detaches-unix-socket-callback-and-ready-item.rst>`_
+* `第一百六十八章：close(6)怎样释放socket A，却让dead SA继续被peer reference保持？ <docs/tracks/linux-kernel/168-close-first-unix-socket-notifies-peer-and-keeps-dead-socket-referenced.rst>`_
+* `第一百六十九章：close(7)与close(8)怎样释放两端Unix socket和空eventpoll？ <docs/tracks/linux-kernel/169-close-second-unix-socket-and-eventpoll-final-teardown.rst>`_
 
 固定来源
 --------
@@ -52,27 +52,25 @@ techBook
    LK-INOTIFY-158..LK-INOTIFY-160
    LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163
    LK-UNIXSOCK-164..LK-UNIXSOCK-166
+   LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169
 
 最新场景
 --------
 
 ::
 
-   socketpair(AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC, 0, sv) → fd 6/7
-   → two unbound Unix stream sockets become mutual peers
-   → epoll_create1(EPOLL_CLOEXEC) → fd 8
-   → EPOLL_CTL_ADD watches fd 6 for EPOLLIN|EPOLLRDHUP
-   → parent blocks on eventpoll wait queue
-   → helper write(7,"hello",5) queues one skb on fd 6 receive queue
-   → socket callback wakes parent
-   → epoll_wait returns EPOLLIN and read(6) returns 5 bytes
-   → parent re-enters epoll_wait and clears stale-ready membership
-   → helper shutdown(7,SHUT_WR)
-   → fd 7 gains SEND_SHUTDOWN; peer fd 6 gains RCV_SHUTDOWN
-   → epoll_wait returns EPOLLIN|EPOLLRDHUP
-   → read(6) returns EOF 0
+   persistent-ready fd 6 remains after peer SHUT_WR and EOF read
+   → EPOLL_CTL_DEL removes socket wait callback P and epitem I
+   → F6.f_ep becomes NULL; EP refcount 2→1
+   → close(6) releases socket A file and sockfs VFS objects
+   → SA becomes orphan/dead, TCP_CLOSE and SHUTDOWN_MASK
+   → peer SB gains full SHUTDOWN_MASK and HUP semantics
+   → SA remains alive because unix_peer(SB) still holds it
+   → close(7) clears unix_peer(SB) and drops the final SA peer reference
+   → SA and SB complete unix_sock_destructor teardown
+   → close(8) releases empty eventpoll; EP storage is RCU-deferred
 
-最终fd 6/7/8仍然open。两端保持peer关系与 ``TCP_ESTABLISHED`` 协议状态；fd 7写方向已half-close，fd 6 receive方向持久处于 ``RCV_SHUTDOWN``，所以level-triggered registration持续ready。
+最终fd 6/7/8均已关闭。两个Unix socket、两份sockfs file与eventpoll均退出活动对象图；全局sockfs和anon_inodefs继续active。
 
 开始工作
 --------
