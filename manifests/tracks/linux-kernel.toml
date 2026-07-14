@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133; LK-EPOLL-134..LK-EPOLL-136; LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139; LK-SIGNALFD-140..LK-SIGNALFD-142; LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145; LK-TIMERFD-146..LK-TIMERFD-148; LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151; LK-PIDFD-152..LK-PIDFD-154"
+completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133; LK-EPOLL-134..LK-EPOLL-136; LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139; LK-SIGNALFD-140..LK-SIGNALFD-142; LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145; LK-TIMERFD-146..LK-TIMERFD-148; LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151; LK-PIDFD-152..LK-PIDFD-154; LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
@@ -88,7 +88,10 @@ chapter = [
   { id = "LK-TIMERFDCLOSE-151", title = "close() 怎样释放timerfd与eventpoll并结束两套RCU生命周期？", rst = "docs/tracks/linux-kernel/151-final-close-frees-timerfd-and-eventpoll.rst", status = "complete" },
   { id = "LK-PIDFD-152", title = "pidfd_open() 怎样建立pidfs file并让epoll_wait监视child？", rst = "docs/tracks/linux-kernel/152-pidfd-open-registers-child-with-epoll.rst", status = "complete" },
   { id = "LK-PIDFD-153", title = "child _exit(42) 怎样通过pid->wait_pidfd唤醒epoll_wait？", rst = "docs/tracks/linux-kernel/153-child-exit-wakes-pidfd-epoll-waiter.rst", status = "complete" },
-  { id = "LK-PIDFD-154", title = "waitid(P_PIDFD) 怎样读取退出状态并回收child？", rst = "docs/tracks/linux-kernel/154-waitid-pidfd-reaps-child-after-epoll-event.rst", status = "complete" }
+  { id = "LK-PIDFD-154", title = "waitid(P_PIDFD) 怎样读取退出状态并回收child？", rst = "docs/tracks/linux-kernel/154-waitid-pidfd-reaps-child-after-epoll-event.rst", status = "complete" },
+  { id = "LK-PIDFDCLOSE-155", title = "reap之后的pidfd为什么让epoll_wait返回EPOLLIN|EPOLLHUP？", rst = "docs/tracks/linux-kernel/155-post-reap-pidfd-delivers-epollhup.rst", status = "complete" },
+  { id = "LK-PIDFDCLOSE-156", title = "EPOLL_CTL_DEL怎样拆除pidfd callback与epitem？", rst = "docs/tracks/linux-kernel/156-epoll-del-detaches-pidfd-callback.rst", status = "complete" },
+  { id = "LK-PIDFDCLOSE-157", title = "close()怎样释放pidfs inode、旧struct pid与eventpoll？", rst = "docs/tracks/linux-kernel/157-final-close-frees-pidfd-pid-identity-and-eventpoll.rst", status = "complete" }
 ]
 
 [origin]
@@ -104,195 +107,34 @@ firmware_repository = "coreboot/seabios"
 firmware_commit = "c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf"
 qemu_repository = "qemu/qemu"
 qemu_commit = "a759542a2c62f0fd3b65f5a66ad9868201014669"
-storage_controller = "QEMU q35 built-in ICH9 AHCI SATA"
-boot_disk = "one boot disk attached to AHCI SATA port 0"
 bootloader = "GNU GRUB 2.14 i386-pc"
-grub_release = "2.14"
-grub_repository = "GitMirroring/grub"
 grub_commit = "d38d6a1a9b79427848976f53d474392cd29c2a71"
-grub_disk_layout = "MBR disk; ext4 first partition at LBA 2048; /boot/grub; core.img embedded contiguously from LBA 1"
 kernel_repository = "gregkh/linux"
 kernel_release = "7.2-rc1"
-kernel_ref = "7404ce51637231382873d0b55edabc2f3b841a9d"
 kernel_commit = "7404ce51637231382873d0b55edabc2f3b841a9d"
-kernel_image = "bzImage"
-kernel_path = "/boot/bzImage-7.2-rc1"
-initramfs_path = "/boot/initramfs-7.2-rc1.img"
-boot_protocol = "Linux/x86 32-bit Boot Protocol"
-source_correction = "The fixed commit is Linux 7.2-rc1. Older chapter text displaying Linux 6.12.95 has a stale release label."
-
-[completed_read_scenario]
-name = "buffered ext4 read cold miss"
-status = "complete"
-result = "userspace RAX=4096; user buffer contains file bytes; file->f_pos=4096"
-
-[completed_write_scenario]
-name = "O_SYNC buffered ext4 overwrite"
-status = "complete"
-result = "userspace RAX=4096; file->f_pos=4096; data, journal and barrier ordering complete"
-
-[completed_fork_scenario]
-name = "native x86-64 fork with COW setup"
-status = "complete"
-result = "parent gets child PID; child gets zero; separate mm roots share read-only COW folio"
-
-[completed_cow_scenario]
-name = "child private-anonymous COW write fault"
-status = "complete"
-result = "child maps and modifies new folio; parent retains old folio; child min_flt increments"
-
-[completed_exec_scenario]
-name = "native x86-64 static ELF execve"
-status = "complete"
-result = "task and PID retained; new executable mm active; static ELF e_entry begins after cache-hit minor instruction fault"
-
-[completed_exit_scenario]
-name = "child normal exit and parent wait4 reap"
-status = "complete"
-result = "parent CPL3; WIFEXITED true; WEXITSTATUS 42; child no longer process/PID visible"
-
-[completed_open_scenario]
-name = "ext4 openat exclusive create"
-status = "complete"
-result = "parent CPL3 with RAX=6; fd 6 points to opened /work/demo.txt"
-
-[completed_delalloc_scenario]
-name = "first buffered write to a new ext4 file followed by fsync"
-status = "complete"
-result = "fd 6 remains open; size and i_disksize are 4096; written extent durable after full JBD2 commit and flush"
-
-[completed_unlink_scenario]
-name = "unlink an open ext4 file and reclaim it on final close"
-status = "complete"
-result = "parent CPL3 with close RAX=0; pathname, fd, dentry, extent and inode no longer accessible"
-
-[completed_sleep_scenario]
-name = "single-CPU monotonic clock_nanosleep with hrtimer wakeup"
-status = "complete"
-result = "parent CPL3 with RAX=0 after natural hrtimer expiry and scheduler wakeup"
-
-[completed_signal_scenario]
-name = "SIGUSR1-interrupted relative clock_nanosleep and rt_sigreturn"
-status = "complete"
-result = "parent CPL3 on CPU0 at original post-SYSCALL RIP with raw RAX=-EINTR and positive remaining"
-
-[completed_pipe_scenario]
-name = "anonymous pipe blocking read and writer wakeup"
-status = "complete"
-result = "fd 6/7 remain open; head=tail=1; occupancy=0; page Q cached in tmp_page[0]"
-
-[completed_pipe_close_scenario]
-name = "anonymous pipe write-end close, EOF read and final teardown"
-status = "complete"
-result = "parent CPL3 with close RAX=0; fd 6/7 and active pipe objects no longer accessible"
-
-[completed_futex_scenario]
-name = "private futex wait, release store and wake"
-status = "complete"
-result = "parent CPL3 with wait RAX=0; U=1; selected bucket has no waiter"
-
-[completed_eventfd_scenario]
-name = "eventfd counter blocking read and writer wakeup"
-status = "complete"
-userspace_calls = "eventfd2(0,EFD_CLOEXEC); parent read(6,&value,8); helper write(6,&three,8)"
-object_result = "one O_RDWR anon-inode file and eventfd_ctx E published as shared close-on-exec fd 6"
-block_result = "count=0 places parent on E.wqh as non-exclusive TASK_INTERRUPTIBLE waiter"
-write_result = "helper writes u64 3, changes count 0 to 3, wakes parent and returns 8"
-read_result = "parent resumes original stack, consumes full counter, copies value 3 and returns 8"
-final_result = "fd 6 and E remain active; E.count=0; wait queue has no waiter from this operation"
-
-[completed_eventfd_close_scenario]
-name = "eventfd final close and anon-inode file teardown"
-status = "complete"
-userspace_call = "parent close(6)"
-fd_result = "shared fd 6, open bit and close-on-exec bit removed before object teardown"
-release_result = "empty eventfd wait queue receives EPOLLHUP key; zero observer is awakened"
-ctx_result = "eventfd ctx kref 1 to 0; internal id returned to IDA; ctx freed"
-path_result = "per-file pseudo dentry and mount ref released; singleton anon inode and global mount remain"
-final_result = "parent CPL3 with RAX=0; fd, file, ctx and per-file path no longer accessible"
-
-[completed_epoll_scenario]
-name = "level-triggered epoll monitoring an eventfd"
-status = "complete"
-userspace_calls = "eventfd2(0,EFD_CLOEXEC); epoll_create1(EPOLL_CLOEXEC); epoll_ctl ADD EPOLLIN; epoll_wait; helper write u64 5"
-registration_result = "epitem I in EP.rbr; non-exclusive callback entry P attached to eventfd E.wqh; ready list initially empty"
-block_result = "parent stack entry W waits exclusively on EP.wq in TASK_INTERRUPTIBLE state"
-wake_result = "helper changes E.count 0 to 5; EPOLLIN callback links I to EP.rdllist and wakes parent"
-delivery_result = "events[0]={EPOLLIN,data=0xEFD6}; epoll_wait returns 1"
-final_result = "fd 6/7 open; E.count=5; level-triggered I remains in EP.rdllist"
-
-[completed_epoll_cleanup_scenario]
-name = "consume eventfd readiness, remove stale-ready item, delete registration and close both files"
-status = "complete"
-userspace_calls = "read(6,&value,8); epoll_wait(7,events2,1,0); epoll_ctl(7,DEL,6,NULL); close(6); close(7)"
-read_result = "value=5; read returns 8; E.count changes 5 to 0; unmatched EPOLLOUT wake leaves I temporarily ready"
-stale_result = "zero-time epoll_wait re-polls eventfd, removes I from ready list and returns 0"
-delete_result = "P synchronously removed/freed; F6.f_ep cleared; I erased and kfree_rcu queued; EP.refcount 2 to 1"
-close_result = "eventfd ctx/file and eventpoll file released; EP refcount 1 to 0 and kfree_rcu queued"
-final_result = "parent CPL3 after close(7) returns 0; fd 6/7 closed; I and EP no longer accessible"
-
-[completed_signalfd_scenario]
-name = "blocked thread-directed SIGUSR1 delivered through signalfd and level-triggered epoll"
-status = "complete"
-userspace_calls = "signalfd4(-1,mask(SIGUSR1),SFD_CLOEXEC); epoll_create1; epoll_ctl ADD; epoll_wait; helper tgkill; read signalfd"
-registration_result = "signalfd fd 6 and epoll fd 7 open; callback P attached to shared sighand signalfd wait queue; EP.rbr contains I"
-block_result = "parent stack waiter W sleeps exclusively on EP.wq while callback P remains non-exclusive on signalfd_wqh"
-signal_result = "helper queues SI_TKILL SIGUSR1 in parent private pending; signalfd_notify NULL-key callback queues I and wakes parent"
-epoll_result = "parent re-polls signalfd, receives events[0]={EPOLLIN,data=0x51FD6}, and epoll_wait returns 1"
-read_result = "read returns 128; ssi_signo=SIGUSR1; ssi_code=SI_TKILL; ssi_pid=shared TGID; pending signal consumed"
-final_result = "fd 6/7 and registration remain active; no pending SIGUSR1; level-triggered I remains stale-ready in EP.rdllist"
-
-[completed_signalfd_cleanup_scenario]
-name = "remove signalfd stale-ready state, delete registration and close signalfd/eventpoll"
-status = "complete"
-userspace_calls = "epoll_wait(7,events2,1,0); epoll_ctl(7,DEL,6,NULL); close(6); close(7)"
-stale_result = "zero-time epoll_wait re-polls empty pending queues, removes I from ready list and returns 0"
-delete_result = "P synchronously removed from shared signalfd_wqh; F6.f_ep cleared; I erased and kfree_rcu queued; EP.refcount 2 to 1"
-signalfd_close_result = "S and F6 freed; shared sighand and signalfd_wqh remain active; blocked SIGUSR1 mask unchanged"
-epoll_close_result = "empty EP drains; refcount 1 to 0; EP and F7 end lifetime through kfree_rcu and generic file teardown"
-final_result = "parent CPL3 after close(7) returns 0; fd 6/7 closed; no pending SIGUSR1; shared sighand wait queue remains"
-
-[completed_timerfd_scenario]
-name = "one-shot monotonic timerfd delivered through local APIC hrtimer and level-triggered epoll"
-status = "complete"
-userspace_calls = "timerfd_create(CLOCK_MONOTONIC,TFD_CLOEXEC); timerfd_settime(relative 20ms one-shot); epoll_create1; epoll_ctl ADD; epoll_wait; read timerfd"
-registration_result = "timerfd fd 6 and epoll fd 7 open; callback P attached to T.wqh; EP.rbr contains I; ready list initially empty"
-block_result = "parent stack waiter W sleeps exclusively on EP.wq while CPU0 enters idle"
-interrupt_result = "LAPIC vector enters hrtimer_interrupt; timerfd_tmrproc changes expired 0 to 1 and ticks 0 to 1"
-wake_result = "EPOLLIN callback queues I, wakes W, and parent becomes runnable; one-shot hrtimer stays inactive"
-epoll_result = "parent re-polls timerfd, receives events[0]={EPOLLIN,data=0x71FD6}, and epoll_wait returns 1"
-read_result = "read returns 8; userspace expiration count is 1; T.expired and T.ticks return to zero; no periodic restart"
-final_result = "fd 6/7 and registration remain active; embedded hrtimer inactive; level-triggered I remains stale-ready in EP.rdllist"
-
-[completed_timerfd_cleanup_scenario]
-name = "remove timerfd stale-ready state, delete registration and close timerfd/eventpoll"
-status = "complete"
-userspace_calls = "epoll_wait(7,events2,1,0); epoll_ctl(7,DEL,6,NULL); close(6); close(7)"
-stale_result = "zero-time epoll_wait re-polls T.ticks=0, removes I from ready list and returns 0"
-delete_result = "P synchronously removed from T.wqh; F6.f_ep cleared; I erased and kfree_rcu queued; EP.refcount 2 to 1"
-timerfd_close_result = "inactive hrtimer cancel returns 0; T and F6 end lifetime; T storage uses kfree_rcu"
-epoll_close_result = "empty EP drains; refcount 1 to 0; EP and F7 end lifetime through kfree_rcu and generic file teardown"
-final_result = "parent CPL3 after close(7) returns 0; fd 6/7 closed; I, T and EP no longer accessible"
 
 [completed_pidfd_scenario]
 name = "pidfs-backed pidfd observes child exit through epoll and waitid P_PIDFD reaps it"
 status = "complete"
-userspace_calls = "pidfd_open(C,0); epoll_create1; epoll_ctl ADD; epoll_wait; child _exit(42); waitid(P_PIDFD,6,&si,WEXITED,NULL)"
-registration_result = "pidfd fd 6 and epoll fd 7 open; pidfs inode N pins struct pid P; callback CB attaches to P.wait_pidfd; EP.rbr contains I"
-exit_result = "child becomes EXIT_ZOMBIE; do_notify_pidfd sends EPOLLIN|EPOLLRDNORM; CB queues I and wakes parent"
-epoll_result = "parent re-polls zombie child, receives events[0]={EPOLLIN,data=0x50494436}, and epoll_wait returns 1"
-wait_result = "waitid returns 0; siginfo reports SIGCHLD, CLD_EXITED, old PID C and status 42; child transitions EXIT_ZOMBIE to EXIT_DEAD and is reaped"
-final_result = "numeric PID C is reusable; fd 6/7 and registration remain active; old P stays alive through pidfs inode; I remains ready and next poll includes EPOLLHUP"
+result = "epoll_wait returns EPOLLIN; waitid returns CLD_EXITED/status 42; child reaped; numeric PID reusable while pidfd remains open"
+
+[completed_pidfd_cleanup_scenario]
+name = "post-reap HUP delivery, registration deletion and pidfd/eventpoll final teardown"
+status = "complete"
+userspace_calls = "epoll_wait(7,events2,1,0); epoll_ctl(7,DEL,6,NULL); close(6); close(7)"
+epoll_result = "returns 1 with EPOLLIN|EPOLLHUP and data 0x50494436; level item requeues"
+delete_result = "callback removed synchronously; epitem erased and kfree_rcu queued; eventpoll refcount 2 to 1"
+pidfd_close_result = "pidfs dentry pruned, inode evicted, old pid refs and exit metadata released"
+epoll_close_result = "empty eventpoll refcount 1 to 0; eventpoll storage kfree_rcu"
+final_result = "fd 6/7 closed; child and old pid identity inaccessible; global pidfs and anon_inodefs remain"
 
 [current]
-last_complete = "LK-PIDFD-154"
-executor = "parent after successful waitid P_PIDFD reaped child"
+last_complete = "LK-PIDFDCLOSE-157"
+executor = "parent after successful pidfd and eventpoll final closes"
 cpu_mode = "x86-64 CPL 3 on CPU0"
-paging = "parent mm remains active; epoll event and waitid siginfo remain in userspace memory"
-interrupts = "normal userspace runtime state"
-current_task = "SCHED_NORMAL parent; child task reaped; numeric PID reusable"
+current_task = "SCHED_NORMAL parent; child absent; numeric PID reusable"
 next_entry = "unselected runtime scenario"
-next_action = "preferred next path is post-reap pidfd EPOLLHUP delivery, EPOLL_CTL_DEL, pidfd close and eventpoll close"
+next_action = "preferred next path is inotify plus epoll observing ext4 directory create and close-write events"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完整"
