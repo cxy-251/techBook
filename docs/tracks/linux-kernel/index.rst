@@ -84,7 +84,7 @@ Linux Kernel
 #. `第七十六章：page cache miss 怎样让 ext4 构造并提交 READ bio？ <76-filemap-miss-builds-ext4-read-bio.rst>`_
 #. `第七十七章：READ bio 怎样通过校验与分区重映射进入 blk-mq？ <77-read-bio-enters-generic-block-submission.rst>`_
 #. `第七十八章：blk-mq 怎样把 bio 变成 SCSI READ request？ <78-blk-mq-builds-scsi-read-request.rst>`_
-#. `第七十九章：SCSI READ 怎样变成 ATA taskfile并写入 AHCI command slot？ <79-scsi-read-becomes-ahci-command.rst>`_
+#. `第七十九章：SCSI READ 怎样变成 ATA taskfile 并写入 AHCI command slot？ <79-scsi-read-becomes-ahci-command.rst>`_
 #. `第八十章：AHCI 中断怎样确认完成的 tag，并把结果交回 SCSI？ <80-ahci-interrupt-completes-ata-and-scsi-command.rst>`_
 #. `第八十一章：blk-mq completion 怎样结束 bio，并让 ext4 folio 变成 uptodate？ <81-block-completion-marks-ext4-folio-uptodate.rst>`_
 #. `第八十二章：reader task 怎样复制 folio，并让 read() 返回用户态？ <82-reader-copies-folio-and-returns-from-read.rst>`_
@@ -142,6 +142,9 @@ Linux Kernel
 #. `第一百三十四章：epoll_ctl(ADD) 怎样把eventfd callback挂进wait queue？ <134-epoll-add-attaches-eventfd-callback.rst>`_
 #. `第一百三十五章：epoll_wait() 怎样把parent挂到eventpoll自己的wait queue？ <135-epoll-wait-blocks-on-eventpoll-wq.rst>`_
 #. `第一百三十六章：eventfd write怎样触发epoll callback并让epoll_wait返回1？ <136-eventfd-write-wakes-epoll-and-delivers-level-event.rst>`_
+#. `第一百三十七章：eventfd read() 怎样清零counter却暂时留下ready epitem？ <137-eventfd-read-clears-count-but-leaves-ready-item.rst>`_
+#. `第一百三十八章：零超时epoll_wait() 怎样重新poll并清理stale-ready item？ <138-zero-time-epoll-wait-removes-stale-ready-item.rst>`_
+#. `第一百三十九章：EPOLL_CTL_DEL与close()怎样拆除callback并释放eventfd/eventpoll？ <139-epoll-del-and-final-close-free-eventfd-eventpoll.rst>`_
 
 当前主线
 --------
@@ -158,19 +161,18 @@ Linux Kernel
    → anonymous pipe lifecycle complete
    → private futex wait/wake complete
    → eventfd read/wake and final close complete
-   → new eventfd fd 6 and eventpoll fd 7 created
-   → epoll_ctl ADD installs callback P on E.wqh
-   → epitem I enters EP.rbr while EP.rdllist remains empty
-   → parent blocks exclusively on EP.wq in epoll_wait
-   → helper writes u64 5 and E.count becomes 5
-   → ep_poll_callback links I to EP.rdllist and wakes parent
-   → parent re-polls eventfd and receives EPOLLIN with data 0xEFD6
-   → epoll_wait returns 1
-   → level-triggered I remains ready because counter is still 5
+   → level-triggered eventfd epoll registration and first delivery complete
+   → parent reads eventfd count 5 and clears readiness
+   → EPOLLOUT callback does not match EPOLLIN interest
+   → zero-time epoll_wait re-polls and removes stale-ready membership
+   → EPOLL_CTL_DEL removes callback and epitem relationship
+   → close(6) releases eventfd ctx/file
+   → close(7) releases eventpoll file and ends EP through kfree_rcu
+   → parent CPL3 with close RAX=0 and fd 6/7 closed
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-当前十七个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``、新文件首次delalloc write + fsync、open-unlinked文件的final close/eviction、自然到期monotonic nanosleep、``SIGUSR1`` 中断nanosleep与 ``rt_sigreturn``、anonymous pipe读写与final teardown、private futex wait/wake、eventfd counter blocking read/writer wakeup、eventfd final close，以及eventfd level-triggered epoll callback/wait delivery。下一条runtime主线尚未选择。
+当前十八个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``、新文件首次delalloc write + fsync、open-unlinked文件的final close/eviction、自然到期monotonic nanosleep、``SIGUSR1`` 中断nanosleep与 ``rt_sigreturn``、anonymous pipe读写与final teardown、private futex wait/wake、eventfd counter blocking read/writer wakeup、eventfd final close、eventfd level-triggered epoll callback/wait delivery，以及eventfd/epoll stale-ready cleanup、registration deletion与final teardown。下一条runtime主线尚未选择。
 
 章节组织
 --------
