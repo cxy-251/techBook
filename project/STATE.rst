@@ -31,12 +31,13 @@
    LK-PIPECLOSE-122..LK-PIPECLOSE-124
    LK-FUTEX-125..LK-FUTEX-127
    LK-EVENTFD-128..LK-EVENTFD-130
+   LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133
 
 最新三章：
 
-#. ``LK-EVENTFD-128``：eventfd2() 怎样建立counter并发布fd 6？
-#. ``LK-EVENTFD-129``：eventfd read() 怎样在counter为0时进入locked wait queue？
-#. ``LK-EVENTFD-130``：eventfd write() 怎样唤醒reader并让read()返回counter？
+#. ``LK-EVENTFDCLOSE-131``：close(6) 怎样撤销eventfd fd并同步进入最后一次__fput()？
+#. ``LK-EVENTFDCLOSE-132``：eventfd_release() 怎样发送EPOLLHUP并释放eventfd_ctx？
+#. ``LK-EVENTFDCLOSE-133``：__fput() 怎样释放anon-inode path并让close()返回0？
 
 固定来源
 --------
@@ -66,141 +67,144 @@
 #. anonymous pipe blocking read与writer wakeup；
 #. pipe write-end close、EOF与final teardown；
 #. private futex wait/release-store/wake；
-#. eventfd counter blocking read与writer wakeup。
+#. eventfd counter blocking read与writer wakeup；
+#. eventfd final close、HUP wake与anon-inode file teardown。
 
 本批固定场景
 ------------
 
 ::
 
-   runtime relation    = independent scenario
+   runtime relation    = continuation of LK-EVENTFD-128..130
    CPUs online         = CPU0 only
    process             = parent + helper threads, same TGID
    files table         = shared through CLONE_FILES
    scheduling          = both SCHED_NORMAL
-   occupied fds        = 0..5
-   create call         = eventfd2(0, EFD_CLOEXEC)
-   returned fd         = 6
-   access mode         = O_RDWR
-   nonblocking         = disabled
+   current executor    = parent
+   close call          = parent close(6)
+   fd 6                = unique eventfd file reference
+   file mode           = O_RDWR, blocking, close-on-exec
+   eventfd count       = 0
    semaphore mode      = disabled
-   initial counter     = 0
-   reader call         = parent read(6, &value, 8)
-   writer call         = helper write(6, &three, 8), three=3
-   wait entry          = non-exclusive TASK_INTERRUPTIBLE
-   signal state        = none pending
-   scheduler order     = parent blocks; helper writes and blocks outside eventfd; parent resumes
-   failure policy      = no allocation, fd, copy, signal or scheduler failure
+   ctx kref            = 1
+   internal id         = valid non-negative eventfd_ida allocation
+   wait queue          = empty
+   poll/epoll          = no registration or callback
+   extra ctx refs      = none
+   in-flight fd refs   = none
+   helper              = blocked outside eventfd
+   global anon inode   = singleton anon_inode_inode remains active
+   failure policy      = no close, VFS, dcache, mount or allocator failure
 
 完整控制流
 ----------
 
 ::
 
-   parent eventfd2(0, EFD_CLOEXEC)
-   → __x64_sys_eventfd2 / do_eventfd
-   → allocate eventfd_ctx E
-   → kref_init, init_waitqueue_head
-   → E.count=0, E.flags=EFD_CLOEXEC
-   → anon_inode_getfile_fmode("[eventfd]", eventfd_fops, E, O_RDWR, FMODE_NOWAIT)
-   → reserve fd 6 and set close-on-exec
-   → publish fd 6 into shared files_struct
-   → parent returns CPL3 with RAX=6
-
-   parent read(6, &value, 8)
-   → ksys_read / vfs_read / new_sync_read
-   → eventfd_read
-   → lock E.wqh.lock with local IRQ disabled
-   → count==0, blocking mode
-   → wait_event_interruptible_locked_irq(E.wqh, E.count)
-   → stack wait entry, non-exclusive
-   → parent TASK_INTERRUPTIBLE
-   → unlock E.wqh.lock and enable IRQ
-   → schedule / __schedule
-   → parent leaves CPU0 and helper runs
-
-   helper write(6, &three, 8)
-   → ksys_write / vfs_write / eventfd_write
-   → copy userspace u64 value 3
-   → lock E.wqh.lock with local IRQ disabled
-   → E.count 0 -> 3
-   → wake_up_locked_poll(E.wqh, EPOLLIN)
-   → parent TASK_RUNNING and enqueued on CPU0
-   → unlock E.wqh.lock and enable IRQ
-   → helper write returns 8
-   → helper blocks outside eventfd
-
-   scheduler restores parent original read stack
-   → do_wait_intr_irq returns from schedule
-   → reacquire E.wqh.lock with IRQ disabled
-   → condition E.count!=0 is true
-   → remove parent wait entry
-   → eventfd_ctx_do_read
-   → non-semaphore read returns entire count 3
-   → E.count 3 -> 0
-   → no actual EPOLLOUT waiter
-   → unlock E.wqh.lock and enable IRQ
-   → copy u64 value 3 to userspace
-   → parent read returns 8
+   parent close(6)
+   → entry_SYSCALL_64 / do_syscall_64 / __x64_sys_close
+   → file_close_fd(6)
+   → lock shared files->file_lock
+   → fdt->fd[6] = NULL
+   → clear open_fds bit and close_on_exec bit
+   → update next_fd
+   → unlock files->file_lock
+   → fd 6 becomes unavailable to parent and helper
+   → filp_flush(eventfd file F) returns 0
+   → fput_close_sync(F)
+   → file_ref_put_close consumes final file reference
+   → synchronous __fput(F)
+   → fsnotify_close / eventpoll_release / locks / security cleanup
+   → no epoll link, lock or FASYNC state
+   → eventfd_release(inode, F)
+   → wake_up_poll(E.wqh, EPOLLHUP)
+   → lock E.wqh.lock and scan empty queue
+   → zero task or epoll callback awakened
+   → eventfd_ctx_put(E)
+   → E.kref 1 -> 0
+   → eventfd_free / eventfd_free_ctx
+   → ida_free(E.id)
+   → kfree(E)
+   → eventfd count, flags, id and wait queue cease to exist
+   → return to __fput
+   → fops_put / file owner / access cleanup
+   → dput per-file [eventfd] pseudo dentry
+   → drop this dentry's singleton anon-inode reference
+   → singleton anon_inode_inode remains active
+   → mntput per-file anon_inode_mnt reference
+   → global anon_inode_mnt remains mounted
+   → file_free(F)
+   → fput_close_sync returns
+   → close uses filp_flush retval 0
+   → parent returns CPL3 with RAX=0
 
 当前精确状态
 ------------
 
 * ``system_state``：``SYSTEM_RUNNING``；
-* runtime scenario：eventfd counter blocking read/writer wakeup complete；
+* runtime scenario：eventfd final close complete；
 * current executor：parent；
 * CPU：CPU0；
 * CPU mode：x86-64 CPL 3；
 * scheduling class：``SCHED_NORMAL``；
 * parent state：``TASK_RUNNING``；
-* parent ``on_rq=1``、``on_cpu=1``；
-* parent read result/RAX：8；
-* parent userspace ``value``：3；
-* helper write result：8；
-* helper：阻塞在eventfd之外；
-* shared fd 6：open、close-on-exec；
-* eventfd file：``O_RDWR``、blocking；
-* eventfd ctx E：仍active；
-* E ``count``：0；
-* E semaphore mode：disabled；
-* E wait queue：没有本次waiter；
-* E waitqueue spinlock：unlocked；
-* parent栈上wait entry：生命周期结束；
-* anon-inode pseudo file：仍由fd 6引用；
+* parent ``on_rq=1``、 ``on_cpu=1``；
+* final syscall：``close(6)``；
+* final result/RAX：0；
+* userspace RIP：close syscall之后的下一条指令；
+* shared fd 6：closed and unallocated；
+* fd 6 open bit：cleared；
+* fd 6 close-on-exec bit：cleared；
+* helper：仍阻塞在eventfd之外；
+* eventfd file ``F``：freed；
+* eventfd ctx ``E``：freed；
+* eventfd internal id：returned to ``eventfd_ida``；
+* eventfd counter、flags与wait queue：对象已不存在；
+* HUP wake callbacks/tasks：0；
+* ``[eventfd]`` pseudo dentry：已失去最后活动引用；
+* singleton ``anon_inode_inode``：仍active；
+* global ``anon_inode_mnt``：仍mounted；
+* per-file anon-inode mount reference：released；
+* shared ``files_struct``：仍active，fd 0..5保持原状；
+* task_work/delayed_fput：未使用；
 * filesystem/block I/O：none；
 * next runtime scenario：unselected。
 
 关键边界
 --------
 
-#. eventfd用一个 ``O_RDWR`` fd同时完成read与write。
-#. counter和wait queue由 ``ctx->wqh.lock`` 同时保护。
-#. ``EFD_CLOEXEC`` 设置fdtable close-on-exec bit，不启用nonblocking。
-#. eventfd read/write都要求8字节用户对象。
-#. count为0且blocking时，reader使用non-exclusive locked wait entry。
-#. locked wait在睡眠前释放waitqueue lock并重新打开本地IRQ。
-#. writer先在锁内增加counter，再执行wake。
-#. wake只让reader runnable，不直接执行read后半段。
-#. 非semaphore模式read取得整个counter并清零。
-#. read返回8是字节数，counter值3写入用户buffer。
-#. read完成不会自动close fd或释放eventfd ctx。
-#. anon-inode eventfd不产生磁盘filesystem、journal或block I/O。
+#. fdtable publication、file reference、ctx kref和path reference是四套不同lifetime。
+#. ``file_close_fd`` 撤销共享fd 6，但当前close仍持有转交出来的file reference。
+#. ``EFD_CLOEXEC`` 只属于fdtable bookkeeping，显式close时与open bit一起清理。
+#. ``fput_close_sync`` 保证final ``__fput`` 在close返回前同步完成。
+#. ``eventpoll_release`` 位于file-specific ``release`` 之前。
+#. ``wake_up_poll(EPOLLHUP)`` 的HUP是wake key；空queue时不会产生实际observer。
+#. eventfd使用 ``wake_up_poll``，不是 ``wake_up_pollfree``。
+#. ctx kref与file refcount互相独立；无额外ctx引用时kref从1直接到0。
+#. eventfd internal id与userspace fd number属于不同编号空间。
+#. ``kfree(E)`` 之后不能再读取counter或wait queue状态。
+#. ``release`` callback返回值不会覆盖close retval；close结果来自 ``filp_flush``。
+#. 普通eventfd复用singleton anon inode，不拥有独立inode。
+#. ``dput`` 结束per-file pseudo dentry，不释放全局singleton inode。
+#. ``mntput`` 归还per-file mount reference，不卸载全局anon_inodefs。
+#. anonymous inode file teardown不产生磁盘I/O、journal或writeback。
 
 下一任务
 --------
 
-当前没有已选定场景。优先候选是eventfd final close：
+当前没有已选定场景。优先候选是用epoll实际观察eventfd wake：
 
 ::
 
-   parent close(6)
-   → remove shared fd publication
-   → fput_close_sync / final __fput
-   → eventfd_release
-   → wake poll waiters with EPOLLHUP
-   → eventfd_ctx_put
-   → ctx kref reaches zero
-   → free eventfd id and eventfd_ctx
-   → release anon-inode file/path
+   eventfd2(0, EFD_CLOEXEC) -> fd 6
+   epoll_create1(EPOLL_CLOEXEC) -> fd 7
+   epoll_ctl(7, EPOLL_CTL_ADD, 6, EPOLLIN)
+   → eventpoll item attaches callback to eventfd wait queue
+   parent epoll_wait(7, events, 1, -1)
+   → parent blocks on eventpoll wait queue
+   helper write(6, u64 5)
+   → eventfd EPOLLIN callback marks item ready
+   → wake parent
+   → epoll_wait copies one event to userspace
 
-开始前必须固定是否存在poll/epoll引用、额外 ``eventfd_ctx_fdget`` 引用、close执行线程、waiter状态与最终file/path引用顺序。
+开始前必须固定event mask、level/edge trigger mode、event data、epoll exclusive flag、fd references、callback顺序、ready-list状态与scheduler顺序。
