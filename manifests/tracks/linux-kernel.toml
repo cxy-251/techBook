@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103"
+completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
@@ -72,6 +72,17 @@ signal_result = "SIGCHLD with CLD_EXITED and si_status=42; wait_chldexit wakes p
 resource_result = "child mm/files/fs released before zombie publication"
 reap_result = "parent changes EXIT_ZOMBIE to EXIT_DEAD, collects rusage, calls release_task, and returns child PID"
 final_result = "parent CPL3; WIFEXITED true; WEXITSTATUS 42; child no longer process/PID visible"
+
+[completed_open_scenario]
+name = "ext4 openat exclusive create"
+status = "complete"
+userspace_call = "openat(AT_FDCWD, /work/demo.txt, O_CREAT|O_EXCL|O_WRONLY, 0644)"
+fd_state = "fd 0..5 occupied; fd 6 reserved before pathname lookup and published after file open; O_CLOEXEC absent"
+lookup = "absolute cached path to /work; target absent from dcache and cached ext4 directory block; locked final lookup produces negative dentry"
+create = "JBD2 metadata handle allocates inode bitmap bit, updates group descriptor and inode table, writes directory entry, and instantiates positive dentry"
+file = "ext4 regular 0644; nlink=1; size=0; data blocks=0; write-only struct file with f_pos=0"
+durability = "metadata attached to JBD2 transaction; no sync policy or fsync, so openat return does not guarantee commit durability"
+result = "parent CPL3 with RAX=6; fd 6 points to opened /work/demo.txt"
 
 [[chapter]]
 id = "LK-READ-074"
@@ -259,15 +270,39 @@ status = "complete"
 start = "parent resumes do_wait after wait_chldexit wakeup"
 end = "parent CPL3 receives child PID, status 0x2a00 and rusage; child process/PID relations are released"
 
+[[chapter]]
+id = "LK-OPEN-104"
+title = "openat() 怎样保留 fd 并把 /work/demo.txt 解析成 negative dentry？"
+rst = "docs/tracks/linux-kernel/104-openat-resolves-negative-dentry.rst"
+status = "complete"
+start = "parent executes native openat with O_CREAT|O_EXCL|O_WRONLY"
+end = "fd 6 is reserved and locked final lookup has produced a negative ext4 dentry"
+
+[[chapter]]
+id = "LK-OPEN-105"
+title = "ext4_create() 怎样分配 inode 并把 demo.txt 写进目录？"
+rst = "docs/tracks/linux-kernel/105-ext4-create-allocates-inode-and-dirent.rst"
+status = "complete"
+start = "ext4_create begins with parent directory locked and target dentry negative"
+end = "positive dentry and size-zero inode exist; create metadata is attached to JBD2 transaction"
+
+[[chapter]]
+id = "LK-OPEN-106"
+title = "VFS 怎样打开新 inode、发布 fd 6 并让 openat() 返回？"
+rst = "docs/tracks/linux-kernel/106-vfs-opens-and-publishes-new-fd.rst"
+status = "complete"
+start = "lookup_open returns the created positive dentry"
+end = "parent CPL3 receives fd 6 for the opened size-zero ext4 file"
+
 [current]
-last_complete = "LK-EXIT-103"
-executor = "parent after successful wait4 return"
+last_complete = "LK-OPEN-106"
+executor = "parent after successful openat create-open"
 cpu_mode = "x86-64 CPL 3"
-paging = "parent mm remains active; child mm has been released"
+paging = "parent mm remains active"
 interrupts = "normal userspace runtime state"
-current_task = "parent executing after wait4 with child PID return value"
+current_task = "parent holds fd 6 for /work/demo.txt; file size is zero and no data block is allocated"
 next_entry = "unselected runtime scenario"
-next_action = "choose a new deterministic runtime scenario and fix its userspace entry, object state, concurrency, cache state and failure policy"
+next_action = "preferred next path is first buffered write to fd 6 followed by fsync, covering delayed allocation, first extent allocation, data writeback and metadata durability"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完整"
