@@ -89,7 +89,7 @@ Linux Kernel
 #. `第八十一章：blk-mq completion 怎样结束 bio，并让 ext4 folio 变成 uptodate？ <81-block-completion-marks-ext4-folio-uptodate.rst>`_
 #. `第八十二章：reader task 怎样复制 folio，并让 read() 返回用户态？ <82-reader-copies-folio-and-returns-from-read.rst>`_
 #. `第八十三章：x86-64 的 write() 怎样进入 ext4 buffered write？ <83-x86-write-enters-ext4-buffered-path.rst>`_
-#. `第八十四章：ext4 怎样把用户数据复制进 page-cache folio 并标脏？ <84-ext4-copies-user-data-into-dirty-folio.rst>`_
+#. `第八十四章：ext4 怎样把用户数据复制进 page-cache folio并标脏？ <84-ext4-copies-user-data-into-dirty-folio.rst>`_
 #. `第八十五章：O_SYNC write 怎样进入 ext4 writeback？ <85-osync-write-enters-ext4-writeback.rst>`_
 #. `第八十六章：ext4 writeback 怎样把 dirty folio 变成 WRITE bio？ <86-ext4-writeback-builds-write-bio.rst>`_
 #. `第八十七章：WRITE bio 怎样变成 AHCI command 并写入 PxCI？ <87-write-bio-becomes-ahci-command.rst>`_
@@ -106,6 +106,9 @@ Linux Kernel
 #. `第九十八章：x86-64 的 execve() 怎样打开静态 ELF 并进入 load_elf_binary()？ <98-execve-opens-static-elf.rst>`_
 #. `第九十九章：begin_new_exec() 怎样替换旧 mm 并建立静态 ELF 映射？ <99-begin-new-exec-replaces-mm-and-maps-elf.rst>`_
 #. `第一百章：start_thread() 怎样让 execve 进入新静态 ELF 的第一条指令？ <100-exec-enters-new-static-elf-image.rst>`_
+#. `第一百零一章：_exit(42) 怎样进入 do_exit() 并释放进程运行资源？ <101-child-exit-tears-down-runtime-resources.rst>`_
+#. `第一百零二章：exit_notify() 怎样发送 SIGCHLD、唤醒 parent 并留下 zombie？ <102-exit-notify-wakes-parent-and-leaves-zombie.rst>`_
+#. `第一百零三章：parent 的 wait4() 怎样读取 status 并最终回收 child？ <103-parent-wait4-reaps-child.rst>`_
 
 当前主线
 --------
@@ -119,22 +122,21 @@ Linux Kernel
    → O_SYNC write(fd, buf, 4096) complete
    → native fork() complete
    → child COW write fault complete
-   → child execve("/bin/static-demo", argv, envp)
-   → open executable / copy argv and envp into bprm mm
-   → search_binary_handler / load_elf_binary
-   → begin_new_exec / exec_mmap
-   → current task keeps PID and switches to new mm
-   → close-on-exec / signal reset / credential commit
-   → static ET_EXEC PT_LOAD VMAs and user stack
-   → start_thread rewrites pt_regs
-   → syscall exit to new e_entry
-   → cached text minor instruction fault
-   → executable PTE installed
-   → static program executes its first instruction
+   → child static execve complete
+   → parent wait4(child_pid, &status, 0, &rusage) sleeps
+   → child _exit(42)
+   → do_exit / exit_mm / exit_files / exit_fs
+   → exit_notify / EXIT_ZOMBIE
+   → SIGCHLD and wait_chldexit wakeup
+   → parent wait_task_zombie
+   → EXIT_ZOMBIE to EXIT_DEAD
+   → status 0x2a00 / WEXITSTATUS 42
+   → release_task / PID unlink
+   → parent returns child PID
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-当前五个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault和static ``execve()``。下一条runtime主线尚未选择。
+当前六个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``，以及child exit + parent wait/reap。下一条runtime主线尚未选择。
 
 章节组织
 --------
