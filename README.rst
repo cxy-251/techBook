@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第一百一十三章：clock_nanosleep() 怎样建立 hrtimer 并让 parent 阻塞？ <docs/tracks/linux-kernel/113-clock-nanosleep-arms-hrtimer-and-blocks-parent.rst>`_
-* `第一百一十四章：local APIC timer interrupt 怎样运行 hrtimer callback 并唤醒 parent？ <docs/tracks/linux-kernel/114-lapic-timer-interrupt-wakes-sleeping-parent.rst>`_
-* `第一百一十五章：scheduler 怎样恢复 parent，并让 clock_nanosleep() 返回 0？ <docs/tracks/linux-kernel/115-scheduler-resumes-parent-and-nanosleep-returns.rst>`_
+* `第一百一十六章：tgkill() 怎样排入 SIGUSR1 并唤醒 nanosleep 中的 parent？ <docs/tracks/linux-kernel/116-tgkill-wakes-interruptible-nanosleep.rst>`_
+* `第一百一十七章：parent 怎样取消 hrtimer、写回 remaining 并进入 SIGUSR1 handler？ <docs/tracks/linux-kernel/117-nanosleep-cancels-timer-and-builds-signal-frame.rst>`_
+* `第一百一十八章：rt_sigreturn() 怎样恢复被 SIGUSR1 中断的 clock_nanosleep 上下文？ <docs/tracks/linux-kernel/118-rt-sigreturn-restores-interrupted-nanosleep.rst>`_
 
 固定来源
 --------
@@ -35,24 +35,26 @@ techBook
    LK-DELALLOC-107..LK-DELALLOC-109
    LK-UNLINK-110..LK-UNLINK-112
    LK-SLEEP-113..LK-SLEEP-115
+   LK-SIGNAL-116..LK-SIGNAL-118
 
 最新场景
 --------
 
 ::
 
-   clock_nanosleep(CLOCK_MONOTONIC, 0, {0, 10ms}, NULL)
-   → create on-stack hrtimer_sleeper
-   → enqueue CPU0 monotonic hrtimer
-   → program local APIC TSC deadline
-   → parent TASK_INTERRUPTIBLE and schedule to idle/0
-   → LOCAL_TIMER_VECTOR
-   → hrtimer_interrupt / hrtimer_wakeup
-   → try_to_wake_up(parent)
-   → scheduler restores parent kernel stack
-   → clock_nanosleep returns userspace RAX=0
+   parent clock_nanosleep(CLOCK_MONOTONIC, 0, {0,10ms}, &remaining)
+   → helper tgkill(P, P, SIGUSR1) at T0+4ms
+   → signal_wake_up / try_to_wake_up(parent)
+   → parent resumes original do_nanosleep stack
+   → cancel still-active hrtimer
+   → copy positive remaining time
+   → -ERESTART_RESTARTBLOCK becomes -EINTR
+   → x64 rt signal frame and SIGUSR1 handler
+   → __restore_rt / rt_sigreturn
+   → restore original mask, registers and FPU state
+   → raw userspace RAX = -EINTR
 
-固定timer slack为0、只有CPU0 online、没有signal或其他runnable task。monotonic elapsed不早于10 ms；sleep completion不进入restart或remaining-time copyout。
+固定只有CPU0 online，handler使用 ``SA_SIGINFO | SA_RESTORER``，没有 ``SA_RESTART``、``SA_NODEFER`` 或alternate stack。原sleep timer没有到期，remaining满足 ``0 < remaining < 6 ms``。
 
 开始工作
 --------
