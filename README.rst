@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第一百二十二章：close(7) 怎样撤销 write end 并把 writers 降为 0？ <docs/tracks/linux-kernel/122-close-write-end-drops-pipe-writers.rst>`_
-* `第一百二十三章：空管道在 writers=0 时，read() 为什么直接返回 EOF？ <docs/tracks/linux-kernel/123-empty-pipe-without-writers-returns-eof.rst>`_
-* `第一百二十四章：最后一次 close(6) 怎样释放pipe page、ring与pseudo inode？ <docs/tracks/linux-kernel/124-final-read-end-close-frees-pipe.rst>`_
+* `第一百二十五章：FUTEX_WAIT_PRIVATE 怎样建立private key并把parent排入hash bucket？ <docs/tracks/linux-kernel/125-futex-wait-private-enqueues-parent.rst>`_
+* `第一百二十六章：FUTEX_WAKE_PRIVATE 怎样移除waiter并把parent放回runqueue？ <docs/tracks/linux-kernel/126-futex-wake-private-dequeues-and-wakes-parent.rst>`_
+* `第一百二十七章：parent 被唤醒后，futex_wait 为什么返回0却不自动重读用户字？ <docs/tracks/linux-kernel/127-futex-wait-returns-without-rechecking-user-word.rst>`_
 
 固定来源
 --------
@@ -38,25 +38,25 @@ techBook
    LK-SIGNAL-116..LK-SIGNAL-118
    LK-PIPE-119..LK-PIPE-121
    LK-PIPECLOSE-122..LK-PIPECLOSE-124
+   LK-FUTEX-125..LK-FUTEX-127
 
 最新场景
 --------
 
 ::
 
-   helper close(7)
-   → remove write fd from shared files_struct
-   → fput_close_sync / pipe_release
-   → writers 1 → 0, files 2 → 1
-   → parent read(6, eofbuf, 5)
-   → empty ring + writers=0
-   → return EOF, RAX=0, no wait and no copy
-   → parent close(6)
-   → readers 1 → 0, files 1 → 0
-   → free cached page Q, 16-slot ring and pipe_inode_info
-   → release final pseudo dentry/inode references
+   private atomic user word U = 0
+   → parent FUTEX_WAIT_PRIVATE expected=0
+   → build key from shared mm + virtual page base + page offset
+   → enqueue stack futex_q in per-mm hash bucket H
+   → parent TASK_INTERRUPTIBLE and schedules out
+   → helper release-store U=1
+   → helper FUTEX_WAKE_PRIVATE nr=1
+   → remove q, set q.lock_ptr=NULL and wake parent
+   → helper returns 1
+   → parent resumes original futex stack and returns 0
 
-最终fd 6/7均已关闭，anonymous pipe不再可访问；page Q已归还page allocator。pseudo dentry/inode已退出活动对象图，底层slab memory可按VFS/RCU规则延后回收。
+最终U仍为1，bucket H已没有本次waiter。kernel不会在wake成功后自动重读U；用户代码仍必须在condition loop中执行acquire load并重新判断。
 
 开始工作
 --------
