@@ -31,20 +31,14 @@ Linux Kernel
    → anonymous pipe lifecycle complete
    → private futex wait/wake complete
    → eventfd, signalfd, timerfd, pidfd and inotify eventpoll lifecycles complete
-   → socketpair creates connected AF_UNIX stream fd 6/7
-   → eventpoll fd 8 watches fd 6 for EPOLLIN|EPOLLRDHUP
-   → parent blocks on eventpoll wait queue
-   → helper writes hello through fd 7
-   → one skb enters fd 6 receive queue and wakes parent
-   → epoll_wait delivers EPOLLIN
-   → read(6) consumes 5 bytes and empties the queue
-   → next epoll_wait re-polls and removes stale-ready membership
-   → helper shutdown(7,SHUT_WR)
-   → fd 7 gains SEND_SHUTDOWN and fd 6 gains RCV_SHUTDOWN
-   → socket state-change callback wakes parent
-   → epoll_wait delivers EPOLLIN|EPOLLRDHUP
-   → read(6) returns EOF 0
-   → fd 6/7/8 remain open and registration remains persistent-ready
+   → Unix stream socketpair data and half-close delivery complete
+   → EPOLL_CTL_DEL removes persistent-ready socket callback and epitem
+   → close(6) makes SA orphan/TCP_CLOSE/SHUTDOWN_MASK
+   → peer SB gains full shutdown and HUP semantics
+   → dead SA remains alive through unix_peer(SB)
+   → close(7) clears the final peer pointer and frees SA/SB
+   → close(8) releases empty eventpoll
+   → fd 6/7/8 closed; Unix socketpair lifecycle complete
 
 完成范围
 --------
@@ -79,34 +73,34 @@ Linux Kernel
    LK-INOTIFY-158..LK-INOTIFY-160
    LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163
    LK-UNIXSOCK-164..LK-UNIXSOCK-166
+   LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169
 
 固定commit的 ``Makefile`` 标识为Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定commit为准。
 
 进度
 ----
 
-当前完成166章。项目没有预设固定总章数，也没有固定195章目标。后续按源码主线与必要场景自然推进，因此当前不计算剩余章数。
+当前完成169章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
 
 最新三章
 --------
 
-#. `第一百六十四章：socketpair怎样建立双向Unix stream并让parent阻塞在epoll_wait？ <164-unix-socketpair-registers-with-epoll-and-blocks-parent.rst>`_
-#. `第一百六十五章：helper写入hello时，Unix stream skb怎样唤醒epoll并让read返回5？ <165-unix-stream-write-wakes-epoll-and-read-consumes-skb.rst>`_
-#. `第一百六十六章：shutdown(SHUT_WR)怎样让peer收到EPOLLRDHUP并让read返回EOF？ <166-unix-stream-shutdown-wakes-rdhup-and-read-returns-eof.rst>`_
+#. `第一百六十七章：EPOLL_CTL_DEL怎样从persistent-ready Unix socket拆除callback与epitem？ <167-epoll-del-detaches-unix-socket-callback-and-ready-item.rst>`_
+#. `第一百六十八章：close(6)怎样释放socket A，却让dead SA继续被peer reference保持？ <168-close-first-unix-socket-notifies-peer-and-keeps-dead-socket-referenced.rst>`_
+#. `第一百六十九章：close(7)与close(8)怎样释放两端Unix socket和空eventpoll？ <169-close-second-unix-socket-and-eventpoll-final-teardown.rst>`_
 
 下一候选
 --------
 
 ::
 
-   epoll_ctl(8, EPOLL_CTL_DEL, 6, NULL)
-   → detach socket wait callback and epitem
-   close(6)
-   → release socket A and notify peer B of disconnect
-   close(7)
-   → release socket B and mutual peer references
-   close(8)
-   → release empty eventpoll
+   server socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, 0)
+   → bind(127.0.0.1:fixed_port)
+   → listen(backlog)
+   client socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, 0)
+   → connect(127.0.0.1:fixed_port)
+   → loopback route and TCP SYN/SYN-ACK/ACK processing
+   → accept4 publishes connected server fd
 
 章节组织
 --------
