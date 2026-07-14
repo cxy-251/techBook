@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第一百三十四章：epoll_ctl(ADD) 怎样把eventfd callback挂进wait queue？ <docs/tracks/linux-kernel/134-epoll-add-attaches-eventfd-callback.rst>`_
-* `第一百三十五章：epoll_wait() 怎样把parent挂到eventpoll自己的wait queue？ <docs/tracks/linux-kernel/135-epoll-wait-blocks-on-eventpoll-wq.rst>`_
-* `第一百三十六章：eventfd write怎样触发epoll callback并让epoll_wait返回1？ <docs/tracks/linux-kernel/136-eventfd-write-wakes-epoll-and-delivers-level-event.rst>`_
+* `第一百三十七章：eventfd read() 怎样清零counter却暂时留下ready epitem？ <docs/tracks/linux-kernel/137-eventfd-read-clears-count-but-leaves-ready-item.rst>`_
+* `第一百三十八章：零超时epoll_wait() 怎样重新poll并清理stale-ready item？ <docs/tracks/linux-kernel/138-zero-time-epoll-wait-removes-stale-ready-item.rst>`_
+* `第一百三十九章：EPOLL_CTL_DEL与close()怎样拆除callback并释放eventfd/eventpoll？ <docs/tracks/linux-kernel/139-epoll-del-and-final-close-free-eventfd-eventpoll.rst>`_
 
 固定来源
 --------
@@ -42,24 +42,26 @@ techBook
    LK-EVENTFD-128..LK-EVENTFD-130
    LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133
    LK-EPOLL-134..LK-EPOLL-136
+   LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139
 
 最新场景
 --------
 
 ::
 
-   eventfd2(0, EFD_CLOEXEC) -> fd 6
-   epoll_create1(EPOLL_CLOEXEC) -> fd 7
-   epoll_ctl(7, EPOLL_CTL_ADD, 6, EPOLLIN)
-   → ep_poll_callback entry attaches to eventfd wait queue
-   → parent epoll_wait(7, events, 1, -1)
-   → parent blocks exclusively on eventpoll wait queue
-   → helper writes u64 5 to eventfd
-   → callback adds epitem to ready list and wakes parent
-   → parent receives { EPOLLIN, data=0xEFD6 }
-   → epoll_wait returns 1
+   parent read(6, &value, 8)
+   → eventfd count 5 → 0
+   → EPOLLOUT wake does not match EPOLLIN interest
+   → level-triggered epitem remains temporarily on ready list
+   → epoll_wait(7, events2, 1, 0)
+   → re-poll finds no EPOLLIN
+   → remove stale-ready membership and return 0
+   → epoll_ctl(7, EPOLL_CTL_DEL, 6, NULL)
+   → remove callback and epitem registration
+   → close(6) frees eventfd ctx/file
+   → close(7) ends eventpoll lifetime through kfree_rcu
 
-最终fd 6/7仍打开；eventfd counter为5。level-triggered epitem仍在ready list，因为epoll只报告readiness，没有消费counter。
+最终fd 6/7均已关闭。eventfd ctx与两份anon-inode file/path已释放；callback同步释放，epitem与eventpoll已经退出活动对象图，其storage由RCU grace period后回收。
 
 开始工作
 --------
