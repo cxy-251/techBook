@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112"
+completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
@@ -105,6 +105,16 @@ close_result = "file_close_fd removes fd 6; synchronous final __fput drops the d
 reclaim_result = "clean page cache removed; extent P removed; orphan entry deleted; inode bitmap bit cleared in a JBD2 transaction"
 durability = "close returns without forcing journal commit or device flush; freed block and inode reuse remain transaction-protected until commit"
 final_result = "parent CPL3 with close RAX=0; pathname, fd, dentry, extent and inode are no longer accessible"
+
+[completed_sleep_scenario]
+name = "single-CPU monotonic clock_nanosleep with hrtimer wakeup"
+status = "complete"
+userspace_call = "clock_nanosleep(CLOCK_MONOTONIC, 0, {0,10ms}, NULL)"
+configuration = "CPU0 only; SCHED_NORMAL parent; timer slack zero; high-resolution hard hrtimer; lapic-deadline one-shot; no signal, migration or runnable peer"
+block_result = "on-stack hrtimer sleeper is queued at E=now+10ms; parent becomes TASK_INTERRUPTIBLE|TASK_FREEZABLE and scheduler switches to idle/0"
+interrupt_result = "LOCAL_TIMER_VECTOR enters hrtimer_interrupt; hrtimer_wakeup clears t.task and wake_up_process enqueues parent on CPU0"
+resume_result = "scheduler restores the original parent kernel stack; inactive timer is cancelled and destroyed on stack"
+final_result = "parent CPL3 with RAX=0; elapsed monotonic time is not earlier than 10ms; no restart or remaining-time copyout"
 
 [[chapter]]
 id = "LK-READ-074"
@@ -364,15 +374,39 @@ status = "complete"
 start = "parent closes the sole file reference to the open-unlinked inode"
 end = "parent CPL3 receives close result zero after synchronous __fput and ext4 eviction; reclamation metadata awaits journal commit"
 
+[[chapter]]
+id = "LK-SLEEP-113"
+title = "clock_nanosleep() 怎样建立 hrtimer 并让 parent 阻塞？"
+rst = "docs/tracks/linux-kernel/113-clock-nanosleep-arms-hrtimer-and-blocks-parent.rst"
+status = "complete"
+start = "parent invokes a 10ms relative CLOCK_MONOTONIC sleep on single CPU0"
+end = "parent is blocked off-runqueue; idle/0 executes while the local monotonic hrtimer waits for expiry"
+
+[[chapter]]
+id = "LK-SLEEP-114"
+title = "local APIC timer interrupt 怎样运行 hrtimer callback 并唤醒 parent？"
+rst = "docs/tracks/linux-kernel/114-lapic-timer-interrupt-wakes-sleeping-parent.rst"
+status = "complete"
+start = "the TSC deadline delivers LOCAL_TIMER_VECTOR while idle/0 is current"
+end = "expired hrtimer is inactive and parent is TASK_RUNNING on CPU0 runqueue, awaiting reschedule"
+
+[[chapter]]
+id = "LK-SLEEP-115"
+title = "scheduler 怎样恢复 parent，并让 clock_nanosleep() 返回 0？"
+rst = "docs/tracks/linux-kernel/115-scheduler-resumes-parent-and-nanosleep-returns.rst"
+status = "complete"
+start = "CPU0 reschedules from idle/0 to the awakened parent"
+end = "parent CPL3 receives clock_nanosleep result zero after natural hrtimer expiry and on-stack timer destruction"
+
 [current]
-last_complete = "LK-UNLINK-112"
-executor = "parent after successful close return"
-cpu_mode = "x86-64 CPL 3"
-paging = "parent mm remains active; deleted file page-cache mapping has been removed"
+last_complete = "LK-SLEEP-115"
+executor = "parent after successful clock_nanosleep return"
+cpu_mode = "x86-64 CPL 3 on CPU0"
+paging = "parent mm remains active"
 interrupts = "normal userspace runtime state"
-current_task = "parent after completing the full create-write-fsync-unlink-close ext4 file lifecycle"
+current_task = "SCHED_NORMAL parent running after a naturally expired 10ms monotonic hrtimer sleep"
 next_entry = "unselected runtime scenario"
-next_action = "preferred next path is clock_nanosleep(CLOCK_MONOTONIC, 0, 10ms), covering hrtimer enqueue, task sleep, timer interrupt and scheduler wakeup"
+next_action = "preferred next path is a relative clock_nanosleep interrupted by SIGUSR1, covering signal wakeup, active hrtimer cancellation, remaining-time copyout, rt signal frame and rt_sigreturn"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完整"
