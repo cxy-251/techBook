@@ -97,6 +97,9 @@ Linux Kernel
 #. `第八十九章：ext4 fsync 怎样选择 fast commit 或完整 JBD2 commit？ <89-ext4-fsync-chooses-fast-or-full-jbd2-commit.rst>`_
 #. `第九十章：ext4 barrier 怎样把 journal 顺序落实到设备 cache？ <90-ext4-barrier-flushes-device-cache.rst>`_
 #. `第九十一章：O_SYNC write 怎样提交 file position 并返回用户态？ <91-osync-write-returns-to-userspace.rst>`_
+#. `第九十二章：x86-64 的 fork() 怎样创建一个尚不可运行的 task_struct？ <92-x86-fork-builds-inactive-task.rst>`_
+#. `第九十三章：copy_process() 怎样复制资源并建立 COW 子进程？ <93-copy-process-builds-cow-child.rst>`_
+#. `第九十四章：scheduler 怎样启动 child，并让 fork() 在父子进程返回不同结果？ <94-fork-parent-and-child-return.rst>`_
 
 当前主线
 --------
@@ -108,18 +111,21 @@ Linux Kernel
    → boot handoff complete
    → read(fd, buf, 4096) cold miss complete
    → O_SYNC write(fd, buf, 4096) complete
-   → buffered copy / ext4 writeback
-   → block / SCSI / libata / AHCI data WRITE
-   → folio_end_writeback
-   → fast commit or full JBD2 commit
-   → commit barrier or standalone FLUSH CACHE
-   → local position / file->f_pos commit
-   → syscall exit
-   → userspace RAX=4096
+   → native fork() syscall
+   → kernel_clone / copy_process
+   → task_struct and kernel stack
+   → independent files/fs/sighand/signal/mm
+   → duplicated VMAs and page tables
+   → parent/child read-only COW PTEs sharing one anonymous folio
+   → PID and process-tree publication
+   → wake_up_new_task
+   → parent returns child PID
+   → child ret_from_fork_asm / IRETQ
+   → child returns 0
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-当前两个运行期源码实验均已闭环：cold-miss ``read()`` 和 ``O_SYNC`` buffered ``write()``。下一条 kernel runtime主线尚未选择，不能把任意 syscall伪装成前一场景的自动后续。
+当前三个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()`` 和 native ``fork()``。fork结束时父子拥有不同 mm和页表根，普通 private anonymous folio仍由只读 PTE共享；真正的物理页复制留给未来独立的 COW write-fault场景。
 
 章节组织
 --------
