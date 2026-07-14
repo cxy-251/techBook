@@ -124,6 +124,9 @@ Linux Kernel
 #. `第一百一十六章：tgkill() 怎样排入 SIGUSR1 并唤醒 nanosleep 中的 parent？ <116-tgkill-wakes-interruptible-nanosleep.rst>`_
 #. `第一百一十七章：parent 怎样取消 hrtimer、写回 remaining 并进入 SIGUSR1 handler？ <117-nanosleep-cancels-timer-and-builds-signal-frame.rst>`_
 #. `第一百一十八章：rt_sigreturn() 怎样恢复被 SIGUSR1 中断的 clock_nanosleep 上下文？ <118-rt-sigreturn-restores-interrupted-nanosleep.rst>`_
+#. `第一百一十九章：pipe2() 怎样建立匿名管道并发布 fd 6/7？ <119-pipe2-builds-anonymous-pipe-and-publishes-fds.rst>`_
+#. `第一百二十章：空管道 read() 怎样进入 exclusive wait queue 并阻塞？ <120-empty-pipe-read-enters-exclusive-wait.rst>`_
+#. `第一百二十一章：pipe write() 怎样唤醒reader并让 read() 返回5？ <121-pipe-write-wakes-reader-and-read-returns.rst>`_
 
 当前主线
 --------
@@ -136,21 +139,19 @@ Linux Kernel
    → cold-miss read and O_SYNC write complete
    → fork / COW / static exec / exit-wait complete
    → ext4 create-write-fsync-unlink-close lifecycle complete
-   → natural monotonic nanosleep complete
-   → parent starts a second 10 ms relative monotonic nanosleep
-   → helper tgkill(P,P,SIGUSR1) at T0+4 ms
-   → TIF_SIGPENDING and TASK_INTERRUPTIBLE wakeup
-   → parent cancels still-active hrtimer
-   → positive remaining time copied to userspace
-   → restart-block result converted to -EINTR
-   → x64 rt signal frame and userspace SIGUSR1 handler
-   → __restore_rt / rt_sigreturn
-   → original mask, registers, RSP and FPU state restored
-   → parent CPL3 at post-SYSCALL RIP with raw RAX=-EINTR
+   → natural and SIGUSR1-interrupted monotonic nanosleep complete
+   → pipe2 creates fd 6 read end and fd 7 write end
+   → parent blocks in empty-pipe exclusive rd_wait
+   → helper writes "hello" into one anonymous pipe_buffer
+   → sync wakeup makes parent runnable
+   → parent restores original read stack and consumes 5 bytes
+   → ring returns to head=tail=1, occupancy=0
+   → anonymous page is cached in pipe->tmp_page[0]
+   → parent CPL3 with read RAX=5 and user buffer "hello"
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-当前十一个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``、新文件首次delalloc write + fsync、open-unlinked文件的final close/eviction、自然到期monotonic nanosleep，以及 ``SIGUSR1`` 中断nanosleep与 ``rt_sigreturn``。下一条runtime主线尚未选择。
+当前十二个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``、新文件首次delalloc write + fsync、open-unlinked文件的final close/eviction、自然到期monotonic nanosleep、``SIGUSR1`` 中断nanosleep与 ``rt_sigreturn``，以及anonymous pipe的blocking read与writer wakeup。下一条runtime主线尚未选择。
 
 章节组织
 --------
