@@ -32,7 +32,7 @@ parent现在执行：
 
 * network namespace仍为 ``N``；
 * ``lo`` 已经UP， ``127.0.0.1/8`` 已经配置，local table中存在loopback local route；
-* 端口28080高于特权端口范围，不需要 ``CAP_NET_BIND_SERVICE``；
+* ``N.ipv4.sysctl_ip_unprivileged_port_start=1024``，因此端口28080不需要 ``CAP_NET_BIND_SERVICE``；
 * network namespace中没有其他socket占用与本场景冲突的 ``127.0.0.1:28080``；
 * socket未设置 ``SO_REUSEADDR``、 ``SO_REUSEPORT``、 ``IP_FREEBIND`` 或 ``IP_TRANSPARENT``；
 * socket未绑定device， ``sk_bound_dev_if=0``；
@@ -170,8 +170,8 @@ TCP没有覆盖独立的 ``sk_prot->bind`` 回调，因此继续：
 
 若地址不是当前namespace中的local address，且没有freebind/transparent语义，路径会返回 ``-EADDRNOTAVAIL``。固定场景不走该分支。
 
-为什么28080不需要特权能力
--------------------------
+为什么28080不需要CAP_NET_BIND_SERVICE
+-------------------------------------
 
 内核把network-order端口转换为host-order：
 
@@ -180,7 +180,13 @@ TCP没有覆盖独立的 ``sk_prot->bind`` 回调，因此继续：
    snum = ntohs(addr.sin_port)
         = 28080
 
-受保护低端口需要 ``CAP_NET_BIND_SERVICE``。固定端口28080不在该范围，因此能力检查通过。
+随后调用等价判断：
+
+::
+
+   inet_port_requires_bind_service(N, 28080)
+
+该判断使用当前network namespace的 ``ip_unprivileged_port_start``。本场景固定为1024，所以28080不属于受保护端口范围，路径不需要检查或持有 ``CAP_NET_BIND_SERVICE``。
 
 此时socket仍满足bind前置状态：
 
@@ -457,7 +463,7 @@ bind返回前怎样释放socket lock
 #. ``move_addr_to_kernel`` 在协议回调前复制并验证用户socket address。
 #. ``127.0.0.1`` 的可绑定性由当前network namespace的local address状态决定。
 #. 地址类型查询不是发送route lookup，不会建立dst或packet。
-#. 固定端口28080不触发 ``CAP_NET_BIND_SERVICE`` 要求。
+#. 是否需要 ``CAP_NET_BIND_SERVICE`` 由当前namespace的 ``ip_unprivileged_port_start`` 决定；本场景固定为1024，28080无需该能力。
 #. 普通bind要求 ``sk_state=TCP_CLOSE`` 且 ``inet_num=0``。
 #. local address先写入socket，使端口冲突判断可以包含地址维度。
 #. ``inet_bind_bucket`` 表示namespace/port/L3 domain； ``inet_bind2_bucket`` 增加local address维度。

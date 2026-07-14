@@ -468,40 +468,7 @@ listen建立的是被动接收入口。它没有调用：
 * ``loopback_xmit``；
 * ``net_rx_action``。
 
-因此没有SYN、SYN-ACK或ACK。CPU0始终执行parent的syscall路径，没有切换到softirq或另一个task。
-
-本批三章的对象变化
-------------------
-
-本批可以压缩为：
-
-::
-
-   socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, 0)
-   → create sockfs inode IS and socket S
-   → select inet_stream_ops + tcp_prot
-   → allocate tcp_sock LTP
-   → initialize S.state=SS_UNCONNECTED
-   → initialize L.sk_state=TCP_CLOSE
-   → allocate F6 and fd_install(6,F6)
-
-   bind(6, 127.0.0.1:28080)
-   → copy sockaddr_in
-   → verify RTN_LOCAL
-   → create/find bind bucket TB
-   → create/find bind2 bucket TB2
-   → attach L to TB2.owners
-   → set local address and port
-   → remain TCP_CLOSE
-
-   listen(6, 8)
-   → clamp backlog to 8
-   → initialize empty request/accept queue
-   → set sk_max_ack_backlog=8
-   → TCP_CLOSE → TCP_LISTEN
-   → revalidate bound port
-   → insert L into exact-address listener lhash2
-   → return 0
+因此没有SYN、SYN-ACK或ACK。在本章固定路径中，控制流始终位于parent的listen syscall，不进入loopback发送、NET_RX softirq或另一个task。
 
 本章结束状态
 ------------
@@ -550,7 +517,7 @@ listen建立的是被动接收入口。它没有调用：
 下一入口
 --------
 
-服务器监听端已经建立。下一批优先从client创建开始：
+服务器监听端已经建立。下一章从client创建开始：
 
 .. code-block:: c
 

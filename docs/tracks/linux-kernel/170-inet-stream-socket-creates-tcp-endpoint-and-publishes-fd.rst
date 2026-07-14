@@ -9,7 +9,7 @@
                           SOCK_STREAM | SOCK_CLOEXEC,
                           0);
 
-本批后续会继续执行 ``bind(127.0.0.1:28080)`` 与 ``listen(8)``。本章只追踪 ``socket()``，不提前进入地址绑定、监听哈希或三次握手。
+接下来将依次执行 ``bind(127.0.0.1:28080)`` 与 ``listen(8)``。本章只追踪 ``socket()``，不提前进入地址绑定、监听哈希或三次握手。
 
 本章固定：
 
@@ -186,7 +186,7 @@ TCP的 ``proto.obj_size`` 是 ``sizeof(struct tcp_sock)``。 ``inet_create`` 调
    L.sk_shutdown = 0
    L.sk_err      = 0
 
-这里的 ``TCP_CLOSE`` 表示TCP endpoint尚未进行bind/listen/connect，并不表示对象已经执行close或进入析构。
+这里的 ``TCP_CLOSE`` 只说明TCP协议状态尚未进入监听或连接状态，不表示对象已经执行close或进入析构。在当前时点它同时尚未bind；下一章bind成功后，协议状态仍会保持 ``TCP_CLOSE``。
 
 TCP初始化建立了哪些尚未使用的状态
 --------------------------------
