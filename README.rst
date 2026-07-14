@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第一百三十七章：eventfd read() 怎样清零counter却暂时留下ready epitem？ <docs/tracks/linux-kernel/137-eventfd-read-clears-count-but-leaves-ready-item.rst>`_
-* `第一百三十八章：零超时epoll_wait() 怎样重新poll并清理stale-ready item？ <docs/tracks/linux-kernel/138-zero-time-epoll-wait-removes-stale-ready-item.rst>`_
-* `第一百三十九章：EPOLL_CTL_DEL与close()怎样拆除callback并释放eventfd/eventpoll？ <docs/tracks/linux-kernel/139-epoll-del-and-final-close-free-eventfd-eventpoll.rst>`_
+* `第一百四十章：signalfd4() 怎样把阻塞信号变成可poll的fd并挂进epoll？ <docs/tracks/linux-kernel/140-signalfd4-creates-pollable-signal-fd-and-epoll-registration.rst>`_
+* `第一百四十一章：tgkill() 怎样让blocked SIGUSR1经signalfd callback唤醒epoll_wait？ <docs/tracks/linux-kernel/141-tgkill-wakes-signalfd-epoll-waiter.rst>`_
+* `第一百四十二章：parent怎样从epoll event进入signalfd read并取出128字节siginfo？ <docs/tracks/linux-kernel/142-epoll-returns-signalfd-event-and-read-dequeues-siginfo.rst>`_
 
 固定来源
 --------
@@ -43,25 +43,26 @@ techBook
    LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133
    LK-EPOLL-134..LK-EPOLL-136
    LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139
+   LK-SIGNALFD-140..LK-SIGNALFD-142
 
 最新场景
 --------
 
 ::
 
-   parent read(6, &value, 8)
-   → eventfd count 5 → 0
-   → EPOLLOUT wake does not match EPOLLIN interest
-   → level-triggered epitem remains temporarily on ready list
-   → epoll_wait(7, events2, 1, 0)
-   → re-poll finds no EPOLLIN
-   → remove stale-ready membership and return 0
-   → epoll_ctl(7, EPOLL_CTL_DEL, 6, NULL)
-   → remove callback and epitem registration
-   → close(6) frees eventfd ctx/file
-   → close(7) ends eventpoll lifetime through kfree_rcu
+   block SIGUSR1 in parent/helper
+   → signalfd4(-1, mask(SIGUSR1), SFD_CLOEXEC) publishes fd 6
+   → epoll_create1(EPOLL_CLOEXEC) publishes fd 7
+   → EPOLL_CTL_ADD attaches callback to shared sighand signalfd wait queue
+   → parent blocks exclusively on eventpoll wait queue
+   → helper tgkill targets parent with blocked SIGUSR1
+   → signalfd_notify queues an epoll ready candidate and wakes parent
+   → parent re-polls signalfd and receives {EPOLLIN, data=0x51FD6}
+   → epoll_wait returns 1
+   → read(6) dequeues parent private pending signal
+   → one 128-byte signalfd_siginfo is copied and read returns 128
 
-最终fd 6/7均已关闭。eventfd ctx与两份anon-inode file/path已释放；callback同步释放，epitem与eventpoll已经退出活动对象图，其storage由RCU grace period后回收。
+最终fd 6/7与registration仍active。parent private pending中的SIGUSR1已消费；level-triggered epitem暂留在ready list，等待下一次epoll scan重新验证并清理。
 
 开始工作
 --------
