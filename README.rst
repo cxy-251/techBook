@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第一百一十九章：pipe2() 怎样建立匿名管道并发布 fd 6/7？ <docs/tracks/linux-kernel/119-pipe2-builds-anonymous-pipe-and-publishes-fds.rst>`_
-* `第一百二十章：空管道 read() 怎样进入 exclusive wait queue 并阻塞？ <docs/tracks/linux-kernel/120-empty-pipe-read-enters-exclusive-wait.rst>`_
-* `第一百二十一章：pipe write() 怎样唤醒reader并让 read() 返回5？ <docs/tracks/linux-kernel/121-pipe-write-wakes-reader-and-read-returns.rst>`_
+* `第一百二十二章：close(7) 怎样撤销 write end 并把 writers 降为 0？ <docs/tracks/linux-kernel/122-close-write-end-drops-pipe-writers.rst>`_
+* `第一百二十三章：空管道在 writers=0 时，read() 为什么直接返回 EOF？ <docs/tracks/linux-kernel/123-empty-pipe-without-writers-returns-eof.rst>`_
+* `第一百二十四章：最后一次 close(6) 怎样释放pipe page、ring与pseudo inode？ <docs/tracks/linux-kernel/124-final-read-end-close-frees-pipe.rst>`_
 
 固定来源
 --------
@@ -37,23 +37,26 @@ techBook
    LK-SLEEP-113..LK-SLEEP-115
    LK-SIGNAL-116..LK-SIGNAL-118
    LK-PIPE-119..LK-PIPE-121
+   LK-PIPECLOSE-122..LK-PIPECLOSE-124
 
 最新场景
 --------
 
 ::
 
-   pipe2(pipefd, O_CLOEXEC)
-   → allocate pipefs inode, pipe_inode_info and 16-slot ring
-   → publish read fd 6 and write fd 7
-   → parent read(6, buf, 5) on empty pipe
-   → exclusive TASK_INTERRUPTIBLE wait on rd_wait
-   → helper write(7, "hello", 5)
-   → allocate anonymous page and insert one pipe_buffer
-   → sync wake reader
-   → parent consumes 5 bytes and returns RAX=5
+   helper close(7)
+   → remove write fd from shared files_struct
+   → fput_close_sync / pipe_release
+   → writers 1 → 0, files 2 → 1
+   → parent read(6, eofbuf, 5)
+   → empty ring + writers=0
+   → return EOF, RAX=0, no wait and no copy
+   → parent close(6)
+   → readers 1 → 0, files 1 → 0
+   → free cached page Q, 16-slot ring and pipe_inode_info
+   → release final pseudo dentry/inode references
 
-最终pipe仍保持open，``head=tail=1``、occupancy为0；首次data page没有立即归还buddy，而是缓存到 ``pipe->tmp_page[0]`` 供后续write复用。
+最终fd 6/7均已关闭，anonymous pipe不再可访问；page Q已归还page allocator。pseudo dentry/inode已退出活动对象图，底层slab memory可按VFS/RCU规则延后回收。
 
 开始工作
 --------
