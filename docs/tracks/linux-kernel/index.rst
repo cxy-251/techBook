@@ -121,6 +121,9 @@ Linux Kernel
 #. `第一百一十三章：clock_nanosleep() 怎样建立 hrtimer 并让 parent 阻塞？ <113-clock-nanosleep-arms-hrtimer-and-blocks-parent.rst>`_
 #. `第一百一十四章：local APIC timer interrupt 怎样运行 hrtimer callback 并唤醒 parent？ <114-lapic-timer-interrupt-wakes-sleeping-parent.rst>`_
 #. `第一百一十五章：scheduler 怎样恢复 parent，并让 clock_nanosleep() 返回 0？ <115-scheduler-resumes-parent-and-nanosleep-returns.rst>`_
+#. `第一百一十六章：tgkill() 怎样排入 SIGUSR1 并唤醒 nanosleep 中的 parent？ <116-tgkill-wakes-interruptible-nanosleep.rst>`_
+#. `第一百一十七章：parent 怎样取消 hrtimer、写回 remaining 并进入 SIGUSR1 handler？ <117-nanosleep-cancels-timer-and-builds-signal-frame.rst>`_
+#. `第一百一十八章：rt_sigreturn() 怎样恢复被 SIGUSR1 中断的 clock_nanosleep 上下文？ <118-rt-sigreturn-restores-interrupted-nanosleep.rst>`_
 
 当前主线
 --------
@@ -130,27 +133,24 @@ Linux Kernel
    x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc
    → bzImage → Linux 7.2-rc1
    → boot handoff complete
-   → read(fd, buf, 4096) cold miss complete
-   → O_SYNC write(fd, buf, 4096) complete
-   → native fork() complete
-   → child COW write fault complete
-   → child static execve complete
-   → child exit + parent wait4 reap complete
-   → parent creates, writes, fsyncs, unlinks and finally closes /work/demo.txt
-   → ext4 file lifecycle complete
-   → clock_nanosleep(CLOCK_MONOTONIC, 10 ms)
-   → on-stack hrtimer sleeper on CPU0 monotonic base
-   → parent TASK_INTERRUPTIBLE and scheduler switches to idle/0
-   → local APIC TSC deadline reaches expiry
-   → LOCAL_TIMER_VECTOR / hrtimer_interrupt
-   → hrtimer_wakeup / try_to_wake_up(parent)
-   → scheduler restores parent kernel stack
-   → inactive timer cleanup
-   → parent returns to CPL 3 with clock_nanosleep RAX=0
+   → cold-miss read and O_SYNC write complete
+   → fork / COW / static exec / exit-wait complete
+   → ext4 create-write-fsync-unlink-close lifecycle complete
+   → natural monotonic nanosleep complete
+   → parent starts a second 10 ms relative monotonic nanosleep
+   → helper tgkill(P,P,SIGUSR1) at T0+4 ms
+   → TIF_SIGPENDING and TASK_INTERRUPTIBLE wakeup
+   → parent cancels still-active hrtimer
+   → positive remaining time copied to userspace
+   → restart-block result converted to -EINTR
+   → x64 rt signal frame and userspace SIGUSR1 handler
+   → __restore_rt / rt_sigreturn
+   → original mask, registers, RSP and FPU state restored
+   → parent CPL3 at post-SYSCALL RIP with raw RAX=-EINTR
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-当前十个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``、新文件首次delalloc write + fsync、open-unlinked文件的final close/eviction，以及monotonic nanosleep的hrtimer/APIC/scheduler唤醒。下一条runtime主线尚未选择。
+当前十一个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``、新文件首次delalloc write + fsync、open-unlinked文件的final close/eviction、自然到期monotonic nanosleep，以及 ``SIGUSR1`` 中断nanosleep与 ``rt_sigreturn``。下一条runtime主线尚未选择。
 
 章节组织
 --------
