@@ -14,15 +14,16 @@ LK-EXEC-098..LK-EXEC-100
 LK-EXIT-101..LK-EXIT-103
 LK-OPEN-104..LK-OPEN-106
 LK-DELALLOC-107..LK-DELALLOC-109
+LK-UNLINK-110..LK-UNLINK-112
 ```
 
-八个运行期实验已闭环：cold read、O_SYNC write、fork、child COW write fault、static ELF execve、child exit + parent wait4 reap、ext4 openat create-open、新文件首次delalloc write + fsync。
+九个运行期实验已闭环：cold read、O_SYNC write、fork、child COW write fault、static ELF execve、child exit + parent wait4 reap、ext4 openat create-open、新文件首次delalloc write + fsync、open-unlinked文件的final close与回收。
 
 最新三章：
 
-- `LK-DELALLOC-107`：首次 buffered write 怎样只预留空间而不分配物理块？
-- `LK-DELALLOC-108`：fsync() 怎样让 writeback 分配第一个 unwritten extent 并提交数据？
-- `LK-DELALLOC-109`：data completion 怎样转换 extent，并让 fsync() 真正返回？
+- `LK-UNLINK-110`：unlinkat() 怎样锁住父目录并进入 ext4_unlink()？
+- `LK-UNLINK-111`：ext4_unlink() 怎样删除名称，却让 fd 6 继续访问 inode？
+- `LK-UNLINK-112`：close(6) 怎样触发最后一次 __fput() 并回收 ext4 inode？
 
 ## 固定实现
 
@@ -42,120 +43,127 @@ storage           = q35 ICH9 AHCI SATA port 0
 
 旧章节中的 `Linux 6.12.95` 是历史显示标签错误；固定commit始终是Linux 7.2-rc1。
 
-## 已完成 delalloc + fsync 固定场景
+## 已完成 unlink + close 固定场景
 
 ```text
 current task       = parent
-calls              = write(6, buf, 4096); fsync(6)
-path               = /work/demo.txt
-fd before write    = 6, write-only, f_pos=0
-inode before write = regular 0644, nlink=1, size=0, blocks=0
-block/page size    = 4 KiB
-mount              = data=ordered,delalloc,dioread_nolock,barrier
-bigalloc/inline    = disabled
-fast commit        = disabled
-quota              = disabled
-folio state        = page-cache index 0 absent before write
-allocation         = one free physical block P
-background WB      = none before write returns
-failure policy     = no signal, ENOSPC, allocation, copy, journal or I/O error
+userspace calls    = unlinkat(AT_FDCWD, "/work/demo.txt", 0); close(6)
+initial fd         = 6, sole file reference, write-only, f_pos=4096
+initial inode      = regular 0644, nlink=1, size=4096, i_blocks=8
+initial extent     = logical block 0 -> physical block P, written
+initial folio      = uptodate, clean, no writeback
+mount              = data=ordered,barrier; fast commit disabled
+extra references   = no dup, mmap, SCM_RIGHTS, io_uring, other open or hardlink
+cache state        = parent/target dentries, inodes, directory and allocation metadata resident
+background commit  = disabled during both syscalls
+failure policy     = no race, delegation, LSM, journal, allocation or I/O failure
 ```
 
 ## 已执行控制流
 
 ```text
-write(6, buf, 4096)
-→ __x64_sys_write / vfs_write
-→ ext4_buffered_write_iter
-→ generic_perform_write
-→ ext4_da_write_begin
-→ allocate page-cache folio index 0
-→ ext4_da_map_blocks finds logical hole
-→ ext4_da_reserve_space(1)
-→ extent-status delayed [0,1)
-→ copy 4096 bytes
-→ dirty folio
-→ i_size=4096, i_disksize=0
-→ write returns 4096; f_pos=4096
+unlinkat(AT_FDCWD, "/work/demo.txt", 0)
+→ __x64_sys_unlinkat
+→ filename_unlinkat
+→ filename_parentat returns /work + demo.txt
+→ mnt_want_write
+→ start_dirop locks /work and gets positive dentry
+→ ihold(target inode)
+→ vfs_unlink
+→ lock target inode
+→ ext4_unlink / __ext4_unlink
+→ ext4_find_entry cache hit
+→ start EXT4_HT_DIR JBD2 handle
+→ ext4_delete_entry removes demo.txt dirent
+→ update /work mtime/ctime
+→ drop_nlink: 1 -> 0
+→ ext4_orphan_add
+→ mark target inode dirty
+→ journal_stop without forced commit
+→ d_delete_notify removes name from normal lookup
+→ release target and parent locks
+→ temporary iput does not evict because fd 6 remains
+→ unlinkat returns 0
 
-fsync(6)
-→ ext4_sync_file
-→ file_write_and_wait_range
-→ ext4_writepages / ext4_do_writepages
-→ collect BH_Delay logical block 0
-→ start JBD2 write-page transaction
-→ ext4_map_blocks / extent allocator
-→ consume reservation
-→ logical block 0 maps to physical P as unwritten
-→ submit REQ_SYNC data bio
-→ blk-mq / SCSI / libata / AHCI
-→ ext4_end_bio
-→ deferred io_end conversion work
-→ ext4_ext_mark_initialized
-→ extent becomes written
-→ folio_end_writeback
-→ full JBD2 commit
-→ blkdev_issue_flush
-→ fsync returns 0
+close(6)
+→ __x64_sys_close
+→ file_close_fd clears fdtable slot 6
+→ filp_flush
+→ fput_close_sync
+→ final __fput
+→ ext4_release_file
+→ put_file_access
+→ final dput / iput
+→ ext4_evict_inode
+→ truncate_inode_pages_final drops clean folio
+→ start EXT4_HT_TRUNCATE transaction
+→ i_size = 0
+→ ext4_truncate / ext4_ext_remove_space
+→ remove logical extent and queue physical P for transaction-protected free
+→ ext4_orphan_del
+→ set i_dtime
+→ ext4_free_inode clears inode bitmap metadata
+→ ext4_clear_inode
+→ file_free
+→ close returns 0
 ```
 
 ## 当前精确状态
 
 ```text
 system_state       = SYSTEM_RUNNING
-runtime scenario   = first delalloc write + fsync complete
+runtime scenario   = open-unlinked file final close complete
 current executor   = parent
 CPU mode           = x86-64 CPL 3
-fd 6               = open, write-only
-file position      = 4096
-path                = /work/demo.txt
-inode mode/nlink    = regular 0644 / 1
-i_size              = 4096
-i_disksize          = 4096
-i_blocks            = 8 sectors
-extent              = logical block 0 -> physical P, written
-delalloc reservation= 0
-folio               = uptodate, clean, no writeback
-data I/O            = complete and released
-extent conversion   = complete
-JBD2 transaction    = committed
-required flush      = complete
-checkpoint          = not required to be complete
-durability          = create, size, extent and data satisfy fsync
+close return        = 0
+fd 6                = free and reusable
+path                = /work/demo.txt absent
+target struct file  = final __fput complete
+target dentry       = released
+target inode        = ext4 eviction complete and inaccessible
+page-cache mapping  = removed
+logical extent      = removed
+physical block P    = pending-free under JBD2 transaction protection
+inode bitmap bit    = cleared in journaled metadata
+orphan tracking     = removed
+forced commit       = none
+forced device flush = none
+durability          = close return does not guarantee transaction is stable
 next entry          = unselected runtime scenario
 ```
 
 ## 必须保持的技术边界
 
-1. page-cache folio allocation不等于physical block allocation。
-2. delalloc reservation不写block bitmap，也没有physical block number。
-3. ordinary write可在`i_size=4096, i_disksize=0`时成功返回。
-4. writeback消费reservation并先建立unwritten extent。
-5. unwritten extent在data completion前保持zero-read语义。
-6. data DMA completion、extent conversion、journal commit、device flush是不同阶段。
-7. `folio_end_writeback()` 在影响数据可见性的conversion完成后发生。
-8. journal commit durable不等于home-location checkpoint complete。
-9. `fsync`不改变`file->f_pos`，也不关闭fd。
+1. unlink删除namespace name，不删除仍被open fd引用的inode。
+2. `i_nlink=0` 与inode reference count是两个独立状态。
+3. orphan tracking保护已unlink但仍open的崩溃窗口。
+4. `file_close_fd` 先撤销descriptor publication，file teardown随后进行。
+5. close普通文件不隐含fsync。
+6. 最后一个 `fput_close_sync` 在当前syscall context同步执行 `__fput`。
+7. `ext4_release_file` 与 `ext4_evict_inode` 是不同阶段。
+8. clean page-cache folio可以在eviction中无I/O删除。
+9. extent free、orphan removal与inode bitmap free位于journal transaction中。
+10. block/inode在transaction commit前不能视为已安全复用。
+11. VFS对象不可访问与slab内存最终经过RCU重用不是同一时刻。
 
 ## 下一建议场景
 
-优先继续文件仍被fd 6打开时的unlink与最后close：
+优先候选是parent执行10毫秒monotonic sleep：
 
 ```text
-unlinkat(AT_FDCWD, "/work/demo.txt", 0)
-→ cached positive pathname lookup
-→ lock /work
-→ ext4_unlink removes dirent
-→ nlink 1 -> 0
-→ ext4 orphan tracking
-→ pathname disappears, fd 6 remains valid
-→ close(6)
-→ file_close_fd / __fput
-→ final inode eviction
-→ free extent P and inode allocation
+clock_nanosleep(CLOCK_MONOTONIC, 0, {0, 10ms}, NULL)
+→ convert userspace timespec
+→ hrtimer setup and enqueue
+→ current TASK_INTERRUPTIBLE
+→ schedule away
+→ local APIC timer interrupt
+→ hrtimer interrupt and callback
+→ try_to_wake_up(parent)
+→ scheduler selects parent
+→ clock_nanosleep returns 0
 ```
 
-开始前固定directory/inode cache、journal transaction、file/inode reference counts、unlink与close间是否额外写入、orphan handling、metadata durability目标和failure policy。
+开始前固定：CPU数量、timer base、clockevent模式、是否迁移CPU、signal状态、调度竞争者、精确expiry与overrun策略。
 
 ## 连续叙事与流程
 
