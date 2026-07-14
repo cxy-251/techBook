@@ -31,20 +31,20 @@ Linux Kernel
    → anonymous pipe lifecycle complete
    → private futex wait/wake complete
    → eventfd, signalfd, timerfd and pidfd eventpoll lifecycles complete
-   → inotify_init1 creates blocking close-on-exec fd 6
-   → inotify_add_watch installs wd 1 on ext4 /work
-   → internal mark watches CREATE, CLOSE_WRITE, UNMOUNT and child events
-   → eventpoll fd 7 attaches callback to group notification wait queue
-   → parent blocks on eventpoll wait queue
-   → helper creates /work/new.txt as fd 8
-   → fsnotify queues wd1 IN_CREATE and wakes parent
-   → helper write MODIFY is ignored by the selected watch mask
-   → helper close queues wd1 IN_CLOSE_WRITE without merging
-   → epoll_wait returns EPOLLIN and data 0x494E4F36
-   → read(6) copies two 32-byte FIFO records and returns 64
-   → notification queue becomes empty
-   → watch and fd 6/7 remain active
-   → level-triggered epitem remains stale-ready
+   → inotify watches /work for CREATE and CLOSE_WRITE
+   → helper creates, writes and closes /work/new.txt
+   → epoll_wait delivers EPOLLIN
+   → read copies IN_CREATE and IN_CLOSE_WRITE records
+   → zero-time epoll_wait removes stale-ready membership
+   → inotify_rm_watch queues wd1 IN_IGNORED before IDR removal
+   → mark detaches from group and /work inode connector
+   → epoll_wait delivers IN_IGNORED readiness
+   → read copies one 16-byte IN_IGNORED record
+   → EPOLL_CTL_DEL removes callback and epitem
+   → close(6) destroys fsnotify group and waits mark SRCU reaper
+   → close(7) releases empty eventpoll
+   → parent CPL3 with close RAX=0 and fd 6/7 closed
+   → /work/new.txt remains present
 
 完成范围
 --------
@@ -77,31 +77,32 @@ Linux Kernel
    LK-PIDFD-152..LK-PIDFD-154
    LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157
    LK-INOTIFY-158..LK-INOTIFY-160
+   LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163
 
 固定commit的 ``Makefile`` 标识为Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定commit为准。
 
 最新三章
 --------
 
-#. `第一百五十八章：inotify怎样建立目录watch并让parent阻塞在epoll_wait？ <158-inotify-watch-registers-with-epoll-and-blocks-parent.rst>`_
-#. `第一百五十九章：helper创建并关闭new.txt时，fsnotify怎样排入两条inotify事件？ <159-fsnotify-queues-create-and-close-write-events.rst>`_
-#. `第一百六十章：parent怎样从epoll event读取两条inotify_event记录？ <160-epoll-returns-inotify-and-read-consumes-two-records.rst>`_
+#. `第一百六十一章：零超时epoll_wait怎样清除inotify的stale-ready item？ <161-zero-time-epoll-wait-removes-inotify-stale-ready-item.rst>`_
+#. `第一百六十二章：inotify_rm_watch怎样先排入IN_IGNORED再销毁mark？ <162-inotify-rm-watch-queues-ignored-and-destroys-mark.rst>`_
+#. `第一百六十三章：读取IN_IGNORED后，close怎样释放inotify group与eventpoll？ <163-read-ignored-and-final-close-free-inotify-eventpoll.rst>`_
 
 下一候选
 --------
 
 ::
 
-   epoll_wait(7, events2, 1, 0)
-   → re-poll empty inotify queue and remove stale-ready item
-   → inotify_rm_watch(6, 1)
-   → mark teardown queues IN_IGNORED and removes wd from IDR
-   → callback makes epitem ready again
-   → epoll_wait returns EPOLLIN
-   → read(6) consumes a 16-byte IN_IGNORED record
-   → EPOLL_CTL_DEL removes callback and epitem
-   → close(6) destroys fsnotify group
-   → close(7) releases eventpoll
+   socketpair(AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC, 0, sv)
+   → fd 6/7 form one connected unix socket pair
+   epoll_create1(EPOLL_CLOEXEC) → fd 8
+   epoll_ctl(8, ADD, 6, EPOLLIN|EPOLLRDHUP)
+   → parent blocks in epoll_wait
+   → helper write(7, "hello", 5)
+   → unix stream receive queue wakes parent
+   → parent epoll_wait returns and read(6) consumes 5 bytes
+   → helper shutdown(7, SHUT_WR)
+   → parent observes EPOLLRDHUP and read EOF
 
 章节组织
 --------
