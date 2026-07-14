@@ -19,15 +19,16 @@ LK-SLEEP-113..LK-SLEEP-115
 LK-SIGNAL-116..LK-SIGNAL-118
 LK-PIPE-119..LK-PIPE-121
 LK-PIPECLOSE-122..LK-PIPECLOSE-124
+LK-FUTEX-125..LK-FUTEX-127
 ```
 
-十三个运行期实验已闭环：cold read、O_SYNC write、fork、child COW write fault、static ELF execve、child exit + parent wait4 reap、ext4 create-open、首次delalloc write + fsync、open-unlinked final close、自然到期nanosleep、SIGUSR1中断nanosleep + rt_sigreturn、anonymous pipe blocking read + writer wakeup，以及pipe write-end close + EOF + final teardown。
+十四个运行期实验已闭环：cold read、O_SYNC write、fork、child COW write fault、static ELF execve、child exit + parent wait4 reap、ext4 create-open、首次delalloc write + fsync、open-unlinked final close、自然到期nanosleep、SIGUSR1中断nanosleep + rt_sigreturn、anonymous pipe blocking read + writer wakeup、pipe close + EOF + teardown，以及private futex wait/wake。
 
 最新三章：
 
-- `LK-PIPECLOSE-122`：close(7) 怎样撤销 write end 并把 writers 降为 0？
-- `LK-PIPECLOSE-123`：空管道在 writers=0 时，read() 为什么直接返回 EOF？
-- `LK-PIPECLOSE-124`：最后一次 close(6) 怎样释放pipe page、ring与pseudo inode？
+- `LK-FUTEX-125`：FUTEX_WAIT_PRIVATE 怎样建立private key并把parent排入hash bucket？
+- `LK-FUTEX-126`：FUTEX_WAKE_PRIVATE 怎样移除waiter并把parent放回runqueue？
+- `LK-FUTEX-127`：parent 被唤醒后，futex_wait 为什么返回0却不自动重读用户字？
 
 ## 固定实现
 
@@ -47,141 +48,134 @@ storage           = q35 ICH9 AHCI SATA port 0
 
 旧章节中的 `Linux 6.12.95` 是历史显示标签错误；固定commit始终是Linux 7.2-rc1。
 
-## 已完成 pipe close/EOF 固定场景
+## 已完成 private futex 固定场景
 
 ```text
-runtime relation  = continuation of LK-PIPE-119..121
-CPUs online       = CPU0 only
-process           = parent + helper threads in one TGID
-files table       = shared through CLONE_FILES
+runtime relation = independent scenario
+CPUs online      = CPU0 only
+threads          = parent + helper in one TGID
+mm                = shared through CLONE_VM
 scheduler         = both SCHED_NORMAL
-initial fd 6      = open read end, close-on-exec
-initial fd 7      = open write end, close-on-exec
-initial endpoints = readers=1, writers=1, files=2
-initial ring      = head=tail=1, occupancy=0
-cached page       = Q in tmp_page[0]
-wait queues       = no waiter
-first call        = helper close(7)
-second call       = parent read(6, eofbuf, 5)
-eofbuf initial    = "XXXXX"
-final call        = parent close(6)
-extra references  = none
-signal state      = none
-failure policy    = no close/copy/VFS/allocator failure
+user word         = aligned _Atomic uint32_t U
+mapping           = resident writable private anonymous page
+initial U         = 0
+wait call         = futex(&U, FUTEX_WAIT_PRIVATE, 0, NULL, NULL, 0)
+store             = atomic_store_explicit(&U, 1, memory_order_release)
+wake call         = futex(&U, FUTEX_WAKE_PRIVATE, 1, NULL, NULL, 0)
+config            = FUTEX=y, FUTEX_PRIVATE_HASH=y, BASE_SMALL=n
+private hash      = 16 buckets
+key waiters       = exactly one parent
+signal/timeout    = none
+scheduler order   = parent blocks, helper stores+wakes+blocks, parent resumes
+failure policy    = no alignment/address/page/hash/scheduler failure
 ```
 
 ## 已执行控制流
 
 ```text
-helper close(7)
-→ file_close_fd under shared files->file_lock
-→ fdt->fd[7] = NULL
-→ fd 7 disappears for both threads
-→ filp_flush returns 0
-→ fput_close_sync
-→ synchronous __fput
-→ pipe_release
-→ writers 1 -> 0, readers stays 1
-→ wake rd_wait/wr_wait because endpoint sides differ
-→ no actual waiter
-→ put_pipe_info files 2 -> 1
-→ release write-side path and file
-→ helper RAX=0
+parent FUTEX_WAIT_PRIVATE expected=0
+→ __x64_sys_futex / do_futex / futex_wait
+→ no timeout and no hrtimer
+→ futex_wait_setup
+→ private key K = shared mm + page virtual base + byte offset
+→ no VMA lookup, page pin, inode or physical-page key
+→ select per-mm bucket H
+→ H->waiters 0 -> 1 before spin_lock
+→ read U under H lock
+→ U == 0
+→ parent TASK_INTERRUPTIBLE | TASK_FREEZABLE
+→ enqueue stack futex_q in H plist
+→ release H lock
+→ futex_do_wait / schedule
+→ parent leaves CPU0; helper runs
 
-parent read(6, eofbuf, 5)
-→ anon_pipe_read
-→ head==tail and writers==0
-→ break with ret=0
-→ no wait queue entry
-→ no schedule
-→ no copy_page_to_iter
-→ eofbuf remains "XXXXX"
-→ parent RAX=0 EOF
+helper atomic_store_release(U, 1)
+→ helper FUTEX_WAKE_PRIVATE nr=1
+→ reconstruct same key K and bucket H
+→ waiters_pending sees 1
+→ lock H and match q key/bitset
+→ plist_del(q)
+→ H->waiters 1 -> 0
+→ smp_store_release(q.lock_ptr, NULL)
+→ add parent to wake_q
+→ unlock H
+→ wake_up_q / try_to_wake_up
+→ parent TASK_RUNNING on CPU0 runqueue
+→ helper returns 1 and blocks outside futex
 
-parent close(6)
-→ remove shared fd 6
-→ fput_close_sync
-→ synchronous __fput
-→ pipe_release
-→ readers 1 -> 0, writers stays 0
-→ put_pipe_info files 1 -> 0
-→ inode->i_pipe = NULL
-→ free_pipe_info
-→ release pipe page accounting
-→ __free_page(Q)
-→ free 16-slot ring
-→ free pipe_inode_info
-→ dput final pseudo dentry
-→ drop pseudo inode reference
-→ mntput per-file pipefs mount ref
-→ free read-side file
-→ parent RAX=0
+scheduler restores parent original futex_do_wait stack
+→ schedule returns
+→ parent state TASK_RUNNING
+→ futex_unqueue sees q.lock_ptr == NULL
+→ q was already removed by waker
+→ __futex_wait returns 0
+→ no post-wake kernel read of U
+→ parent CPL3 with RAX=0
 ```
 
 ## 当前精确状态
 
 ```text
 system_state       = SYSTEM_RUNNING
-runtime scenario   = anonymous pipe EOF and final teardown complete
+runtime scenario   = private futex wait/wake complete
 current executor   = parent
 CPU                = CPU0
-CPU mode           = x86-64 CPL 3
+CPU mode            = x86-64 CPL 3
 scheduling class   = SCHED_NORMAL
 parent state       = TASK_RUNNING
 parent on_rq       = 1
 parent on_cpu      = 1
-final close return = 0
-previous EOF read  = 0
-eofbuf             = "XXXXX"
-fd 6               = closed
-fd 7               = closed
-write file         = released
-read file          = released
-pipe_inode_info    = freed
-ring               = freed
-page Q             = returned to page allocator
-pseudo dentry/inode= no longer active; slab free may be RCU-deferred
-global pipe_mnt    = still present
-helper             = blocked outside pipe
-filesystem I/O     = none
+parent wait return = 0
+helper wake return = 1
+helper             = blocked outside futex
+user word U        = 1
+kernel reread U    = none after wake
+user acquire load  = not yet executed
+private hash       = alive, 16 buckets
+bucket H waiters   = 0
+bucket H chain     = no entry from this wait
+bucket H lock      = unlocked
+stack futex_q      = lifetime ended
+hrtimer/restart    = none
+signal pending     = none
 next entry         = unselected runtime scenario
 ```
 
 ## 必须保持的技术边界
 
-1. `file_close_fd`先撤销共享fd publication，另一个thread也立即失去该fd。
-2. fdtable slot清空不等于`pipe_release`已经运行。
-3. userspace `close()`使用`fput_close_sync`，最后`__fput`在syscall返回前执行。
-4. `writers`从1降到0会通知partner wait queues，即使当前没有waiter。
-5. `empty && writers==0`的pipe read立即返回0 EOF。
-6. EOF不会清空用户buffer，也不会自动close read endpoint。
-7. pipe是stream，没有普通文件position语义。
-8. `readers/writers`决定I/O语义，`files`决定`pipe_inode_info` lifetime。
-9. `files==0`才进入`free_pipe_info`。
-10. consumed buffer的`buf->ops`已清空，final free不会重复release page。
-11. `tmp_page`中的Q在pipe销毁时才归还page allocator。
-12. pipefs pseudo inode不产生磁盘I/O、journal或writeback。
-13. dentry/inode memory可RCU延迟回收，但用户已不能引用。
-14. final `mntput`只下降per-file引用，不卸载global pipefs。
+1. `FUTEX_PRIVATE_FLAG`让key使用`mm + virtual address`，不是physical page identity。
+2. private key路径不查VMA、不pin page、不引用inode。
+3. bucket可容纳不同key，wake必须匹配完整key和bitset。
+4. waiter先增加bucket waiter count，再获取spinlock并检查U。
+5. 入队前在bucket lock内重新读取U；不匹配返回`-EWOULDBLOCK`且不睡眠。
+6. parent先设置interruptible state，再公开栈上的`futex_q`。
+7. task state不等于已经阻塞；context switch才使parent离开CPU。
+8. ordinary FUTEX_WAKE不修改U，U=1来自helper release store。
+9. waker先从plist删除q，再release-store `q.lock_ptr=NULL`。
+10. scheduler wake通过wake_q在bucket lock释放后执行。
+11. wake只使parent runnable，不保证立即handoff。
+12. WAKE返回1是woken waiter count；WAIT返回0表示q由waker移除。
+13. wait成功后kernel不会重新读取U，也不保证业务condition仍成立。
+14. user code必须loop重读condition并处理spurious/competitive wake。
+15. kernel barriers不替代C/C++ release/acquire；parent应以acquire load读取1。
+16. `futex_q`是一次wait的栈上对象，syscall返回后结束生命周期。
+17. per-mm private hash不会随单次wait结束而销毁。
 
 ## 下一建议场景
 
-优先候选是private futex wait/wake：
+优先候选是`eventfd` counter blocking read与writer wakeup：
 
 ```text
-private user word = 0
-parent futex(FUTEX_WAIT_PRIVATE, expected=0)
-→ build private futex key
-→ enqueue waiter in hash bucket
-→ verify word still equals 0
-→ parent TASK_INTERRUPTIBLE and schedule out
-→ helper atomic_store(word, 1)
-→ futex(FUTEX_WAKE_PRIVATE, 1)
-→ remove one waiter and wake parent
-→ parent returns 0
+eventfd2(0, EFD_CLOEXEC)
+→ create anon_inode file and eventfd_ctx
+→ parent read(eventfd, &value, 8) with counter=0
+→ parent joins eventfd wait queue and schedules out
+→ helper write(eventfd, value=3)
+→ counter 0 -> 3 and wake reader
+→ parent consumes counter and returns 8 with value=3
 ```
 
-开始前固定user address、mapping、alignment、atomic store memory ordering、futex flags、hash bucket、signal state与scheduler顺序。
+开始前固定fd编号、counter/semaphore mode、blocking flags、wait queue、scheduler顺序、signal state与file references。
 
 ## 连续叙事与流程
 
