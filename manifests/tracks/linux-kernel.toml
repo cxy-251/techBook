@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133; LK-EPOLL-134..LK-EPOLL-136; LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139; LK-SIGNALFD-140..LK-SIGNALFD-142; LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145; LK-TIMERFD-146..LK-TIMERFD-148; LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151; LK-PIDFD-152..LK-PIDFD-154; LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157; LK-INOTIFY-158..LK-INOTIFY-160"
+completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133; LK-EPOLL-134..LK-EPOLL-136; LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139; LK-SIGNALFD-140..LK-SIGNALFD-142; LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145; LK-TIMERFD-146..LK-TIMERFD-148; LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151; LK-PIDFD-152..LK-PIDFD-154; LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157; LK-INOTIFY-158..LK-INOTIFY-160; LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
@@ -42,7 +42,7 @@ chapter = [
   { id = "LK-OPEN-105", title = "ext4_create() 怎样分配 inode 并把 demo.txt 写进目录？", rst = "docs/tracks/linux-kernel/105-ext4-create-allocates-inode-and-dirent.rst", status = "complete" },
   { id = "LK-OPEN-106", title = "VFS 怎样打开新 inode、发布 fd 6 并让 openat() 返回？", rst = "docs/tracks/linux-kernel/106-vfs-opens-and-publishes-new-fd.rst", status = "complete" },
   { id = "LK-DELALLOC-107", title = "首次 buffered write 怎样只预留空间而不分配物理块？", rst = "docs/tracks/linux-kernel/107-first-buffered-write-creates-delalloc-state.rst", status = "complete" },
-  { id = "LK-DELALLOC-108", title = "fsync() 怎样让 writeback 分配第一个 unwritten extent 并提交数据？", rst = "docs/tracks/linux-kernel/108-fsync-writeback-allocates-first-unwritten-extent.rst", status = "complete" },
+  { id = "LK-DELALLOC-108", title = "fsync() 怎样让 writeback 分配第一个 unwritten extent并提交数据？", rst = "docs/tracks/linux-kernel/108-fsync-writeback-allocates-first-unwritten-extent.rst", status = "complete" },
   { id = "LK-DELALLOC-109", title = "data completion 怎样转换 extent，并让 fsync() 真正返回？", rst = "docs/tracks/linux-kernel/109-write-completion-converts-extent-and-fsync-returns.rst", status = "complete" },
   { id = "LK-UNLINK-110", title = "unlinkat() 怎样锁住父目录并进入 ext4_unlink()？", rst = "docs/tracks/linux-kernel/110-unlinkat-locks-parent-and-enters-ext4-unlink.rst", status = "complete" },
   { id = "LK-UNLINK-111", title = "ext4_unlink() 怎样删除名称，却让 fd 6 继续访问 inode？", rst = "docs/tracks/linux-kernel/111-ext4-unlink-removes-name-and-keeps-open-inode.rst", status = "complete" },
@@ -64,7 +64,7 @@ chapter = [
   { id = "LK-FUTEX-127", title = "parent 被唤醒后，futex_wait 为什么返回0却不自动重读用户字？", rst = "docs/tracks/linux-kernel/127-futex-wait-returns-without-rechecking-user-word.rst", status = "complete" },
   { id = "LK-EVENTFD-128", title = "eventfd2() 怎样建立counter并发布fd 6？", rst = "docs/tracks/linux-kernel/128-eventfd2-creates-counter-and-publishes-fd.rst", status = "complete" },
   { id = "LK-EVENTFD-129", title = "eventfd read() 怎样在counter为0时进入locked wait queue？", rst = "docs/tracks/linux-kernel/129-empty-eventfd-read-enters-locked-wait-queue.rst", status = "complete" },
-  { id = "LK-EVENTFD-130", title = "eventfd write() 怎样唤醒reader并让read()返回counter？", rst = "docs/tracks/linux-kernel/130-eventfd-write-wakes-reader-and-read-returns-counter.rst", status = "complete" },
+  { id = "LK-EVENTFD-130", title = "eventfd write() 怎样唤醒reader并让read()返回counter？", rst = "docs/tracks/linux-kernel/130-eventfd-write-wakes-epoll-and-delivers-level-event.rst", status = "complete" },
   { id = "LK-EVENTFDCLOSE-131", title = "close(6) 怎样撤销eventfd fd并同步进入最后一次__fput()？", rst = "docs/tracks/linux-kernel/131-close-eventfd-fd-enters-final-fput.rst", status = "complete" },
   { id = "LK-EVENTFDCLOSE-132", title = "eventfd_release() 怎样发送EPOLLHUP并释放eventfd_ctx？", rst = "docs/tracks/linux-kernel/132-eventfd-release-sends-hup-and-frees-ctx.rst", status = "complete" },
   { id = "LK-EVENTFDCLOSE-133", title = "__fput() 怎样释放anon-inode path并让close()返回0？", rst = "docs/tracks/linux-kernel/133-final-eventfd-file-teardown-returns-close.rst", status = "complete" },
@@ -94,7 +94,10 @@ chapter = [
   { id = "LK-PIDFDCLOSE-157", title = "close()怎样释放pidfs inode、旧struct pid与eventpoll？", rst = "docs/tracks/linux-kernel/157-final-close-frees-pidfd-pid-identity-and-eventpoll.rst", status = "complete" },
   { id = "LK-INOTIFY-158", title = "inotify怎样建立目录watch并让parent阻塞在epoll_wait？", rst = "docs/tracks/linux-kernel/158-inotify-watch-registers-with-epoll-and-blocks-parent.rst", status = "complete" },
   { id = "LK-INOTIFY-159", title = "helper创建并关闭new.txt时，fsnotify怎样排入两条inotify事件？", rst = "docs/tracks/linux-kernel/159-fsnotify-queues-create-and-close-write-events.rst", status = "complete" },
-  { id = "LK-INOTIFY-160", title = "parent怎样从epoll event读取两条inotify_event记录？", rst = "docs/tracks/linux-kernel/160-epoll-returns-inotify-and-read-consumes-two-records.rst", status = "complete" }
+  { id = "LK-INOTIFY-160", title = "parent怎样从epoll event读取两条inotify_event记录？", rst = "docs/tracks/linux-kernel/160-epoll-returns-inotify-and-read-consumes-two-records.rst", status = "complete" },
+  { id = "LK-INOTIFYCLOSE-161", title = "零超时epoll_wait怎样清除inotify的stale-ready item？", rst = "docs/tracks/linux-kernel/161-zero-time-epoll-wait-removes-inotify-stale-ready-item.rst", status = "complete" },
+  { id = "LK-INOTIFYCLOSE-162", title = "inotify_rm_watch怎样先排入IN_IGNORED再销毁mark？", rst = "docs/tracks/linux-kernel/162-inotify-rm-watch-queues-ignored-and-destroys-mark.rst", status = "complete" },
+  { id = "LK-INOTIFYCLOSE-163", title = "读取IN_IGNORED后，close怎样释放inotify group与eventpoll？", rst = "docs/tracks/linux-kernel/163-read-ignored-and-final-close-free-inotify-eventpoll.rst", status = "complete" }
 ]
 
 [origin]
@@ -141,13 +144,25 @@ epoll_result = "epoll_wait returns 1 with EPOLLIN and data 0x494E4F36; level ite
 read_result = "read returns 64 and copies two 32-byte records: IN_CREATE then IN_CLOSE_WRITE"
 final_result = "fd 6/7, wd 1 and registration active; queue empty; epitem remains stale-ready"
 
+[completed_inotify_cleanup_scenario]
+name = "inotify stale-ready cleanup, IN_IGNORED delivery and final group/eventpoll teardown"
+status = "complete"
+userspace_calls = "epoll_wait(7,events2,1,0); inotify_rm_watch(6,1); epoll_wait(7,events3,1,0); read(6); epoll_ctl(7,DEL,6,NULL); close(6); close(7)"
+stale_result = "empty queue re-poll returns 0 and removes stale-ready membership"
+rm_watch_result = "queues wd1 IN_IGNORED before IDR removal; mark detaches and enters SRCU-safe destruction"
+ignored_result = "epoll_wait returns EPOLLIN; read returns one 16-byte wd1 IN_IGNORED record"
+delete_result = "callback freed synchronously; epitem removed and kfree_rcu queued; eventpoll refcount 2 to 1"
+inotify_close_result = "group shutdown, mark reaper flush, empty queue/IDR and overflow event destruction, group/file free"
+epoll_close_result = "empty eventpoll refcount 1 to 0; eventpoll storage kfree_rcu"
+final_result = "fd 6/7 closed; wd and group inaccessible; /work/new.txt remains; global anon_inodefs active"
+
 [current]
-last_complete = "LK-INOTIFY-160"
-executor = "parent after successful inotify read consumed create and close-write records"
+last_complete = "LK-INOTIFYCLOSE-163"
+executor = "parent after successful inotify and eventpoll final closes"
 cpu_mode = "x86-64 CPL 3 on CPU0"
 current_task = "SCHED_NORMAL parent; helper blocked outside inotify objects"
 next_entry = "unselected runtime scenario"
-next_action = "preferred next path is stale-ready cleanup, inotify_rm_watch with IN_IGNORED delivery, registration deletion and final close"
+next_action = "preferred next path is Unix domain SOCK_STREAM socketpair plus epoll data and RDHUP delivery"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完整"
