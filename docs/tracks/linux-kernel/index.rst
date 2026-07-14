@@ -115,6 +115,9 @@ Linux Kernel
 #. `第一百零七章：首次 buffered write 怎样只预留空间而不分配物理块？ <107-first-buffered-write-creates-delalloc-state.rst>`_
 #. `第一百零八章：fsync() 怎样让 writeback 分配第一个 unwritten extent 并提交数据？ <108-fsync-writeback-allocates-first-unwritten-extent.rst>`_
 #. `第一百零九章：data completion 怎样转换 extent，并让 fsync() 真正返回？ <109-write-completion-converts-extent-and-fsync-returns.rst>`_
+#. `第一百一十章：unlinkat() 怎样锁住父目录并进入 ext4_unlink()？ <110-unlinkat-locks-parent-and-enters-ext4-unlink.rst>`_
+#. `第一百一十一章：ext4_unlink() 怎样删除名称，却让 fd 6 继续访问 inode？ <111-ext4-unlink-removes-name-and-keeps-open-inode.rst>`_
+#. `第一百一十二章：close(6) 怎样触发最后一次 __fput() 并回收 ext4 inode？ <112-close-evicts-unlinked-ext4-inode.rst>`_
 
 当前主线
 --------
@@ -130,22 +133,20 @@ Linux Kernel
    → child COW write fault complete
    → child static execve complete
    → child exit + parent wait4 reap complete
-   → parent openat("/work/demo.txt", O_CREAT|O_EXCL|O_WRONLY, 0644)
-   → fd 6 published for size-zero ext4 file
-   → write(fd6, buf, 4096)
-   → page-cache folio + one-block delayed reservation
-   → write returns before physical allocation
-   → fsync(fd6)
-   → ext4 writeback allocates physical block P as unwritten extent
-   → data bio through blk-mq / SCSI / libata / AHCI
-   → successful completion
-   → workqueue converts unwritten extent to written
-   → full JBD2 commit + required device flush
-   → parent returns to CPL 3 with fsync RAX=0
+   → parent creates /work/demo.txt on fd 6
+   → first delalloc write + fsync complete
+   → unlinkat removes demo.txt dirent
+   → inode nlink becomes zero and enters orphan tracking
+   → fd 6 still accesses the open-unlinked inode
+   → close(6) removes fd publication
+   → final __fput / dput / iput
+   → ext4_evict_inode drops page cache and removes extent P
+   → orphan removal and inode bitmap free join JBD2 transaction
+   → parent returns to CPL 3 with close RAX=0
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-当前八个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``，以及新文件首次delalloc write + fsync。下一条runtime主线尚未选择。
+当前九个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``、新文件首次delalloc write + fsync，以及open-unlinked文件的final close/eviction。下一条runtime主线尚未选择。
 
 章节组织
 --------
