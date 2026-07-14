@@ -27,12 +27,13 @@
    LK-UNLINK-110..LK-UNLINK-112
    LK-SLEEP-113..LK-SLEEP-115
    LK-SIGNAL-116..LK-SIGNAL-118
+   LK-PIPE-119..LK-PIPE-121
 
 最新三章：
 
-#. ``LK-SIGNAL-116``：tgkill() 怎样排入 SIGUSR1 并唤醒 nanosleep 中的 parent？
-#. ``LK-SIGNAL-117``：parent 怎样取消 hrtimer、写回 remaining 并进入 SIGUSR1 handler？
-#. ``LK-SIGNAL-118``：rt_sigreturn() 怎样恢复被 SIGUSR1 中断的 clock_nanosleep 上下文？
+#. ``LK-PIPE-119``：pipe2() 怎样建立匿名管道并发布 fd 6/7？
+#. ``LK-PIPE-120``：空管道 read() 怎样进入 exclusive wait queue 并阻塞？
+#. ``LK-PIPE-121``：pipe write() 怎样唤醒reader并让 read() 返回5？
 
 固定来源
 --------
@@ -58,76 +59,90 @@
 #. 新文件首次delalloc buffered write与显式 ``fsync``；
 #. open-unlinked ext4文件的final close与inode/extent回收；
 #. monotonic ``clock_nanosleep`` 自然到期、hrtimer/APIC/scheduler唤醒；
-#. ``SIGUSR1`` 中断relative nanosleep、remaining copyout、rt signal frame与 ``rt_sigreturn``。
+#. ``SIGUSR1`` 中断relative nanosleep、remaining copyout、rt signal frame与 ``rt_sigreturn``；
+#. anonymous pipe创建、空pipe阻塞read、writer插入buffer与reader wakeup。
 
 本批固定场景
 ------------
 
 ::
 
-   parent             = single-threaded SCHED_NORMAL task, TGID=TID=P
-   helper             = separate same-UID process H
-   CPUs online        = CPU0 only
-   parent call        = clock_nanosleep(CLOCK_MONOTONIC, 0, {0,10ms}, &remaining)
-   timer slack        = 0 ns
-   timer expiry       = E = T0 + 10 ms
-   signal send        = helper tgkill(P, P, SIGUSR1) at Ts = T0 + 4 ms
-   handler            = SA_SIGINFO | SA_RESTORER
-   absent flags       = SA_RESTART, SA_NODEFER, SA_ONSTACK
-   signal mask        = SIGUSR1 initially unblocked; no other pending signal
-   scheduling         = helper blocks immediately after tgkill; parent resumes before E
-   failure policy     = no permission, copy, frame, FPU, timer or scheduler failure
+   runtime relation    = independent scenario
+   CPUs online         = CPU0 only
+   process             = parent + helper threads, same TGID
+   files table         = shared through CLONE_FILES
+   scheduling          = both SCHED_NORMAL
+   occupied fds        = 0..5
+   pipe call           = pipe2(pipefd, O_CLOEXEC)
+   returned fds        = pipefd[0]=6, pipefd[1]=7
+   pipe flags          = blocking stream; no O_NONBLOCK/O_DIRECT/notification mode
+   page size           = 4096
+   default ring        = 16 slots, 65536 bytes
+   endpoints           = readers=1, writers=1, files=2
+   reader call         = parent read(6, buf, 5)
+   writer call         = helper write(7, "hello", 5)
+   signal state        = none pending; no SIGPIPE
+   allocation          = first anonymous page Q succeeds
+   scheduler order     = parent blocks; helper writes; helper then blocks outside pipe; parent resumes
+   failure policy      = no fd, inode, page, copy, waitqueue or scheduler failure
 
 完整控制流
 ----------
 
 ::
 
-   parent clock_nanosleep(..., &remaining)
-   → hrtimer_nanosleep / do_nanosleep
-   → on-stack hrtimer_sleeper queued on CPU0 monotonic base
-   → parent TASK_INTERRUPTIBLE|TASK_FREEZABLE
-   → scheduler switches parent to helper
+   parent pipe2(pipefd, O_CLOEXEC)
+   → __x64_sys_pipe2 / do_pipe2
+   → create_pipe_files
+   → new pipefs pseudo inode
+   → alloc_pipe_info
+   → allocate 16 pipe_buffer ring entries
+   → initialize rd_wait, wr_wait and pipe mutex
+   → readers=1, writers=1, files=2
+   → create read/write struct file objects using pipeanon_fops
+   → reserve fd 6 and fd 7 with close-on-exec
+   → copy {6,7} to userspace
+   → fd_install both ends
+   → pipe2 returns 0
 
-   helper tgkill(P, P, SIGUSR1)
-   → __x64_sys_tgkill
-   → do_tkill / do_send_specific
-   → SI_TKILL siginfo with si_pid=H
-   → send to parent private pending queue
-   → set TIF_SIGPENDING
-   → wake_up_state(TASK_INTERRUPTIBLE)
-   → try_to_wake_up
+   parent read(6, buf, 5)
+   → ksys_read / vfs_read / new_sync_read
+   → anon_pipe_read
+   → head=tail=0 and writers=1
+   → blocking path, not EOF and not EAGAIN
+   → unlock pipe mutex
+   → wait_event_interruptible_exclusive(rd_wait, pipe_readable)
+   → WQ_FLAG_EXCLUSIVE wait entry on parent kernel stack
+   → parent TASK_INTERRUPTIBLE
+   → schedule / __schedule
+   → dequeue parent and switch CPU0 to helper
+
+   helper write(7, "hello", 5)
+   → ksys_write / vfs_write / new_sync_write
+   → anon_pipe_write
+   → empty ring with reader endpoint present
+   → alloc anonymous page Q
+   → copy 5 bytes into Q
+   → head 0 -> 1
+   → slot 0 = {page=Q, offset=0, len=5, CAN_MERGE}
+   → unlock pipe mutex
+   → wake_up_interruptible_sync_poll(rd_wait)
    → parent TASK_RUNNING and enqueued on CPU0
-   → helper blocks
+   → write returns 5
+   → helper blocks outside pipe
 
-   scheduler restores parent original kernel stack
-   → schedule returns inside do_nanosleep
-   → hrtimer_cancel removes still-active timer
-   → t.task remains parent because callback never ran
-   → signal_pending causes loop exit
-   → remaining = E - actual cancel time
-   → 0 < remaining < 6 ms
-   → put_timespec64(&remaining)
-   → nanosleep_copyout returns -ERESTART_RESTARTBLOCK
-   → save restart expiry E
-   → destroy_hrtimer_on_stack
-
-   syscall exit sees TIF_SIGPENDING
-   → get_signal dequeues SIGUSR1
-   → handle_signal converts -ERESTART_RESTARTBLOCK to -EINTR
-   → x64_setup_rt_frame on normal user stack
-   → save RIP after original SYSCALL, RAX=-EINTR, old RSP/mask/FPU
-   → handler ABI: RDI=SIGUSR1, RSI=&siginfo, RDX=&ucontext
-   → return to CPL3 at sigusr1_handler
-
-   handler returns
-   → frame->pretcode / __restore_rt
-   → __x64_sys_rt_sigreturn
-   → restore blocked mask and altstack state
-   → restore general registers and FPU/XSAVE state
-   → restart_block.fn = do_no_restart_syscall
-   → orig_ax = -1
-   → return to original user RIP with raw RAX=-EINTR
+   scheduler restores parent original read stack
+   → wait condition now true
+   → finish_wait removes exclusive entry
+   → lock pipe mutex
+   → copy_page_to_iter(Q, 0, 5)
+   → parent buf becomes "hello"
+   → buffer len becomes zero
+   → anon_pipe_buf_release
+   → cache Q in pipe->tmp_page[0]
+   → tail 0 -> 1
+   → head=tail=1, occupancy=0
+   → read returns 5
 
 当前精确状态
 ------------
@@ -138,55 +153,58 @@
 * CPU mode：x86-64 CPL 3；
 * scheduling class：``SCHED_NORMAL``；
 * parent state：``TASK_RUNNING``；
-* parent ``on_rq``：1；
-* parent ``on_cpu``：1；
-* current user RIP：原 ``clock_nanosleep`` syscall后的下一条指令；
-* raw syscall result/RAX：``-EINTR``；
-* libc-visible result：通常为正error number ``EINTR``；
-* ``remaining``：有效正值，``0 < remaining < 6 ms``；
-* delivered signal：``SIGUSR1``，``SI_TKILL``，``si_pid=H``；
-* handler：已执行并正常返回；
-* signal mask：恢复到handler前状态，``SIGUSR1`` 未屏蔽；
-* private pending queue：本次signal已dequeue；
-* ``TIF_SIGPENDING``：无其他signal时已清除；
-* rt signal frame：不再active；
-* user RSP：恢复；
-* FPU/XSAVE state：恢复；
-* restart block：``do_no_restart_syscall``；
-* ``orig_ax``：``-1``；
-* sleep hrtimer：已取消、从queue移除并destroy on stack；
-* hrtimer callback：未执行；
-* original APIC deadline E：不再属于本次sleep；
+* parent ``on_rq=1``、``on_cpu=1``；
+* parent read result/RAX：5；
+* parent user buffer：``"hello"``；
+* helper：write result为5，随后阻塞在pipe之外；
+* fd 6：anonymous pipe read end，open，close-on-exec；
+* fd 7：anonymous pipe write end，open，close-on-exec；
+* ``pipe->files``：2；
+* ``pipe->readers``：1；
+* ``pipe->writers``：1；
+* ``ring_size=max_usage``：16；
+* byte capacity：65536；
+* ``head=1``、``tail=1``、occupancy=0；
+* active pipe buffers：0；
+* page ``Q``：缓存于 ``pipe->tmp_page[0]``；
+* ``tmp_page[1]``：NULL；
+* reader wait entry：已移除；
+* pipe wait queues：没有本次waiter；
+* pipe mutex：unlocked；
+* filesystem/block I/O：未发生；
 * next runtime scenario：unselected。
 
 关键边界
 --------
 
-#. ``tgkill`` 生成thread-directed ``SI_TKILL`` 并进入target private pending queue。
-#. signal wakeup设置 ``TIF_SIGPENDING`` 并唤醒 ``TASK_INTERRUPTIBLE`` task，不直接运行handler。
-#. parent恢复原kernel stack后才取消sleep hrtimer。
-#. callback未执行时 ``t.task`` 仍指向parent；自然到期才会清空它。
-#. remaining按实际cancel时间计算，不能写成精确6 ms。
-#. ``-ERESTART_RESTARTBLOCK`` 在交付handler时无条件转成 ``-EINTR``，不受 ``SA_RESTART`` 控制。
-#. rt signal frame保存转换后的RAX与原syscall后的RIP。
-#. handler普通return先进入 ``sa_restorer``。
-#. ``rt_sigreturn`` 恢复mask、RSP/RIP、通用寄存器和FPU state。
-#. ``orig_ax=-1`` 与 ``do_no_restart_syscall`` 阻止旧sleep被错误restart。
+#. anonymous pipe使用pipefs pseudo inode，不触发磁盘filesystem。
+#. 16-slot ring metadata在pipe创建时分配，data page按write需求分配。
+#. read/write end是两个file object，共享一个 ``pipe_inode_info``。
+#. pipe是stream，read/write没有普通文件position语义。
+#. 空pipe且writers存在会阻塞；空pipe且writers为0才返回EOF。
+#. reader在等待前释放pipe mutex，并以exclusive TASK_INTERRUPTIBLE entry加入 ``rd_wait``。
+#. wakeup只把reader变为runnable，不直接执行reader代码。
+#. ``WF_SYNC`` 是调度提示，不保证立即handoff。
+#. 5-byte write成功后形成一个anonymous ``pipe_buffer``。
+#. buffer完全消费后tail推进，pipe重新为空。
+#. page count允许时，anonymous page缓存到 ``tmp_page[]`` 而非立即释放给buddy。
+#. pipe empty与pipe object释放是不同状态；两个endpoint仍open。
 
 下一任务
 --------
 
-当前没有已选定场景。优先候选是anonymous pipe的阻塞read与writer wakeup：
+当前没有已选定场景。优先候选是继续追踪pipe endpoint关闭、EOF与最终对象释放：
 
 ::
 
-   pipe2(pipefd, O_CLOEXEC)
-   → allocate pipe_inode_info and two struct file objects
-   → reader read(pipefd[0], buf, 5) on empty pipe
-   → reader joins pipe wait queue and schedules out
-   → writer write(pipefd[1], "hello", 5)
-   → allocate pipe_buffer page and copy bytes
-   → wake reader
-   → reader consumes pipe_buffer and returns 5
+   helper/parent close(7)
+   → remove shared fd 7 publication
+   → pipe_release decrements writers 1 -> 0
+   → wake rd_wait
+   → parent read(6, buf, 5) sees empty pipe and writers=0
+   → read returns 0 EOF without sleeping
+   → close(6)
+   → readers 1 -> 0, files 1 -> 0
+   → free tmp_page Q, ring, pipe_inode_info and pseudo inode
 
-开始前必须固定fd编号、pipe capacity、single/multi-reader writer状态、packet mode、signal状态、scheduler顺序与page allocation结果。
+开始前必须固定close执行线程、共享fd table影响、是否存在正在sleep的reader、fput执行上下文，以及final inode/file reference顺序。
