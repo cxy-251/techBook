@@ -18,15 +18,16 @@ LK-UNLINK-110..LK-UNLINK-112
 LK-SLEEP-113..LK-SLEEP-115
 LK-SIGNAL-116..LK-SIGNAL-118
 LK-PIPE-119..LK-PIPE-121
+LK-PIPECLOSE-122..LK-PIPECLOSE-124
 ```
 
-十二个运行期实验已闭环：cold read、O_SYNC write、fork、child COW write fault、static ELF execve、child exit + parent wait4 reap、ext4 create-open、首次delalloc write + fsync、open-unlinked final close、自然到期nanosleep、SIGUSR1中断nanosleep + rt_sigreturn，以及anonymous pipe blocking read + writer wakeup。
+十三个运行期实验已闭环：cold read、O_SYNC write、fork、child COW write fault、static ELF execve、child exit + parent wait4 reap、ext4 create-open、首次delalloc write + fsync、open-unlinked final close、自然到期nanosleep、SIGUSR1中断nanosleep + rt_sigreturn、anonymous pipe blocking read + writer wakeup，以及pipe write-end close + EOF + final teardown。
 
 最新三章：
 
-- `LK-PIPE-119`：pipe2() 怎样建立匿名管道并发布 fd 6/7？
-- `LK-PIPE-120`：空管道 read() 怎样进入 exclusive wait queue 并阻塞？
-- `LK-PIPE-121`：pipe write() 怎样唤醒reader并让 read() 返回5？
+- `LK-PIPECLOSE-122`：close(7) 怎样撤销 write end 并把 writers 降为 0？
+- `LK-PIPECLOSE-123`：空管道在 writers=0 时，read() 为什么直接返回 EOF？
+- `LK-PIPECLOSE-124`：最后一次 close(6) 怎样释放pipe page、ring与pseudo inode？
 
 ## 固定实现
 
@@ -46,79 +47,82 @@ storage           = q35 ICH9 AHCI SATA port 0
 
 旧章节中的 `Linux 6.12.95` 是历史显示标签错误；固定commit始终是Linux 7.2-rc1。
 
-## 已完成 anonymous pipe 固定场景
+## 已完成 pipe close/EOF 固定场景
 
 ```text
-runtime relation = independent scenario
-CPUs online      = CPU0 only
-process          = parent + helper threads in one TGID
-files table      = shared through CLONE_FILES
-scheduler        = both SCHED_NORMAL
-occupied fds     = 0..5
-pipe call        = pipe2(pipefd, O_CLOEXEC)
-returned fds     = read fd 6, write fd 7
-pipe mode        = blocking stream, no O_NONBLOCK/O_DIRECT/watch queue
-page size        = 4096
-ring             = 16 slots / 65536 bytes
-endpoints        = readers=1, writers=1, files=2
-reader call      = parent read(6, buf, 5)
-writer call      = helper write(7, "hello", 5)
-signal state     = none; no SIGPIPE
-allocation       = first anonymous page Q succeeds
-scheduler order  = parent blocks, helper writes and blocks, parent resumes
-failure policy   = no fd/inode/page/copy/waitqueue/scheduler failure
+runtime relation  = continuation of LK-PIPE-119..121
+CPUs online       = CPU0 only
+process           = parent + helper threads in one TGID
+files table       = shared through CLONE_FILES
+scheduler         = both SCHED_NORMAL
+initial fd 6      = open read end, close-on-exec
+initial fd 7      = open write end, close-on-exec
+initial endpoints = readers=1, writers=1, files=2
+initial ring      = head=tail=1, occupancy=0
+cached page       = Q in tmp_page[0]
+wait queues       = no waiter
+first call        = helper close(7)
+second call       = parent read(6, eofbuf, 5)
+eofbuf initial    = "XXXXX"
+final call        = parent close(6)
+extra references  = none
+signal state      = none
+failure policy    = no close/copy/VFS/allocator failure
 ```
 
 ## 已执行控制流
 
 ```text
-parent pipe2(pipefd, O_CLOEXEC)
-→ __x64_sys_pipe2 / do_pipe2
-→ create pipefs pseudo inode
-→ alloc pipe_inode_info and 16 pipe_buffer slots
-→ initialize rd_wait/wr_wait/mutex
-→ readers=1, writers=1, files=2
-→ create read/write struct file objects using pipeanon_fops
-→ reserve fd 6/7 with close-on-exec
-→ copy {6,7} to userspace
-→ fd_install both ends
-→ pipe2 returns 0
+helper close(7)
+→ file_close_fd under shared files->file_lock
+→ fdt->fd[7] = NULL
+→ fd 7 disappears for both threads
+→ filp_flush returns 0
+→ fput_close_sync
+→ synchronous __fput
+→ pipe_release
+→ writers 1 -> 0, readers stays 1
+→ wake rd_wait/wr_wait because endpoint sides differ
+→ no actual waiter
+→ put_pipe_info files 2 -> 1
+→ release write-side path and file
+→ helper RAX=0
 
-parent read(6, buf, 5)
-→ ksys_read / vfs_read / anon_pipe_read
-→ pipe empty, writers=1
-→ unlock pipe mutex
-→ wait_event_interruptible_exclusive(rd_wait, pipe_readable)
-→ parent WQ_FLAG_EXCLUSIVE + TASK_INTERRUPTIBLE
-→ schedule out and switch to helper
+parent read(6, eofbuf, 5)
+→ anon_pipe_read
+→ head==tail and writers==0
+→ break with ret=0
+→ no wait queue entry
+→ no schedule
+→ no copy_page_to_iter
+→ eofbuf remains "XXXXX"
+→ parent RAX=0 EOF
 
-helper write(7, "hello", 5)
-→ ksys_write / vfs_write / anon_pipe_write
-→ alloc anonymous page Q
-→ copy 5 bytes into Q
-→ head 0 -> 1
-→ slot 0 = page Q, offset 0, len 5, CAN_MERGE
-→ wake_up_interruptible_sync_poll(rd_wait)
-→ parent TASK_RUNNING and enqueued
-→ write returns 5
-→ helper blocks outside pipe
-
-scheduler restores parent original read stack
-→ wait condition true
-→ finish_wait removes reader entry
-→ copy 5 bytes from Q to parent user buffer
-→ buffer fully consumed
-→ cache Q in pipe->tmp_page[0]
-→ tail 0 -> 1
-→ head=tail=1, occupancy=0
-→ read returns 5
+parent close(6)
+→ remove shared fd 6
+→ fput_close_sync
+→ synchronous __fput
+→ pipe_release
+→ readers 1 -> 0, writers stays 0
+→ put_pipe_info files 1 -> 0
+→ inode->i_pipe = NULL
+→ free_pipe_info
+→ release pipe page accounting
+→ __free_page(Q)
+→ free 16-slot ring
+→ free pipe_inode_info
+→ dput final pseudo dentry
+→ drop pseudo inode reference
+→ mntput per-file pipefs mount ref
+→ free read-side file
+→ parent RAX=0
 ```
 
 ## 当前精确状态
 
 ```text
 system_state       = SYSTEM_RUNNING
-runtime scenario   = anonymous pipe blocking read/writer wakeup complete
+runtime scenario   = anonymous pipe EOF and final teardown complete
 current executor   = parent
 CPU                = CPU0
 CPU mode           = x86-64 CPL 3
@@ -126,60 +130,58 @@ scheduling class   = SCHED_NORMAL
 parent state       = TASK_RUNNING
 parent on_rq       = 1
 parent on_cpu      = 1
-read return        = 5
-user buffer        = "hello"
-helper             = write returned 5; blocked outside pipe
-fd 6               = open read end, close-on-exec
-fd 7               = open write end, close-on-exec
-pipe files         = 2
-pipe readers       = 1
-pipe writers       = 1
-ring capacity      = 16 slots / 65536 bytes
-head/tail          = 1/1
-occupancy          = 0
-active buffers     = 0
-tmp_page[0]        = anonymous page Q
-tmp_page[1]        = NULL
-wait entries       = none from this operation
-pipe mutex         = unlocked
+final close return = 0
+previous EOF read  = 0
+eofbuf             = "XXXXX"
+fd 6               = closed
+fd 7               = closed
+write file         = released
+read file          = released
+pipe_inode_info    = freed
+ring               = freed
+page Q             = returned to page allocator
+pseudo dentry/inode= no longer active; slab free may be RCU-deferred
+global pipe_mnt    = still present
+helper             = blocked outside pipe
 filesystem I/O     = none
 next entry         = unselected runtime scenario
 ```
 
 ## 必须保持的技术边界
 
-1. anonymous pipe使用pipefs pseudo inode，不触发磁盘filesystem或block I/O。
-2. ring创建时只分配`pipe_buffer` metadata；data page按write需要分配。
-3. read/write end是两个`struct file`，共享一个`pipe_inode_info`。
-4. `readers/writers`记录open endpoint数量，不是正在syscall的线程数量。
-5. pipe是stream，file position无普通文件语义。
-6. 空pipe且writers存在会阻塞；writers为0才返回EOF。
-7. reader释放pipe mutex后，以exclusive TASK_INTERRUPTIBLE entry加入`rd_wait`。
-8. wakeup只让reader runnable；`WF_SYNC`不是直接handoff。
-9. sleeping reader恢复原kernel stack，不重新进入syscall入口。
-10. 5-byte write产生一个anonymous `PIPE_BUF_FLAG_CAN_MERGE` buffer。
-11. 完全消费后tail推进，pipe重新empty。
-12. page count允许时，released page缓存到`tmp_page[]`而非立即归还buddy。
-13. pipe empty不等于pipe释放；fd 6/7仍持有对象。
+1. `file_close_fd`先撤销共享fd publication，另一个thread也立即失去该fd。
+2. fdtable slot清空不等于`pipe_release`已经运行。
+3. userspace `close()`使用`fput_close_sync`，最后`__fput`在syscall返回前执行。
+4. `writers`从1降到0会通知partner wait queues，即使当前没有waiter。
+5. `empty && writers==0`的pipe read立即返回0 EOF。
+6. EOF不会清空用户buffer，也不会自动close read endpoint。
+7. pipe是stream，没有普通文件position语义。
+8. `readers/writers`决定I/O语义，`files`决定`pipe_inode_info` lifetime。
+9. `files==0`才进入`free_pipe_info`。
+10. consumed buffer的`buf->ops`已清空，final free不会重复release page。
+11. `tmp_page`中的Q在pipe销毁时才归还page allocator。
+12. pipefs pseudo inode不产生磁盘I/O、journal或writeback。
+13. dentry/inode memory可RCU延迟回收，但用户已不能引用。
+14. final `mntput`只下降per-file引用，不卸载global pipefs。
 
 ## 下一建议场景
 
-优先候选是pipe write-end关闭、EOF与final free：
+优先候选是private futex wait/wake：
 
 ```text
-close(7)
-→ remove shared fd 7
-→ pipe_release writers 1 -> 0
-→ wake rd_wait
-→ read(6, buf, 5) on empty pipe
-→ head==tail and writers==0
-→ return 0 EOF without sleeping
-→ close(6)
-→ readers 1 -> 0, files 1 -> 0
-→ free tmp_page Q, ring, pipe_inode_info and pseudo inode
+private user word = 0
+parent futex(FUTEX_WAIT_PRIVATE, expected=0)
+→ build private futex key
+→ enqueue waiter in hash bucket
+→ verify word still equals 0
+→ parent TASK_INTERRUPTIBLE and schedule out
+→ helper atomic_store(word, 1)
+→ futex(FUTEX_WAKE_PRIVATE, 1)
+→ remove one waiter and wake parent
+→ parent returns 0
 ```
 
-开始前固定close执行线程、共享fd table影响、是否存在sleeping reader、fput执行上下文与final inode/file reference顺序。
+开始前固定user address、mapping、alignment、atomic store memory ordering、futex flags、hash bucket、signal state与scheduler顺序。
 
 ## 连续叙事与流程
 
