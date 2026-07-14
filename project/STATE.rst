@@ -32,12 +32,13 @@
    LK-FUTEX-125..LK-FUTEX-127
    LK-EVENTFD-128..LK-EVENTFD-130
    LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133
+   LK-EPOLL-134..LK-EPOLL-136
 
 最新三章：
 
-#. ``LK-EVENTFDCLOSE-131``：close(6) 怎样撤销eventfd fd并同步进入最后一次__fput()？
-#. ``LK-EVENTFDCLOSE-132``：eventfd_release() 怎样发送EPOLLHUP并释放eventfd_ctx？
-#. ``LK-EVENTFDCLOSE-133``：__fput() 怎样释放anon-inode path并让close()返回0？
+#. ``LK-EPOLL-134``：epoll_ctl(ADD) 怎样把eventfd callback挂进wait queue？
+#. ``LK-EPOLL-135``：epoll_wait() 怎样把parent挂到eventpoll自己的wait queue？
+#. ``LK-EPOLL-136``：eventfd write怎样触发epoll callback并让epoll_wait返回1？
 
 固定来源
 --------
@@ -68,143 +69,189 @@
 #. pipe write-end close、EOF与final teardown；
 #. private futex wait/release-store/wake；
 #. eventfd counter blocking read与writer wakeup；
-#. eventfd final close、HUP wake与anon-inode file teardown。
+#. eventfd final close与anon-inode file teardown；
+#. eventfd通过level-triggered epoll callback唤醒 ``epoll_wait``。
 
 本批固定场景
 ------------
 
 ::
 
-   runtime relation    = continuation of LK-EVENTFD-128..130
+   runtime relation    = independent scenario
    CPUs online         = CPU0 only
    process             = parent + helper threads, same TGID
    files table         = shared through CLONE_FILES
    scheduling          = both SCHED_NORMAL
-   current executor    = parent
-   close call          = parent close(6)
-   fd 6                = unique eventfd file reference
-   file mode           = O_RDWR, blocking, close-on-exec
-   eventfd count       = 0
-   semaphore mode      = disabled
-   ctx kref            = 1
-   internal id         = valid non-negative eventfd_ida allocation
-   wait queue          = empty
-   poll/epoll          = no registration or callback
-   extra ctx refs      = none
-   in-flight fd refs   = none
-   helper              = blocked outside eventfd
-   global anon inode   = singleton anon_inode_inode remains active
-   failure policy      = no close, VFS, dcache, mount or allocator failure
+   occupied fds        = 0..5
+   eventfd call        = eventfd2(0, EFD_CLOEXEC)
+   eventfd fd          = 6
+   epoll call          = epoll_create1(EPOLL_CLOEXEC)
+   epoll fd            = 7
+   registration        = EPOLL_CTL_ADD fd 6 to epfd 7
+   user interest       = EPOLLIN
+   stored interest     = EPOLLIN | EPOLLERR | EPOLLHUP
+   trigger mode        = level-triggered
+   event data          = 0xEFD6
+   EPOLLEXCLUSIVE      = disabled
+   EPOLLONESHOT        = disabled
+   EPOLLET             = disabled
+   initial counter     = 0
+   parent wait         = epoll_wait(7, events, 1, -1)
+   helper write        = write(6, &five, 8), five=5
+   signal state        = none pending
+   scheduler order     = parent blocks; helper writes and blocks; parent resumes
+   failure policy      = no fd, quota, allocation, copy, signal or scheduler failure
 
 完整控制流
 ----------
 
 ::
 
-   parent close(6)
-   → entry_SYSCALL_64 / do_syscall_64 / __x64_sys_close
-   → file_close_fd(6)
-   → lock shared files->file_lock
-   → fdt->fd[6] = NULL
-   → clear open_fds bit and close_on_exec bit
-   → update next_fd
-   → unlock files->file_lock
-   → fd 6 becomes unavailable to parent and helper
-   → filp_flush(eventfd file F) returns 0
-   → fput_close_sync(F)
-   → file_ref_put_close consumes final file reference
-   → synchronous __fput(F)
-   → fsnotify_close / eventpoll_release / locks / security cleanup
-   → no epoll link, lock or FASYNC state
-   → eventfd_release(inode, F)
-   → wake_up_poll(E.wqh, EPOLLHUP)
-   → lock E.wqh.lock and scan empty queue
-   → zero task or epoll callback awakened
-   → eventfd_ctx_put(E)
-   → E.kref 1 -> 0
-   → eventfd_free / eventfd_free_ctx
-   → ida_free(E.id)
-   → kfree(E)
-   → eventfd count, flags, id and wait queue cease to exist
-   → return to __fput
-   → fops_put / file owner / access cleanup
-   → dput per-file [eventfd] pseudo dentry
-   → drop this dentry's singleton anon-inode reference
-   → singleton anon_inode_inode remains active
-   → mntput per-file anon_inode_mnt reference
-   → global anon_inode_mnt remains mounted
-   → file_free(F)
-   → fput_close_sync returns
-   → close uses filp_flush retval 0
-   → parent returns CPL3 with RAX=0
+   parent eventfd2(0, EFD_CLOEXEC)
+   → allocate eventfd_ctx E
+   → publish O_RDWR blocking fd 6 with E.count=0
+
+   parent epoll_create1(EPOLL_CLOEXEC)
+   → do_epoll_create / ep_alloc
+   → initialize eventpoll EP
+   → EP.mtx, EP.lock, EP.wq, EP.poll_wait
+   → EP.rbr empty, EP.rdllist empty
+   → publish [eventpoll] file as fd 7
+
+   parent epoll_ctl(7, EPOLL_CTL_ADD, 6, {EPOLLIN, data=0xEFD6})
+   → resolve eventpoll file F7 and eventfd file F6
+   → add EPOLLERR | EPOLLHUP to stored mask
+   → allocate epitem I
+   → I key = (F6, fd 6)
+   → attach I to F6->f_ep reverse hlist
+   → insert I into EP.rbr
+   → EP.refcount 1 -> 2
+   → eventfd_poll with ep_ptable_queue_proc
+   → allocate eppoll_entry P
+   → P.wait.func = ep_poll_callback
+   → add P non-exclusively to E.wqh
+   → eventfd count 0 reports only EPOLLOUT
+   → masked readiness is zero
+   → I remains off EP.rdllist
+   → epoll_ctl returns 0
+
+   parent epoll_wait(7, events, 1, -1)
+   → timeout converts to NULL
+   → ready list initially empty
+   → stack wait entry W
+   → W.func = ep_autoremove_wake_function
+   → lock EP.lock
+   → parent TASK_INTERRUPTIBLE
+   → final ready recheck still false
+   → add W exclusively to EP.wq
+   → unlock EP.lock
+   → schedule_hrtimeout_range(NULL)
+   → parent leaves CPU0
+   → helper becomes current
+
+   helper write(6, &five, 8)
+   → eventfd_write
+   → lock E.wqh.lock
+   → E.count 0 -> 5
+   → wake_up_locked_poll(E.wqh, EPOLLIN)
+   → invoke P.wait.func = ep_poll_callback
+   → lock EP.lock
+   → incoming EPOLLIN matches I interest
+   → append I to EP.rdllist
+   → wake EP.wq
+   → W default wake makes parent runnable
+   → W auto-removes from EP.wq
+   → unlock EP.lock
+   → unlock E.wqh.lock
+   → helper write returns 8
+   → helper blocks outside eventfd
+
+   scheduler restores parent original epoll_wait stack
+   → schedule_hrtimeout_range returns
+   → parent TASK_RUNNING
+   → W already removed
+   → ep_try_send_events / ep_send_events
+   → lock EP.mtx
+   → ep_start_scan moves I to local scan batch
+   → re-poll eventfd
+   → E.count=5 reports EPOLLIN | EPOLLOUT
+   → interest mask yields EPOLLIN
+   → copy events[0] = {EPOLLIN, data=0xEFD6}
+   → level-triggered I requeued to EP.rdllist
+   → ep_done_scan
+   → unlock EP.mtx
+   → epoll_wait returns 1
 
 当前精确状态
 ------------
 
 * ``system_state``：``SYSTEM_RUNNING``；
-* runtime scenario：eventfd final close complete；
+* runtime scenario：eventfd level-triggered epoll wake complete；
 * current executor：parent；
 * CPU：CPU0；
 * CPU mode：x86-64 CPL 3；
 * scheduling class：``SCHED_NORMAL``；
 * parent state：``TASK_RUNNING``；
 * parent ``on_rq=1``、 ``on_cpu=1``；
-* final syscall：``close(6)``；
-* final result/RAX：0；
-* userspace RIP：close syscall之后的下一条指令；
-* shared fd 6：closed and unallocated；
-* fd 6 open bit：cleared；
-* fd 6 close-on-exec bit：cleared；
-* helper：仍阻塞在eventfd之外；
-* eventfd file ``F``：freed；
-* eventfd ctx ``E``：freed；
-* eventfd internal id：returned to ``eventfd_ida``；
-* eventfd counter、flags与wait queue：对象已不存在；
-* HUP wake callbacks/tasks：0；
-* ``[eventfd]`` pseudo dentry：已失去最后活动引用；
-* singleton ``anon_inode_inode``：仍active；
-* global ``anon_inode_mnt``：仍mounted；
-* per-file anon-inode mount reference：released；
-* shared ``files_struct``：仍active，fd 0..5保持原状；
-* task_work/delayed_fput：未使用；
+* parent latest syscall：``epoll_wait(7, events, 1, -1)``；
+* parent return/RAX：1；
+* ``events[0].events``：``EPOLLIN``；
+* ``events[0].data.u64``：``0xEFD6``；
+* helper write result：8；
+* helper：阻塞在eventfd之外；
+* shared fd 6：eventfd file ``F6``，open、blocking、close-on-exec；
+* eventfd ctx ``E``：active；
+* ``E->count``：5；
+* ``E->wqh``：包含non-exclusive callback entry ``P``；
+* shared fd 7：eventpoll file ``F7``，open、close-on-exec；
+* eventpoll ``EP``：active；
+* ``EP->refcount``：2；
+* ``EP->rbr``：包含epitem ``I``；
+* ``EP->rdllist``：包含 ``I``；
+* ``EP->ovflist``：``EP_UNACTIVE_PTR``；
+* ``EP->wq``：不含parent waiter；
+* ``EP->poll_wait``：empty；
+* ``I->event.events``：``EPOLLIN|EPOLLERR|EPOLLHUP``；
+* ``I->event.data``：``0xEFD6``；
+* ``I->pwqlist``：包含 ``P``；
+* parent stack wait entry ``W``：生命周期结束；
+* eventfd counter consumption：none；
 * filesystem/block I/O：none；
 * next runtime scenario：unselected。
 
 关键边界
 --------
 
-#. fdtable publication、file reference、ctx kref和path reference是四套不同lifetime。
-#. ``file_close_fd`` 撤销共享fd 6，但当前close仍持有转交出来的file reference。
-#. ``EFD_CLOEXEC`` 只属于fdtable bookkeeping，显式close时与open bit一起清理。
-#. ``fput_close_sync`` 保证final ``__fput`` 在close返回前同步完成。
-#. ``eventpoll_release`` 位于file-specific ``release`` 之前。
-#. ``wake_up_poll(EPOLLHUP)`` 的HUP是wake key；空queue时不会产生实际observer。
-#. eventfd使用 ``wake_up_poll``，不是 ``wake_up_pollfree``。
-#. ctx kref与file refcount互相独立；无额外ctx引用时kref从1直接到0。
-#. eventfd internal id与userspace fd number属于不同编号空间。
-#. ``kfree(E)`` 之后不能再读取counter或wait queue状态。
-#. ``release`` callback返回值不会覆盖close retval；close结果来自 ``filp_flush``。
-#. 普通eventfd复用singleton anon inode，不拥有独立inode。
-#. ``dput`` 结束per-file pseudo dentry，不释放全局singleton inode。
-#. ``mntput`` 归还per-file mount reference，不卸载全局anon_inodefs。
-#. anonymous inode file teardown不产生磁盘I/O、journal或writeback。
+#. eventfd ``E->wqh`` 与eventpoll ``EP->wq`` 是两条不同wait queue。
+#. ``P`` 是readiness callback entry， ``W`` 才是阻塞parent的task entry。
+#. ``P`` 为non-exclusive， ``W`` 为exclusive。
+#. interest rbtree与ready list保存同一个epitem的不同成员关系。
+#. ``epoll_ctl`` 自动加入 ``EPOLLERR|EPOLLHUP``。
+#. eventfd count为0时只报告 ``EPOLLOUT``，不会使EPOLLIN注册项ready。
+#. ``epoll_wait`` 睡眠前在 ``EP->lock`` 下设置状态、重查ready并入队。
+#. eventfd先修改counter，再发出 ``EPOLLIN`` wake。
+#. callback先把item加入ready list，再唤醒parent。
+#. parent恢复原kernel stack后才重新poll并复制用户event。
+#. event data来自注册时的 ``data.u64``，不是fd或counter。
+#. ``epoll_wait`` 返回1表示一个event，不表示一个字节。
+#. level-triggered交付不消费eventfd，counter仍为5，item仍在ready list。
 
 下一任务
 --------
 
-当前没有已选定场景。优先候选是用epoll实际观察eventfd wake：
+当前没有已选定场景。优先候选是消费counter并清理level-triggered stale-ready状态：
 
 ::
 
-   eventfd2(0, EFD_CLOEXEC) -> fd 6
-   epoll_create1(EPOLL_CLOEXEC) -> fd 7
-   epoll_ctl(7, EPOLL_CTL_ADD, 6, EPOLLIN)
-   → eventpoll item attaches callback to eventfd wait queue
-   parent epoll_wait(7, events, 1, -1)
-   → parent blocks on eventpoll wait queue
-   helper write(6, u64 5)
-   → eventfd EPOLLIN callback marks item ready
-   → wake parent
-   → epoll_wait copies one event to userspace
+   parent read(6, &value, 8)
+   → E.count 5 -> 0
+   → eventfd emits EPOLLOUT wake
+   → EPOLLOUT does not match I interest
+   → I still remains on EP.rdllist from prior level delivery
+   parent epoll_wait(7, events, 1, 0)
+   → scan I and re-poll eventfd
+   → no EPOLLIN remains
+   → remove I from ready list
+   → return 0
 
-开始前必须固定event mask、level/edge trigger mode、event data、epoll exclusive flag、fd references、callback顺序、ready-list状态与scheduler顺序。
+之后可继续 ``EPOLL_CTL_DEL``，再关闭fd 6与fd 7，释放 ``P``、 ``I`` 与 ``EP``。
