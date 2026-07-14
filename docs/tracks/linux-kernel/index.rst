@@ -101,7 +101,7 @@ Linux Kernel
 #. `第九十三章：copy_process() 怎样复制资源并建立 COW 子进程？ <93-copy-process-builds-cow-child.rst>`_
 #. `第九十四章：scheduler 怎样启动 child，并让 fork() 在父子进程返回不同结果？ <94-fork-parent-and-child-return.rst>`_
 #. `第九十五章：child 写只读 COW 地址时，x86 #PF 怎样进入 do_wp_page？ <95-x86-cow-write-fault-enters-do-wp-page.rst>`_
-#. `第九十六章：wp_page_copy() 怎样分配新 folio并替换 child PTE？ <96-wp-page-copy-replaces-child-pte.rst>`_
+#. `第九十六章：wp_page_copy() 怎样分配新 folio 并替换 child PTE？ <96-wp-page-copy-replaces-child-pte.rst>`_
 #. `第九十七章：page fault 返回后，CPU 怎样重试 store 并完成 COW 隔离？ <97-page-fault-return-retries-child-store.rst>`_
 #. `第九十八章：x86-64 的 execve() 怎样打开静态 ELF 并进入 load_elf_binary()？ <98-execve-opens-static-elf.rst>`_
 #. `第九十九章：begin_new_exec() 怎样替换旧 mm 并建立静态 ELF 映射？ <99-begin-new-exec-replaces-mm-and-maps-elf.rst>`_
@@ -151,6 +151,9 @@ Linux Kernel
 #. `第一百四十三章：零超时epoll_wait() 怎样清理signalfd的stale-ready item？ <143-zero-time-epoll-wait-removes-signalfd-stale-ready-item.rst>`_
 #. `第一百四十四章：EPOLL_CTL_DEL 怎样拆除signalfd callback与epitem？ <144-epoll-del-detaches-signalfd-callback.rst>`_
 #. `第一百四十五章：close() 怎样释放signalfd与eventpoll，却保留共享sighand wait queue？ <145-final-close-frees-signalfd-and-eventpoll.rst>`_
+#. `第一百四十六章：timerfd怎样建立一次性hrtimer并让parent阻塞在epoll_wait？ <146-timerfd-creates-arms-and-registers-with-epoll.rst>`_
+#. `第一百四十七章：local APIC定时器中断怎样让timerfd callback唤醒epoll_wait？ <147-lapic-hrtimer-callback-wakes-timerfd-epoll.rst>`_
+#. `第一百四十八章：parent怎样从epoll event进入timerfd read并取出expiration count？ <148-epoll-returns-timerfd-event-and-read-consumes-expiration.rst>`_
 
 当前主线
 --------
@@ -166,20 +169,24 @@ Linux Kernel
    → natural and SIGUSR1-interrupted monotonic nanosleep complete
    → anonymous pipe lifecycle complete
    → private futex wait/wake complete
-   → eventfd and eventpoll lifecycles complete
-   → blocked SIGUSR1 delivered through signalfd and epoll
-   → parent reads one 128-byte signalfd_siginfo
-   → zero-time epoll_wait re-polls and removes stale-ready membership
-   → EPOLL_CTL_DEL detaches callback from shared sighand wait queue
-   → epitem exits through kfree_rcu and EP refcount returns to 1
-   → close(6) frees signalfd ctx/file while shared signalfd_wqh remains
-   → close(7) ends eventpoll lifetime through kfree_rcu
-   → parent CPL3 with close RAX=0 and fd 6/7 closed
-   → parent/helper still block SIGUSR1 and no SIGUSR1 is pending
+   → eventfd, signalfd and their eventpoll lifecycles complete
+   → timerfd fd 6 created on CLOCK_MONOTONIC
+   → relative one-shot 20ms hrtimer queued on CPU0
+   → eventpoll fd 7 watches timerfd EPOLLIN
+   → parent blocks on eventpoll wait queue and CPU0 idles
+   → local APIC timer vector enters hrtimer_interrupt
+   → timerfd_tmrproc changes ticks 0→1 and wakes epoll callback
+   → callback queues epitem and makes parent runnable
+   → parent re-polls timerfd and receives EPOLLIN data 0x71FD6
+   → epoll_wait returns 1
+   → timerfd read returns 8 with expiration count 1
+   → ticks/expired return to zero and one-shot hrtimer stays inactive
+   → fd 6/7 and registration remain active
+   → level-triggered epitem remains stale-ready until next scan
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-当前二十个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``、新文件首次delalloc write + fsync、open-unlinked文件的final close/eviction、自然到期monotonic nanosleep、``SIGUSR1`` 中断nanosleep与 ``rt_sigreturn``、anonymous pipe读写与final teardown、private futex wait/wake、eventfd counter blocking read/writer wakeup、eventfd final close、eventfd level-triggered epoll callback/wait delivery、eventfd/epoll cleanup、blocked ``SIGUSR1`` 通过signalfd与epoll交付，以及signalfd/epoll stale-ready cleanup、registration deletion与final teardown。下一条runtime主线尚未选择。
+当前二十一个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``、新文件首次delalloc write + fsync、open-unlinked文件的final close/eviction、自然到期monotonic nanosleep、``SIGUSR1`` 中断nanosleep与 ``rt_sigreturn``、anonymous pipe读写与final teardown、private futex wait/wake、eventfd counter blocking read/writer wakeup、eventfd final close、eventfd level-triggered epoll callback/wait delivery、eventfd/epoll cleanup、blocked ``SIGUSR1`` 通过signalfd与epoll交付、signalfd/epoll cleanup，以及one-shot monotonic timerfd通过local APIC、hrtimer和epoll交付expiration count。下一条runtime主线尚未选择。
 
 章节组织
 --------
