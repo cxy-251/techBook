@@ -14,7 +14,7 @@ Linux Kernel
 
    0[1-9]-*
    [1-9][0-9]-*
-   1[0-5][0-9]-*
+   1[0-9][0-9]-*
 
 当前主线
 --------
@@ -30,18 +30,21 @@ Linux Kernel
    → natural and SIGUSR1-interrupted monotonic nanosleep complete
    → anonymous pipe lifecycle complete
    → private futex wait/wake complete
-   → eventfd, signalfd and timerfd eventpoll lifecycles complete
-   → pidfd_open creates pidfs-backed fd 6 for a direct child
-   → eventpoll fd 7 watches P->wait_pidfd
-   → child exits, pidfd callback wakes parent
-   → epoll_wait delivers EPOLLIN
-   → waitid(P_PIDFD) reports CLD_EXITED/status 42 and reaps child
-   → numeric PID becomes reusable while old struct pid remains pinned
-   → post-reap epoll_wait delivers EPOLLIN|EPOLLHUP
-   → EPOLL_CTL_DEL removes callback and epitem
-   → close(6) prunes pidfs dentry, evicts inode and releases old pid identity
-   → close(7) drains and releases empty eventpoll
-   → parent CPL3 with close RAX=0 and fd 6/7 closed
+   → eventfd, signalfd, timerfd and pidfd eventpoll lifecycles complete
+   → inotify_init1 creates blocking close-on-exec fd 6
+   → inotify_add_watch installs wd 1 on ext4 /work
+   → internal mark watches CREATE, CLOSE_WRITE, UNMOUNT and child events
+   → eventpoll fd 7 attaches callback to group notification wait queue
+   → parent blocks on eventpoll wait queue
+   → helper creates /work/new.txt as fd 8
+   → fsnotify queues wd1 IN_CREATE and wakes parent
+   → helper write MODIFY is ignored by the selected watch mask
+   → helper close queues wd1 IN_CLOSE_WRITE without merging
+   → epoll_wait returns EPOLLIN and data 0x494E4F36
+   → read(6) copies two 32-byte FIFO records and returns 64
+   → notification queue becomes empty
+   → watch and fd 6/7 remain active
+   → level-triggered epitem remains stale-ready
 
 完成范围
 --------
@@ -73,29 +76,32 @@ Linux Kernel
    LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151
    LK-PIDFD-152..LK-PIDFD-154
    LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157
+   LK-INOTIFY-158..LK-INOTIFY-160
 
 固定commit的 ``Makefile`` 标识为Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定commit为准。
 
 最新三章
 --------
 
-#. `第一百五十五章：reap之后的pidfd为什么让epoll_wait返回EPOLLIN|EPOLLHUP？ <155-post-reap-pidfd-delivers-epollhup.rst>`_
-#. `第一百五十六章：EPOLL_CTL_DEL怎样拆除pidfd callback与epitem？ <156-epoll-del-detaches-pidfd-callback.rst>`_
-#. `第一百五十七章：close()怎样释放pidfs inode、旧struct pid与eventpoll？ <157-final-close-frees-pidfd-pid-identity-and-eventpoll.rst>`_
+#. `第一百五十八章：inotify怎样建立目录watch并让parent阻塞在epoll_wait？ <158-inotify-watch-registers-with-epoll-and-blocks-parent.rst>`_
+#. `第一百五十九章：helper创建并关闭new.txt时，fsnotify怎样排入两条inotify事件？ <159-fsnotify-queues-create-and-close-write-events.rst>`_
+#. `第一百六十章：parent怎样从epoll event读取两条inotify_event记录？ <160-epoll-returns-inotify-and-read-consumes-two-records.rst>`_
 
 下一候选
 --------
 
 ::
 
-   inotify_init1(IN_CLOEXEC) -> fd 6
-   inotify_add_watch(6, /work, IN_CREATE|IN_CLOSE_WRITE)
-   epoll_create1(EPOLL_CLOEXEC) -> fd 7
-   epoll_ctl ADD fd 6 EPOLLIN
-   → parent blocks in epoll_wait
-   → helper creates and closes /work/new.txt
-   → fsnotify queues inotify records and wakes parent
-   → epoll_wait returns and read(6) consumes inotify_event records
+   epoll_wait(7, events2, 1, 0)
+   → re-poll empty inotify queue and remove stale-ready item
+   → inotify_rm_watch(6, 1)
+   → mark teardown queues IN_IGNORED and removes wd from IDR
+   → callback makes epitem ready again
+   → epoll_wait returns EPOLLIN
+   → read(6) consumes a 16-byte IN_IGNORED record
+   → EPOLL_CTL_DEL removes callback and epitem
+   → close(6) destroys fsnotify group
+   → close(7) releases eventpoll
 
 章节组织
 --------
