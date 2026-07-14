@@ -21,12 +21,13 @@
    LK-FORK-092..LK-FORK-094
    LK-COW-095..LK-COW-097
    LK-EXEC-098..LK-EXEC-100
+   LK-EXIT-101..LK-EXIT-103
 
 最新三章：
 
-#. ``LK-EXEC-098``：x86-64 的 execve() 怎样打开静态 ELF 并进入 load_elf_binary()？
-#. ``LK-EXEC-099``：begin_new_exec() 怎样替换旧 mm 并建立静态 ELF 映射？
-#. ``LK-EXEC-100``：start_thread() 怎样让 execve 进入新静态 ELF 的第一条指令？
+#. ``LK-EXIT-101``：_exit(42) 怎样进入 do_exit() 并释放进程运行资源？
+#. ``LK-EXIT-102``：exit_notify() 怎样发送 SIGCHLD、唤醒 parent 并留下 zombie？
+#. ``LK-EXIT-103``：parent 的 wait4() 怎样读取 status 并最终回收 child？
 
 固定来源
 --------
@@ -46,113 +47,100 @@
 #. ext4 ``O_SYNC write(fd, buf, 4096)``；
 #. native x86-64 ``fork()``；
 #. child private-anonymous COW write fault；
-#. child static ELF ``execve()``。
+#. child static ELF ``execve()``；
+#. child ``_exit(42)`` 与 parent ``wait4()`` 回收。
 
-exec 固定场景
--------------
+exit/wait 固定场景
+------------------
 
 ::
 
-   current task       = fork child after completed COW store
-   userspace call     = execve("/bin/static-demo", argv, envp)
-   argv               = ["/bin/static-demo", "cow-complete"]
-   envp               = ["LANG=C", "PATH=/bin"]
-   executable         = ext4 regular 0755 x86-64 static non-PIE ET_EXEC
-   interpreter        = none; no PT_INTERP
-   credentials        = no setuid, setgid or file capabilities
-   ptrace/seccomp     = disabled
-   close-on-exec      = fd 5 has FD_CLOEXEC
-   cache state        = path metadata, ELF headers, phdrs and entry text folio resident
-   failure policy     = no lookup, permission, allocation, ELF, LSM or fault failure
+   parent call         = wait4(child_pid, &status, 0, &rusage)
+   parent initial state= sleeping TASK_INTERRUPTIBLE on wait_chldexit
+   child call          = _exit(42)
+   threading           = parent and child single-threaded
+   child set           = parent has only this child
+   SIGCHLD             = default disposition; no explicit SIG_IGN or SA_NOCLDWAIT
+   ptrace/subreaper    = disabled
+   userspace buffers   = status and rusage mapped, writable and stable
+   failure policy      = no signal interruption or copy fault
 
 完整控制流
 ----------
 
 ::
 
-   userspace execve
-   → entry_SYSCALL_64 / __x64_sys_execve
-   → do_execveat_common
-   → do_open_execat
-   → alloc_bprm / bprm_mm_init
-   → new temporary stack VMA
-   → copy argv and envp from old mm into bprm mm
-   → bprm_execve
-   → prepare credentials / check unsafe state
-   → search_binary_handler
-   → prepare_binprm / cache-hit ELF header read
-   → load_elf_binary
-   → static ET_EXEC validation; no PT_INTERP
-   → begin_new_exec / point_of_no_return
-   → de_thread no-op for single-threaded child
-   → exec_mmap
-   → current->mm = new exec mm
-   → do_close_on_exec closes fd 5
-   → reset architecture and caught signal handlers
-   → commit non-privileged credentials
-   → setup_new_exec releases old child mm
-   → setup_arg_pages
-   → mmap PT_LOAD segments
-   → establish BSS, brk, argc/argv/envp/auxv
-   → finalize_exec
-   → start_thread rewrites pt_regs with new RIP/RSP
-   → syscall exit to ELF e_entry
-   → missing executable PTE instruction #PF
-   → filemap_fault cache hit
-   → install read-only executable file PTE
-   → minor-fault accounting
-   → IRETQ retries instruction fetch
-   → first instruction at static ELF e_entry executes
+   parent wait4
+   → kernel_wait4 / do_wait
+   → child still live
+   → parent sleeps on wait_chldexit
+
+   child _exit(42)
+   → __x64_sys_exit
+   → do_exit(0x2a00)
+   → PF_EXITING / accounting finalized
+   → exit_mm
+   → exit_files / exit_fs / namespace and thread cleanup
+   → exit_notify
+   → EXIT_ZOMBIE
+   → do_notify_parent
+   → SIGCHLD: CLD_EXITED, si_status=42
+   → wake parent wait_chldexit
+   → do_task_dead / schedule away forever
+
+   parent resumes do_wait
+   → do_wait_pid
+   → wait_consider_task
+   → wait_task_zombie
+   → cmpxchg EXIT_ZOMBIE to EXIT_DEAD
+   → collect rusage and raw status 0x2a00
+   → release_task
+   → unlink process, parent-child and PID relations
+   → put_user(status) / copy rusage
+   → wait4 returns child PID
 
 当前精确状态
 ------------
 
 * ``system_state``：``SYSTEM_RUNNING``；
-* current task：仍是原fork child；
-* PID/TGID：exec前后不变；
+* current executor：parent；
 * CPU mode：x86-64 CPL 3；
-* current RIP：``/bin/static-demo`` 的ELF ``e_entry``；
-* current mm：new executable mm；
-* old child mm：已释放；
-* parent mm：不变；
-* old child COW mapping：已销毁；
-* fd 5：已由close-on-exec关闭；
-* 其他非-CLOEXEC fd：保留；
-* caught signal handlers：已reset；
-* credentials：已重新提交，无提权变化；
-* entry text VMA：private file-backed read+execute；
-* entry PTE：present、user、young、read-only、executable；
-* first instruction fault：minor，未发生storage I/O；
-* successful execve：complete；
+* ``wait4`` return：child PID；
+* userspace ``status``：``0x2a00``；
+* ``WIFEXITED(status)``：true；
+* ``WEXITSTATUS(status)``：42；
+* userspace ``rusage``：已填充；
+* parent waitqueue entry：已移除；
+* child mm/files/fs：已释放；
+* child zombie：已消费；
+* child process/PID visibility：已删除；
+* child task memory：最终释放受reference count与RCU约束；
+* parent children list：不再包含该child；
+* process lifecycle场景：complete；
 * next runtime scenario：unselected。
 
 关键边界
 --------
 
-#. exec替换image和mm，不创建新task或PID。
-#. ``bprm->mm`` 在 ``exec_mmap`` 前与旧 ``current->mm`` 同时存在。
-#. ``begin_new_exec`` 后失败不能恢复旧image。
-#. close-on-exec只处理带 ``FD_CLOEXEC`` 的descriptor。
-#. ELF ``PT_LOAD`` mmap建立VMA，不保证PTE已经present。
-#. static ELF无interpreter，entry来自自身 ``e_entry``。
-#. successful exec不会返回旧call site；syscall-exit使用已改写的 ``pt_regs``。
-#. 首次text instruction仍可产生cache-hit minor page fault。
+#. ``_exit(42)`` 形成raw wait status ``0x2a00``。
+#. child在成为zombie前已释放mm/files等重资源。
+#. 默认SIGCHLD不等于显式 ``SIG_IGN``，本场景不会autoreap。
+#. waitqueue wakeup不能只概括为“发送SIGCHLD”。
+#. ``EXIT_ZOMBIE``、scheduler dead state和 ``EXIT_DEAD`` 是不同阶段。
+#. ``wait4`` 返回PID，status通过pointer返回。
+#. ``release_task`` 删除process/PID关系，最终task memory可能延迟到RCU grace period。
 
 下一任务
 --------
 
-当前没有已选定场景。优先候选是static child执行 ``_exit(42)``，parent再调用 ``wait4()`` 或 ``waitid()``：
+当前没有已选定场景。后续可选择新的独立主线，例如：
 
 ::
 
-   child _exit(42)
-   → do_exit
-   → exit_mm / exit_files / exit_fs
-   → release task resources
-   → exit_notify / SIGCHLD
-   → EXIT_ZOMBIE
-   → parent wait4
-   → do_wait
-   → reap child / release_task
+   anonymous mmap / page fault / reclaim / swap
+   或
+   socket / TCP send / receive
+   或
+   scheduler preemption / context switch
 
-开始前必须重新固定parent是否已在wait、child与parent调度顺序、返回status格式以及无ptrace/subreaper等条件。
+开始前必须重新固定用户态入口、对象状态、缓存状态、并发关系与失败策略。
