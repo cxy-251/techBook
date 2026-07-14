@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第一百四十章：signalfd4() 怎样把阻塞信号变成可poll的fd并挂进epoll？ <docs/tracks/linux-kernel/140-signalfd4-creates-pollable-signal-fd-and-epoll-registration.rst>`_
-* `第一百四十一章：tgkill() 怎样让blocked SIGUSR1经signalfd callback唤醒epoll_wait？ <docs/tracks/linux-kernel/141-tgkill-wakes-signalfd-epoll-waiter.rst>`_
-* `第一百四十二章：parent怎样从epoll event进入signalfd read并取出128字节siginfo？ <docs/tracks/linux-kernel/142-epoll-returns-signalfd-event-and-read-dequeues-siginfo.rst>`_
+* `第一百四十三章：零超时epoll_wait() 怎样清理signalfd的stale-ready item？ <docs/tracks/linux-kernel/143-zero-time-epoll-wait-removes-signalfd-stale-ready-item.rst>`_
+* `第一百四十四章：EPOLL_CTL_DEL 怎样拆除signalfd callback与epitem？ <docs/tracks/linux-kernel/144-epoll-del-detaches-signalfd-callback.rst>`_
+* `第一百四十五章：close() 怎样释放signalfd与eventpoll，却保留共享sighand wait queue？ <docs/tracks/linux-kernel/145-final-close-frees-signalfd-and-eventpoll.rst>`_
 
 固定来源
 --------
@@ -44,25 +44,23 @@ techBook
    LK-EPOLL-134..LK-EPOLL-136
    LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139
    LK-SIGNALFD-140..LK-SIGNALFD-142
+   LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145
 
 最新场景
 --------
 
 ::
 
-   block SIGUSR1 in parent/helper
-   → signalfd4(-1, mask(SIGUSR1), SFD_CLOEXEC) publishes fd 6
-   → epoll_create1(EPOLL_CLOEXEC) publishes fd 7
-   → EPOLL_CTL_ADD attaches callback to shared sighand signalfd wait queue
-   → parent blocks exclusively on eventpoll wait queue
-   → helper tgkill targets parent with blocked SIGUSR1
-   → signalfd_notify queues an epoll ready candidate and wakes parent
-   → parent re-polls signalfd and receives {EPOLLIN, data=0x51FD6}
-   → epoll_wait returns 1
-   → read(6) dequeues parent private pending signal
-   → one 128-byte signalfd_siginfo is copied and read returns 128
+   epoll_wait(7, events, 1, 0)
+   → re-poll signalfd after SIGUSR1 was consumed
+   → remove stale-ready epitem and return 0
+   → epoll_ctl(7, EPOLL_CTL_DEL, 6, NULL)
+   → detach callback from shared sighand signalfd wait queue
+   → erase epitem and drop eventpoll refcount 2 → 1
+   → close(6) frees signalfd ctx/file
+   → close(7) ends eventpoll lifetime through kfree_rcu
 
-最终fd 6/7与registration仍active。parent private pending中的SIGUSR1已消费；level-triggered epitem暂留在ready list，等待下一次epoll scan重新验证并清理。
+最终fd 6/7均已关闭。signalfd ctx与callback同步释放；epitem与eventpoll退出活动对象图。共享 ``sighand_struct`` 及其 ``signalfd_wqh`` 继续存在，parent/helper的blocked mask仍包含 ``SIGUSR1``。
 
 开始工作
 --------
