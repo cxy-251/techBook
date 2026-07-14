@@ -11,19 +11,21 @@ LK-BOOT-001..LK-BOOT-073
 LK-READ-074..LK-READ-082
 LK-WRITE-083..LK-WRITE-091
 LK-FORK-092..LK-FORK-094
+LK-COW-095..LK-COW-097
 ```
 
-启动主线已完结。三个运行期实验已闭环：
+四个运行期实验已闭环：
 
-- `read(fd, buf, 4096)` cold page-cache miss；
-- `O_SYNC write(fd, buf, 4096)` buffered ext4 overwrite；
-- native x86-64 `fork()`。
+- cold-miss `read(fd, buf, 4096)`；
+- ext4 `O_SYNC write(fd, buf, 4096)`；
+- native x86-64 `fork()`；
+- child private-anonymous COW write fault。
 
 最新三章：
 
-- `LK-FORK-092`：x86-64 的 fork() 怎样创建一个尚不可运行的 task_struct？
-- `LK-FORK-093`：copy_process() 怎样复制资源并建立 COW 子进程？
-- `LK-FORK-094`：scheduler 怎样启动 child，并让 fork() 在父子进程返回不同结果？
+- `LK-COW-095`：child 写只读 COW 地址时，x86 #PF 怎样进入 do_wp_page？
+- `LK-COW-096`：wp_page_copy() 怎样分配新 folio 并替换 child PTE？
+- `LK-COW-097`：page fault 返回后，CPU 怎样重试 store 并完成 COW 隔离？
 
 ## 固定实现
 
@@ -39,187 +41,151 @@ Linux commit      = 7404ce51637231382873d0b55edabc2f3b841a9d
 partition table   = MBR
 first partition   = LBA 2048, ext4
 storage           = q35 ICH9 AHCI SATA port 0
-kernel            = /boot/bzImage-7.2-rc1
-initramfs         = /boot/initramfs-7.2-rc1.img
 ```
 
-固定 Linux commit 的 `Makefile` 标识为 Linux 7.2-rc1。旧章节中的 `Linux 6.12.95` 是历史显示标签错误，不得改用真正的 `v6.12.95`。
+固定 commit 的 `Makefile` 标识为 Linux 7.2-rc1。旧章节中的 `Linux 6.12.95` 是历史显示标签错误。
 
-## 已完成 fork 固定场景
+## 已完成 COW 固定场景
 
 ```text
-userspace call      = native x86-64 fork() syscall number 57
-process             = single-threaded SCHED_NORMAL process
-clone flags         = 0
-exit signal         = SIGCHLD
-ptrace/seccomp      = disabled for the scenario
-signals             = no pending or fatal signal
-namespaces          = inherited, no CLONE_NEW*
-files/fs/signals    = ordinary fork semantics, no CLONE_* sharing
-memory              = private user mm with one present writable private anonymous 4 KiB folio
-special exclusions  = no THP, hugetlb, userfaultfd, pinning, swap, VM_DONTCOPY or VM_WIPEONFORK
-failure policy      = no limit, PID, allocation, LSM, cgroup or scheduler failure
+current task       = fork child
+userspace action   = store one 32-bit value to address A
+VMA                = private anonymous, VM_READ | VM_WRITE
+child PTE          = present, user, read-only
+parent PTE         = present, user, read-only
+old folio          = normal 4 KiB anonymous folio
+sharing            = parent and child both map old folio
+fault code         = X86_PF_PROT | X86_PF_WRITE | X86_PF_USER
+reuse              = impossible; actual wp_page_copy required
+excluded           = THP, KSM, userfaultfd, swap, migration, zero page,
+                     device-private page, GUP pin, pkey, shadow stack
+failure policy     = no allocation, memcg, copy, signal or OOM failure
 ```
 
-## 已执行 fork 控制流
+## 已执行 COW 控制流
 
 ```text
-userspace fork()
-→ entry_SYSCALL_64 / __x64_sys_fork
-→ kernel_clone_args: flags=0, exit_signal=SIGCHLD
-→ kernel_clone
-→ copy_process
-→ signal serialization
-→ dup_task_struct
-→ child task_struct and kernel stack
-→ copy_creds
-→ sched_fork / TASK_NEW
-→ copy_files / copy_fs
-→ copy_sighand / copy_signal
-→ copy_mm
-→ dup_mm / dup_mmap
-→ duplicate VMA Maple Tree
-→ copy_page_range
-→ write-protect parent private PTE
-→ install read-only child private PTE
-→ parent/child share anonymous folio by COW
-→ copy_namespaces: reference-share nsproxy
-→ copy_thread
-→ childregs->ax = 0
-→ child first return address = ret_from_fork_asm
-→ alloc_pid
-→ tasklist/PID/process-tree publication
-→ copy_process returns child task
-→ wake_up_new_task
-→ TASK_RUNNING and runqueue enqueue
-→ parent returns child PID through normal syscall return
-→ child first schedule enters ret_from_fork_asm
-→ schedule_tail / syscall_exit_to_user_mode
-→ child IRETQ to userspace with RAX=0
+child userspace store
+→ x86 vector 14 #PF
+→ asm_exc_page_fault / exc_page_fault
+→ CR2 fault address
+→ do_user_addr_fault
+→ FAULT_FLAG_WRITE | FAULT_FLAG_USER
+→ per-VMA lock or mmap_read_lock fallback
+→ handle_mm_fault
+→ __handle_mm_fault
+→ handle_pte_fault
+→ do_wp_page
+→ reject PageAnonExclusive/wp_can_reuse_anon_folio
+→ folio_get(old)
+→ release child PTL
+→ wp_page_copy
+→ allocate and memcg-charge new small anonymous folio
+→ copy PAGE_SIZE old contents
+→ mark new folio uptodate
+→ MMU notifier invalidate start
+→ reacquire PTL and revalidate orig_pte
+→ ptep_clear_flush child old translation
+→ add exclusive anonymous rmap and LRU state
+→ install writable/young/dirty child PTE
+→ remove child rmap from old folio
+→ MMU notifier invalidate end
+→ child min_flt increment
+→ irqentry_exit / IRETQ
+→ CPU retries original store
+→ store succeeds on child new folio
 ```
 
 ## 当前精确状态
 
 ```text
 system_state       = SYSTEM_RUNNING
-runtime scenario   = fork complete
-parent CPU mode    = CPL 3 when scheduled
-parent fork result = child PID
-child CPU mode     = CPL 3 when scheduled
-child fork result  = 0
-parent/child order = scheduler-dependent, not fixed
-parent mm          = independent parent mm/page-table root
-child mm           = independent child mm/page-table root
-fixed anon folio   = still physically shared by read-only parent/child PTEs
-physical page copy = not performed by ordinary fork
+runtime scenario   = COW write fault complete
+current executor   = child
+CPU mode           = x86-64 CPL 3
+current location   = instruction after completed store
+child virtual A    = new anonymous folio
+child PTE          = present, user, writable, young, dirty
+child folio        = uptodate, exclusive, contains modified value
+parent virtual A   = old anonymous folio
+parent PTE         = present, user, read-only
+parent folio       = retains original value
+child min_flt      = incremented by one
+child maj_flt      = unchanged
 next entry         = unselected runtime scenario
-```
-
-Additional object relations:
-
-```text
-task_struct       = separate
-kernel stack      = separate
-cred              = separate object
-files_struct      = separate
-fd table          = separate
-struct file       = shared references for corresponding inherited fds
-fs_struct         = separate
-sighand_struct    = separate
-signal_struct     = separate
-mm_struct         = separate
-VMA objects       = separate
-page-table roots  = separate
-namespace objects = shared through nsproxy reference
 ```
 
 ## 下一建议场景
 
-下一批默认选择独立的 child COW write-fault场景，除非用户明确指定其他方向。
+优先候选是 child执行 native `execve()`，继续进程生命周期主线。
 
 开始前必须固定：
 
 ```text
-current task         = child after fork
-userspace action     = store one byte/word to the fixed private anonymous address
-PTE state            = present, user, read-only, COW private mapping
-folio state          = normal anonymous small folio
-sharing state        = parent and child both still map the folio
-map/ref state         = sufficient to prevent exclusive-page reuse optimization
-VMA                   = VM_READ | VM_WRITE, private anonymous
-special exclusions    = no THP, KSM, userfaultfd-wp, uffd missing, swap, migration, device-private entry, long-term pin
-failure policy        = allocation and memcg charge succeed; no signal or OOM
+current task       = child after completed COW store
+userspace call     = native execve(path, argv, envp)
+executable path    = exact path on ext4
+ELF form           = static or dynamically linked; must choose one
+interpreter        = exact PT_INTERP path when dynamic
+argv/envp          = fixed small arrays
+credentials        = no setuid/setgid/file capabilities unless explicitly selected
+ptrace/seccomp     = disabled
+files              = define any FD_CLOEXEC descriptors
+cache state        = define pathname/dentry/inode/page-cache state
+failure policy     = no lookup, permission, allocation, ELF, interpreter or LSM failure
 ```
 
-预计从固定源码核对：
+预计核对：
 
 ```text
-child userspace store
-→ x86 #PF with P=1, W/R=1, U/S=1
-→ exc_page_fault
-→ do_user_addr_fault
-→ VMA lookup / access check
-→ handle_mm_fault
-→ __handle_mm_fault
-→ handle_pte_fault
-→ do_wp_page
-→ wp_page_copy
-→ allocate and charge new anonymous folio
-→ copy old folio contents
-→ anon rmap / RSS / memcg updates
-→ install writable child PTE
-→ flush/update TLB
-→ return from #PF
-→ CPU retries original store successfully
+entry_SYSCALL_64 / __x64_sys_execve
+→ do_execveat_common
+→ filename/path lookup
+→ bprm_execve
+→ prepare_binprm
+→ search_binary_handler
+→ load_elf_binary
+→ begin_new_exec
+→ new mm / ELF PT_LOAD mappings
+→ interpreter loading if selected
+→ argv/envp/auxv user stack
+→ close-on-exec and signal reset
+→ old mm release
+→ start_thread
+→ return to new userspace entry point
 ```
 
-必须从 fixed commit确认当前函数名称和优化分支。不能只写“触发 COW 后复制一页”；要明确 fault error code、VMA锁、PTE锁、old/new folio、rmap、memcg、PTE replacement和 TLB语义。
+不要默认动态 ELF 或静态 ELF；两者路径差异很大。不要把 exec描述成创建新进程：PID/task通常保留，当前 image和 mm被替换。
 
 ## 必须保持的技术边界
 
 1. 不同运行期实验之间不是自动连续时间线。
-2. `TASK_NEW`、task publication和 runqueue enqueue是三个阶段。
-3. files_struct独立不等于 open file description独立。
-4. 新 mm和新页表根不等于立即复制所有物理页。
-5. ordinary fork COW需要 write-protect parent与 child private PTE。
-6. child `RAX=0`由 `copy_thread()`预置，不重新执行 syscall入口。
-7. parent可能通过 SYSRETQ或 IRETQ返回；child首次 userspace entry经过 `ret_from_fork_asm` 与 IRETQ。
-8. scheduler不保证 parent或 child谁先运行。
-9. COW write fault可能存在 exclusive-page reuse；只有固定 sharing/mapcount条件后才能写死 `wp_page_copy`。
-10. 物理页复制、页表替换、rmap更新、memcg charge和用户 store重试必须分开叙述。
+2. VMA writable与 PTE writable是不同权限层次。
+3. fork后的 write fault存在 exclusive reuse优化；只有固定共享状态后才能写死 copy。
+4. 新 folio分配、PAGE_SIZE copy、PTE替换、TLB flush和用户 store重试必须分开。
+5. `wp_page_copy()` 返回时原用户 store尚未执行。
+6. page fault通过 IRETQ返回 faulting RIP，不使用 SYSRETQ。
+7. child COW只修改 child页表；parent PTE不自动恢复 writable。
+8. minor fault可以包含物理页分配与 4 KiB copy。
+9. exec创建新 image，不创建新 PID/task。
+10. static/dynamic ELF、interpreter与page-cache状态必须在 exec场景开始前固定。
 
 ## 连续叙事
 
-每一段必须交代：
-
-- 当前执行者；
-- CPU mode和运行环境；
-- 关键代码与数据结构；
-- 当前动作建立的条件；
-- 下一控制入口；
-- 固定源码文件、symbol或规范依据。
-
-不能使用“复制进程”“触发 COW”“调度 child”这样的概括跳过对象关系、权限变化、锁、引用计数和控制权交接。
+每段交代当前执行者、CPU mode、关键对象、锁/引用、状态变化、下一入口和固定源码依据。不能用“触发 COW”“加载 ELF”“替换进程”跳过实际对象转换。
 
 ## 章节边界
 
-章节不按 Roadmap 条目机械切分。遇到执行者、CPU mode、数据结构所有权、运行环境或 subsystem交接时换章。
-
-每章末尾记录当前执行者、状态和下一入口。章节正文不添加上一章、下一章或目录导航；章节列表统一由 `docs/tracks/linux-kernel/index.rst` 提供。
-
-每章末尾“资料”必须使用可点击 RST链接。技术事实优先使用规范、官方发布物和固定源码等一手资料。
+遇到执行者、CPU mode、数据结构所有权、运行环境或 subsystem交接时换章。章节正文不添加上一章、下一章或目录导航；资料使用可点击 RST链接。
 
 ## 连续推进模式
 
 1. 读取最新 `AGENTS.md`、`project/STATE.rst`、manifest和当前入口；
 2. 固定新的运行期场景；
-3. 读取本章涉及的 fixed source；
+3. 读取 fixed source；
 4. 确定自然边界；
 5. 写完并核对章节；
-6. 更新目录、STATE、manifest、README和接续入口；
-7. 从最新状态继续。
-
-遇到 fixed source无法确认、重大平台分叉、仓库写入失败或达到场景终点时停止。
+6. 更新目录、STATE、manifest、README和接续入口。
 
 ## 状态语义
 
@@ -234,4 +200,4 @@ child userspace store
 3. `docs/tracks/linux-kernel/index.rst`；
 4. 已完成章节；
 5. `manifests/tracks/linux-kernel.toml`；
-6. `main` 最近的相关提交。
+6. `main` 最近相关提交。
