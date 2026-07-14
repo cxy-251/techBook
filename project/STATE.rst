@@ -44,17 +44,18 @@
    LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163
    LK-UNIXSOCK-164..LK-UNIXSOCK-166
    LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169
+   LK-TCPLISTEN-170..LK-TCPLISTEN-172
 
 最新三章：
 
-#. ``LK-UNIXSOCKCLOSE-167``：EPOLL_CTL_DEL怎样从persistent-ready Unix socket拆除callback与epitem？
-#. ``LK-UNIXSOCKCLOSE-168``：close(6)怎样释放socket A，却让dead SA继续被peer reference保持？
-#. ``LK-UNIXSOCKCLOSE-169``：close(7)与close(8)怎样释放两端Unix socket和空eventpoll？
+#. ``LK-TCPLISTEN-170``：socket(AF_INET,SOCK_STREAM)怎样创建TCP endpoint并发布fd 6？
+#. ``LK-TCPLISTEN-171``：bind(127.0.0.1:28080)怎样验证本地地址并占用TCP端口？
+#. ``LK-TCPLISTEN-172``：listen(8)怎样建立空请求队列并把socket加入TCP监听哈希？
 
 进度
 ----
 
-当前已经完成169章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
+当前已经完成172章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
 
 固定来源
 --------
@@ -72,146 +73,147 @@
 
 ::
 
-   runtime relation    = continuation of LK-UNIXSOCK-164..166
-   CPUs online         = CPU0 only
-   process             = parent + helper threads, same TGID
-   mm/files            = shared
-   scheduling          = both SCHED_NORMAL
-   socket fd           = 6 and 7 before close
-   eventpoll fd        = 8 before close
-   socket A / SA       = fd 6 endpoint, RCV_SHUTDOWN initially
-   socket B / SB       = fd 7 endpoint, SEND_SHUTDOWN initially
-   peer relation       = SA <-> SB initially
-   registration        = fd 6, EPOLLIN|EPOLLRDHUP, persistent-ready
-   callback            = P on socket A wait queue
-   epitem              = I in EP.rbr and EP.rdllist
-   eventpoll refcount  = 2 initially
-   calls               = epoll_ctl DEL, close(6), close(7), close(8)
-   failures/races      = none
+   runtime relation     = new TCP/IPv4 loopback scenario after chapter 169
+   CPUs online          = CPU0 only
+   executor             = parent
+   helper               = blocked outside listener objects
+   scheduling           = parent remains SCHED_NORMAL and running
+   network namespace    = N
+   loopback device      = lo UP
+   loopback address     = 127.0.0.1/8
+   local route          = present before scenario
+   occupied fds         = 0..5
+   server fd            = 6
+   server file          = F6
+   server socket        = S
+   TCP control block    = L/LINET/LICSK/LTP
+   bind address         = 127.0.0.1
+   bind port            = 28080
+   listen backlog       = 8
+   somaxconn            = at least 8
+   SO_REUSEADDR         = disabled
+   SO_REUSEPORT         = disabled
+   server TCP Fast Open = disabled
+   failures/races       = none
+   packet I/O           = none in chapters 170..172
 
 完整控制流
 ----------
 
 ::
 
-   parent epoll_ctl(8, EPOLL_CTL_DEL, 6, NULL)
-   → resolve F8/EP and F6
-   → lock EP.mtx and find I by (F6,fd6)
-   → ep_unregister_pollwait removes P from A.wq.wait
-   → free P synchronously
-   → epi_fget temporarily pins F6
-   → under F6.f_lock clear last watcher and publish F6.f_ep=NULL
-   → remove I target-file reverse link
-   → erase I from EP.rbr
-   → remove persistent-ready I from EP.rdllist
-   → kfree_rcu(I)
-   → EP.refcount 2 -> 1
-   → return 0
+   parent socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, 0)
+   → __sys_socket_create validates family, type and flags
+   → __sock_create allocates sockfs inode IS and struct socket S
+   → inet_create selects inet_stream_ops and tcp_prot
+   → sk_alloc creates one tcp_sock object LTP
+   → sock_init_data links S and L
+   → S.state=SS_UNCONNECTED
+   → L.sk_state=TCP_CLOSE
+   → tcp_v4_init_sock and tcp_init_sock initialize TCP control state
+   → sock_map_fd reserves fd 6 with close-on-exec
+   → sock_alloc_file creates blocking socket file F6
+   → fd_install publishes F6 at fd 6
+   → socket returns 6
 
-   parent close(6)
-   → remove fd 6 and close-on-exec bit from shared fdtable
-   → final synchronous __fput(F6)
-   → F6.f_ep=NULL, so eventpoll target-release fastpath does nothing
-   → sock_close
-   → __sock_release(socket A)
-   → unix_release(SA)
-   → unix_release_sock removes SA from Unix socket table
-   → sock_orphan(SA)
-   → SA.sk_shutdown=SHUTDOWN_MASK
-   → SA.sk_state=TCP_CLOSE
-   → save skpair=SB and clear unix_peer(SA)
-   → SB.sk_shutdown becomes SHUTDOWN_MASK
-   → empty SA receive queue means SB.sk_err remains 0
-   → SB.sk_state_change and async HUP notification
-   → drop A-held peer reference to SB
-   → drop A file/socket reference
-   → SA remains alive because unix_peer(SB)=SA still holds a reference
-   → release F6 and socket A sockfs VFS objects
-   → close(6) returns 0
+   parent bind(6,127.0.0.1:28080)
+   → resolve F6/S/L
+   → copy sockaddr_in into kernel storage
+   → inet_bind enters __inet_bind under socket lock
+   → local table classifies 127.0.0.1 as RTN_LOCAL
+   → verify TCP_CLOSE and inet_num=0
+   → set inet_rcv_saddr and inet_saddr
+   → tcp_prot.get_port enters inet_csk_get_port
+   → create/find inet_bind_bucket TB for N/28080/l3mdev0
+   → create/find inet_bind2_bucket TB2 for 127.0.0.1:28080
+   → conflict check succeeds
+   → inet_bind_hash attaches L to TB2 owners
+   → inet_num=28080; inet_sport=htons(28080)
+   → set SOCK_BINDADDR_LOCK and SOCK_BINDPORT_LOCK
+   → remain SS_UNCONNECTED/TCP_CLOSE
+   → bind returns 0
 
-   parent close(7)
-   → remove fd 7 and close-on-exec bit
-   → final __fput(F7)
-   → unix_release_sock(SB)
-   → SB becomes orphan, TCP_CLOSE and SHUTDOWN_MASK
-   → save skpair=SA and clear unix_peer(SB)
-   → drop final peer reference to SA
-   → unix_sock_destructor frees SA/UA
-   → drop final SB reference
-   → unix_sock_destructor frees SB/UB
-   → release F7 and socket B sockfs VFS objects
-   → close(7) returns 0
-
-   parent close(8)
-   → remove fd 8 and close-on-exec bit
-   → final __fput(F8)
-   → ep_eventpoll_release
-   → ep_clear_and_put sees empty EP.rbr and EP.rdllist
-   → no callback or epitem remains to drain
-   → EP.refcount 1 -> 0
-   → ep_free and kfree_rcu(EP)
-   → release F8 and eventpoll pseudo path
-   → close(8) returns 0
+   parent listen(6,8)
+   → __sys_listen_socket keeps effective backlog at 8
+   → inet_listen validates SS_UNCONNECTED and SOCK_STREAM
+   → __inet_listen_sk sets sk_max_ack_backlog=8
+   → server Fast Open branch remains disabled
+   → inet_csk_listen_start initializes empty request/accept queue
+   → sk_ack_backlog=0
+   → TCP_CLOSE→TCP_LISTEN
+   → inet_csk_get_port revalidates port 28080
+   → existing bind ownership remains unchanged
+   → inet_hash chooses exact-address lhash2 bucket ILB2
+   → set SOCK_RCU_FREE
+   → RCU-publish L in ILB2
+   → listen returns 0
 
 当前精确状态
 ------------
 
 * ``system_state``：``SYSTEM_RUNNING``；
-* runtime scenario：Unix stream socketpair data、half-close与最终teardown complete；
+* runtime scenario：TCP/IPv4 loopback server listener setup complete；
 * current executor：parent；
 * CPU：CPU0；
 * CPU mode：x86-64 CPL 3；
 * parent state：``TASK_RUNNING``；
 * parent ``on_rq=1``、``on_cpu=1``；
-* helper：blocked outside released objects；
-* ``EPOLL_CTL_DEL`` result：0；
-* ``close(6)`` result：0；
-* ``close(7)`` result：0；
-* final syscall/result：``close(8)=0``；
-* fd 6/7/8：closed and unallocated；
-* callback ``P``：freed synchronously；
-* epitem ``I``：logical lifetime ended，storage through RCU；
-* socket files ``F6/F7``：freed；
-* socket A/B sockfs VFS objects：freed；
-* ``SA/UA``：freed；
-* ``SB/UB``：freed；
-* Unix peer references：none；
-* eventpoll ``EP``：logical lifetime ended，storage through RCU；
-* eventpoll file ``F8``：freed；
-* global sockfs：active；
-* global anon_inodefs：active；
-* filesystem/block/device/network packet I/O：none；
-* next runtime scenario：unselected。
+* helper：blocked outside listener objects；
+* final syscall/result：``listen(6,8)=0``；
+* fd 6：open、blocking、close-on-exec；
+* file ``F6``：active sockfs socket file；
+* socket ``S``：``SS_UNCONNECTED``、``SOCK_STREAM``；
+* TCP socket ``L/LTP``：``TCP_LISTEN``；
+* local endpoint：``127.0.0.1:28080``；
+* remote endpoint：unset；
+* bind bucket ``TB``：active；
+* bind2 bucket ``TB2``：active，owners包含 ``L``；
+* listener bucket ``ILB2``：active，包含 ``L``；
+* ``sk_max_ack_backlog=8``；
+* ``sk_ack_backlog=0``；
+* request queue：empty；
+* accept queue：empty；
+* Fast Open queue：empty；
+* request socket：none；
+* accepted child：none；
+* route/dst cache：empty；
+* skb/packet：none；
+* filesystem/block/device packet I/O：none；
+* next runtime entry：client ``socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0)``。
 
 关键边界
 --------
 
-#. persistent-ready registration可以直接通过DEL删除，无需先消费readiness。
-#. callback在DEL中同步free；epitem通过RCU延迟free。
-#. ``F6.f_ep=NULL`` 使close(6)跳过eventpoll target-release慢路径。
-#. ``unix_release_sock`` 把关闭端设为orphan、``TCP_CLOSE``和``SHUTDOWN_MASK``。
-#. close(6)只清除 ``unix_peer(SA)``，不会同步清除 ``unix_peer(SB)``。
-#. fd 6关闭后，dead SA仍由SB的peer reference保持。
-#. peer B得到完整shutdown/HUP语义，但直到close(7)才进入 ``TCP_CLOSE``。
-#. close(7)清除最后peer pointer并释放SA的最后peer reference。
-#. socket file、sockfs VFS对象和 ``struct sock`` 具有不同生命周期边界。
-#. 两端queue为空，因此关闭不产生 ``ECONNRESET`` 或skb丢弃分支。
-#. eventpoll file持有最后base reference；close(8)使EP refcount归零。
-#. sockfs与anon_inodefs是全局pseudo filesystems，不随本场景fd关闭而卸载。
+#. protocol 0在AF_INET/``SOCK_STREAM``下选择TCP。
+#. sockfs inode/``struct socket``、socket file与``struct tcp_sock``具有不同对象边界。
+#. ``SS_UNCONNECTED``与``TCP_CLOSE``/``TCP_LISTEN``属于不同状态层。
+#. 单个socket在协议对象创建完成后才reserve并发布fd。
+#. ``SOCK_CLOEXEC``由fdtable close-on-exec bit实现。
+#. bind验证local address并建立bind ownership，不发布listener lookup身份。
+#. ``inet_bind_bucket``与``inet_bind2_bucket``分别表达port domain与address-specific ownership。
+#. ``inet_num``为host order，``inet_sport``为network order。
+#. 第一次listen初始化空request/accept queue，backlog不等于预分配对象数量。
+#. listen在hash发布前写``TCP_LISTEN``，lookup可见性仍由lhash2 membership决定。
+#. listen重新验证bound port，不重复插入已有bind owner。
+#. exact-address listener优先于``INADDR_ANY``回退查找。
+#. listener设置``SOCK_RCU_FREE``并通过RCU可见的nulls list发布。
+#. socket/bind/listen阶段没有route output、skb、SYN或loopback packet。
 
 下一任务
 --------
 
-当前场景完整闭环。优先候选是TCP/IPv4 loopback连接建立：
+服务器listener已经建立。下一批优先进入client connect与普通三次握手前半段：
 
 ::
 
-   server socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, 0)
-   → bind(127.0.0.1:fixed_port)
-   → listen(backlog)
    client socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, 0)
-   → connect(127.0.0.1:fixed_port)
-   → loopback route and SYN/SYN-ACK/ACK processing
-   → accept4 publishes connected server fd
+   → publish fd 7
+   → connect(fd 7,127.0.0.1:28080)
+   → choose loopback route and ephemeral source port
+   → enter TCP_SYN_SENT
+   → build and transmit SYN
+   → listener lookup finds L
+   → allocate and hash request_sock
+   → send SYN-ACK
 
-开始前必须固定network namespace、loopback device、route、port、socket states、request socket、softirq与scheduler顺序。
+开始前必须固定client ephemeral port、route result、initial sequence numbers、TCP options、softirq/NAPI边界、request socket引用、CPU0执行顺序与parent在blocking connect中的睡眠位置。

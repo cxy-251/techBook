@@ -31,14 +31,14 @@ Linux Kernel
    → anonymous pipe lifecycle complete
    → private futex wait/wake complete
    → eventfd, signalfd, timerfd, pidfd and inotify eventpoll lifecycles complete
-   → Unix stream socketpair data and half-close delivery complete
-   → EPOLL_CTL_DEL removes persistent-ready socket callback and epitem
-   → close(6) makes SA orphan/TCP_CLOSE/SHUTDOWN_MASK
-   → peer SB gains full shutdown and HUP semantics
-   → dead SA remains alive through unix_peer(SB)
-   → close(7) clears the final peer pointer and frees SA/SB
-   → close(8) releases empty eventpoll
-   → fd 6/7/8 closed; Unix socketpair lifecycle complete
+   → Unix stream socketpair data, half-close and final teardown complete
+   → create AF_INET TCP endpoint and publish fd 6
+   → bind listener identity to 127.0.0.1:28080
+   → create TCP bind and bind2 ownership
+   → initialize empty request/accept queue
+   → TCP_CLOSE to TCP_LISTEN
+   → publish listener in exact-address lhash2
+   → no client, request socket or packet yet
 
 完成范围
 --------
@@ -74,33 +74,35 @@ Linux Kernel
    LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163
    LK-UNIXSOCK-164..LK-UNIXSOCK-166
    LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169
+   LK-TCPLISTEN-170..LK-TCPLISTEN-172
 
 固定commit的 ``Makefile`` 标识为Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定commit为准。
 
 进度
 ----
 
-当前完成169章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
+当前完成172章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
 
 最新三章
 --------
 
-#. `第一百六十七章：EPOLL_CTL_DEL怎样从persistent-ready Unix socket拆除callback与epitem？ <167-epoll-del-detaches-unix-socket-callback-and-ready-item.rst>`_
-#. `第一百六十八章：close(6)怎样释放socket A，却让dead SA继续被peer reference保持？ <168-close-first-unix-socket-notifies-peer-and-keeps-dead-socket-referenced.rst>`_
-#. `第一百六十九章：close(7)与close(8)怎样释放两端Unix socket和空eventpoll？ <169-close-second-unix-socket-and-eventpoll-final-teardown.rst>`_
+#. `第一百七十章：socket(AF_INET,SOCK_STREAM)怎样创建TCP endpoint并发布fd 6？ <170-inet-stream-socket-creates-tcp-endpoint-and-publishes-fd.rst>`_
+#. `第一百七十一章：bind(127.0.0.1:28080)怎样验证本地地址并占用TCP端口？ <171-bind-loopback-address-claims-tcp-port.rst>`_
+#. `第一百七十二章：listen(8)怎样建立空请求队列并把socket加入TCP监听哈希？ <172-listen-enters-tcp-listen-and-publishes-listener-hash.rst>`_
 
 下一候选
 --------
 
 ::
 
-   server socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, 0)
-   → bind(127.0.0.1:fixed_port)
-   → listen(backlog)
    client socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, 0)
-   → connect(127.0.0.1:fixed_port)
-   → loopback route and TCP SYN/SYN-ACK/ACK processing
-   → accept4 publishes connected server fd
+   → publish fd 7
+   → connect(127.0.0.1:28080)
+   → loopback route and ephemeral source-port selection
+   → TCP_SYN_SENT and SYN construction
+   → loopback transmit/receive
+   → listener lookup
+   → request_sock allocation and SYN-ACK
 
 章节组织
 --------
