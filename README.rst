@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第一百一十六章：tgkill() 怎样排入 SIGUSR1 并唤醒 nanosleep 中的 parent？ <docs/tracks/linux-kernel/116-tgkill-wakes-interruptible-nanosleep.rst>`_
-* `第一百一十七章：parent 怎样取消 hrtimer、写回 remaining 并进入 SIGUSR1 handler？ <docs/tracks/linux-kernel/117-nanosleep-cancels-timer-and-builds-signal-frame.rst>`_
-* `第一百一十八章：rt_sigreturn() 怎样恢复被 SIGUSR1 中断的 clock_nanosleep 上下文？ <docs/tracks/linux-kernel/118-rt-sigreturn-restores-interrupted-nanosleep.rst>`_
+* `第一百一十九章：pipe2() 怎样建立匿名管道并发布 fd 6/7？ <docs/tracks/linux-kernel/119-pipe2-builds-anonymous-pipe-and-publishes-fds.rst>`_
+* `第一百二十章：空管道 read() 怎样进入 exclusive wait queue 并阻塞？ <docs/tracks/linux-kernel/120-empty-pipe-read-enters-exclusive-wait.rst>`_
+* `第一百二十一章：pipe write() 怎样唤醒reader并让 read() 返回5？ <docs/tracks/linux-kernel/121-pipe-write-wakes-reader-and-read-returns.rst>`_
 
 固定来源
 --------
@@ -36,25 +36,24 @@ techBook
    LK-UNLINK-110..LK-UNLINK-112
    LK-SLEEP-113..LK-SLEEP-115
    LK-SIGNAL-116..LK-SIGNAL-118
+   LK-PIPE-119..LK-PIPE-121
 
 最新场景
 --------
 
 ::
 
-   parent clock_nanosleep(CLOCK_MONOTONIC, 0, {0,10ms}, &remaining)
-   → helper tgkill(P, P, SIGUSR1) at T0+4ms
-   → signal_wake_up / try_to_wake_up(parent)
-   → parent resumes original do_nanosleep stack
-   → cancel still-active hrtimer
-   → copy positive remaining time
-   → -ERESTART_RESTARTBLOCK becomes -EINTR
-   → x64 rt signal frame and SIGUSR1 handler
-   → __restore_rt / rt_sigreturn
-   → restore original mask, registers and FPU state
-   → raw userspace RAX = -EINTR
+   pipe2(pipefd, O_CLOEXEC)
+   → allocate pipefs inode, pipe_inode_info and 16-slot ring
+   → publish read fd 6 and write fd 7
+   → parent read(6, buf, 5) on empty pipe
+   → exclusive TASK_INTERRUPTIBLE wait on rd_wait
+   → helper write(7, "hello", 5)
+   → allocate anonymous page and insert one pipe_buffer
+   → sync wake reader
+   → parent consumes 5 bytes and returns RAX=5
 
-固定只有CPU0 online，handler使用 ``SA_SIGINFO | SA_RESTORER``，没有 ``SA_RESTART``、``SA_NODEFER`` 或alternate stack。原sleep timer没有到期，remaining满足 ``0 < remaining < 6 ms``。
+最终pipe仍保持open，``head=tail=1``、occupancy为0；首次data page没有立即归还buddy，而是缓存到 ``pipe->tmp_page[0]`` 供后续write复用。
 
 开始工作
 --------
