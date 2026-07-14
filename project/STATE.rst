@@ -30,12 +30,13 @@
    LK-PIPE-119..LK-PIPE-121
    LK-PIPECLOSE-122..LK-PIPECLOSE-124
    LK-FUTEX-125..LK-FUTEX-127
+   LK-EVENTFD-128..LK-EVENTFD-130
 
 最新三章：
 
-#. ``LK-FUTEX-125``：FUTEX_WAIT_PRIVATE 怎样建立private key并把parent排入hash bucket？
-#. ``LK-FUTEX-126``：FUTEX_WAKE_PRIVATE 怎样移除waiter并把parent放回runqueue？
-#. ``LK-FUTEX-127``：parent 被唤醒后，futex_wait 为什么返回0却不自动重读用户字？
+#. ``LK-EVENTFD-128``：eventfd2() 怎样建立counter并发布fd 6？
+#. ``LK-EVENTFD-129``：eventfd read() 怎样在counter为0时进入locked wait queue？
+#. ``LK-EVENTFD-130``：eventfd write() 怎样唤醒reader并让read()返回counter？
 
 固定来源
 --------
@@ -60,11 +61,12 @@
 #. ext4 ``openat(O_CREAT|O_EXCL)``；
 #. 新文件首次delalloc buffered write与显式 ``fsync``；
 #. open-unlinked ext4文件的final close与inode/extent回收；
-#. monotonic ``clock_nanosleep`` 自然到期、hrtimer/APIC/scheduler唤醒；
-#. ``SIGUSR1`` 中断relative nanosleep、remaining copyout、rt signal frame与 ``rt_sigreturn``；
-#. anonymous pipe创建、空pipe阻塞read、writer插入buffer与reader wakeup；
-#. pipe write-end close、EOF read与final pipe object teardown；
-#. private futex wait、release store、wake、scheduler恢复与return semantics。
+#. monotonic ``clock_nanosleep`` 自然到期；
+#. ``SIGUSR1`` 中断nanosleep、signal frame与 ``rt_sigreturn``；
+#. anonymous pipe blocking read与writer wakeup；
+#. pipe write-end close、EOF与final teardown；
+#. private futex wait/release-store/wake；
+#. eventfd counter blocking read与writer wakeup。
 
 本批固定场景
 ------------
@@ -74,142 +76,131 @@
    runtime relation    = independent scenario
    CPUs online         = CPU0 only
    process             = parent + helper threads, same TGID
-   mm relation         = shared through CLONE_VM
+   files table         = shared through CLONE_FILES
    scheduling          = both SCHED_NORMAL
-   user word           = 4-byte aligned _Atomic uint32_t U
-   mapping             = resident writable private anonymous page
-   initial U           = 0
-   wait call           = futex(&U, FUTEX_WAIT_PRIVATE, 0, NULL, NULL, 0)
-   wake store          = atomic_store_explicit(&U, 1, memory_order_release)
-   wake call           = futex(&U, FUTEX_WAKE_PRIVATE, 1, NULL, NULL, 0)
-   kernel config       = FUTEX=y, FUTEX_PRIVATE_HASH=y, BASE_SMALL=n
-   private hash        = default 16 buckets for one online CPU
-   key waiters         = exactly one parent waiter
-   timeout             = none
-   signal/freezer      = none
-   scheduler order     = parent blocks; helper stores+wakes; helper blocks; parent resumes
-   failure policy      = no alignment, address, page, hash, copy or scheduler failure
+   occupied fds        = 0..5
+   create call         = eventfd2(0, EFD_CLOEXEC)
+   returned fd         = 6
+   access mode         = O_RDWR
+   nonblocking         = disabled
+   semaphore mode      = disabled
+   initial counter     = 0
+   reader call         = parent read(6, &value, 8)
+   writer call         = helper write(6, &three, 8), three=3
+   wait entry          = non-exclusive TASK_INTERRUPTIBLE
+   signal state        = none pending
+   scheduler order     = parent blocks; helper writes and blocks outside eventfd; parent resumes
+   failure policy      = no allocation, fd, copy, signal or scheduler failure
 
 完整控制流
 ----------
 
 ::
 
-   parent futex(FUTEX_WAIT_PRIVATE, expected=0)
-   → __x64_sys_futex
-   → do_futex
-   → futex_wait
-   → no timeout / no hrtimer
-   → __futex_wait
-   → futex_wait_setup
-   → get_futex_key private path
-   → key K = shared mm + page-aligned virtual base + byte offset
-   → no VMA lookup, page pin, inode or physical-page key
-   → futex_hash selects private bucket H
-   → H->waiters 0 -> 1 before taking H->lock
-   → read U under H lock with pagefault disabled
-   → U == expected == 0
-   → parent state = TASK_INTERRUPTIBLE | TASK_FREEZABLE
-   → add stack futex_q to H plist
-   → release H lock
-   → futex_do_wait
+   parent eventfd2(0, EFD_CLOEXEC)
+   → __x64_sys_eventfd2 / do_eventfd
+   → allocate eventfd_ctx E
+   → kref_init, init_waitqueue_head
+   → E.count=0, E.flags=EFD_CLOEXEC
+   → anon_inode_getfile_fmode("[eventfd]", eventfd_fops, E, O_RDWR, FMODE_NOWAIT)
+   → reserve fd 6 and set close-on-exec
+   → publish fd 6 into shared files_struct
+   → parent returns CPL3 with RAX=6
+
+   parent read(6, &value, 8)
+   → ksys_read / vfs_read / new_sync_read
+   → eventfd_read
+   → lock E.wqh.lock with local IRQ disabled
+   → count==0, blocking mode
+   → wait_event_interruptible_locked_irq(E.wqh, E.count)
+   → stack wait entry, non-exclusive
+   → parent TASK_INTERRUPTIBLE
+   → unlock E.wqh.lock and enable IRQ
    → schedule / __schedule
    → parent leaves CPU0 and helper runs
 
-   helper atomic_store_release(U, 1)
-   → U becomes 1 before wake syscall
-   → helper futex(FUTEX_WAKE_PRIVATE, 1)
-   → do_futex / futex_wake
-   → reconstruct same private key K
-   → select same bucket H
-   → futex_hb_waiters_pending sees 1
-   → lock H
-   → match q key and MATCH_ANY bitset
-   → futex_wake_mark
-   → plist_del(q)
-   → H->waiters 1 -> 0
-   → smp_store_release(q.lock_ptr, NULL)
-   → add parent to wake_q
-   → unlock H
-   → wake_up_q / try_to_wake_up
-   → parent TASK_RUNNING and queued on CPU0
-   → helper returns CPL3 with RAX=1
-   → helper blocks outside futex
+   helper write(6, &three, 8)
+   → ksys_write / vfs_write / eventfd_write
+   → copy userspace u64 value 3
+   → lock E.wqh.lock with local IRQ disabled
+   → E.count 0 -> 3
+   → wake_up_locked_poll(E.wqh, EPOLLIN)
+   → parent TASK_RUNNING and enqueued on CPU0
+   → unlock E.wqh.lock and enable IRQ
+   → helper write returns 8
+   → helper blocks outside eventfd
 
-   scheduler restores parent original futex_do_wait stack
-   → schedule returns
-   → __set_current_state(TASK_RUNNING)
-   → futex_unqueue sees q.lock_ptr == NULL
-   → futex_unqueue returns 0: waker already removed q
-   → __futex_wait returns 0
-   → futex_wait returns 0 without rereading U
-   → parent returns CPL3 with RAX=0
+   scheduler restores parent original read stack
+   → do_wait_intr_irq returns from schedule
+   → reacquire E.wqh.lock with IRQ disabled
+   → condition E.count!=0 is true
+   → remove parent wait entry
+   → eventfd_ctx_do_read
+   → non-semaphore read returns entire count 3
+   → E.count 3 -> 0
+   → no actual EPOLLOUT waiter
+   → unlock E.wqh.lock and enable IRQ
+   → copy u64 value 3 to userspace
+   → parent read returns 8
 
 当前精确状态
 ------------
 
 * ``system_state``：``SYSTEM_RUNNING``；
-* runtime scenario：private futex wait/wake complete；
+* runtime scenario：eventfd counter blocking read/writer wakeup complete；
 * current executor：parent；
 * CPU：CPU0；
 * CPU mode：x86-64 CPL 3；
 * scheduling class：``SCHED_NORMAL``；
 * parent state：``TASK_RUNNING``；
 * parent ``on_rq=1``、``on_cpu=1``；
-* parent wait result/RAX：0；
-* helper wake result：1；
-* helper：阻塞在futex之外；
-* userspace word ``U``：1；
-* U mapping：仍resident、writable、private anonymous；
-* post-wake kernel re-read of U：未发生；
-* post-return user acquire load：尚未执行；
-* private key K：同一mm和address可再次构造；
-* per-mm private futex hash：仍存在，16 buckets；
-* selected bucket H ``waiters``：0；
-* H chain：没有本次q；
-* H spinlock：unlocked；
-* parent栈上 ``futex_q``：生命周期结束；
-* timeout/hrtimer：none；
-* restart block：未使用；
-* signal pending：none；
+* parent read result/RAX：8；
+* parent userspace ``value``：3；
+* helper write result：8；
+* helper：阻塞在eventfd之外；
+* shared fd 6：open、close-on-exec；
+* eventfd file：``O_RDWR``、blocking；
+* eventfd ctx E：仍active；
+* E ``count``：0；
+* E semaphore mode：disabled；
+* E wait queue：没有本次waiter；
+* E waitqueue spinlock：unlocked；
+* parent栈上wait entry：生命周期结束；
+* anon-inode pseudo file：仍由fd 6引用；
 * filesystem/block I/O：none；
 * next runtime scenario：unselected。
 
 关键边界
 --------
 
-#. ``FUTEX_PRIVATE_FLAG`` 让key使用mm与virtual address，不使用physical page identity。
-#. private key路径不查VMA、不pin page，也不引用inode。
-#. bucket可能容纳不同key，wake必须比较完整key与bitset。
-#. waiter先增加bucket waiter count，再获取spinlock并读取U。
-#. kernel必须在bucket lock内验证U仍等于expected，避免检查/入队窗口丢wake。
-#. 值不匹配会返回 ``-EWOULDBLOCK``，不会睡眠。
-#. parent先设置interruptible state，再把栈上q发布到bucket chain。
-#. task state设置不等于已经阻塞；context switch才让parent离开CPU。
-#. 普通futex wake不修改U，U=1来自helper用户态release store。
-#. waker先从plist移除q，再以release store把 ``q.lock_ptr`` 设为NULL。
-#. task通过wake_q在bucket lock释放后唤醒。
-#. wake只让parent runnable，不保证立即handoff。
-#. helper WAKE返回1表示唤醒一个waiter；parent WAIT返回0表示本q由waker移除。
-#. wait返回0后kernel不会重新读取U，也不保证业务condition仍成立。
-#. 用户程序必须在condition loop中重新检查U并处理spurious/competitive wake。
-#. kernel queue barriers不替代C/C++ release/acquire协议；parent应通过acquire load读取1。
-#. ``futex_q`` 是一次wait调用的栈上对象，syscall返回后结束生命周期。
-#. private hash bucket属于mm，单次wait结束不会销毁它。
+#. eventfd用一个 ``O_RDWR`` fd同时完成read与write。
+#. counter和wait queue由 ``ctx->wqh.lock`` 同时保护。
+#. ``EFD_CLOEXEC`` 设置fdtable close-on-exec bit，不启用nonblocking。
+#. eventfd read/write都要求8字节用户对象。
+#. count为0且blocking时，reader使用non-exclusive locked wait entry。
+#. locked wait在睡眠前释放waitqueue lock并重新打开本地IRQ。
+#. writer先在锁内增加counter，再执行wake。
+#. wake只让reader runnable，不直接执行read后半段。
+#. 非semaphore模式read取得整个counter并清零。
+#. read返回8是字节数，counter值3写入用户buffer。
+#. read完成不会自动close fd或释放eventfd ctx。
+#. anon-inode eventfd不产生磁盘filesystem、journal或block I/O。
 
 下一任务
 --------
 
-当前没有已选定场景。优先候选是 ``eventfd`` counter阻塞read与writer wakeup：
+当前没有已选定场景。优先候选是eventfd final close：
 
 ::
 
-   eventfd2(0, EFD_CLOEXEC)
-   → create anon_inode file and eventfd_ctx
-   → parent read(eventfd, &value, 8) with counter=0
-   → parent enters eventfd wait queue and schedules out
-   → helper write(eventfd, value=3)
-   → counter 0 -> 3 and wake reader
-   → parent consumes counter and returns 8 with value=3
+   parent close(6)
+   → remove shared fd publication
+   → fput_close_sync / final __fput
+   → eventfd_release
+   → wake poll waiters with EPOLLHUP
+   → eventfd_ctx_put
+   → ctx kref reaches zero
+   → free eventfd id and eventfd_ctx
+   → release anon-inode file/path
 
-开始前必须固定fd编号、counter/semaphore mode、blocking flags、wait queue、scheduler顺序、signal状态与file references。
+开始前必须固定是否存在poll/epoll引用、额外 ``eventfd_ctx_fdget`` 引用、close执行线程、waiter状态与最终file/path引用顺序。
