@@ -64,7 +64,7 @@ chapter = [
   { id = "LK-FUTEX-127", title = "parent 被唤醒后，futex_wait 为什么返回0却不自动重读用户字？", rst = "docs/tracks/linux-kernel/127-futex-wait-returns-without-rechecking-user-word.rst", status = "complete" },
   { id = "LK-EVENTFD-128", title = "eventfd2() 怎样建立counter并发布fd 6？", rst = "docs/tracks/linux-kernel/128-eventfd2-creates-counter-and-publishes-fd.rst", status = "complete" },
   { id = "LK-EVENTFD-129", title = "eventfd read() 怎样在counter为0时进入locked wait queue？", rst = "docs/tracks/linux-kernel/129-empty-eventfd-read-enters-locked-wait-queue.rst", status = "complete" },
-  { id = "LK-EVENTFD-130", title = "eventfd write() 怎样唤醒reader并让read()返回counter？", rst = "docs/tracks/linux-kernel/130-eventfd-write-wakes-epoll-and-delivers-level-event.rst", status = "complete" },
+  { id = "LK-EVENTFD-130", title = "eventfd write() 怎样唤醒reader并让read()返回counter？", rst = "docs/tracks/linux-kernel/130-eventfd-write-wakes-reader-and-read-returns-counter.rst", status = "complete" },
   { id = "LK-EVENTFDCLOSE-131", title = "close(6) 怎样撤销eventfd fd并同步进入最后一次__fput()？", rst = "docs/tracks/linux-kernel/131-close-eventfd-fd-enters-final-fput.rst", status = "complete" },
   { id = "LK-EVENTFDCLOSE-132", title = "eventfd_release() 怎样发送EPOLLHUP并释放eventfd_ctx？", rst = "docs/tracks/linux-kernel/132-eventfd-release-sends-hup-and-frees-ctx.rst", status = "complete" },
   { id = "LK-EVENTFDCLOSE-133", title = "__fput() 怎样释放anon-inode path并让close()返回0？", rst = "docs/tracks/linux-kernel/133-final-eventfd-file-teardown-returns-close.rst", status = "complete" },
