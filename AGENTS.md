@@ -30,13 +30,14 @@ LK-TIMERFD-146..LK-TIMERFD-148
 LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151
 LK-PIDFD-152..LK-PIDFD-154
 LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157
+LK-INOTIFY-158..LK-INOTIFY-160
 ```
 
 最新三章：
 
-- `LK-PIDFDCLOSE-155`：reap之后的pidfd为什么让epoll_wait返回EPOLLIN|EPOLLHUP？
-- `LK-PIDFDCLOSE-156`：EPOLL_CTL_DEL怎样拆除pidfd callback与epitem？
-- `LK-PIDFDCLOSE-157`：close()怎样释放pidfs inode、旧struct pid与eventpoll？
+- `LK-INOTIFY-158`：inotify怎样建立目录watch并让parent阻塞在epoll_wait？
+- `LK-INOTIFY-159`：helper创建并关闭new.txt时，fsnotify怎样排入两条inotify事件？
+- `LK-INOTIFY-160`：parent怎样从epoll event读取两条inotify_event记录？
 
 ## 固定实现
 
@@ -54,20 +55,27 @@ first partition   = LBA 2048, ext4
 storage           = q35 ICH9 AHCI SATA port 0
 ```
 
-## 已完成pidfd cleanup场景
+## 已完成inotify场景
 
 ```text
-parent epoll_wait(7, events2, 1, 0)
-→ pidfd_poll sees no task linkage
-→ deliver EPOLLIN|EPOLLHUP
-→ level-triggered I remains ready
-→ EPOLL_CTL_DEL removes CB and I
-→ F6->f_ep=NULL; EP refcount 2→1
-→ close(6) prunes pidfs dentry and evicts inode
-→ inode put + delayed_put_pid finish old P refs
-→ free exit metadata and old struct pid
-→ close(7) drains empty EP; refcount 1→0
-→ fd 6/7 closed; I/P/EP storage released through their required RCU paths
+inotify_init1(IN_CLOEXEC) -> fd 6
+→ fsnotify group G with empty notification queue
+→ inotify_add_watch(/work, IN_CREATE|IN_CLOSE_WRITE) -> wd 1
+→ mark M mask includes CREATE, CLOSE_WRITE, UNMOUNT and EVENT_ON_CHILD
+→ epoll_create1 -> fd 7
+→ ADD attaches callback P to G.notification_waitq
+→ parent waits exclusively on EP.wq and schedules out
+→ helper openat creates /work/new.txt as fd 8
+→ fsnotify_create queues wd1 IN_CREATE name new.txt
+→ P links one epitem I and wakes parent
+→ helper write produces unrequested MODIFY hook, no user record
+→ helper close queues wd1 IN_CLOSE_WRITE name new.txt
+→ mask differs from queue tail, so no merge
+→ parent epoll_wait re-polls q_len=2 and returns EPOLLIN/data 0x494E4F36
+→ level-triggered I requeues
+→ parent read(6,buf,4096)
+→ copies two FIFO records, each 32 bytes
+→ read returns 64 and G.q_len becomes 0
 ```
 
 ## 当前精确状态
@@ -76,56 +84,67 @@ parent epoll_wait(7, events2, 1, 0)
 system_state       = SYSTEM_RUNNING
 current executor   = parent
 CPU/mode           = CPU0, x86-64 CPL 3
-last syscall       = close(7)
-last return        = 0
-fd 6/7             = closed
-child task         = absent
-numeric PID C      = reusable, not reused in batch
-pidfd file/path    = freed
-old struct pid P   = logically dead; final storage released
-exit metadata      = freed
-callback CB        = synchronously freed
-epitem I           = logically dead; RCU storage free
-eventpoll EP       = logically dead; RCU storage free
-global pidfs_mnt   = mounted
-global anon_inodefs= active
-filesystem I/O     = none
-next entry         = unselected
+parent state       = TASK_RUNNING, on_rq=1, on_cpu=1
+helper              = blocked outside inotify objects
+epoll_wait return  = 1
+epoll event         = EPOLLIN, data 0x494E4F36
+read return         = 64
+record 0            = wd1 IN_CREATE cookie0 len16 name new.txt
+record 1            = wd1 IN_CLOSE_WRITE cookie0 len16 name new.txt
+fd 6                = open blocking inotify file
+fsnotify group G    = active, q_len=0
+watch wd1 / mark M = active on /work inode
+group wait queue    = epoll callback P only
+fd 7                = open eventpoll file
+EP refcount         = 2
+EP rbr              = contains I
+EP rdllist          = contains stale-ready I
+EP wq               = empty
+/work/new.txt       = exists
+fd 8                = closed
+next entry          = unselected
 ```
 
 ## 必须保持的技术边界
 
-1. zombie pidfd poll返回IN/RDNORM；post-reap增加HUP。
-2. ADD自动加入ERR/HUP，用户无需显式请求HUP。
-3. level-triggered永久ready item每次交付后重新入ready list。
-4. DEL先拆target waitqueue callback，再删除epitem。
-5. callback同步释放，epitem通过`kfree_rcu`释放storage。
-6. pidfd file release不等于pid identity reference drop。
-7. 未设置`PIDFD_AUTOKILL`时close不发送SIGKILL。
-8. pidfs inode的`i_private`保存`struct pid`并持有reference。
-9. `stashed_dentry_prune`必须在final `put_pid`前清掉`P->stashed`。
-10. 数字PID释放早于旧`struct pid`storage释放。
-11. inode put与`delayed_put_pid`先后可交换，refcount保证唯一final free。
-12. `pidfs_free_pid`最终释放exit metadata与P。
-13. pidfs mount与anon_inodefs都是全局对象，不因本批最后close而卸载。
-14. close返回不要求所有RCU callback已执行，只要求对象已不可访问。
+1. inotify file的`private_data`是`fsnotify_group`，不是watched directory file。
+2. group notification queue与eventpoll ready list是两套不同队列。
+3. directory mark自动加入`FS_EVENT_ON_CHILD|FS_UNMOUNT`。
+4. 新group首个watch descriptor由IDR从1分配。
+5. callback P位于`G.notification_waitq`，sleeping parent W位于`EP.wq`。
+6. create成功后才调用`fsnotify_create`。
+7. 未订阅`IN_MODIFY`时，write hook不会生成用户record。
+8. `IN_CLOSE_WRITE`由file write mode选择，不保证fsync或durability。
+9. inotify merge只比较queue最后一条，且要求mask/wd/name全部相同。
+10. create与close-write不会合并，FIFO顺序保持。
+11. 多条notification records只产生一个fd-level epitem readiness。
+12. `FS_EVENT_ON_CHILD`是内部route bit，不输出到userspace mask。
+13. `struct inotify_event`头为16字节；`new.txt` padded name area为16字节。
+14. 两条record总read长度为64。
+15. read清空queue不会主动清除epoll ready membership。
+16. read event不会删除watch。
 
 ## 下一建议场景
 
-优先候选是inotify与epoll：
-
 ```text
-inotify_init1(IN_CLOEXEC) -> fd 6
-inotify_add_watch(6, /work, IN_CREATE|IN_CLOSE_WRITE)
-epoll_create1(EPOLL_CLOEXEC) -> fd 7
-epoll_ctl ADD fd 6 EPOLLIN
-parent epoll_wait blocks
-helper creates and closes /work/new.txt
-fsnotify queues inotify records and wakes epoll
-parent epoll_wait returns and read(6) consumes records
+epoll_wait(7, events2, 1, 0)
+→ re-poll empty queue and remove stale-ready I
+→ return 0
+inotify_rm_watch(6, 1)
+→ mark destruction queues IN_IGNORED
+→ remove wd 1 from IDR and decrement watch ucount
+→ callback makes I ready again
+epoll_wait(7, events3, 1, 0)
+→ deliver EPOLLIN
+read(6)
+→ consume one 16-byte IN_IGNORED record with len 0
+EPOLL_CTL_DEL
+→ remove P and I
+close(6), close(7)
+→ destroy group and eventpoll
 ```
 
-开始前固定watch mask、name、event合并、queue状态与scheduler顺序。
+开始前固定mark destroy worker、`IN_IGNORED`排队时序、mark references、group shutdown、queue flush与eventpoll teardown顺序。
 
 ## 连续叙事与流程
 
