@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127"
+completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
@@ -61,7 +61,10 @@ chapter = [
   { id = "LK-PIPECLOSE-124", title = "最后一次 close(6) 怎样释放pipe page、ring与pseudo inode？", rst = "docs/tracks/linux-kernel/124-final-read-end-close-frees-pipe.rst", status = "complete" },
   { id = "LK-FUTEX-125", title = "FUTEX_WAIT_PRIVATE 怎样建立private key并把parent排入hash bucket？", rst = "docs/tracks/linux-kernel/125-futex-wait-private-enqueues-parent.rst", status = "complete" },
   { id = "LK-FUTEX-126", title = "FUTEX_WAKE_PRIVATE 怎样移除waiter并把parent放回runqueue？", rst = "docs/tracks/linux-kernel/126-futex-wake-private-dequeues-and-wakes-parent.rst", status = "complete" },
-  { id = "LK-FUTEX-127", title = "parent 被唤醒后，futex_wait 为什么返回0却不自动重读用户字？", rst = "docs/tracks/linux-kernel/127-futex-wait-returns-without-rechecking-user-word.rst", status = "complete" }
+  { id = "LK-FUTEX-127", title = "parent 被唤醒后，futex_wait 为什么返回0却不自动重读用户字？", rst = "docs/tracks/linux-kernel/127-futex-wait-returns-without-rechecking-user-word.rst", status = "complete" },
+  { id = "LK-EVENTFD-128", title = "eventfd2() 怎样建立counter并发布fd 6？", rst = "docs/tracks/linux-kernel/128-eventfd2-creates-counter-and-publishes-fd.rst", status = "complete" },
+  { id = "LK-EVENTFD-129", title = "eventfd read() 怎样在counter为0时进入locked wait queue？", rst = "docs/tracks/linux-kernel/129-empty-eventfd-read-enters-locked-wait-queue.rst", status = "complete" },
+  { id = "LK-EVENTFD-130", title = "eventfd write() 怎样唤醒reader并让read()返回counter？", rst = "docs/tracks/linux-kernel/130-eventfd-write-wakes-reader-and-read-returns-counter.rst", status = "complete" }
 ]
 
 [origin]
@@ -162,22 +165,27 @@ result = "parent CPL3 with close RAX=0; fd 6/7 and active pipe objects no longer
 [completed_futex_scenario]
 name = "private futex wait, release store and wake"
 status = "complete"
-userspace_calls = "parent FUTEX_WAIT_PRIVATE expected 0; helper release-store U=1; helper FUTEX_WAKE_PRIVATE nr=1"
-key_result = "private key uses shared mm, page-aligned virtual base and byte offset; selected per-mm bucket H"
-wait_result = "parent stack futex_q enqueued after U==0 verification; parent scheduled out interruptibly"
-wake_result = "helper removes q, sets lock_ptr NULL, wakes parent and returns 1"
-return_result = "parent resumes original stack and returns 0 without kernel reread of U"
-final_result = "parent CPL3; U=1; H waiters=0; q lifetime ended; user acquire load still required by language protocol"
+result = "parent CPL3 with wait RAX=0; U=1; selected bucket has no waiter"
+
+[completed_eventfd_scenario]
+name = "eventfd counter blocking read and writer wakeup"
+status = "complete"
+userspace_calls = "eventfd2(0,EFD_CLOEXEC); parent read(6,&value,8); helper write(6,&three,8)"
+object_result = "one O_RDWR anon-inode file and eventfd_ctx E published as shared close-on-exec fd 6"
+block_result = "count=0 places parent on E.wqh as non-exclusive TASK_INTERRUPTIBLE waiter"
+write_result = "helper writes u64 3, changes count 0 to 3, wakes parent and returns 8"
+read_result = "parent resumes original stack, consumes full counter, copies value 3 and returns 8"
+final_result = "fd 6 and E remain active; E.count=0; wait queue has no waiter from this operation"
 
 [current]
-last_complete = "LK-FUTEX-127"
-executor = "parent after successful private futex wait return"
+last_complete = "LK-EVENTFD-130"
+executor = "parent after successful eventfd read return"
 cpu_mode = "x86-64 CPL 3 on CPU0"
-paging = "parent/helper shared mm remains active; U is resident private anonymous word with value 1"
+paging = "parent/helper mm remains active; userspace value contains u64 3"
 interrupts = "normal userspace runtime state"
-current_task = "SCHED_NORMAL parent after futex wait returned zero; helper blocked outside futex"
+current_task = "SCHED_NORMAL parent after eventfd read returned 8; helper blocked outside eventfd"
 next_entry = "unselected runtime scenario"
-next_action = "preferred next path is eventfd2 counter blocking read followed by helper write and reader wakeup"
+next_action = "preferred next path is close fd 6, eventfd_release, EPOLLHUP notification and final ctx free"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完整"
