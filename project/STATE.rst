@@ -42,12 +42,23 @@
    LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157
    LK-INOTIFY-158..LK-INOTIFY-160
    LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163
+   LK-UNIXSOCK-164..LK-UNIXSOCK-166
 
 最新三章：
 
-#. ``LK-INOTIFYCLOSE-161``：零超时epoll_wait怎样清除inotify的stale-ready item？
-#. ``LK-INOTIFYCLOSE-162``：inotify_rm_watch怎样先排入IN_IGNORED再销毁mark？
-#. ``LK-INOTIFYCLOSE-163``：读取IN_IGNORED后，close怎样释放inotify group与eventpoll？
+#. ``LK-UNIXSOCK-164``：socketpair怎样建立双向Unix stream并让parent阻塞在epoll_wait？
+#. ``LK-UNIXSOCK-165``：helper写入hello时，Unix stream skb怎样唤醒epoll并让read返回5？
+#. ``LK-UNIXSOCK-166``：shutdown(SHUT_WR)怎样让peer收到EPOLLRDHUP并让read返回EOF？
+
+进度估算
+--------
+
+当前已经完成166章。
+
+* 按最初的195章目标：还剩29章，完成度约85.1%，按每批3章约剩10批；
+* 当前manifest没有锁死最终章数；
+* 按现有source-reading颗粒度，整书合理区间仍约190至220章，因此实际还可能剩24至54章；
+* 当前主线已经完成启动、VFS读写、进程/内存、调度/信号、多种fd通知机制，并开始进入Unix socket网络IPC路径。
 
 固定来源
 --------
@@ -65,180 +76,192 @@
 
 ::
 
-   runtime relation    = continuation of LK-INOTIFY-158..160
-   CPUs online         = CPU0 only
-   process             = parent + helper threads, same TGID
-   mm/files            = shared
-   scheduling          = both SCHED_NORMAL
-   current executor    = parent
-   inotify fd          = 6, O_RDONLY, blocking, close-on-exec
-   inotify file        = F6
-   fsnotify group      = G
-   watch descriptor    = 1
-   directory mark      = M on /work inode
-   initial queue       = empty
-   initial ready state = level-triggered epitem I stale-ready
-   epoll fd            = 7, close-on-exec
-   eventpoll           = EP, refcount=2 initially
-   registration        = EPOLLIN, data=0x494E4F36
-   callback            = P on G.notification_waitq
-   helper              = blocked outside inotify objects
-   watched file        = /work/new.txt remains present
-   calls               = epoll_wait(...,0), rm_watch, epoll_wait, read, DEL, close(6), close(7)
-   failures/races      = none
+   runtime relation      = independent scenario after LK-INOTIFYCLOSE-163
+   CPUs online           = CPU0 only
+   process               = parent + helper threads, same TGID
+   mm/files              = shared
+   scheduling            = both SCHED_NORMAL
+   socketpair call       = socketpair(AF_UNIX,SOCK_STREAM|SOCK_CLOEXEC,0,sv)
+   socket fd             = 6 and 7, blocking, close-on-exec
+   socket A / sock SA    = fd 6 receive endpoint
+   socket B / sock SB    = fd 7 helper endpoint
+   unix peer relation    = SA <-> SB
+   protocol state        = both TCP_ESTABLISHED
+   initial shutdown      = both 0
+   eventpoll fd          = 8, close-on-exec
+   registration          = level-triggered EPOLLIN|EPOLLRDHUP
+   event data            = 0x554E4958
+   callback              = P on socket A wait queue
+   first helper call     = write(7,"hello",5)
+   first parent read     = read(6,buf,5)
+   second helper call    = shutdown(7,SHUT_WR)
+   final parent read     = read(6,buf,5)
+   failures/races        = none
 
 完整控制流
 ----------
 
 ::
 
-   parent epoll_wait(7,events2,1,0)
-   → scan stale-ready I
-   → inotify_poll under G.notification_lock sees q_len=0
-   → return poll mask 0
-   → do not requeue I
-   → EP.rdllist becomes empty
-   → epoll_wait returns 0
+   parent socketpair(AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC, 0, sv)
+   → reserve fd 6 and fd 7 with close-on-exec bits
+   → copy numeric fd values to user sv
+   → create two PF_UNIX SOCK_STREAM sockets
+   → unix_create1 initializes SA/UA and SB/UB
+   → unix_socketpair takes peer references
+   → unix_peer(SA)=SB and unix_peer(SB)=SA
+   → SA/SB.sk_state=TCP_ESTABLISHED
+   → allocate two sockfs files F6/F7
+   → fd_install(6,F6), fd_install(7,F7)
+   → return 0 with sv={6,7}
 
-   parent inotify_rm_watch(6,1)
-   → find M in G.inotify_data.idr and take temporary mark ref
-   → fsnotify_destroy_mark
-   → clear M ATTACHED and remove from G.marks_list
-   → fsnotify_free_mark clears ALIVE
-   → inotify_ignored_and_remove_idr
-   → queue wd1 FS_IN_IGNORED record before wd invalidation
-   → G.q_len 0 -> 1
-   → wake G.notification_waitq
-   → callback P links I to EP.rdllist
-   → remove idr[1], set M.wd=-1 and decrement watch ucount
-   → drop final active mark refs
-   → remove M from /work inode connector
-   → clear /work fsnotify mask and release watch inode pin
-   → queue M and connector storage for SRCU-safe destruction
-   → inotify_rm_watch returns 0
+   parent epoll_create1(EPOLL_CLOEXEC) -> fd 8
+   → eventpoll EP refcount starts at 1
+   → epoll_ctl ADD fd 6 EPOLLIN|EPOLLRDHUP data 0x554E4958
+   → allocate epitem I; EP refcount 1 -> 2
+   → sock_poll_wait installs callback P on socket A wait queue
+   → initial unix_poll sees empty queue, shutdown=0 and only writable readiness
+   → interest filter returns 0
+   → EP.rbr contains I, EP.rdllist empty
 
-   parent epoll_wait(7,events3,1,0)
-   → re-poll q_len=1
-   → copy {EPOLLIN,data=0x494E4F36}
+   parent epoll_wait(8,events,1,-1)
+   → exclusive waiter W enters EP.wq
+   → parent TASK_INTERRUPTIBLE and schedules out
+   → helper runs on CPU0
+
+   helper write(7,"hello",5)
+   → sock_write_iter
+   → unix_stream_sendmsg on socket B
+   → unix_peer(SB) resolves SA directly
+   → allocate one 5-byte skb and copy "hello"
+   → lock SA receive queue
+   → UA.inq_len 0 -> 5
+   → queue skb on SA.sk_receive_queue
+   → call SA.sk_data_ready
+   → callback P links I to EP.rdllist and wakes parent
+   → write returns 5
+   → helper blocks outside socket objects
+
+   parent resumes first epoll_wait
+   → remove W from EP.wq
+   → unix_poll sees non-empty SA receive queue
+   → deliver {EPOLLIN,data=0x554E4958}
    → level-triggered I requeues
-   → return 1
+   → epoll_wait returns 1
 
-   parent read(6,buf,4096)
-   → remove one IN_IGNORED event
-   → copy 16-byte record {wd=1,mask=IN_IGNORED,cookie=0,len=0}
-   → G.q_len 1 -> 0
-   → destroy event allocation
-   → return 16
+   parent read(6,buf,5)
+   → sock_read_iter
+   → unix_stream_read_generic under UA.iolock
+   → copy 5 bytes "hello"
+   → UA.inq_len 5 -> 0
+   → unlink and consume skb
+   → SA receive queue becomes empty
+   → read returns 5
+   → I remains stale-ready
 
-   parent epoll_ctl(7,EPOLL_CTL_DEL,6,NULL)
-   → remove callback P from G.notification_waitq
-   → free P synchronously
-   → erase I from EP.rbr and EP.rdllist
-   → EP.refcount 2 -> 1
-   → kfree_rcu(I)
-   → return 0
+   parent epoll_wait(8,events2,1,-1)
+   → re-poll stale I
+   → empty queue and shutdown=0 produce no requested readiness
+   → remove I from EP.rdllist
+   → parent installs exclusive waiter W2 and sleeps
 
-   parent close(6)
-   → remove fd 6 and close-on-exec bit
-   → final synchronous __fput(F6)
-   → inotify_release
-   → fsnotify_destroy_group(G)
-   → set G.shutdown=true
-   → no active mark remains in G.marks_list
-   → wait G.user_waits=0
-   → flush mark reaper work
-   → synchronize fsnotify_mark_srcu
-   → free mark M and drop its group reference
-   → flush empty notification queue
-   → free overflow event
-   → destroy empty watch IDR and decrement instance ucount
-   → free G and inotify anon-inode file/path
-   → close(6) returns 0
+   helper shutdown(7,SHUT_WR)
+   → generic shutdown resolves socket B
+   → unix_shutdown maps SHUT_WR to SEND_SHUTDOWN
+   → SB.sk_shutdown 0 -> SEND_SHUTDOWN
+   → peer SA.sk_shutdown 0 -> RCV_SHUTDOWN
+   → peer and local sk_state remain TCP_ESTABLISHED
+   → SA.sk_state_change wakes socket A wait queue
+   → callback P links I and wakes parent
+   → shutdown returns 0
 
-   parent close(7)
-   → remove fd 7 and close-on-exec bit
-   → empty eventpoll teardown
-   → EP.refcount 1 -> 0
-   → kfree_rcu(EP)
-   → free eventpoll file/path
-   → close(7) returns 0
+   parent resumes second epoll_wait
+   → unix_poll sees SA RCV_SHUTDOWN
+   → poll mask contains EPOLLIN|EPOLLRDNORM|EPOLLRDHUP
+   → deliver {EPOLLIN|EPOLLRDHUP,data=0x554E4958}
+   → persistent level-triggered I requeues
+   → epoll_wait returns 1
+
+   parent read(6,buf,5)
+   → receive queue empty
+   → RCV_SHUTDOWN detected before sleeping
+   → return EOF 0
 
 当前精确状态
 ------------
 
 * ``system_state``：``SYSTEM_RUNNING``；
-* runtime scenario：inotify watch removal and final teardown complete；
+* runtime scenario：Unix stream socketpair data and half-close delivery complete；
 * current executor：parent；
 * CPU：CPU0；
 * CPU mode：x86-64 CPL 3；
 * scheduling class：``SCHED_NORMAL``；
 * parent state：``TASK_RUNNING``；
 * parent ``on_rq=1``、 ``on_cpu=1``；
-* helper：blocked outside inotify objects；
-* stale-ready cleanup ``epoll_wait`` result：0；
-* ``inotify_rm_watch(6,1)`` result：0；
-* ``IN_IGNORED`` delivery ``epoll_wait`` result：1；
-* delivered event：``EPOLLIN``、data ``0x494E4F36``；
-* ``read(6)`` result：16；
-* copied record：wd1、``IN_IGNORED``、cookie0、len0；
-* ``EPOLL_CTL_DEL`` result：0；
-* ``close(6)`` result：0；
-* final syscall/result：``close(7) = 0``；
-* fd 6/7：closed and unallocated；
-* wd 1：invalid and absent from IDR；
-* mark ``M``：freed before close(6) returns；
-* ``/work`` fsnotify connector：detached；storage freed or pending independent connector reaper；
-* fsnotify group ``G``：freed；
-* notification queue：destroyed after empty flush；
-* overflow event：freed；
-* inotify file ``F6``：freed；
-* callback ``P``：freed synchronously；
-* epitem ``I``：logical lifetime ended，storage through RCU；
-* eventpoll ``EP``：logical lifetime ended，storage through RCU；
-* eventpoll file ``F7``：freed；
-* global anon_inodefs：active；
-* ``/work/new.txt``：exists；
-* filesystem/block I/O caused by cleanup：none；
+* helper：blocked outside socket objects；
+* ``socketpair`` result：0， ``sv={6,7}``；
+* helper ``write(7)`` result：5；
+* first ``epoll_wait`` result：1；
+* first delivered event：``EPOLLIN``、data ``0x554E4958``；
+* first ``read(6)`` result：5，bytes ``hello``；
+* helper ``shutdown(7,SHUT_WR)`` result：0；
+* second ``epoll_wait`` result：1；
+* second delivered event：``EPOLLIN|EPOLLRDHUP``、data ``0x554E4958``；
+* final syscall/result：``read(6)=0``；
+* fd 6/7/8：open；
+* socket files ``F6/F7``：active sockfs files；
+* ``SA/SB.sk_state``：``TCP_ESTABLISHED``；
+* ``SA.sk_shutdown``：``RCV_SHUTDOWN``；
+* ``SB.sk_shutdown``：``SEND_SHUTDOWN``；
+* ``unix_peer(SA)=SB``、 ``unix_peer(SB)=SA``；
+* SA/SB receive queues：empty；
+* ``UA.inq_len=0``、 ``UB.inq_len=0``；
+* callback ``P``：active on socket A wait queue；
+* epitem ``I``：active in ``EP.rbr`` and persistent-ready in ``EP.rdllist``；
+* ``EP.refcount=2``；
+* ``EP.wq``：empty；
+* fd 6向fd 7发送方向：open；
+* fd 7从fd 6接收方向：open；
+* fd 7向fd 6发送方向：closed；
+* filesystem/block/device I/O：none；
 * next runtime scenario：unselected。
 
 关键边界
 --------
 
-#. eventpoll ready membership与inotify queue readiness必须通过re-poll重新核对。
-#. empty queue使zero-time ``epoll_wait`` 返回0并清除stale-ready membership。
-#. rm_watch用临时mark reference稳定对象，再执行detach。
-#. mark先退出group list，再通过backend callback生成 ``IN_IGNORED``。
-#. ``IN_IGNORED`` 在IDR removal前入队，因此record保存原wd 1。
-#. 已排队event的wd快照不受随后 ``M.wd=-1`` 影响。
-#. callback在parent未睡眠时只建立ready membership，不发生task wakeup。
-#. IDR、group list、syscall临时ref和inode connector是不同mark lifetime边界。
-#. mark最后reference下降后才退出inode connector。
-#. watch removal归还fsnotify对目录inode的pin，不删除目录或文件。
-#. mark和connector storage需要SRCU安全期；rm_watch不等待物理free。
-#. group close通过 ``fsnotify_wait_marks_destroyed`` 等待mark reaper完成。
-#. connector由独立worker释放，close返回不要求其storage已经kfree。
-#. no-name ``IN_IGNORED`` record为16字节。
-#. DEL同步free callback，epitem通过RCU延迟free。
-#. inotify group final free销毁空IDR、overflow event与instance accounting。
-#. anon_inodefs是全局对象，不因fd 6/7关闭而卸载。
-#. cleanup不删除 ``/work/new.txt``，也不产生额外磁盘I/O。
+#. socketpair reserve fd、copy用户数字与安装file是三个不同阶段。
+#. 两个Unix stream endpoints互相持有peer reference。
+#. AF_UNIX stream使用skb和socket wait queue，但不进入IP或设备层。
+#. socket file由sockfs承载，不是anon_inodefs。
+#. 初始socket可写不会触发只监听IN/RDHUP的registration。
+#. callback位于socket A wait queue，sleeping parent位于eventpoll wait queue。
+#. sendmsg把数据复制到skb并排入peer receive queue。
+#. ``UA.inq_len`` 在本批为0→5→0。
+#. ``sk_data_ready`` 只建立candidate readiness，delivery仍需 ``unix_poll`` re-check。
+#. Unix stream不保证write、skb和read之间的一一消息边界。
+#. 第一次read清空queue不会主动删除epoll ready membership。
+#. 第二次epoll_wait先清stale item，再真正睡眠等待shutdown。
+#. ``SHUT_WR`` 本端设置SEND_SHUTDOWN、peer设置RCV_SHUTDOWN。
+#. half-close不清除peer pointers，也不把状态改成TCP_CLOSE。
+#. RCV_SHUTDOWN同时产生EPOLLIN与EPOLLRDHUP，便于read取得EOF。
+#. 单向half-close不产生EPOLLHUP。
+#. EOF来自空queue加RCV_SHUTDOWN，不是零长度skb。
+#. RDHUP为persistent readiness，EOF read不会消费它。
 
 下一任务
 --------
 
-当前没有已选定场景。优先候选是Unix domain stream socket与epoll：
+优先接续Unix socketpair cleanup：
 
 ::
 
-   socketpair(AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC, 0, sv)
-   → fd 6/7 form one connected unix socket pair
-   epoll_create1(EPOLL_CLOEXEC) → fd 8
-   epoll_ctl(8, ADD, 6, EPOLLIN|EPOLLRDHUP)
-   → parent blocks in epoll_wait
-   → helper write(7, "hello", 5)
-   → unix receive queue wakes parent
-   → parent epoll_wait returns and read(6) consumes 5 bytes
-   → helper shutdown(7, SHUT_WR)
-   → parent observes EPOLLRDHUP and read EOF
+   epoll_ctl(8,EPOLL_CTL_DEL,6,NULL)
+   → remove callback P and epitem I
+   close(6)
+   → release socket A and notify peer B of disconnect/full shutdown
+   close(7)
+   → release socket B and mutual peer references
+   close(8)
+   → release empty eventpoll
 
-开始前必须固定socket state、sk_receive_queue、socket wait queue、memory accounting、shutdown flags、callback顺序与scheduler顺序。
+开始前固定close(6)触发的peer状态、wake mask、peer reference下降、sockfs inode/file teardown、skb queue清理与eventpoll RCU边界。
