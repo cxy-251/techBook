@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133; LK-EPOLL-134..LK-EPOLL-136; LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139; LK-SIGNALFD-140..LK-SIGNALFD-142; LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145; LK-TIMERFD-146..LK-TIMERFD-148; LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151"
+completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133; LK-EPOLL-134..LK-EPOLL-136; LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139; LK-SIGNALFD-140..LK-SIGNALFD-142; LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145; LK-TIMERFD-146..LK-TIMERFD-148; LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151; LK-PIDFD-152..LK-PIDFD-154"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
@@ -85,7 +85,10 @@ chapter = [
   { id = "LK-TIMERFD-148", title = "parent怎样从epoll event进入timerfd read并取出expiration count？", rst = "docs/tracks/linux-kernel/148-epoll-returns-timerfd-event-and-read-consumes-expiration.rst", status = "complete" },
   { id = "LK-TIMERFDCLOSE-149", title = "零超时epoll_wait() 怎样清理timerfd的stale-ready item？", rst = "docs/tracks/linux-kernel/149-zero-time-epoll-wait-removes-timerfd-stale-ready-item.rst", status = "complete" },
   { id = "LK-TIMERFDCLOSE-150", title = "EPOLL_CTL_DEL 怎样拆除timerfd callback与epitem？", rst = "docs/tracks/linux-kernel/150-epoll-del-detaches-timerfd-callback.rst", status = "complete" },
-  { id = "LK-TIMERFDCLOSE-151", title = "close() 怎样释放timerfd与eventpoll并结束两套RCU生命周期？", rst = "docs/tracks/linux-kernel/151-final-close-frees-timerfd-and-eventpoll.rst", status = "complete" }
+  { id = "LK-TIMERFDCLOSE-151", title = "close() 怎样释放timerfd与eventpoll并结束两套RCU生命周期？", rst = "docs/tracks/linux-kernel/151-final-close-frees-timerfd-and-eventpoll.rst", status = "complete" },
+  { id = "LK-PIDFD-152", title = "pidfd_open() 怎样建立pidfs file并让epoll_wait监视child？", rst = "docs/tracks/linux-kernel/152-pidfd-open-registers-child-with-epoll.rst", status = "complete" },
+  { id = "LK-PIDFD-153", title = "child _exit(42) 怎样通过pid->wait_pidfd唤醒epoll_wait？", rst = "docs/tracks/linux-kernel/153-child-exit-wakes-pidfd-epoll-waiter.rst", status = "complete" },
+  { id = "LK-PIDFD-154", title = "waitid(P_PIDFD) 怎样读取退出状态并回收child？", rst = "docs/tracks/linux-kernel/154-waitid-pidfd-reaps-child-after-epoll-event.rst", status = "complete" }
 ]
 
 [origin]
@@ -271,15 +274,25 @@ timerfd_close_result = "inactive hrtimer cancel returns 0; T and F6 end lifetime
 epoll_close_result = "empty EP drains; refcount 1 to 0; EP and F7 end lifetime through kfree_rcu and generic file teardown"
 final_result = "parent CPL3 after close(7) returns 0; fd 6/7 closed; I, T and EP no longer accessible"
 
+[completed_pidfd_scenario]
+name = "pidfs-backed pidfd observes child exit through epoll and waitid P_PIDFD reaps it"
+status = "complete"
+userspace_calls = "pidfd_open(C,0); epoll_create1; epoll_ctl ADD; epoll_wait; child _exit(42); waitid(P_PIDFD,6,&si,WEXITED,NULL)"
+registration_result = "pidfd fd 6 and epoll fd 7 open; pidfs inode N pins struct pid P; callback CB attaches to P.wait_pidfd; EP.rbr contains I"
+exit_result = "child becomes EXIT_ZOMBIE; do_notify_pidfd sends EPOLLIN|EPOLLRDNORM; CB queues I and wakes parent"
+epoll_result = "parent re-polls zombie child, receives events[0]={EPOLLIN,data=0x50494436}, and epoll_wait returns 1"
+wait_result = "waitid returns 0; siginfo reports SIGCHLD, CLD_EXITED, old PID C and status 42; child transitions EXIT_ZOMBIE to EXIT_DEAD and is reaped"
+final_result = "numeric PID C is reusable; fd 6/7 and registration remain active; old P stays alive through pidfs inode; I remains ready and next poll includes EPOLLHUP"
+
 [current]
-last_complete = "LK-TIMERFDCLOSE-151"
-executor = "parent after successful timerfd and eventpoll final closes"
+last_complete = "LK-PIDFD-154"
+executor = "parent after successful waitid P_PIDFD reaped child"
 cpu_mode = "x86-64 CPL 3 on CPU0"
-paging = "parent/helper mm remains active; prior expiration count remains only in userspace memory"
-interrupts = "normal userspace runtime state after timerfd LAPIC interrupt and teardown completed"
-current_task = "SCHED_NORMAL parent after close(7) returned zero; helper blocked outside old objects"
+paging = "parent mm remains active; epoll event and waitid siginfo remain in userspace memory"
+interrupts = "normal userspace runtime state"
+current_task = "SCHED_NORMAL parent; child task reaped; numeric PID reusable"
 next_entry = "unselected runtime scenario"
-next_action = "preferred next path is pidfd_open plus epoll wake on child exit and waitid(P_PIDFD)"
+next_action = "preferred next path is post-reap pidfd EPOLLHUP delivery, EPOLL_CTL_DEL, pidfd close and eventpoll close"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完整"
