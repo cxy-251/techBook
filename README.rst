@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第一百零四章：openat() 怎样保留 fd 并把 /work/demo.txt 解析成 negative dentry？ <docs/tracks/linux-kernel/104-openat-resolves-negative-dentry.rst>`_
-* `第一百零五章：ext4_create() 怎样分配 inode 并把 demo.txt 写进目录？ <docs/tracks/linux-kernel/105-ext4-create-allocates-inode-and-dirent.rst>`_
-* `第一百零六章：VFS 怎样打开新 inode、发布 fd 6 并让 openat() 返回？ <docs/tracks/linux-kernel/106-vfs-opens-and-publishes-new-fd.rst>`_
+* `第一百零七章：首次 buffered write 怎样只预留空间而不分配物理块？ <docs/tracks/linux-kernel/107-first-buffered-write-creates-delalloc-state.rst>`_
+* `第一百零八章：fsync() 怎样让 writeback 分配第一个 unwritten extent 并提交数据？ <docs/tracks/linux-kernel/108-fsync-writeback-allocates-first-unwritten-extent.rst>`_
+* `第一百零九章：data completion 怎样转换 extent，并让 fsync() 真正返回？ <docs/tracks/linux-kernel/109-write-completion-converts-extent-and-fsync-returns.rst>`_
 
 固定来源
 --------
@@ -32,22 +32,25 @@ techBook
    LK-EXEC-098..LK-EXEC-100
    LK-EXIT-101..LK-EXIT-103
    LK-OPEN-104..LK-OPEN-106
+   LK-DELALLOC-107..LK-DELALLOC-109
 
 最新场景
 --------
 
 ::
 
-   openat(AT_FDCWD, "/work/demo.txt", O_CREAT|O_EXCL|O_WRONLY, 0644)
-   → reserve fd 6
-   → RCU pathname walk to /work
-   → exclusive final lookup / negative dentry
-   → ext4 inode and directory entry metadata transaction
-   → vfs_open / ext4_file_open
-   → fd_install(6, file)
-   → userspace RAX = 6
+   write(6, buf, 4096)
+   → page-cache folio + delayed-allocation reservation
+   → write returns 4096 before physical allocation
+   → fsync(6)
+   → allocate physical block P as unwritten extent
+   → data bio through blk-mq / SCSI / libata / AHCI
+   → successful completion
+   → deferred unwritten-to-written conversion
+   → full JBD2 commit + required device flush
+   → userspace fsync result 0
 
-最终文件mode为0644、nlink为1、size为0，尚未分配data block。create metadata已进入JBD2 transaction，但 ``openat`` 返回不保证transaction已经持久化。
+fd 6仍打开，``f_pos=4096``。文件size与 ``i_disksize`` 均为4096，logical block 0已经映射为written extent，page-cache folio clean，create、extent、size和data满足本次fsync durability要求。
 
 开始工作
 --------
