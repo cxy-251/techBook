@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118"
+completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
@@ -52,7 +52,10 @@ chapter = [
   { id = "LK-SLEEP-115", title = "scheduler 怎样恢复 parent，并让 clock_nanosleep() 返回 0？", rst = "docs/tracks/linux-kernel/115-scheduler-resumes-parent-and-nanosleep-returns.rst", status = "complete" },
   { id = "LK-SIGNAL-116", title = "tgkill() 怎样排入 SIGUSR1 并唤醒 nanosleep 中的 parent？", rst = "docs/tracks/linux-kernel/116-tgkill-wakes-interruptible-nanosleep.rst", status = "complete" },
   { id = "LK-SIGNAL-117", title = "parent 怎样取消 hrtimer、写回 remaining 并进入 SIGUSR1 handler？", rst = "docs/tracks/linux-kernel/117-nanosleep-cancels-timer-and-builds-signal-frame.rst", status = "complete" },
-  { id = "LK-SIGNAL-118", title = "rt_sigreturn() 怎样恢复被 SIGUSR1 中断的 clock_nanosleep 上下文？", rst = "docs/tracks/linux-kernel/118-rt-sigreturn-restores-interrupted-nanosleep.rst", status = "complete" }
+  { id = "LK-SIGNAL-118", title = "rt_sigreturn() 怎样恢复被 SIGUSR1 中断的 clock_nanosleep 上下文？", rst = "docs/tracks/linux-kernel/118-rt-sigreturn-restores-interrupted-nanosleep.rst", status = "complete" },
+  { id = "LK-PIPE-119", title = "pipe2() 怎样建立匿名管道并发布 fd 6/7？", rst = "docs/tracks/linux-kernel/119-pipe2-builds-anonymous-pipe-and-publishes-fds.rst", status = "complete" },
+  { id = "LK-PIPE-120", title = "空管道 read() 怎样进入 exclusive wait queue 并阻塞？", rst = "docs/tracks/linux-kernel/120-empty-pipe-read-enters-exclusive-wait.rst", status = "complete" },
+  { id = "LK-PIPE-121", title = "pipe write() 怎样唤醒reader并让 read() 返回5？", rst = "docs/tracks/linux-kernel/121-pipe-write-wakes-reader-and-read-returns.rst", status = "complete" }
 ]
 
 [origin]
@@ -138,24 +141,27 @@ result = "parent CPL3 with RAX=0 after natural hrtimer expiry and scheduler wake
 [completed_signal_scenario]
 name = "SIGUSR1-interrupted relative clock_nanosleep and rt_sigreturn"
 status = "complete"
-parent_call = "clock_nanosleep(CLOCK_MONOTONIC, 0, {0,10ms}, &remaining)"
-sender_call = "tgkill(P, P, SIGUSR1) at T0+4ms"
-signal = "thread-directed SIGUSR1 with SI_TKILL and si_pid=H"
-timer_result = "still-active CPU0 monotonic hrtimer cancelled before expiry; callback not executed"
-remaining_result = "positive remaining copied to userspace; 0 < remaining < 6ms"
-frame_result = "x64 rt signal frame saves post-SYSCALL RIP, RAX=-EINTR, mask, RSP and FPU state"
-return_result = "rt_sigreturn restores context, sets orig_ax=-1 and leaves restart disabled"
-final_result = "parent CPL3 on CPU0 at original post-SYSCALL RIP with raw RAX=-EINTR"
+result = "parent CPL3 on CPU0 at original post-SYSCALL RIP with raw RAX=-EINTR and positive remaining"
+
+[completed_pipe_scenario]
+name = "anonymous pipe blocking read and writer wakeup"
+status = "complete"
+userspace_calls = "pipe2(pipefd,O_CLOEXEC); parent read(6,buf,5); helper write(7,hello,5)"
+object_result = "pipefs inode; shared pipe_inode_info; two struct file endpoints; fd 6 read and fd 7 write; 16-slot 65536-byte ring"
+block_result = "empty pipe with writers=1 puts parent on rd_wait as WQ_FLAG_EXCLUSIVE TASK_INTERRUPTIBLE and schedules helper"
+write_result = "helper allocates anonymous page Q, inserts one 5-byte CAN_MERGE pipe_buffer and wakes parent"
+read_result = "parent resumes original stack, copies hello, advances tail and returns 5"
+final_result = "fd 6/7 remain open; head=tail=1; occupancy=0; page Q cached in tmp_page[0]"
 
 [current]
-last_complete = "LK-SIGNAL-118"
-executor = "parent after successful rt_sigreturn restoration"
+last_complete = "LK-PIPE-121"
+executor = "parent after successful pipe read return"
 cpu_mode = "x86-64 CPL 3 on CPU0"
-paging = "parent mm remains active; normal user stack restored"
+paging = "parent mm remains active; user buffer contains hello"
 interrupts = "normal userspace runtime state"
-current_task = "SCHED_NORMAL parent after SIGUSR1-interrupted relative nanosleep; raw result -EINTR and positive remaining"
+current_task = "SCHED_NORMAL parent after anonymous pipe read returned 5; helper blocked outside pipe"
 next_entry = "unselected runtime scenario"
-next_action = "preferred next path is pipe2 followed by an empty-pipe blocking read, writer buffer insertion, wait-queue wakeup and reader return"
+next_action = "preferred next path is close write fd 7, observe empty-pipe EOF on read fd 6, then close fd 6 and free pipe objects"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完整"
