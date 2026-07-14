@@ -100,6 +100,9 @@ Linux Kernel
 #. `第九十二章：x86-64 的 fork() 怎样创建一个尚不可运行的 task_struct？ <92-x86-fork-builds-inactive-task.rst>`_
 #. `第九十三章：copy_process() 怎样复制资源并建立 COW 子进程？ <93-copy-process-builds-cow-child.rst>`_
 #. `第九十四章：scheduler 怎样启动 child，并让 fork() 在父子进程返回不同结果？ <94-fork-parent-and-child-return.rst>`_
+#. `第九十五章：child 写只读 COW 地址时，x86 #PF 怎样进入 do_wp_page？ <95-x86-cow-write-fault-enters-do-wp-page.rst>`_
+#. `第九十六章：wp_page_copy() 怎样分配新 folio 并替换 child PTE？ <96-wp-page-copy-replaces-child-pte.rst>`_
+#. `第九十七章：page fault 返回后，CPU 怎样重试 store 并完成 COW 隔离？ <97-page-fault-return-retries-child-store.rst>`_
 
 当前主线
 --------
@@ -111,21 +114,22 @@ Linux Kernel
    → boot handoff complete
    → read(fd, buf, 4096) cold miss complete
    → O_SYNC write(fd, buf, 4096) complete
-   → native fork() syscall
-   → kernel_clone / copy_process
-   → task_struct and kernel stack
-   → independent files/fs/sighand/signal/mm
-   → duplicated VMAs and page tables
-   → parent/child read-only COW PTEs sharing one anonymous folio
-   → PID and process-tree publication
-   → wake_up_new_task
-   → parent returns child PID
-   → child ret_from_fork_asm / IRETQ
-   → child returns 0
+   → native fork() complete
+   → parent/child read-only PTEs share anonymous folio
+   → child userspace store
+   → x86 #PF: protection + write + user
+   → do_user_addr_fault / handle_mm_fault
+   → handle_pte_fault / do_wp_page
+   → exclusive reuse rejected
+   → wp_page_copy
+   → allocate and copy 4 KiB anonymous folio
+   → replace child PTE and flush child TLB
+   → IRETQ retries original store
+   → child sees modified new folio; parent retains old folio
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-当前三个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()`` 和 native ``fork()``。fork结束时父子拥有不同 mm和页表根，普通 private anonymous folio仍由只读 PTE共享；真正的物理页复制留给未来独立的 COW write-fault场景。
+当前四个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()`` 和 child COW write fault。下一条 runtime主线尚未选择，优先候选是 child ``execve()`` 替换当前进程映像。
 
 章节组织
 --------
