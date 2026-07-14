@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第一百三十一章：close(6) 怎样撤销eventfd fd并同步进入最后一次__fput()？ <docs/tracks/linux-kernel/131-close-eventfd-fd-enters-final-fput.rst>`_
-* `第一百三十二章：eventfd_release() 怎样发送EPOLLHUP并释放eventfd_ctx？ <docs/tracks/linux-kernel/132-eventfd-release-sends-hup-and-frees-ctx.rst>`_
-* `第一百三十三章：__fput() 怎样释放anon-inode path并让close()返回0？ <docs/tracks/linux-kernel/133-final-eventfd-file-teardown-returns-close.rst>`_
+* `第一百三十四章：epoll_ctl(ADD) 怎样把eventfd callback挂进wait queue？ <docs/tracks/linux-kernel/134-epoll-add-attaches-eventfd-callback.rst>`_
+* `第一百三十五章：epoll_wait() 怎样把parent挂到eventpoll自己的wait queue？ <docs/tracks/linux-kernel/135-epoll-wait-blocks-on-eventpoll-wq.rst>`_
+* `第一百三十六章：eventfd write怎样触发epoll callback并让epoll_wait返回1？ <docs/tracks/linux-kernel/136-eventfd-write-wakes-epoll-and-delivers-level-event.rst>`_
 
 固定来源
 --------
@@ -41,26 +41,25 @@ techBook
    LK-FUTEX-125..LK-FUTEX-127
    LK-EVENTFD-128..LK-EVENTFD-130
    LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133
+   LK-EPOLL-134..LK-EPOLL-136
 
 最新场景
 --------
 
 ::
 
-   parent close(6)
-   → remove fd 6 from shared files_struct
-   → clear open and close-on-exec bookkeeping
-   → filp_flush returns 0
-   → fput_close_sync enters final __fput
-   → eventpoll_release finds no registration
-   → eventfd_release sends EPOLLHUP to an empty wait queue
-   → eventfd_ctx_put changes kref 1 → 0
-   → return internal id to eventfd_ida and free ctx
-   → dput per-file [eventfd] pseudo dentry
-   → mntput per-file anon_inodefs mount reference
-   → file_free and close returns 0
+   eventfd2(0, EFD_CLOEXEC) -> fd 6
+   epoll_create1(EPOLL_CLOEXEC) -> fd 7
+   epoll_ctl(7, EPOLL_CTL_ADD, 6, EPOLLIN)
+   → ep_poll_callback entry attaches to eventfd wait queue
+   → parent epoll_wait(7, events, 1, -1)
+   → parent blocks exclusively on eventpoll wait queue
+   → helper writes u64 5 to eventfd
+   → callback adds epitem to ready list and wakes parent
+   → parent receives { EPOLLIN, data=0xEFD6 }
+   → epoll_wait returns 1
 
-最终fd 6已关闭；eventfd file、ctx、internal id和per-file pseudo path均已结束生命周期。全局 ``anon_inode_mnt`` 与singleton ``anon_inode_inode`` 继续存在。
+最终fd 6/7仍打开；eventfd counter为5。level-triggered epitem仍在ready list，因为epoll只报告readiness，没有消费counter。
 
 开始工作
 --------
