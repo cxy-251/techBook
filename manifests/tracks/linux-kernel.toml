@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133; LK-EPOLL-134..LK-EPOLL-136; LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139; LK-SIGNALFD-140..LK-SIGNALFD-142"
+completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133; LK-EPOLL-134..LK-EPOLL-136; LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139; LK-SIGNALFD-140..LK-SIGNALFD-142; LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
@@ -76,7 +76,10 @@ chapter = [
   { id = "LK-EPOLLCLOSE-139", title = "EPOLL_CTL_DEL与close()怎样拆除callback并释放eventfd/eventpoll？", rst = "docs/tracks/linux-kernel/139-epoll-del-and-final-close-free-eventfd-eventpoll.rst", status = "complete" },
   { id = "LK-SIGNALFD-140", title = "signalfd4() 怎样把阻塞信号变成可poll的fd并挂进epoll？", rst = "docs/tracks/linux-kernel/140-signalfd4-creates-pollable-signal-fd-and-epoll-registration.rst", status = "complete" },
   { id = "LK-SIGNALFD-141", title = "tgkill() 怎样让blocked SIGUSR1经signalfd callback唤醒epoll_wait？", rst = "docs/tracks/linux-kernel/141-tgkill-wakes-signalfd-epoll-waiter.rst", status = "complete" },
-  { id = "LK-SIGNALFD-142", title = "parent怎样从epoll event进入signalfd read并取出128字节siginfo？", rst = "docs/tracks/linux-kernel/142-epoll-returns-signalfd-event-and-read-dequeues-siginfo.rst", status = "complete" }
+  { id = "LK-SIGNALFD-142", title = "parent怎样从epoll event进入signalfd read并取出128字节siginfo？", rst = "docs/tracks/linux-kernel/142-epoll-returns-signalfd-event-and-read-dequeues-siginfo.rst", status = "complete" },
+  { id = "LK-SIGNALFDCLOSE-143", title = "零超时epoll_wait() 怎样清理signalfd的stale-ready item？", rst = "docs/tracks/linux-kernel/143-zero-time-epoll-wait-removes-signalfd-stale-ready-item.rst", status = "complete" },
+  { id = "LK-SIGNALFDCLOSE-144", title = "EPOLL_CTL_DEL 怎样拆除signalfd callback与epitem？", rst = "docs/tracks/linux-kernel/144-epoll-del-detaches-signalfd-callback.rst", status = "complete" },
+  { id = "LK-SIGNALFDCLOSE-145", title = "close() 怎样释放signalfd与eventpoll，却保留共享sighand wait queue？", rst = "docs/tracks/linux-kernel/145-final-close-frees-signalfd-and-eventpoll.rst", status = "complete" }
 ]
 
 [origin]
@@ -230,15 +233,25 @@ epoll_result = "parent re-polls signalfd, receives events[0]={EPOLLIN,data=0x51F
 read_result = "read returns 128; ssi_signo=SIGUSR1; ssi_code=SI_TKILL; ssi_pid=shared TGID; pending signal consumed"
 final_result = "fd 6/7 and registration remain active; no pending SIGUSR1; level-triggered I remains stale-ready in EP.rdllist"
 
+[completed_signalfd_cleanup_scenario]
+name = "remove signalfd stale-ready state, delete registration and close signalfd/eventpoll"
+status = "complete"
+userspace_calls = "epoll_wait(7,events2,1,0); epoll_ctl(7,DEL,6,NULL); close(6); close(7)"
+stale_result = "zero-time epoll_wait re-polls empty pending queues, removes I from ready list and returns 0"
+delete_result = "P synchronously removed from shared signalfd_wqh; F6.f_ep cleared; I erased and kfree_rcu queued; EP.refcount 2 to 1"
+signalfd_close_result = "S and F6 freed; shared sighand and signalfd_wqh remain active; blocked SIGUSR1 mask unchanged"
+epoll_close_result = "empty EP drains; refcount 1 to 0; EP and F7 end lifetime through kfree_rcu and generic file teardown"
+final_result = "parent CPL3 after close(7) returns 0; fd 6/7 closed; no pending SIGUSR1; shared sighand wait queue remains"
+
 [current]
-last_complete = "LK-SIGNALFD-142"
-executor = "parent after signalfd read returned one 128-byte record"
+last_complete = "LK-SIGNALFDCLOSE-145"
+executor = "parent after successful signalfd and eventpoll final closes"
 cpu_mode = "x86-64 CPL 3 on CPU0"
-paging = "parent/helper mm remains active; userspace signalfd_siginfo contains SIGUSR1 SI_TKILL data"
+paging = "parent/helper mm remains active; prior signalfd_siginfo remains only in userspace memory"
 interrupts = "normal userspace runtime state"
-current_task = "SCHED_NORMAL parent; helper blocked outside signalfd/epoll"
+current_task = "SCHED_NORMAL parent after close(7) returned zero; helper blocked outside old objects"
 next_entry = "unselected runtime scenario"
-next_action = "preferred next path is zero-time epoll stale-ready cleanup, EPOLL_CTL_DEL, close signalfd and close eventpoll"
+next_action = "preferred next path is timerfd_create plus one-shot monotonic expiration, epoll wake and timerfd read"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完整"
