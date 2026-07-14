@@ -154,6 +154,9 @@ Linux Kernel
 #. `第一百四十六章：timerfd怎样建立一次性hrtimer并让parent阻塞在epoll_wait？ <146-timerfd-creates-arms-and-registers-with-epoll.rst>`_
 #. `第一百四十七章：local APIC定时器中断怎样让timerfd callback唤醒epoll_wait？ <147-lapic-hrtimer-callback-wakes-timerfd-epoll.rst>`_
 #. `第一百四十八章：parent怎样从epoll event进入timerfd read并取出expiration count？ <148-epoll-returns-timerfd-event-and-read-consumes-expiration.rst>`_
+#. `第一百四十九章：零超时epoll_wait() 怎样清理timerfd的stale-ready item？ <149-zero-time-epoll-wait-removes-timerfd-stale-ready-item.rst>`_
+#. `第一百五十章：EPOLL_CTL_DEL 怎样拆除timerfd callback与epitem？ <150-epoll-del-detaches-timerfd-callback.rst>`_
+#. `第一百五十一章：close() 怎样释放timerfd与eventpoll并结束两套RCU生命周期？ <151-final-close-frees-timerfd-and-eventpoll.rst>`_
 
 当前主线
 --------
@@ -169,24 +172,19 @@ Linux Kernel
    → natural and SIGUSR1-interrupted monotonic nanosleep complete
    → anonymous pipe lifecycle complete
    → private futex wait/wake complete
-   → eventfd, signalfd and their eventpoll lifecycles complete
-   → timerfd fd 6 created on CLOCK_MONOTONIC
-   → relative one-shot 20ms hrtimer queued on CPU0
-   → eventpoll fd 7 watches timerfd EPOLLIN
-   → parent blocks on eventpoll wait queue and CPU0 idles
-   → local APIC timer vector enters hrtimer_interrupt
-   → timerfd_tmrproc changes ticks 0→1 and wakes epoll callback
-   → callback queues epitem and makes parent runnable
-   → parent re-polls timerfd and receives EPOLLIN data 0x71FD6
-   → epoll_wait returns 1
-   → timerfd read returns 8 with expiration count 1
-   → ticks/expired return to zero and one-shot hrtimer stays inactive
-   → fd 6/7 and registration remain active
-   → level-triggered epitem remains stale-ready until next scan
+   → eventfd and signalfd eventpoll lifecycles complete
+   → one-shot monotonic timerfd expires through LAPIC and hrtimer
+   → parent receives EPOLLIN and reads expiration count 1
+   → zero-time epoll_wait re-polls ticks=0 and removes stale-ready item
+   → EPOLL_CTL_DEL removes callback and epitem
+   → eventpoll refcount returns from 2 to 1
+   → close(6) cancels inactive hrtimer and ends timerfd ctx through kfree_rcu
+   → close(7) drains empty eventpoll and ends EP through kfree_rcu
+   → parent CPL3 with close RAX=0 and fd 6/7 closed
 
 固定 commit 的 ``Makefile`` 标识为 Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定 commit 为准。
 
-当前二十一个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``、新文件首次delalloc write + fsync、open-unlinked文件的final close/eviction、自然到期monotonic nanosleep、``SIGUSR1`` 中断nanosleep与 ``rt_sigreturn``、anonymous pipe读写与final teardown、private futex wait/wake、eventfd counter blocking read/writer wakeup、eventfd final close、eventfd level-triggered epoll callback/wait delivery、eventfd/epoll cleanup、blocked ``SIGUSR1`` 通过signalfd与epoll交付、signalfd/epoll cleanup，以及one-shot monotonic timerfd通过local APIC、hrtimer和epoll交付expiration count。下一条runtime主线尚未选择。
+当前二十二个运行期源码实验均已闭环：cold-miss ``read()``、O_SYNC buffered ``write()``、native ``fork()``、child COW write fault、static ``execve()``、child exit + parent wait/reap、ext4 ``openat(O_CREAT|O_EXCL)``、新文件首次delalloc write + fsync、open-unlinked文件的final close/eviction、自然到期monotonic nanosleep、``SIGUSR1`` 中断nanosleep与 ``rt_sigreturn``、anonymous pipe读写与final teardown、private futex wait/wake、eventfd counter blocking read/writer wakeup、eventfd final close、eventfd level-triggered epoll callback/wait delivery、eventfd/epoll cleanup、blocked ``SIGUSR1`` 通过signalfd与epoll交付、signalfd/epoll cleanup、one-shot monotonic timerfd通过local APIC、hrtimer和epoll交付expiration count，以及timerfd/epoll stale-ready cleanup、registration deletion与final teardown。下一条runtime主线尚未选择。
 
 章节组织
 --------
