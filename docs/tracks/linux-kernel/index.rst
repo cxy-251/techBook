@@ -30,21 +30,21 @@ Linux Kernel
    → natural and SIGUSR1-interrupted monotonic nanosleep complete
    → anonymous pipe lifecycle complete
    → private futex wait/wake complete
-   → eventfd, signalfd, timerfd and pidfd eventpoll lifecycles complete
-   → inotify watches /work for CREATE and CLOSE_WRITE
-   → helper creates, writes and closes /work/new.txt
+   → eventfd, signalfd, timerfd, pidfd and inotify eventpoll lifecycles complete
+   → socketpair creates connected AF_UNIX stream fd 6/7
+   → eventpoll fd 8 watches fd 6 for EPOLLIN|EPOLLRDHUP
+   → parent blocks on eventpoll wait queue
+   → helper writes hello through fd 7
+   → one skb enters fd 6 receive queue and wakes parent
    → epoll_wait delivers EPOLLIN
-   → read copies IN_CREATE and IN_CLOSE_WRITE records
-   → zero-time epoll_wait removes stale-ready membership
-   → inotify_rm_watch queues wd1 IN_IGNORED before IDR removal
-   → mark detaches from group and /work inode connector
-   → epoll_wait delivers IN_IGNORED readiness
-   → read copies one 16-byte IN_IGNORED record
-   → EPOLL_CTL_DEL removes callback and epitem
-   → close(6) destroys fsnotify group and waits mark SRCU reaper
-   → close(7) releases empty eventpoll
-   → parent CPL3 with close RAX=0 and fd 6/7 closed
-   → /work/new.txt remains present
+   → read(6) consumes 5 bytes and empties the queue
+   → next epoll_wait re-polls and removes stale-ready membership
+   → helper shutdown(7,SHUT_WR)
+   → fd 7 gains SEND_SHUTDOWN and fd 6 gains RCV_SHUTDOWN
+   → socket state-change callback wakes parent
+   → epoll_wait delivers EPOLLIN|EPOLLRDHUP
+   → read(6) returns EOF 0
+   → fd 6/7/8 remain open and registration remains persistent-ready
 
 完成范围
 --------
@@ -78,31 +78,35 @@ Linux Kernel
    LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157
    LK-INOTIFY-158..LK-INOTIFY-160
    LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163
+   LK-UNIXSOCK-164..LK-UNIXSOCK-166
 
 固定commit的 ``Makefile`` 标识为Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定commit为准。
+
+进度
+----
+
+当前完成166章。按最初195章目标还剩29章；最终章数尚未锁死，按当前source-reading颗粒度合理总量约190至220章。
 
 最新三章
 --------
 
-#. `第一百六十一章：零超时epoll_wait怎样清除inotify的stale-ready item？ <161-zero-time-epoll-wait-removes-inotify-stale-ready-item.rst>`_
-#. `第一百六十二章：inotify_rm_watch怎样先排入IN_IGNORED再销毁mark？ <162-inotify-rm-watch-queues-ignored-and-destroys-mark.rst>`_
-#. `第一百六十三章：读取IN_IGNORED后，close怎样释放inotify group与eventpoll？ <163-read-ignored-and-final-close-free-inotify-eventpoll.rst>`_
+#. `第一百六十四章：socketpair怎样建立双向Unix stream并让parent阻塞在epoll_wait？ <164-unix-socketpair-registers-with-epoll-and-blocks-parent.rst>`_
+#. `第一百六十五章：helper写入hello时，Unix stream skb怎样唤醒epoll并让read返回5？ <165-unix-stream-write-wakes-epoll-and-read-consumes-skb.rst>`_
+#. `第一百六十六章：shutdown(SHUT_WR)怎样让peer收到EPOLLRDHUP并让read返回EOF？ <166-unix-stream-shutdown-wakes-rdhup-and-read-returns-eof.rst>`_
 
 下一候选
 --------
 
 ::
 
-   socketpair(AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC, 0, sv)
-   → fd 6/7 form one connected unix socket pair
-   epoll_create1(EPOLL_CLOEXEC) → fd 8
-   epoll_ctl(8, ADD, 6, EPOLLIN|EPOLLRDHUP)
-   → parent blocks in epoll_wait
-   → helper write(7, "hello", 5)
-   → unix stream receive queue wakes parent
-   → parent epoll_wait returns and read(6) consumes 5 bytes
-   → helper shutdown(7, SHUT_WR)
-   → parent observes EPOLLRDHUP and read EOF
+   epoll_ctl(8, EPOLL_CTL_DEL, 6, NULL)
+   → detach socket wait callback and epitem
+   close(6)
+   → release socket A and notify peer B of disconnect
+   close(7)
+   → release socket B and mutual peer references
+   close(8)
+   → release empty eventpoll
 
 章节组织
 --------
