@@ -2,10 +2,58 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115"
+completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
+
+chapter = [
+  { id = "LK-READ-074", title = "x86-64 的 read() 怎样从用户态进入 __x64_sys_read？", rst = "docs/tracks/linux-kernel/74-x86-read-syscall-enters-kernel.rst", status = "complete" },
+  { id = "LK-READ-075", title = "read() 怎样从 fd 找到 ext4 文件并进入 generic_file_read_iter？", rst = "docs/tracks/linux-kernel/75-read-resolves-fd-and-dispatches-through-vfs.rst", status = "complete" },
+  { id = "LK-READ-076", title = "page cache miss 怎样让 ext4 构造并提交 READ bio？", rst = "docs/tracks/linux-kernel/76-filemap-miss-builds-ext4-read-bio.rst", status = "complete" },
+  { id = "LK-READ-077", title = "READ bio 怎样通过校验与分区重映射进入 blk-mq？", rst = "docs/tracks/linux-kernel/77-read-bio-enters-generic-block-submission.rst", status = "complete" },
+  { id = "LK-READ-078", title = "blk-mq 怎样把 bio 变成 SCSI READ request？", rst = "docs/tracks/linux-kernel/78-blk-mq-builds-scsi-read-request.rst", status = "complete" },
+  { id = "LK-READ-079", title = "SCSI READ 怎样变成 ATA taskfile 并写入 AHCI command slot？", rst = "docs/tracks/linux-kernel/79-scsi-read-becomes-ahci-command.rst", status = "complete" },
+  { id = "LK-READ-080", title = "AHCI 中断怎样确认完成的 tag，并把结果交回 SCSI？", rst = "docs/tracks/linux-kernel/80-ahci-interrupt-completes-ata-and-scsi-command.rst", status = "complete" },
+  { id = "LK-READ-081", title = "blk-mq completion 怎样结束 bio，并让 ext4 folio 变成 uptodate？", rst = "docs/tracks/linux-kernel/81-block-completion-marks-ext4-folio-uptodate.rst", status = "complete" },
+  { id = "LK-READ-082", title = "reader task 怎样复制 folio，并让 read() 返回用户态？", rst = "docs/tracks/linux-kernel/82-reader-copies-folio-and-returns-from-read.rst", status = "complete" },
+  { id = "LK-WRITE-083", title = "x86-64 的 write() 怎样进入 ext4 buffered write？", rst = "docs/tracks/linux-kernel/83-x86-write-enters-ext4-buffered-path.rst", status = "complete" },
+  { id = "LK-WRITE-084", title = "ext4 怎样把用户数据复制进 page-cache folio 并标脏？", rst = "docs/tracks/linux-kernel/84-ext4-copies-user-data-into-dirty-folio.rst", status = "complete" },
+  { id = "LK-WRITE-085", title = "O_SYNC write 怎样进入 ext4 writeback？", rst = "docs/tracks/linux-kernel/85-osync-write-enters-ext4-writeback.rst", status = "complete" },
+  { id = "LK-WRITE-086", title = "ext4 writeback 怎样把 dirty folio 变成 WRITE bio？", rst = "docs/tracks/linux-kernel/86-ext4-writeback-builds-write-bio.rst", status = "complete" },
+  { id = "LK-WRITE-087", title = "WRITE bio 怎样变成 AHCI command 并写入 PxCI？", rst = "docs/tracks/linux-kernel/87-write-bio-becomes-ahci-command.rst", status = "complete" },
+  { id = "LK-WRITE-088", title = "WRITE completion 怎样结束 folio writeback，并让 O_SYNC 等待继续？", rst = "docs/tracks/linux-kernel/88-write-completion-ends-folio-writeback.rst", status = "complete" },
+  { id = "LK-WRITE-089", title = "ext4 fsync 怎样选择 fast commit 或完整 JBD2 commit？", rst = "docs/tracks/linux-kernel/89-ext4-fsync-chooses-fast-or-full-jbd2-commit.rst", status = "complete" },
+  { id = "LK-WRITE-090", title = "ext4 barrier 怎样把 journal 顺序落实到设备 cache？", rst = "docs/tracks/linux-kernel/90-ext4-barrier-flushes-device-cache.rst", status = "complete" },
+  { id = "LK-WRITE-091", title = "O_SYNC write 怎样提交 file position 并返回用户态？", rst = "docs/tracks/linux-kernel/91-osync-write-returns-to-userspace.rst", status = "complete" },
+  { id = "LK-FORK-092", title = "x86-64 的 fork() 怎样创建一个尚不可运行的 task_struct？", rst = "docs/tracks/linux-kernel/92-x86-fork-builds-inactive-task.rst", status = "complete" },
+  { id = "LK-FORK-093", title = "copy_process() 怎样复制资源并建立 COW 子进程？", rst = "docs/tracks/linux-kernel/93-copy-process-builds-cow-child.rst", status = "complete" },
+  { id = "LK-FORK-094", title = "scheduler 怎样启动 child，并让 fork() 在父子进程返回不同结果？", rst = "docs/tracks/linux-kernel/94-fork-parent-and-child-return.rst", status = "complete" },
+  { id = "LK-COW-095", title = "child 写只读 COW 地址时，x86 #PF 怎样进入 do_wp_page？", rst = "docs/tracks/linux-kernel/95-x86-cow-write-fault-enters-do-wp-page.rst", status = "complete" },
+  { id = "LK-COW-096", title = "wp_page_copy() 怎样分配新 folio 并替换 child PTE？", rst = "docs/tracks/linux-kernel/96-wp-page-copy-replaces-child-pte.rst", status = "complete" },
+  { id = "LK-COW-097", title = "page fault 返回后，CPU 怎样重试 store 并完成 COW 隔离？", rst = "docs/tracks/linux-kernel/97-page-fault-return-retries-child-store.rst", status = "complete" },
+  { id = "LK-EXEC-098", title = "x86-64 的 execve() 怎样打开静态 ELF 并进入 load_elf_binary()？", rst = "docs/tracks/linux-kernel/98-execve-opens-static-elf.rst", status = "complete" },
+  { id = "LK-EXEC-099", title = "begin_new_exec() 怎样替换旧 mm 并建立静态 ELF 映射？", rst = "docs/tracks/linux-kernel/99-begin-new-exec-replaces-mm-and-maps-elf.rst", status = "complete" },
+  { id = "LK-EXEC-100", title = "start_thread() 怎样让 execve 进入新静态 ELF 的第一条指令？", rst = "docs/tracks/linux-kernel/100-exec-enters-new-static-elf-image.rst", status = "complete" },
+  { id = "LK-EXIT-101", title = "_exit(42) 怎样进入 do_exit() 并释放进程运行资源？", rst = "docs/tracks/linux-kernel/101-child-exit-tears-down-runtime-resources.rst", status = "complete" },
+  { id = "LK-EXIT-102", title = "exit_notify() 怎样发送 SIGCHLD、唤醒 parent 并留下 zombie？", rst = "docs/tracks/linux-kernel/102-exit-notify-wakes-parent-and-leaves-zombie.rst", status = "complete" },
+  { id = "LK-EXIT-103", title = "parent 的 wait4() 怎样读取 status 并最终回收 child？", rst = "docs/tracks/linux-kernel/103-parent-wait4-reaps-child.rst", status = "complete" },
+  { id = "LK-OPEN-104", title = "openat() 怎样保留 fd 并把 /work/demo.txt 解析成 negative dentry？", rst = "docs/tracks/linux-kernel/104-openat-resolves-negative-dentry.rst", status = "complete" },
+  { id = "LK-OPEN-105", title = "ext4_create() 怎样分配 inode 并把 demo.txt 写进目录？", rst = "docs/tracks/linux-kernel/105-ext4-create-allocates-inode-and-dirent.rst", status = "complete" },
+  { id = "LK-OPEN-106", title = "VFS 怎样打开新 inode、发布 fd 6 并让 openat() 返回？", rst = "docs/tracks/linux-kernel/106-vfs-opens-and-publishes-new-fd.rst", status = "complete" },
+  { id = "LK-DELALLOC-107", title = "首次 buffered write 怎样只预留空间而不分配物理块？", rst = "docs/tracks/linux-kernel/107-first-buffered-write-creates-delalloc-state.rst", status = "complete" },
+  { id = "LK-DELALLOC-108", title = "fsync() 怎样让 writeback 分配第一个 unwritten extent 并提交数据？", rst = "docs/tracks/linux-kernel/108-fsync-writeback-allocates-first-unwritten-extent.rst", status = "complete" },
+  { id = "LK-DELALLOC-109", title = "data completion 怎样转换 extent，并让 fsync() 真正返回？", rst = "docs/tracks/linux-kernel/109-write-completion-converts-extent-and-fsync-returns.rst", status = "complete" },
+  { id = "LK-UNLINK-110", title = "unlinkat() 怎样锁住父目录并进入 ext4_unlink()？", rst = "docs/tracks/linux-kernel/110-unlinkat-locks-parent-and-enters-ext4-unlink.rst", status = "complete" },
+  { id = "LK-UNLINK-111", title = "ext4_unlink() 怎样删除名称，却让 fd 6 继续访问 inode？", rst = "docs/tracks/linux-kernel/111-ext4-unlink-removes-name-and-keeps-open-inode.rst", status = "complete" },
+  { id = "LK-UNLINK-112", title = "close(6) 怎样触发最后一次 __fput() 并回收 ext4 inode？", rst = "docs/tracks/linux-kernel/112-close-evicts-unlinked-ext4-inode.rst", status = "complete" },
+  { id = "LK-SLEEP-113", title = "clock_nanosleep() 怎样建立 hrtimer 并让 parent 阻塞？", rst = "docs/tracks/linux-kernel/113-clock-nanosleep-arms-hrtimer-and-blocks-parent.rst", status = "complete" },
+  { id = "LK-SLEEP-114", title = "local APIC timer interrupt 怎样运行 hrtimer callback 并唤醒 parent？", rst = "docs/tracks/linux-kernel/114-lapic-timer-interrupt-wakes-sleeping-parent.rst", status = "complete" },
+  { id = "LK-SLEEP-115", title = "scheduler 怎样恢复 parent，并让 clock_nanosleep() 返回 0？", rst = "docs/tracks/linux-kernel/115-scheduler-resumes-parent-and-nanosleep-returns.rst", status = "complete" },
+  { id = "LK-SIGNAL-116", title = "tgkill() 怎样排入 SIGUSR1 并唤醒 nanosleep 中的 parent？", rst = "docs/tracks/linux-kernel/116-tgkill-wakes-interruptible-nanosleep.rst", status = "complete" },
+  { id = "LK-SIGNAL-117", title = "parent 怎样取消 hrtimer、写回 remaining 并进入 SIGUSR1 handler？", rst = "docs/tracks/linux-kernel/117-nanosleep-cancels-timer-and-builds-signal-frame.rst", status = "complete" },
+  { id = "LK-SIGNAL-118", title = "rt_sigreturn() 怎样恢复被 SIGUSR1 中断的 clock_nanosleep 上下文？", rst = "docs/tracks/linux-kernel/118-rt-sigreturn-restores-interrupted-nanosleep.rst", status = "complete" }
+]
 
 [origin]
 repository = "cxy-251/aiBook"
@@ -65,348 +113,49 @@ result = "task and PID retained; new executable mm active; static ELF e_entry be
 [completed_exit_scenario]
 name = "child normal exit and parent wait4 reap"
 status = "complete"
-parent_call = "wait4(child_pid, &status, 0, &rusage)"
-child_call = "_exit(42)"
-raw_status = "0x2a00"
-signal_result = "SIGCHLD with CLD_EXITED and si_status=42; wait_chldexit wakes parent"
-resource_result = "child mm/files/fs released before zombie publication"
-reap_result = "parent changes EXIT_ZOMBIE to EXIT_DEAD, collects rusage, calls release_task, and returns child PID"
-final_result = "parent CPL3; WIFEXITED true; WEXITSTATUS 42; child no longer process/PID visible"
+result = "parent CPL3; WIFEXITED true; WEXITSTATUS 42; child no longer process/PID visible"
 
 [completed_open_scenario]
 name = "ext4 openat exclusive create"
 status = "complete"
-userspace_call = "openat(AT_FDCWD, /work/demo.txt, O_CREAT|O_EXCL|O_WRONLY, 0644)"
-fd_state = "fd 0..5 occupied; fd 6 reserved before pathname lookup and published after file open; O_CLOEXEC absent"
-lookup = "absolute cached path to /work; target absent from dcache and cached ext4 directory block; locked final lookup produces negative dentry"
-create = "JBD2 metadata handle allocates inode bitmap bit, updates group descriptor and inode table, writes directory entry, and instantiates positive dentry"
-file = "ext4 regular 0644; nlink=1; size=0; data blocks=0; write-only struct file with f_pos=0"
-durability = "metadata attached to JBD2 transaction; no sync policy or fsync, so openat return does not guarantee commit durability"
 result = "parent CPL3 with RAX=6; fd 6 points to opened /work/demo.txt"
 
 [completed_delalloc_scenario]
 name = "first buffered write to a new ext4 file followed by fsync"
 status = "complete"
-userspace_calls = "write(6, buf, 4096); fsync(6)"
-mount = "data=ordered,delalloc,dioread_nolock,barrier; fast commit, bigalloc and inline data disabled"
-write_result = "RAX=4096; f_pos=4096; dirty folio; delayed logical extent [0,1); reservation=1; i_size=4096; i_disksize=0; no physical block"
-writeback_result = "fsync writeback consumes reservation and maps logical block 0 to physical block P as unwritten before submitting a REQ_SYNC data bio"
-completion_result = "successful data completion triggers deferred unwritten-to-written conversion and ends folio writeback"
-durability_result = "full JBD2 commit and required device flush complete; fsync returns zero"
-final_result = "fd 6 remains open; size and i_disksize are 4096; i_blocks=8 sectors; extent is written; folio is clean"
+result = "fd 6 remains open; size and i_disksize are 4096; written extent durable after full JBD2 commit and flush"
 
 [completed_unlink_scenario]
 name = "unlink an open ext4 file and reclaim it on final close"
 status = "complete"
-userspace_calls = "unlinkat(AT_FDCWD, /work/demo.txt, 0); close(6)"
-initial_state = "fd 6 is the sole open reference; nlink=1; size=4096; one written extent maps logical block 0 to physical P"
-unlink_result = "directory entry removed; nlink becomes zero; inode enters orphan tracking; pathname disappears while fd 6 remains valid"
-close_result = "file_close_fd removes fd 6; synchronous final __fput drops the dentry and triggers ext4_evict_inode"
-reclaim_result = "clean page cache removed; extent P removed; orphan entry deleted; inode bitmap bit cleared in a JBD2 transaction"
-durability = "close returns without forcing journal commit or device flush; freed block and inode reuse remain transaction-protected until commit"
-final_result = "parent CPL3 with close RAX=0; pathname, fd, dentry, extent and inode are no longer accessible"
+result = "parent CPL3 with close RAX=0; pathname, fd, dentry, extent and inode no longer accessible"
 
 [completed_sleep_scenario]
 name = "single-CPU monotonic clock_nanosleep with hrtimer wakeup"
 status = "complete"
-userspace_call = "clock_nanosleep(CLOCK_MONOTONIC, 0, {0,10ms}, NULL)"
-configuration = "CPU0 only; SCHED_NORMAL parent; timer slack zero; high-resolution hard hrtimer; lapic-deadline one-shot; no signal, migration or runnable peer"
-block_result = "on-stack hrtimer sleeper is queued at E=now+10ms; parent becomes TASK_INTERRUPTIBLE|TASK_FREEZABLE and scheduler switches to idle/0"
-interrupt_result = "LOCAL_TIMER_VECTOR enters hrtimer_interrupt; hrtimer_wakeup clears t.task and wake_up_process enqueues parent on CPU0"
-resume_result = "scheduler restores the original parent kernel stack; inactive timer is cancelled and destroyed on stack"
-final_result = "parent CPL3 with RAX=0; elapsed monotonic time is not earlier than 10ms; no restart or remaining-time copyout"
+result = "parent CPL3 with RAX=0 after natural hrtimer expiry and scheduler wakeup"
 
-[[chapter]]
-id = "LK-READ-074"
-title = "x86-64 的 read() 怎样从用户态进入 __x64_sys_read？"
-rst = "docs/tracks/linux-kernel/74-x86-read-syscall-enters-kernel.rst"
+[completed_signal_scenario]
+name = "SIGUSR1-interrupted relative clock_nanosleep and rt_sigreturn"
 status = "complete"
-
-[[chapter]]
-id = "LK-READ-075"
-title = "read() 怎样从 fd 找到 ext4 文件并进入 generic_file_read_iter？"
-rst = "docs/tracks/linux-kernel/75-read-resolves-fd-and-dispatches-through-vfs.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-READ-076"
-title = "page cache miss 怎样让 ext4 构造并提交 READ bio？"
-rst = "docs/tracks/linux-kernel/76-filemap-miss-builds-ext4-read-bio.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-READ-077"
-title = "READ bio 怎样通过校验与分区重映射进入 blk-mq？"
-rst = "docs/tracks/linux-kernel/77-read-bio-enters-generic-block-submission.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-READ-078"
-title = "blk-mq 怎样把 bio 变成 SCSI READ request？"
-rst = "docs/tracks/linux-kernel/78-blk-mq-builds-scsi-read-request.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-READ-079"
-title = "SCSI READ 怎样变成 ATA taskfile 并写入 AHCI command slot？"
-rst = "docs/tracks/linux-kernel/79-scsi-read-becomes-ahci-command.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-READ-080"
-title = "AHCI 中断怎样确认完成的 tag，并把结果交回 SCSI？"
-rst = "docs/tracks/linux-kernel/80-ahci-interrupt-completes-ata-and-scsi-command.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-READ-081"
-title = "blk-mq completion 怎样结束 bio，并让 ext4 folio 变成 uptodate？"
-rst = "docs/tracks/linux-kernel/81-block-completion-marks-ext4-folio-uptodate.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-READ-082"
-title = "reader task 怎样复制 folio，并让 read() 返回用户态？"
-rst = "docs/tracks/linux-kernel/82-reader-copies-folio-and-returns-from-read.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-WRITE-083"
-title = "x86-64 的 write() 怎样进入 ext4 buffered write？"
-rst = "docs/tracks/linux-kernel/83-x86-write-enters-ext4-buffered-path.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-WRITE-084"
-title = "ext4 怎样把用户数据复制进 page-cache folio 并标脏？"
-rst = "docs/tracks/linux-kernel/84-ext4-copies-user-data-into-dirty-folio.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-WRITE-085"
-title = "O_SYNC write 怎样进入 ext4 writeback？"
-rst = "docs/tracks/linux-kernel/85-osync-write-enters-ext4-writeback.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-WRITE-086"
-title = "ext4 writeback 怎样把 dirty folio 变成 WRITE bio？"
-rst = "docs/tracks/linux-kernel/86-ext4-writeback-builds-write-bio.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-WRITE-087"
-title = "WRITE bio 怎样变成 AHCI command 并写入 PxCI？"
-rst = "docs/tracks/linux-kernel/87-write-bio-becomes-ahci-command.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-WRITE-088"
-title = "WRITE completion 怎样结束 folio writeback，并让 O_SYNC 等待继续？"
-rst = "docs/tracks/linux-kernel/88-write-completion-ends-folio-writeback.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-WRITE-089"
-title = "ext4 fsync 怎样选择 fast commit 或完整 JBD2 commit？"
-rst = "docs/tracks/linux-kernel/89-ext4-fsync-chooses-fast-or-full-jbd2-commit.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-WRITE-090"
-title = "ext4 barrier 怎样把 journal 顺序落实到设备 cache？"
-rst = "docs/tracks/linux-kernel/90-ext4-barrier-flushes-device-cache.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-WRITE-091"
-title = "O_SYNC write 怎样提交 file position 并返回用户态？"
-rst = "docs/tracks/linux-kernel/91-osync-write-returns-to-userspace.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-FORK-092"
-title = "x86-64 的 fork() 怎样创建一个尚不可运行的 task_struct？"
-rst = "docs/tracks/linux-kernel/92-x86-fork-builds-inactive-task.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-FORK-093"
-title = "copy_process() 怎样复制资源并建立 COW 子进程？"
-rst = "docs/tracks/linux-kernel/93-copy-process-builds-cow-child.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-FORK-094"
-title = "scheduler 怎样启动 child，并让 fork() 在父子进程返回不同结果？"
-rst = "docs/tracks/linux-kernel/94-fork-parent-and-child-return.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-COW-095"
-title = "child 写只读 COW 地址时，x86 #PF 怎样进入 do_wp_page？"
-rst = "docs/tracks/linux-kernel/95-x86-cow-write-fault-enters-do-wp-page.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-COW-096"
-title = "wp_page_copy() 怎样分配新 folio 并替换 child PTE？"
-rst = "docs/tracks/linux-kernel/96-wp-page-copy-replaces-child-pte.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-COW-097"
-title = "page fault 返回后，CPU 怎样重试 store 并完成 COW 隔离？"
-rst = "docs/tracks/linux-kernel/97-page-fault-return-retries-child-store.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-EXEC-098"
-title = "x86-64 的 execve() 怎样打开静态 ELF 并进入 load_elf_binary()？"
-rst = "docs/tracks/linux-kernel/98-execve-opens-static-elf.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-EXEC-099"
-title = "begin_new_exec() 怎样替换旧 mm 并建立静态 ELF 映射？"
-rst = "docs/tracks/linux-kernel/99-begin-new-exec-replaces-mm-and-maps-elf.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-EXEC-100"
-title = "start_thread() 怎样让 execve 进入新静态 ELF 的第一条指令？"
-rst = "docs/tracks/linux-kernel/100-exec-enters-new-static-elf-image.rst"
-status = "complete"
-
-[[chapter]]
-id = "LK-EXIT-101"
-title = "_exit(42) 怎样进入 do_exit() 并释放进程运行资源？"
-rst = "docs/tracks/linux-kernel/101-child-exit-tears-down-runtime-resources.rst"
-status = "complete"
-start = "static child executes native _exit(42) while parent sleeps in wait4"
-end = "child runtime resources are released and exit_notify is next"
-
-[[chapter]]
-id = "LK-EXIT-102"
-title = "exit_notify() 怎样发送 SIGCHLD、唤醒 parent 并留下 zombie？"
-rst = "docs/tracks/linux-kernel/102-exit-notify-wakes-parent-and-leaves-zombie.rst"
-status = "complete"
-start = "exit_notify publishes EXIT_ZOMBIE"
-end = "parent is runnable and child has scheduled away permanently as an unreaped zombie"
-
-[[chapter]]
-id = "LK-EXIT-103"
-title = "parent 的 wait4() 怎样读取 status 并最终回收 child？"
-rst = "docs/tracks/linux-kernel/103-parent-wait4-reaps-child.rst"
-status = "complete"
-start = "parent resumes do_wait after wait_chldexit wakeup"
-end = "parent CPL3 receives child PID, status 0x2a00 and rusage; child process/PID relations are released"
-
-[[chapter]]
-id = "LK-OPEN-104"
-title = "openat() 怎样保留 fd 并把 /work/demo.txt 解析成 negative dentry？"
-rst = "docs/tracks/linux-kernel/104-openat-resolves-negative-dentry.rst"
-status = "complete"
-start = "parent executes native openat with O_CREAT|O_EXCL|O_WRONLY"
-end = "fd 6 is reserved and locked final lookup has produced a negative ext4 dentry"
-
-[[chapter]]
-id = "LK-OPEN-105"
-title = "ext4_create() 怎样分配 inode 并把 demo.txt 写进目录？"
-rst = "docs/tracks/linux-kernel/105-ext4-create-allocates-inode-and-dirent.rst"
-status = "complete"
-start = "ext4_create begins with parent directory locked and target dentry negative"
-end = "positive dentry and size-zero inode exist; create metadata is attached to JBD2 transaction"
-
-[[chapter]]
-id = "LK-OPEN-106"
-title = "VFS 怎样打开新 inode、发布 fd 6 并让 openat() 返回？"
-rst = "docs/tracks/linux-kernel/106-vfs-opens-and-publishes-new-fd.rst"
-status = "complete"
-start = "lookup_open returns the created positive dentry"
-end = "parent CPL3 receives fd 6 for the opened size-zero ext4 file"
-
-[[chapter]]
-id = "LK-DELALLOC-107"
-title = "首次 buffered write 怎样只预留空间而不分配物理块？"
-rst = "docs/tracks/linux-kernel/107-first-buffered-write-creates-delalloc-state.rst"
-status = "complete"
-start = "parent calls write(6, buf, 4096) on the new size-zero file"
-end = "write returns 4096 with a dirty folio, delayed logical extent and no physical block"
-
-[[chapter]]
-id = "LK-DELALLOC-108"
-title = "fsync() 怎样让 writeback 分配第一个 unwritten extent 并提交数据？"
-rst = "docs/tracks/linux-kernel/108-fsync-writeback-allocates-first-unwritten-extent.rst"
-status = "complete"
-start = "parent enters fsync with one dirty delayed-allocation folio"
-end = "physical block P is allocated as unwritten, data bio is submitted, and fsync waits"
-
-[[chapter]]
-id = "LK-DELALLOC-109"
-title = "data completion 怎样转换 extent，并让 fsync() 真正返回？"
-rst = "docs/tracks/linux-kernel/109-write-completion-converts-extent-and-fsync-returns.rst"
-status = "complete"
-start = "successful data completion enters deferred unwritten extent conversion"
-end = "parent CPL3 receives fsync result zero after written conversion, full journal commit and device flush"
-
-[[chapter]]
-id = "LK-UNLINK-110"
-title = "unlinkat() 怎样锁住父目录并进入 ext4_unlink()？"
-rst = "docs/tracks/linux-kernel/110-unlinkat-locks-parent-and-enters-ext4-unlink.rst"
-status = "complete"
-start = "parent calls unlinkat on the cache-resident path while fd 6 remains open"
-end = "parent and target inode locks are held and VFS dispatches to ext4_unlink"
-
-[[chapter]]
-id = "LK-UNLINK-111"
-title = "ext4_unlink() 怎样删除名称，却让 fd 6 继续访问 inode？"
-rst = "docs/tracks/linux-kernel/111-ext4-unlink-removes-name-and-keeps-open-inode.rst"
-status = "complete"
-start = "ext4_unlink locates the cached directory entry and starts an EXT4_HT_DIR transaction"
-end = "unlinkat returns zero with nlink zero, orphan tracking active, pathname absent and fd 6 still valid"
-
-[[chapter]]
-id = "LK-UNLINK-112"
-title = "close(6) 怎样触发最后一次 __fput() 并回收 ext4 inode？"
-rst = "docs/tracks/linux-kernel/112-close-evicts-unlinked-ext4-inode.rst"
-status = "complete"
-start = "parent closes the sole file reference to the open-unlinked inode"
-end = "parent CPL3 receives close result zero after synchronous __fput and ext4 eviction; reclamation metadata awaits journal commit"
-
-[[chapter]]
-id = "LK-SLEEP-113"
-title = "clock_nanosleep() 怎样建立 hrtimer 并让 parent 阻塞？"
-rst = "docs/tracks/linux-kernel/113-clock-nanosleep-arms-hrtimer-and-blocks-parent.rst"
-status = "complete"
-start = "parent invokes a 10ms relative CLOCK_MONOTONIC sleep on single CPU0"
-end = "parent is blocked off-runqueue; idle/0 executes while the local monotonic hrtimer waits for expiry"
-
-[[chapter]]
-id = "LK-SLEEP-114"
-title = "local APIC timer interrupt 怎样运行 hrtimer callback 并唤醒 parent？"
-rst = "docs/tracks/linux-kernel/114-lapic-timer-interrupt-wakes-sleeping-parent.rst"
-status = "complete"
-start = "the TSC deadline delivers LOCAL_TIMER_VECTOR while idle/0 is current"
-end = "expired hrtimer is inactive and parent is TASK_RUNNING on CPU0 runqueue, awaiting reschedule"
-
-[[chapter]]
-id = "LK-SLEEP-115"
-title = "scheduler 怎样恢复 parent，并让 clock_nanosleep() 返回 0？"
-rst = "docs/tracks/linux-kernel/115-scheduler-resumes-parent-and-nanosleep-returns.rst"
-status = "complete"
-start = "CPU0 reschedules from idle/0 to the awakened parent"
-end = "parent CPL3 receives clock_nanosleep result zero after natural hrtimer expiry and on-stack timer destruction"
+parent_call = "clock_nanosleep(CLOCK_MONOTONIC, 0, {0,10ms}, &remaining)"
+sender_call = "tgkill(P, P, SIGUSR1) at T0+4ms"
+signal = "thread-directed SIGUSR1 with SI_TKILL and si_pid=H"
+timer_result = "still-active CPU0 monotonic hrtimer cancelled before expiry; callback not executed"
+remaining_result = "positive remaining copied to userspace; 0 < remaining < 6ms"
+frame_result = "x64 rt signal frame saves post-SYSCALL RIP, RAX=-EINTR, mask, RSP and FPU state"
+return_result = "rt_sigreturn restores context, sets orig_ax=-1 and leaves restart disabled"
+final_result = "parent CPL3 on CPU0 at original post-SYSCALL RIP with raw RAX=-EINTR"
 
 [current]
-last_complete = "LK-SLEEP-115"
-executor = "parent after successful clock_nanosleep return"
+last_complete = "LK-SIGNAL-118"
+executor = "parent after successful rt_sigreturn restoration"
 cpu_mode = "x86-64 CPL 3 on CPU0"
-paging = "parent mm remains active"
+paging = "parent mm remains active; normal user stack restored"
 interrupts = "normal userspace runtime state"
-current_task = "SCHED_NORMAL parent running after a naturally expired 10ms monotonic hrtimer sleep"
+current_task = "SCHED_NORMAL parent after SIGUSR1-interrupted relative nanosleep; raw result -EINTR and positive remaining"
 next_entry = "unselected runtime scenario"
-next_action = "preferred next path is a relative clock_nanosleep interrupted by SIGUSR1, covering signal wakeup, active hrtimer cancellation, remaining-time copyout, rt signal frame and rt_sigreturn"
+next_action = "preferred next path is pipe2 followed by an empty-pipe blocking read, writer buffer insertion, wait-queue wakeup and reader return"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完整"
