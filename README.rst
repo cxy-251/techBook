@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第一百四十六章：timerfd怎样建立一次性hrtimer并让parent阻塞在epoll_wait？ <docs/tracks/linux-kernel/146-timerfd-creates-arms-and-registers-with-epoll.rst>`_
-* `第一百四十七章：local APIC定时器中断怎样让timerfd callback唤醒epoll_wait？ <docs/tracks/linux-kernel/147-lapic-hrtimer-callback-wakes-timerfd-epoll.rst>`_
-* `第一百四十八章：parent怎样从epoll event进入timerfd read并取出expiration count？ <docs/tracks/linux-kernel/148-epoll-returns-timerfd-event-and-read-consumes-expiration.rst>`_
+* `第一百四十九章：零超时epoll_wait() 怎样清理timerfd的stale-ready item？ <docs/tracks/linux-kernel/149-zero-time-epoll-wait-removes-timerfd-stale-ready-item.rst>`_
+* `第一百五十章：EPOLL_CTL_DEL 怎样拆除timerfd callback与epitem？ <docs/tracks/linux-kernel/150-epoll-del-detaches-timerfd-callback.rst>`_
+* `第一百五十一章：close() 怎样释放timerfd与eventpoll并结束两套RCU生命周期？ <docs/tracks/linux-kernel/151-final-close-frees-timerfd-and-eventpoll.rst>`_
 
 固定来源
 --------
@@ -46,24 +46,23 @@ techBook
    LK-SIGNALFD-140..LK-SIGNALFD-142
    LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145
    LK-TIMERFD-146..LK-TIMERFD-148
+   LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151
 
 最新场景
 --------
 
 ::
 
-   timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC) -> fd 6
-   → timerfd_settime arms one-shot relative 20ms hrtimer on CPU0
-   → epoll_create1(EPOLL_CLOEXEC) -> fd 7
-   → EPOLL_CTL_ADD attaches callback to timerfd wait queue
-   → parent blocks exclusively on eventpoll wait queue
-   → local APIC timer interrupt enters hrtimer_interrupt
-   → timerfd_tmrproc changes ticks 0 → 1 and wakes epoll
-   → parent receives {EPOLLIN, data=0x71FD6}
-   → epoll_wait returns 1
-   → read(6) consumes u64 expiration count 1 and returns 8
+   epoll_wait(7, events2, 1, 0)
+   → re-poll timerfd after expiration count was consumed
+   → remove stale-ready epitem and return 0
+   → epoll_ctl(7, EPOLL_CTL_DEL, 6, NULL)
+   → detach callback from timerfd wait queue
+   → erase epitem and drop eventpoll refcount 2 → 1
+   → close(6) cancels inactive hrtimer and queues timerfd ctx for RCU free
+   → close(7) drains empty eventpoll and queues eventpoll for RCU free
 
-最终fd 6/7与registration仍active。timerfd hrtimer已经inactive，``ticks=0``、``expired=0``；level-triggered epitem暂留ready list，等待下一次epoll scan重新验证。
+最终fd 6/7均已关闭。callback同步释放；epitem、timerfd ctx与eventpoll退出活动对象图，其storage由各自RCU callback回收。全局 ``anon_inode_inode`` 与 ``anon_inode_mnt`` 继续存在。
 
 开始工作
 --------
