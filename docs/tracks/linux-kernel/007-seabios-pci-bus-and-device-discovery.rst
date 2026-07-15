@@ -261,8 +261,9 @@ BDF 不是普通内存地址。它是构造 PCI 配置访问请求时使用的�
 早期 q35 枚举仍然使用 0xcf8 和 0xcfc
 ----------------------------------
 
-PCI Express 支持 ECAM/MMCONFIG：每个 function 占 4 KiB 内存映射配置空间。但 SeaBIOS 当前还没有配置 q35
-host bridge 的 ``PCIEXBAR``，所以本章的早期枚举仍使用传统 PCI Configuration Mechanism #1。
+PCI Express 支持 ECAM/MMCONFIG：每个 function 占 4 KiB 内存映射配置空间。QEMU复位q35 MCH时虽然把
+``PCIEXBAR`` 的地址字段预置为 ``0xb0000000``，enable bit仍为0；SeaBIOS自己的 ``mmconfig`` 变量也尚未
+启用。因此本章的早期枚举仍使用传统 PCI Configuration Mechanism #1。
 
 相关 I/O 端口是：
 
@@ -419,10 +420,12 @@ SeaBIOS 调用：
 #. 把新值写入 ``Secondary Bus Number``；
 #. 临时把 ``Subordinate Bus Number`` 写成 255；
 #. 递归扫描新的 secondary bus；
-#. 递归结束后，把 subordinate 缩小到实际使用的最大 bus。
+#. 递归结束后，把 subordinate 收紧到递归得到的最大bus；若bridge公布QEMU
+   resource-reserve capability，还可能继续扩大它，为热插拔预留bus number。
 
 临时写入 255 的原因与第一轮相反。递归扫描时，SeaBIOS 尚不知道桥后面最终会用到多少级总线，因此先把最大
-范围开放到 255，让配置请求能够穿过这座桥继续发现更深层桥。递归返回后，已经得到真实最大 bus，再收紧范围。
+范围开放到 255，让配置请求能够穿过这座桥继续发现更深层桥。递归返回后，已经得到当前拓扑的最大bus，再按需
+加入固件接口声明的预留量并写回subordinate。
 
 假设拓扑是：
 
@@ -455,7 +458,9 @@ SeaBIOS 调用：
    bus 1 扫描完成
       bridge A subordinate = 2
 
-最终发送给 bus 2 的配置请求，可以依次穿过 A 和 B；发送给 bus 3 的请求不会被 A 继续转发。
+如果没有额外预留，最终发送给 bus 2 的配置请求可以依次穿过 A 和 B，发送给 bus 3 的请求不会被 A 继续转发。
+如果bridge带有有效的resource-reserve capability，A或B的subordinate可以大于2；这表示为未来热插拔保留
+可转发编号，不表示相应bus上已经发现设备。
 
 额外 root bus 是可选路径
 ----------------------
@@ -539,6 +544,9 @@ pci_probe_devices 为每个 function 保存什么
 
    struct pci_device
 
+当前连续成功路径要求这次 ``malloc_tmp()`` 成功。若某次分配失败，函数发出警告并立即返回；此前已经加入
+``PCIDevices`` 的节点不会由这个函数回滚。因此后文的“设备表建立完成”是本章成功出口，而不是该失败分支的状态。
+
 结构中保存：
 
 ::
@@ -570,9 +578,9 @@ pci_probe_devices 为每个 function 保存什么
    u32 classrev = pci_config_readl(bdf, PCI_CLASS_REVISION);
    dev->class    = classrev >> 16;
    dev->prog_if  = classrev >> 8;
-   dev->revision = classrev;
+   dev->revision = classrev & 0xff;
 
-赋值到较窄字段时会保留对应低位，因此最终拆成：
+``prog_if`` 是8位字段，因此右移后的低8位保留下来； ``revision`` 则由源码显式取低8位。最终拆成：
 
 ::
 
@@ -728,8 +736,8 @@ q35 host bridge 支持 PCI Express ECAM。SeaBIOS 源码为它准备的窗口是
 因此此时看到一块存储控制器的 ``vendor/device ID``，只代表 SeaBIOS 知道它存在。控制器后面的磁盘介质是否存在、
 怎样读扇区、是否包含 GRUB，都还没有被处理。
 
-第七章结束时的机器状态
---------------------
+本章结束状态
+------------
 
 控制权目前走过：
 
@@ -755,10 +763,12 @@ q35 host bridge 支持 PCI Express ECAM。SeaBIOS 源码为它准备的窗口是
 * 当前 CPU：BSP；
 * CPU 模式：32 位保护模式；
 * 分页：关闭；
+* A20：开启；NMI：仍由CMOS index bit 7屏蔽；
+* 可屏蔽中断：主控制流IF仍为0，PIC仍只放行master IRQ2和slave IRQ13；
+* SeaBIOS线程：仍只有 ``MainThread``，本章没有调用 ``run_thread()``；
 * PCI 配置访问：仍使用 ``0xcf8 / 0xcfc``；
-* PCI bus number：已经分配；
-* PCI bridge 上下游关系：已经确定；
-* ``PCIDevices``：已经保存设备身份与拓扑；
+* PCI bus number：编号流程已经完成，bridge subordinate可能含热插拔预留；
+* ``PCIDevices``：成功扫描到的function均已保存身份、parent与root bus；
 * q35 MMCONFIG：尚未启用；
 * PCI BAR：尚未测量和分配；
 * PCI INTx routing：尚未写入；
@@ -768,24 +778,39 @@ q35 host bridge 支持 PCI Express ECAM。SeaBIOS 源码为它准备的窗口是
 * GRUB：尚未被读取或执行；
 * Linux：尚未装入内存。
 
-``pci_probe_devices()`` 返回后，``pci_setup()`` 的下一条语句是：
+关键边界
+--------
+
+* ``pci_probe_host()`` 只验证0xcf8配置地址端口可用，不枚举设备；
+* 总线编号先临时关闭bridge范围，再用subordinate=255递归，返回后才写最终值；
+* 最终subordinate可以包含resource-reserve预留，不能据此断言所有bus都已有设备；
+* ``PCIDevices`` 只固定身份与拓扑；BAR、INTx、command和驱动状态均未建立；
+* q35支持ECAM不等于本章已经使用ECAM；PCIEXBAR enable bit与SeaBIOS ``mmconfig`` 都要到下一章才开启；
+* 本章没有永久打开IF，也没有创建新线程、访问磁盘或登记启动项。
+
+下一入口
+--------
+
+``pci_probe_devices()`` 成功返回后，``pci_setup()`` 的下一条语句是：
 
 .. code-block:: c
 
    pcimem_start = RamSize;
    pci_bios_init_platform();
 
-下一段将识别刚刚发现的 q35 MCH，启用位于 ``0xb0000000`` 的 MMCONFIG 窗口，然后测量每个设备的 BAR
+下一章将识别刚刚发现的 q35 MCH，启用位于 ``0xb0000000`` 的 MMCONFIG 窗口，然后测量每个设备的 BAR
 需求，为整棵 PCI 拓扑分配 I/O 和 MMIO 地址。
 
 资料
 ----
 
-* `SeaBIOS src/fw/paravirt.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/paravirt.c>`_；
-* `SeaBIOS src/fw/pciinit.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pciinit.c>`_；
-* `SeaBIOS src/fw/dev-q35.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/dev-q35.h>`_；
-* `SeaBIOS src/hw/pci.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pci.c>`_；
-* `SeaBIOS src/hw/pci.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pci.h>`_；
-* `SeaBIOS src/hw/pcidevice.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pcidevice.c>`_；
-* `SeaBIOS src/hw/pcidevice.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pcidevice.h>`_；
-* `SeaBIOS src/hw/pci_regs.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pci_regs.h>`_。
+* `SeaBIOS固定提交：QEMU平台入口与条件KVM时钟 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/paravirt.c#L95-L135>`_；
+* `SeaBIOS固定提交：qemu_platform_setup调用顺序 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/paravirt.c#L269-L292>`_；
+* `SeaBIOS固定提交：PCI主入口和本章出口 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pciinit.c#L1184-L1227>`_；
+* `SeaBIOS固定提交：bridge递归编号与预留 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pciinit.c#L565-L666>`_；
+* `SeaBIOS固定提交：传统配置访问与host探测 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pci.c#L14-L41>`_；
+* `SeaBIOS固定提交：BDF扫描与存在性判断 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pci.c#L160-L225>`_；
+* `SeaBIOS固定提交：PCIDevices身份与拓扑缓存 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pcidevice.c#L16-L84>`_；
+* `QEMU固定提交：q35的0xcf8/0xcfc与root bus <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/pci-host/q35.c#L47-L70>`_；
+* `QEMU固定提交：PCIEXBAR enable与长度解码 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/pci-host/q35.c#L300-L335>`_；
+* `QEMU固定提交：PCIEXBAR复位地址值 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/pci-host/q35.c#L549-L555>`_。

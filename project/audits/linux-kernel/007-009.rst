@@ -1,0 +1,180 @@
+第007—009章回溯审查报告
+========================
+
+批次状态
+--------
+
+::
+
+   mode             = retrospective-audit
+   batch            = 007-009
+   status           = repaired
+   verified_through = 009
+   next_batch       = 010-012
+   blocked          = none
+
+审查范围
+--------
+
+* ``007-seabios-pci-bus-and-device-discovery.rst``；
+* ``008-seabios-q35-mmconfig-and-pci-bar-allocation.rst``；
+* ``009-seabios-pci-interrupt-routing-and-device-enable.rst``；
+* 上一边界：第006章停在 ``platform_hardware_setup()`` 的下一条调用
+  ``qemu_platform_setup()`` 之前；
+* 下一边界：第010章从 ``smm_device_setup()`` 开始。
+
+固定源码
+--------
+
+::
+
+   SeaBIOS repository = coreboot/seabios
+   SeaBIOS commit     = c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
+   SeaBIOS target     = unmodified defaults for QEMU target
+   QEMU repository    = qemu/qemu
+   QEMU commit        = a759542a2c62f0fd3b65f5a66ad9868201014669
+   QEMU machine       = q35
+
+本批关键符号包括 ``qemu_platform_setup``、 ``kvmclock_init``、 ``pci_setup``、
+``pci_probe_host``、 ``pci_bios_init_bus_rec``、 ``pci_probe_devices``、
+``mch_mem_addr_setup``、 ``mch_mmconfig_setup``、 ``pci_bios_get_bar``、
+``pci_bios_check_devices``、 ``pci_bios_map_devices``、
+``pci_bios_init_device``、 ``mch_pci_slot_get_irq``、
+``mch_isa_bridge_setup`` 和 ``pci_enable_default_vga``。
+
+批次开始状态
+------------
+
+当前执行者仍是BSP上的SeaBIOS POST主控制流，位于32位保护模式，分页关闭，A20开启，
+可屏蔽中断关闭。 ``CanInterrupt=1`` 只允许后续受控代码短暂开中断；8259A当前只放行
+master IRQ2和slave IRQ13，NMI仍由CMOS index bit 7屏蔽。静态 ``MainThread`` 是唯一
+SeaBIOS线程；PCI、SMM、MTRR和SMP尚未初始化，GRUB与Linux尚未装入。
+
+整批控制流与交接
+----------------
+
+``第007章``
+   ``qemu_platform_setup() → kvmclock_init() → pci_setup() →
+   pci_probe_host() → pci_bios_init_bus() → pci_probe_devices()``。普通q35不是Xen；
+   ``kvmclock_init()`` 只有 ``runningOnKVM()`` 且KVM公布对应clocksource feature时才
+   建立共享时钟。章节停在设备缓存建成后、 ``pcimem_start = RamSize`` 之前。
+
+``第008章``
+   ``pcimem_start = RamSize → pci_bios_init_platform() → mch_mem_addr_setup() →
+   pci_bios_check_devices() → pci_bios_map_devices()``。q35 MCH匹配后，SeaBIOS启用
+   ``0xb0000000`` 起始的256 MiB PCIEXBAR，并把同一范围加入E820保留项；章节停在
+   BAR和桥窗口映射完成、 ``pci_bios_init_devices()`` 之前。
+
+``第009章``
+   ``pci_bios_init_devices() → free(busses) → pci_enable_default_vga() →
+   pci_setup() return``。章节停在 ``qemu_platform_setup()`` 的下一条调用
+   ``smm_device_setup()`` 之前。
+
+执行上下文与对象账本
+--------------------
+
+* 三章主控制流都由BSP同步执行，没有调用 ``run_thread()``，没有设备线程、OS锁或
+  多CPU并发。PCI配置读写按程序顺序发生；MMCONFIG启用前走0xcf8/0xcfc，启用后32位
+  flat mode走ECAM。
+* 第007章的永久结果是桥总线寄存器与临时内存中的 ``PCIDevices`` 链表。每个
+  ``pci_device`` 保存BDF、身份、class、header、parent、root bus与可用的secondary
+  bus； ``MaxPCIBus`` 随发现的桥和额外root扩展。
+* 第008章建立临时 ``busses[0..MaxPCIBus]`` 与 ``pci_region_entry``。BAR sizing
+  写入探测mask后恢复endpoint原值；bridge能力探测会先禁用I/O或PREFMEM旧窗口，
+  成功映射再写入新base/limit。映射时每个entry落址后立即从链表删除、释放；
+  ``busses`` 数组本身留到第009章释放。
+* 第009章把传统INTx line、ICH9 PIRQ route、ELCR、PMBASE、RCBA、SMBus与
+  ``PCI_COMMAND`` 状态写入配置空间或I/O寄存器。 ``PCIDevices`` 继续存在，供SMM、
+  固件表和后续驱动查找；释放 ``busses`` 不会撤销已提交的硬件配置。
+
+条件分支与失败边界
+------------------
+
+* KVM时钟不是普通QEMU的无条件状态；TCG路径直接返回，KVM缺少clocksource feature也
+  返回。KVM/TCG执行后端没有被当前固定条件唯一化，因此正文只能写两条条件结果。
+* ``etc/extra-pci-roots`` 与Red Hat resource-reserve capability都是可选输入。
+  后者可以让bridge subordinate bus大于当前实际发现的最深bus，为热插拔保留编号。
+* ``pci_probe_devices()`` 的 ``malloc_tmp`` 失败会保留此前已加入的部分
+  ``PCIDevices`` 并返回，不做整表回滚。当前连续成功路径以分配成功为条件。
+* ``pci_setup()`` 分配 ``busses`` 失败或 ``pci_bios_check_devices()`` 失败时直接
+  返回；I/O或32位地址空间不足则 ``panic``。这些路径不产生本批成功出口，正文不能
+  描述成完整事务回滚。
+* ``opt/org.seabios/pci64`` 未设置时，仅在存在4 GiB以上RAM时默认开启高端padding；
+  即使32位空间足够，显式/默认开启padding也会触发合格64位entry迁移。USB和NVMe
+  class不会被迁移。
+* 固定QEMU q35创建ICH9 LPC；固定存储条件创建ICH9 AHCI。QEMU机器默认还允许创建
+  SMBus、USB、VGA和NIC，但是否出现某些可选function仍受机器选项影响；设备专用
+  初始化必须按实际 ``PCIDevices`` 匹配写成条件路径。
+* SeaBIOS把PIRQA-H写成IRQ10/11并设置ELCR电平位，但没有在本批解除slave PIC的
+  IRQ10/11 mask，主控制流IF也仍为0。因此“路由已建立”不等于设备INTx已经能打断BSP。
+* ``pci_bios_init_device()`` 统一置位I/O、memory和SERR，不统一置位bus master；后者
+  由后续具体驱动通过 ``pci_enable_busmaster()`` 按需开启。
+
+发现并修复
+----------
+
+第007章
+   原文把bridge subordinate值概括成“实际使用的最大bus”，遗漏resource-reserve
+   capability可扩大范围；已补入设备缓存分配失败不回滚与固定成功路径条件。原文展示
+   ``dev->revision = classrev``，与固定源码的显式 ``classrev & 0xff`` 不同，也已修正。
+   q35 PCIEXBAR复位地址字段与enable bit、SeaBIOS ``mmconfig`` 状态已经分开描述。
+
+第008章
+   原文把 ``RamSize`` 说成4 GiB以下“连续RAM末端”，强于固定源码记录语义；把高端
+   迁移只写成32位空间不足后的补救，遗漏 ``pci_pad_mem64`` 主动触发；“没有BAR放高
+   就必定清零 ``pcimem64_start``”也没有覆盖padding分支，均已改写。还补出bridge能力
+   探测会禁用旧窗口、失败不完整回滚的副作用，并明确bus-number reserve已在第007章
+   生效。原文伪代码把 ``pci_bus.r`` 写成不存在的 ``region`` 字段，已对齐固定结构。
+
+第009章
+   标题和部分表述容易把PIRQ寄存器已配置写成中断已可交付；必须继承第006章PIC mask
+   与IF=0的状态，现已明确本章没有中断处理或调度。PM timer只在尚使用PIT且默认
+   ``CONFIG_PMTIMER=y`` 时成为SeaBIOS timer source，已由无条件结果改成条件调用。
+   默认VGA结果也已按“存在则选择、不存在则返回”收紧；固定AHCI与IDE class条件路径
+   已分开。
+
+连续性检查
+----------
+
+``006 → 007``
+   第006章停在 ``platform_hardware_setup()`` 中 ``mathcp_setup()`` 返回后；第007章从
+   下一条 ``qemu_platform_setup()`` 开始，并先排除Xen、处理条件KVM时钟。
+
+``007 → 008``
+   第007章停在 ``pci_probe_devices()`` 成功返回；第008章从
+   ``pcimem_start = RamSize`` 与 ``pci_bios_init_platform()`` 开始。
+
+``008 → 009``
+   第008章停在 ``pci_bios_map_devices()`` 返回；第009章从下一条
+   ``pci_bios_init_devices()`` 开始，沿用尚未统一写INTx/command的状态。
+
+``009 → 010``
+   第009章停在 ``pci_setup()`` 返回， ``PCIDevices`` 与q35/ICH9配置继续存在，SMM尚未
+   建立；第010章从 ``smm_device_setup()`` 查找Q35 MCH与ICH9 LPC开始。
+
+验证
+----
+
+* ``tools/check-linux-kernel-track.sh 9``：通过001—009结构检查；
+* 三章均且仅有一次“本章结束状态—关键边界—下一入口—资料”，顺序正确；
+* 新增关键资料全部绑定SeaBIOS或QEMU固定commit并带行锚；
+* ``git diff --check``：通过；
+* 全局重复文件警告仍只有第065、066章，未越过顺序游标处理；
+* 本批未修改第010章及之后的正文，无未解决技术阻塞。
+
+资料
+----
+
+* `SeaBIOS固定提交：QEMU平台调用顺序与KVM时钟 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/paravirt.c#L95-L135>`_；
+* `SeaBIOS固定提交：PCI总线编号 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pciinit.c#L565-L666>`_；
+* `SeaBIOS固定提交：PCI设备缓存 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pcidevice.c#L16-L84>`_；
+* `SeaBIOS固定提交：Q35 MMCONFIG与平台窗口 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pciinit.c#L470-L527>`_；
+* `SeaBIOS固定提交：BAR测量与64位迁移 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pciinit.c#L673-L800>`_；
+* `SeaBIOS固定提交：资源汇总与映射 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pciinit.c#L870-L1177>`_；
+* `SeaBIOS固定提交：INTx、ICH9与解码使能 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pciinit.c#L106-L220>`_；
+* `SeaBIOS固定提交：逐设备初始化和默认VGA <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pciinit.c#L403-L464>`_；
+* `SeaBIOS固定提交：PIC mask建立与按IRQ解除 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pic.c#L13-L80>`_；
+* `SeaBIOS固定提交：PM timer条件切换 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/timer.c#L137-L148>`_；
+* `SeaBIOS固定提交：默认HARDWARE_IRQ与PMTIMER配置 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/Kconfig#L337-L367>`_；
+* `QEMU固定提交：q35创建LPC、AHCI与条件设备 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/pc_q35.c#L201-L325>`_；
+* `QEMU固定提交：Q35 PCIEXBAR解码 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/pci-host/q35.c#L300-L335>`_。

@@ -22,10 +22,18 @@
 
    struct pci_bus *busses = malloc_tmp(
        sizeof(*busses) * (MaxPCIBus + 1));
+   if (!busses) {
+       warn_noalloc();
+       return;
+   }
    memset(busses, 0, sizeof(*busses) * (MaxPCIBus + 1));
 
-   pci_bios_check_devices(busses);
+   if (pci_bios_check_devices(busses))
+       return;
    pci_bios_map_devices(busses);
+
+``malloc_tmp()`` 和后续region-entry分配必须成功，才能到达本章出口。 ``busses`` 分配失败时 ``pci_setup()``
+警告并返回； ``pci_bios_check_devices()`` 中途失败也直接返回，并不把已经发生的平台配置包装成事务回滚。
 
 本章沿这条控制流继续，直到 ``pci_bios_map_devices()`` 返回：
 
@@ -59,8 +67,9 @@
 
    pcimem_start = RamSize;
 
-``RamSize`` 是 SeaBIOS 前面从 QEMU E820 或 CMOS 得到的、4 GiB 以下连续 RAM 的末端。把 ``pcimem_start``
-先设为它，表达的是一个最低约束：PCI MMIO 空间不能直接覆盖客户机 RAM。
+``RamSize`` 是 SeaBIOS 前面从QEMU E820或CMOS得到的低于4 GiB的RAM上界记录；在E820路径中，它取已读取
+``E820_RAM`` 项的最高末端，源码本身不在这里重新证明0到该值处处连续。把 ``pcimem_start`` 先设为它，表达的是
+平台修正前的最低约束：PCI MMIO空间不能直接覆盖已报告的客户机RAM。
 
 但这还不是 q35 的最终 PCI MMIO 起点。不同平台对 4 GiB 以下地址空间有不同的固定窗口和保留区，SeaBIOS
 随后会根据已经发现的 host bridge 修正这个值。
@@ -518,9 +527,21 @@ capability，明确告诉固件应额外保留多少：
    32-bit prefetchable memory
    64-bit prefetchable memory
 
-这意味着 PCI 地址规划不只描述开机瞬间已有的设备，还需要为运行时可能出现的设备保留拓扑和资源余量。
+这意味着 PCI 地址规划不只描述开机瞬间已有的设备，还需要为运行时可能出现的设备保留拓扑和资源余量。其中bus
+number reserve已经在上一章的递归编号阶段写入bridge subordinate；本章读取的是I/O、MEM和PREFMEM reserve，
+不能把两次操作混成同一处寄存器更新。
 
-第一轮结束时只有需求，没有地址
+桥能力探测会暂时关闭部分旧窗口
+--------------------------------
+
+``pci_bridge_has_region()`` 检查bridge是否能表达I/O或PREFMEM窗口时，会向相应base寄存器写 ``0xff`` 再读回；
+源码明确把“禁用bridge window”列为这个探测的副作用。普通MEM窗口是规范要求的能力，不走这次写探测。
+
+所以 ``pci_bios_check_devices()`` 不只是读取需求：endpoint BAR的sizing值会恢复，但部分bridge旧窗口会先被置成
+无效状态。成功路径随后由 ``pci_bios_map_devices()`` 写入新的base/limit覆盖它们；若临时分配中途失败，源码没有
+在本函数内恢复一套旧bridge映射。
+
+第一轮结束时地址尚未重新分配
 ----------------------------
 
 ``pci_bios_check_devices()`` 完成后，SeaBIOS 已经知道：
@@ -531,7 +552,7 @@ capability，明确告诉固件应额外保留多少：
 * 哪些桥需要热插拔预留；
 * 哪些 BAR 可以使用 64 位地址。
 
-但 entry 中仍然没有最终基址。第一轮解决的是：
+但entry中仍然没有最终基址；除上面的bridge能力探测副作用外，endpoint BAR原值已经恢复。第一轮主要解决的是：
 
 ::
 
@@ -585,8 +606,10 @@ SeaBIOS 分别统计普通 MEM 和 PREFMEM 需求，再从 ``pcimem_end`` 向低
 
 哪一类区域具有更大的对齐要求，会被放到更适合的位置，以减少对齐空洞。
 
-如果计算出的最低基址落到 ``pcimem_start`` 以下，说明 32 位 MMIO 窗口无法容纳全部需求。SeaBIOS 随后会尝试
-把适合的 64 位 BAR 迁移到 4 GiB 以上；仍然放不下则停止并报告地址空间不足。
+如果计算出的最低基址落到 ``pcimem_start`` 以下，说明32位MMIO窗口无法容纳全部需求，SeaBIOS会尝试把合格的
+64位entry迁移到4 GiB以上。另一个独立触发条件是 ``pci_pad_mem64``：它为真时，即使32位窗口原本放得下，代码也
+进入迁移分支，为高端窗口及热插拔余量执行布局。迁移后32位区域仍放不下会触发 ``panic``，不是返回一个可继续的
+“部分成功”状态。
 
 哪些 64 位 BAR可以迁移到 4 GiB 以上
 ---------------------------------
@@ -604,8 +627,8 @@ SeaBIOS 从 MEM 和 PREFMEM 链表中挑出 ``is64`` 的 entry，放入单独的
 源码在这里没有给出完整设计理由，本章不额外推断；可以确认的是，SeaBIOS 固件驱动阶段仍要求这些控制器保持在
 其可直接处理的低地址范围。
 
-64 位窗口不能覆盖高端 RAM
------------------------
+64 位窗口从高端 RAM 之后起算
+----------------------------
 
 64 位 MMIO 起点至少位于：
 
@@ -630,8 +653,9 @@ SeaBIOS 还会考虑：
    pcimem64_start
    pcimem64_end
 
-如果没有任何 BAR 被放到高地址，``pcimem64_start`` 会清零，后面的 ACPI 表就不会向操作系统声明一个实际不存在的
-64 位 PCI 窗口。
+只有 ``pci_pad_mem64`` 为假且32位布局一次成功、因而根本不进入迁移分支时， ``else`` 才明确把
+``pcimem64_start`` 清零。padding为真时会进入高端计算，即使某个具体机器恰好没有可迁移的endpoint BAR，也不能仅凭
+“没有这个BAR”推断该变量必定为0；应以该分支实际汇总的entry和最终 ``pcimem64_start/end`` 为准。
 
 为什么 64 位窗口按 1 GiB 对齐
 ---------------------------
@@ -718,7 +742,7 @@ SeaBIOS 还会考虑：
 
 .. code-block:: c
 
-   busses[bridge->secondary_bus].region[type].base = addr;
+   busses[entry->dev->secondary_bus].r[entry->type].base = addr;
 
 这把父桥分配到的窗口起点交给对应子总线。稍后遍历这条子总线时，endpoint BAR 和更深层桥窗口就从该起点继续
 顺序分配。
@@ -766,8 +790,8 @@ SeaBIOS 还会考虑：
 
 BAR 获得地址只代表“设备未来应在这里响应”。后续还要打开地址解码、初始化控制器，并由驱动实际访问这些寄存器。
 
-第八章结束时的机器状态
---------------------
+本章结束状态
+------------
 
 控制权目前走过：
 
@@ -795,9 +819,12 @@ BAR 获得地址只代表“设备未来应在这里响应”。后续还要打�
 * 当前 CPU：BSP；
 * CPU 模式：32 位保护模式；
 * 分页：关闭；
+* A20：开启；NMI：仍由CMOS index bit 7屏蔽；
+* 可屏蔽中断：主控制流IF仍为0，PIC mask未因BAR映射改变；
+* SeaBIOS线程：仍只有 ``MainThread``，没有并行PCI配置线程；
 * PCI 配置访问：32 位 flat mode 已切换到 q35 MMCONFIG；
 * MMCONFIG：``0xb0000000-0xbfffffff``，已标记 ``E820_RESERVED``；
-* 32 位 PCI MMIO 窗口：从 ``0xc0000000`` 到 ``0xfec00000`` 之前；
+* 32 位 PCI MMIO 候选窗口：从 ``0xc0000000`` 到 ``0xfec00000`` 之前；
 * endpoint BAR 大小和类型：已经测量；
 * endpoint BAR 地址：已经写入；
 * PCI bridge I/O、MEM 和 PREFMEM 窗口：已经写入；
@@ -811,22 +838,38 @@ BAR 获得地址只代表“设备未来应在这里响应”。后续还要打�
 * GRUB：尚未被读取或执行；
 * Linux：尚未装入内存。
 
+关键边界
+--------
+
+* PCIEXBAR寄存器启用与E820保留必须描述同一物理范围；ECAM不是普通RAM或endpoint BAR；
+* BAR sizing对endpoint寄存器写探测值后恢复，bridge能力探测却会禁用部分旧窗口，成功映射阶段再覆盖；
+* bridge资源必须先从深层bus向上汇总，再从root向下分配；两个方向不能互换；
+* 高端迁移既可能由32位空间不足触发，也可能由 ``pci_pad_mem64`` 主动触发；USB和NVMe class仍留在低地址列表；
+* BAR与bridge窗口写入不等于 ``PCI_COMMAND`` 已经开启，更不等于bus mastering或控制器驱动已经启动；
+* 本章成功出口要求临时分配与地址空间检查通过；源码的失败路径不是完整回滚。
+
+下一入口
+--------
+
 ``pci_bios_map_devices()`` 返回后，下一条调用是：
 
 .. code-block:: c
 
    pci_bios_init_devices();
 
-下一段将为每个 PCI function 写入 INTx line，执行 q35/ICH9 设备专用初始化，并打开 I/O、memory 和 SERR 解码。
+下一章将为每个 PCI function 写入 INTx line，执行 q35/ICH9 设备专用初始化，并打开 I/O、memory 和 SERR 解码。
 
 资料
 ----
 
-* `SeaBIOS src/fw/pciinit.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pciinit.c>`_；
-* `SeaBIOS src/fw/dev-q35.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/dev-q35.h>`_；
-* `SeaBIOS src/hw/pci.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pci.c>`_；
-* `SeaBIOS src/hw/pci.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pci.h>`_；
-* `SeaBIOS src/hw/pci_regs.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pci_regs.h>`_；
-* `SeaBIOS src/config.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/config.h>`_；
-* `SeaBIOS src/e820map.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/e820map.c>`_；
-* `PCI Firmware Specification 3.3 <https://pcisig.com/specifications>`_。
+* `SeaBIOS固定提交：Q35 MMCONFIG和PCI窗口起点 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pciinit.c#L470-L527>`_；
+* `SeaBIOS固定提交：ECAM与传统配置访问选择 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pci.c#L17-L134>`_；
+* `SeaBIOS固定提交：BAR测量、64位判断和entry排序 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pciinit.c#L673-L800>`_；
+* `SeaBIOS固定提交：固件驱动拒绝4 GiB以上memory BAR <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pcidevice.c#L166-L191>`_；
+* `SeaBIOS固定提交：bridge能力、热插拔与资源上卷 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pciinit.c#L803-L1003>`_；
+* `SeaBIOS固定提交：32位与64位区域规划 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pciinit.c#L1010-L1169>`_；
+* `SeaBIOS固定提交：endpoint BAR与bridge窗口落址 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pciinit.c#L1064-L1177>`_；
+* `SeaBIOS固定提交：PCI分配主调用及失败出口 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pciinit.c#L1184-L1247>`_；
+* `QEMU固定提交：q35 PCIEXBAR地址、长度和enable解码 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/pci-host/q35.c#L300-L335>`_；
+* `QEMU固定提交：q35低RAM为MMCONFIG和PCI MMIO留洞 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/pc_q35.c#L155-L192>`_；
+* `QEMU固定提交：q35 MCH低RAM末端到IOAPIC的PCI hole <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/pci-host/q35.c#L507-L525>`_。

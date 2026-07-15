@@ -1,5 +1,5 @@
-第九章：SeaBIOS 怎样接通 q35 PCI 中断并打开设备地址解码？
-=====================================================
+第九章：SeaBIOS 怎样建立 q35 PCI INTx 路由并打开设备地址解码？
+===========================================================
 
 上一章结束时，SeaBIOS 已经为 PCI endpoint 写入 BAR 地址，也为 PCI bridge 写入 I/O、MEM 和 PREFMEM
 转发窗口。控制流仍在：
@@ -36,8 +36,9 @@ ICH9 PIRQ 路由和 8259A 触发方式共同一致。
    → pci_enable_default_vga()
    → pci_setup() 返回
 
-本章结束时，PCI 设备已经拥有地址、传统中断路由和地址解码能力。ATA、AHCI、NVMe、USB、virtio 等 SeaBIOS
-驱动仍未开始扫描设备后面的介质，``BootList`` 中仍没有具体磁盘，GRUB 也没有被读取。
+本章结束时，PCI设备已经拥有地址，传统INTx路由寄存器与可写的地址解码位也已配置。但IRQ10/11仍被第006章
+留下的slave PIC mask遮蔽，主控制流IF也仍为0；“路由已建立”不等于设备中断已经能送达BSP。ATA、AHCI、NVMe、
+USB、virtio等SeaBIOS驱动仍未开始扫描设备后面的介质， ``BootList`` 中仍没有具体磁盘，GRUB也没有被读取。
 
 本章固定使用：
 
@@ -280,6 +281,10 @@ PCI function 共享：只要任一设备仍保持 INTx 有效，线路就继续�
 这和传统 ISA 设备常用的 edge-triggered 不同。边沿触发只记录信号跳变，更适合不共享的旧式 IRQ；PCI INTx
 需要电平语义，固件必须把 ELCR 配置一致。
 
+但 ``mch_isa_bridge_setup()`` 没有改8259A的IMR。第006章结束时slave PIC只放行IRQ13，IRQ10和IRQ11仍被
+mask；BSP主控制流的IF也仍为0。因此本章只建立设备pin、PIRQ、legacy IRQ与触发方式之间的一致映射，没有发生
+设备中断处理、任务切换或线程调度。
+
 PMBASE、SCI 和 RCBA 在同一个 LPC 初始化阶段建立
 -------------------------------------------
 
@@ -332,14 +337,16 @@ SeaBIOS 随后把从该地址开始的 16 KiB 加入：
 
 这样 bootloader 和 Linux 的早期内存管理不会把这段设备寄存器窗口误当成普通 RAM。
 
-最后保存 ACPI PM 控制寄存器和 PM timer 的位置：
+最后保存 ACPI PM 控制寄存器位置，并尝试登记PM timer：
 
 .. code-block:: c
 
    acpi_pm1a_cnt = acpi_pm_base + 0x04;
    pmtimer_setup(acpi_pm_base + 0x08);
 
-PM timer 是平台提供的单调递增计时源。SeaBIOS 在这里登记它的 I/O port，后续延时和固件表生成可以引用该位置。
+默认QEMU构建中 ``CONFIG_PMTIMER=y``，但 ``pmtimer_setup()`` 只有当前timer source仍是PIT时才把 ``TimerPort``
+切到这个I/O port；如果前面的KVM clock或其他TSC校准已经建立timer source，它会直接返回。因此调用必然发生，
+“SeaBIOS此刻已经切换到PM timer”却不是无条件结论。 ``acpi_pm1a_cnt`` 的赋值不受这项选择影响。
 
 IDE class 的 BAR 被改成传统兼容端口
 -------------------------------
@@ -446,7 +453,7 @@ PCI_COMMAND 决定设备是否响应已经分配的地址
 上一章把地址写进 BAR，只是告诉设备“你的窗口起点在哪里”。在对应 command bit 打开前，设备可以保持地址解码
 关闭，不响应 CPU 对该窗口的访问。
 
-现在地址链才完整：
+对实现相应command bit且BAR有效的function，现在地址解码链才完整：
 
 ::
 
@@ -531,8 +538,9 @@ pci_enable_default_vga 确保存在可达的主显示设备
 这个 bridge bit 允许传统 VGA 地址穿过桥。VGA 兼容访问不仅包含普通 BAR，还涉及历史固定范围，例如 VGA I/O port
 和 ``0xa0000`` 附近的 legacy display window；bridge 必须明确允许这类事务向下游传播。
 
-这一阶段只是保证主 VGA 路径可达。VGA Option ROM 的复制和执行属于后续 ``vgarom_setup()``，不在当前
-``pci_setup()`` 内完成。
+如果根本没有VGA class function，函数记录 ``No VGA devices found`` 后返回；当前固定条件没有把具体VGA型号
+写死。只有实际存在VGA时，这一阶段才选择并保证其legacy路径可达。VGA Option ROM的复制和执行属于后续
+``vgarom_setup()``，不在当前 ``pci_setup()`` 内完成。
 
 发现、分配、启用和驱动是四个不同阶段
 ----------------------------------
@@ -556,8 +564,8 @@ pci_enable_default_vga 确保存在可达的主显示设备
 这些层次不能合并成一句“PCI 初始化完成”。当前结束时，配置空间和平台路由已经足以让 SeaBIOS 驱动访问控制器，
 驱动尚未实际开始探测磁盘介质。
 
-第九章结束时的机器状态
---------------------
+本章结束状态
+------------
 
 控制权目前走过：
 
@@ -583,16 +591,20 @@ pci_enable_default_vga 确保存在可达的主显示设备
 * 当前 CPU：BSP；
 * CPU 模式：32 位保护模式；
 * 分页：关闭；
+* A20：开启；NMI：仍由CMOS index bit 7屏蔽；
+* 可屏蔽中断：主控制流IF仍为0；PIC仍只放行master IRQ2与slave IRQ13；
+* SeaBIOS线程：仍只有 ``MainThread``，没有设备线程运行；
 * q35 MMCONFIG：已经启用；
 * PCI bus number、BAR 和 bridge window：已经配置；
-* PCI INTx pin 到 legacy IRQ line：已经计算并写入；
+* PCI INTx line：对 ``PCI_INTERRUPT_PIN != 0`` 的function已经计算并写入；
 * ICH9 PIRQA-H：已经路由到 IRQ10/IRQ11；
-* IRQ10/IRQ11：已经设置为电平触发；
+* IRQ10/IRQ11：ELCR已设为电平触发，但仍被slave PIC mask；
 * ICH9 LPC PMBASE、SCI 和 RCBA：已经配置；
-* PCI I/O 与 memory decode：已经统一开启；
-* PCI SERR 与 bridge SERR forwarding：已经开启；
+* PM timer：setup调用已发生；是否取代PIT取决于此前是否已有timer source；
+* PCI I/O、memory、SERR：SeaBIOS已对每个function请求置位其可写command bits；
+* bridge SERR forwarding：SeaBIOS已请求置位；
 * bus mastering：只会由后续具体驱动按需开启；
-* 默认 VGA 路径：已经选择并保证可达；
+* 默认 VGA 路径：存在VGA时已选择并保证可达；不存在时已记录并返回；
 * VGA Option ROM：尚未执行；
 * SMM：尚未建立；
 * ATA、AHCI、NVMe、USB、virtio 和网络驱动：尚未开始设备探测；
@@ -600,24 +612,39 @@ pci_enable_default_vga 确保存在可达的主显示设备
 * GRUB：尚未被读取或执行；
 * Linux：尚未装入内存。
 
+关键边界
+--------
+
+* ``PCI_INTERRUPT_PIN`` 是设备侧INTA-D身份， ``PCI_INTERRUPT_LINE`` 是固件写入的legacy IRQ号；
+* q35 slot/pin swizzle、ICH9 PIRQ route和ELCR必须一致，但这些配置不会解除PIC mask或打开CPU IF；
+* 本章没有处理任何设备中断；IRQ10/11仍不可经当前8259A状态送达BSP；
+* 统一command写入包含I/O、memory和SERR，不包含bus master；没有对应窗口的bit也不会凭空产生设备资源；
+* IDE legacy BAR、SMBus和Intel IGD设置都由实际匹配的function决定；固定AHCI控制器不进入IDE class分支；
+* 临时 ``busses`` 被释放不影响配置空间中的BAR、bridge window、INTx或command状态；
+* 默认VGA选择不执行Option ROM，控制器驱动和启动介质发现仍在后面。
+
+下一入口
+--------
+
 ``pci_setup()`` 返回后，``qemu_platform_setup()`` 的下一条调用是：
 
 .. code-block:: c
 
    smm_device_setup();
 
-下一段将进入 System Management Mode 相关准备：先配置会触发 SMI 的 q35/ICH9 设备状态，再把 SeaBIOS 的 SMM
+下一章将进入 System Management Mode 相关准备：先配置会触发 SMI 的 q35/ICH9 设备状态，再把 SeaBIOS 的 SMM
 处理代码安装到 SMRAM。CPU 将第一次进入一种对普通软件隐藏的特殊执行环境。
 
 资料
 ----
 
-* `SeaBIOS src/fw/pciinit.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pciinit.c>`_；
-* `SeaBIOS src/fw/dev-q35.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/dev-q35.h>`_；
-* `SeaBIOS src/hw/pci.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pci.c>`_；
-* `SeaBIOS src/hw/pci.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pci.h>`_；
-* `SeaBIOS src/hw/pcidevice.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pcidevice.c>`_；
-* `SeaBIOS src/hw/pci_regs.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pci_regs.h>`_；
-* `SeaBIOS src/hw/ata.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/ata.h>`_；
-* `SeaBIOS src/optionroms.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/optionroms.c>`_；
-* `PCI Firmware Specification <https://pcisig.com/specifications>`_。
+* `SeaBIOS固定提交：q35 INTx swizzle、PIRQ与ELCR <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pciinit.c#L106-L220>`_；
+* `SeaBIOS固定提交：ICH9 SMBus和设备匹配表 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pciinit.c#L275-L375>`_；
+* `SeaBIOS固定提交：逐function INTx、command与bridge SERR <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pciinit.c#L403-L431>`_；
+* `SeaBIOS固定提交：默认VGA选择 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pciinit.c#L433-L464>`_；
+* `SeaBIOS固定提交：VGA legacy decode判定 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/optionroms.c#L206-L226>`_；
+* `SeaBIOS固定提交：PM timer条件切换 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/timer.c#L137-L148>`_；
+* `SeaBIOS固定提交：默认HARDWARE_IRQ与PMTIMER配置 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/Kconfig#L337-L367>`_；
+* `SeaBIOS固定提交：bus mastering由驱动单独开启 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pcidevice.c#L137-L144>`_；
+* `QEMU固定提交：q35创建LPC、固定AHCI与条件SMBus/VGA <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/pc_q35.c#L231-L325>`_；
+* `SeaBIOS固定提交：pci_setup释放临时数组并返回 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pciinit.c#L1239-L1247>`_。
