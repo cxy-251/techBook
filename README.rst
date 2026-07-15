@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第一百七十九章：accept4怎样先预留fd 8并创建尚未graft的socket与file？ <docs/tracks/linux-kernel/179-accept4-reserves-fd-and-builds-unattached-socket-file.rst>`_
-* `第一百八十章：inet_csk_accept怎样取出R/H并把child graft到accepted socket？ <docs/tracks/linux-kernel/180-inet-csk-accept-removes-child-and-grafts-socket.rst>`_
-* `第一百八十一章：peer地址怎样写回用户态并最终发布close-on-exec fd 8？ <docs/tracks/linux-kernel/181-peer-address-copy-publishes-accepted-fd.rst>`_
+* `第一百八十二章：write(7,"hello",5)怎样把5字节排入client TCP write queue？ <docs/tracks/linux-kernel/182-client-write-queues-five-byte-tcp-segment.rst>`_
+* `第一百八十三章：PSH|ACK数据段怎样通过lo进入H并触发立即ACK？ <docs/tracks/linux-kernel/183-loopback-data-reaches-server-child-and-triggers-ack.rst>`_
+* `第一百八十四章：write怎样在ACK处理后返回5，并让read(8)取出hello？ <docs/tracks/linux-kernel/184-client-write-returns-and-server-read-consumes-hello.rst>`_
 
 固定来源
 --------
@@ -57,27 +57,30 @@ techBook
    LK-TCPCONNECT-173..LK-TCPCONNECT-175
    LK-TCPHANDSHAKE-176..LK-TCPHANDSHAKE-178
    LK-TCPACCEPT-179..LK-TCPACCEPT-181
+   LK-TCPDATA-182..LK-TCPDATA-184
 
 最新场景
 --------
 
 ::
 
-   accept4(6,&peer,&peer_len,SOCK_CLOEXEC)
-   → FD_ADD先预留fd 8并设置close-on-exec bit
-   → sock_alloc创建accepted socket AS与sockfs inode I8
-   → sock_alloc_file创建blocking file F8，但fdtable.fd[8]仍为NULL
-   → inet_csk_accept从accept queue移除R/H
-   → listener sk_ack_backlog 1 → 0，R结束生命周期
-   → sock_graft把H接到AS，AS进入SS_CONNECTED
-   → inet_getname生成peer 127.0.0.1:40000
-   → move_addr_to_user写回16字节sockaddr_in
-   → fd_install发布F8到fd 8
-   → accept4返回8
+   write(7,"hello",5)
+   → tcp_sendmsg_locked复制5字节并建立ACK|PSH skb
+   → tcp_write_xmit发送clone，原始skb进入retransmission tree
+   → IPv4 output与lo把data送到server child H
+   → H.rcv_nxt推进到C_ISN+6，receive queue得到hello
+   → fd 8变为可读
+   → first-data quickack发送ACK C_ISN+6
+   → ACK先进入仍被parent持有的C.sk_backlog
+   → release_sock(C)处理ACK并清空client retransmission tree
+   → write返回5
+   → read(8,buf,5)无等待复制hello并清空H receive queue
+   → read返回5
 
-最终fd 6/7/8保持open。fd 8是blocking、close-on-exec的accepted TCP socket；listener accept queue为空。下一章从client fd 7执行 ``write(7,"hello",5)`` 开始。
+最终fd 6/7/8保持open。C与H仍为TCP_ESTABLISHED；双方数据队列、retransmission tree与socket backlog为空。下一章从client close(7)开始。
 
 开始工作
 --------
 
 新的对话或助手先阅读 ``AGENTS.md``、 ``project/STATE.rst``、章节目录和manifest。
+
