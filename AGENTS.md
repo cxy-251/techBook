@@ -38,15 +38,16 @@ LK-TCPLISTEN-170..LK-TCPLISTEN-172
 LK-TCPCONNECT-173..LK-TCPCONNECT-175
 LK-TCPHANDSHAKE-176..LK-TCPHANDSHAKE-178
 LK-TCPACCEPT-179..LK-TCPACCEPT-181
+LK-TCPDATA-182..LK-TCPDATA-184
 ```
 
 最新三章：
 
-- `LK-TCPACCEPT-179`：accept4怎样先预留fd 8并创建尚未graft的socket与file？
-- `LK-TCPACCEPT-180`：inet_csk_accept怎样取出R/H并把child graft到accepted socket？
-- `LK-TCPACCEPT-181`：peer地址怎样写回用户态并最终发布close-on-exec fd 8？
+- `LK-TCPDATA-182`：write(7,"hello",5)怎样把5字节排入client TCP write queue？
+- `LK-TCPDATA-183`：PSH|ACK数据段怎样通过lo进入H并触发立即ACK？
+- `LK-TCPDATA-184`：write怎样在ACK处理后返回5，并让read(8)取出hello？
 
-进度：当前完成181章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
+进度：当前完成184章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
 
 ## 固定实现
 
@@ -64,38 +65,40 @@ first partition   = LBA 2048, ext4
 storage           = q35 ICH9 AHCI SATA port 0
 ```
 
-## 已完成TCP/IPv4 loopback accept
+## 已完成TCP/IPv4 loopback数据传递
 
 ```text
-server fd 6
-→ socket/bind/listen
-→ L is TCP_LISTEN on 127.0.0.1:28080
-
 client fd 7
-→ connect to 127.0.0.1:28080
-→ autobind 127.0.0.1:40000
-→ complete SYN/SYN-ACK/final ACK
-→ C is SS_CONNECTED/TCP_ESTABLISHED
+→ write(7,"hello",5)
+→ sock_write_iter resolves F7/CS/C
+→ tcp_sendmsg_locked allocates one skb
+→ copy five bytes into skb page frag
+→ seq C_ISN+1..C_ISN+6, flags ACK|PSH
+→ tcp_write_xmit sends a clone through IPv4 output and lo
+→ original skb enters C retransmission tree
+→ established ehash lookup finds server child H
 
-server child
-→ final ACK creates H
-→ H is TCP_ESTABLISHED in ehash
-→ R becomes accept FIFO node with R.sk=H
+server child H
+→ tcp_rcv_established accepts in-order payload
+→ H.rcv_nxt C_ISN+1→C_ISN+6
+→ queue one five-byte skb on H.sk_receive_queue
+→ tcp_data_ready exposes EPOLLIN on accepted fd 8
+→ first-data quickack sends ACK C_ISN+6
 
-accept4(6,&peer,&peer_len,SOCK_CLOEXEC)
-→ FD_ADD reserves fd 8 before do_accept
-→ open_fds[8]=1; close_on_exec[8]=1; fd[8]=NULL
-→ sock_alloc creates accepted socket AS and sockfs inode I8
-→ sock_alloc_file creates blocking F8
-→ inet_csk_accept removes R/H from accept queue
-→ L.sk_ack_backlog 1→0; queue head/tail become NULL
-→ reqsk_put ends R lifetime
-→ sock_graft links H, AS and AS.wq
-→ AS.state=SS_CONNECTED
-→ inet_getname returns peer 127.0.0.1:40000
-→ move_addr_to_user writes 16-byte sockaddr_in
-→ fd_install publishes F8 at fd 8
-→ accept4 returns 8
+client ACK completion
+→ parent still owns C, so ACK enters C.sk_backlog
+→ release_sock(C) drains ACK in process context
+→ C.snd_una C_ISN+1→C_ISN+6
+→ original hello skb leaves retransmission tree
+→ write returns 5
+
+accepted fd 8
+→ read(8,buf,5)
+→ tcp_recvmsg_locked finds queue non-empty
+→ copy hello without sk_wait_data
+→ H.copied_seq C_ISN+1→C_ISN+6
+→ remove receive skb
+→ read returns 5
 ```
 
 ## 当前精确状态
@@ -104,85 +107,83 @@ accept4(6,&peer,&peer_len,SOCK_CLOEXEC)
 system_state              = SYSTEM_RUNNING
 current executor          = parent
 CPU/mode                  = CPU0, x86-64 CPL 3
-last syscall              = accept4(6,&peer,&peer_len,SOCK_CLOEXEC)
-last return               = 8
-accept schedule count     = 0
+last syscall              = read(8,buf,5)
+last return               = 5
+user buffer               = "hello"
+write schedule count      = 0
+read schedule count       = 0
 
 server fd 6               = open, blocking, close-on-exec
-server file F6            = active sockfs socket file
 listener L                = TCP_LISTEN
 L local endpoint          = 127.0.0.1:28080
 L bind/lhash2             = active
-L SYN qlen/young          = 0/0
 L accept queue            = empty
 L sk_ack_backlog          = 0
 
-accept node R             = released
-
 client fd 7               = open, blocking, close-on-exec
-client socket CS          = SS_CONNECTED
 client C                  = TCP_ESTABLISHED
 C tuple                   = 127.0.0.1:40000 → 127.0.0.1:28080
+C snd_una/snd_nxt         = C_ISN+6 / C_ISN+6
+C write_seq               = C_ISN+6
+C rcv_nxt                 = S_ISN+1
+C write/rtx/backlog       = empty / empty / empty
 C bind/bind2/ehash/dst    = active
-C retransmission tree     = empty
 
 accepted fd 8             = open, blocking, close-on-exec
-accepted file F8          = active sockfs socket file
 accepted socket AS        = SS_CONNECTED
-AS.sk                     = H
-AS.file                   = F8
 server child H            = TCP_ESTABLISHED
 H tuple                   = 127.0.0.1:28080 ← 127.0.0.1:40000
-H established ehash       = active
-H bind/bind2 owner        = active
-H.sk_socket               = AS
-H.sk_wq                   = &AS.wq
+H rcv_nxt/copied_seq      = C_ISN+6 / C_ISN+6
+H snd_una/snd_nxt         = S_ISN+1 / S_ISN+1
+H receive queue           = empty
+H readable bytes          = 0
+H ehash/bind ownership    = active
 
-peer sockaddr             = AF_INET 127.0.0.1:40000
-peer_len                  = 16
 packet/softirq backlog    = empty
-next entry                = write(7,"hello",5)
+next entry                = close(7)
 ```
 
 ## 必须保持的技术边界
 
-1. `FD_ADD`先调用`get_unused_fd_flags`预留fd，再计算`do_accept`返回file的表达式。
-2. 预留fd时`open_fds`与`close_on_exec`已设置，`fdtable.fd[8]`仍为NULL。
-3. `SOCK_CLOEXEC`表达fdtable属性；它不会让`F8.f_flags`包含`O_NONBLOCK`。
-4. `sock_alloc`先创建sockfs inode与空`struct socket AS`，不会创建新的TCP child。
-5. `sock_alloc_file`发生在协议accept之前；F8可存在而尚未`fd_install`。
-6. blocking accept允许等待，不代表本次一定睡眠；queue非空时不调用`inet_csk_wait_for_connect`。
-7. `reqsk_queue_remove`在queue lock下把`sk_ack_backlog`从1减为0，并清空head/tail。
-8. SYN阶段qlen/young与accept backlog是不同accounting；本章只修改后者。
-9. 普通非TFO路径在移除后`reqsk_put(R)`结束R生命周期。
-10. H是原有TCP child；accept不会复制或重新建立连接。
-11. `sock_graft`写入`H.sk_wq=&AS.wq`、`AS.sk=H`和`H.sk_socket=AS`。
-12. H的TCP状态先前已是`TCP_ESTABLISHED`；AS在graft后才进入`SS_CONNECTED`。
-13. peer地址来自H的remote endpoint，即client `127.0.0.1:40000`。
-14. peer copy发生在`fd_install`之前；copy失败会fput F8并关闭已取出的H，而不会重新排队。
-15. `fd_install`是fd 8真正获得F8 pointer的发布点。
-16. accepted fd 8是blocking、close-on-exec；listener file status不自动继承。
-17. accept路径不发送TCP segment，不运行route lookup，也不触发NET_RX。
-18. 单章只解释本章路径；不要在第三章重复概括前两章正文。
+1. fd 7解析到client C；fd 8只在后续read中访问server child H。
+2. 固定write flags为0：没有MSG_MORE、MSG_OOB、MSG_DONTWAIT、zerocopy或splice。
+3. negotiated MSS足够容纳5字节；本批只生成一个data skb。
+4. tcp_skb_entail先以seq=end_seq=C_ISN+1和ACK初始化空skb。
+5. copy完成后C.write_seq与skb.end_seq变为C_ISN+6，snd_nxt要在发送发布后才推进。
+6. 没有MSG_MORE时tcp_mark_push增加PSH；PSH不占用sequence number。
+7. 没有旧的unacked data，所以Nagle与autocork不会扣住hello。
+8. 发送clone通过lo；原始skb进入client retransmission tree用于可靠重传。
+9. data segment是seq C_ISN+1、ack S_ISN+1、ACK|PSH、payload hello。
+10. established lookup命中H，不回到listener，也不创建request_sock。
+11. H未被用户task持有，data直接由NET_RX处理，不进入H.sk_backlog。
+12. H.rcv_nxt推进到C_ISN+6；copied_seq在read前保持C_ISN+1。
+13. 五字节达到默认sk_rcvlowat=1，tcp_data_ready使accepted fd 8可读。
+14. 这是H收到的首份data；ato=0使quickack立即发送ACK C_ISN+6。
+15. parent仍持有C，反向ACK先进入C.sk_backlog。
+16. release_sock(C)处理ACK后snd_una推进并清空retransmission tree，随后write返回5。
+17. write返回5表示TCP接受字节；一般语义不保证peer application已经read。
+18. read时receive queue已经非空，不进入sk_wait_data或scheduler。
+19. read复制hello、推进H.copied_seq并移除receive skb。
+20. quickack已经清除ACK schedule，本次tcp_cleanup_rbuf不再发送第二个ACK。
+21. 单章只解释本章路径；第三章不重复概括前两章正文。
 
 ## 下一建议场景
 
 ```text
-write(7,"hello",5)
-→ x86-64 write syscall resolves client F7/CS/C
-→ tcp_sendmsg_locked copies five bytes into client send queue
-→ tcp_push/tcp_write_xmit builds data skb
-→ transmit through IPv4 output and lo
-→ established lookup finds H
-→ tcp_rcv_established advances H.rcv_nxt
-→ queue hello on H.sk_receive_queue
-→ H.sk_data_ready marks accepted fd 8 readable
-→ client write returns 5
-→ read(8,buf,5) consumes hello
+close(7)
+→ fdtable撤销client fd 7
+→ final __fput enters TCP active close
+→ C queues and sends FIN through lo
+→ H consumes FIN after all hello bytes were read
+→ H enters TCP_CLOSE_WAIT
+→ accepted fd 8 exposes EOF/readability
+→ ACK advances C toward TCP_FIN_WAIT2
+→ later close(8) completes peer FIN and connection teardown
 ```
 
-开始前固定write flags、Nagle/MSG_MORE状态、data segment sequence/ACK、loopback softirq timing、H receive queue ownership、ACK策略以及write返回与server read的章节边界。
+开始前固定close是否同步进入__fput、FIN sequence、H的CLOSE_WAIT与EOF发布、ACK回到C的ownership时序、fd 8最后close以及TIME_WAIT边界。
 
 ## 连续叙事与流程
 
 每段交代当前执行者、CPU mode、关键对象、锁/引用、状态变化、下一入口和固定源码依据。继续时读取`AGENTS.md`、`project/STATE.rst`、目录、最近章节和manifest；每批固定写三章并同步五份接续文件，直接提交`main`。
+
