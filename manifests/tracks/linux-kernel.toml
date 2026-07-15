@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133; LK-EPOLL-134..LK-EPOLL-136; LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139; LK-SIGNALFD-140..LK-SIGNALFD-142; LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145; LK-TIMERFD-146..LK-TIMERFD-148; LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151; LK-PIDFD-152..LK-PIDFD-154; LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157; LK-INOTIFY-158..LK-INOTIFY-160; LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163; LK-UNIXSOCK-164..LK-UNIXSOCK-166; LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169; LK-TCPLISTEN-170..LK-TCPLISTEN-172; LK-TCPCONNECT-173..LK-TCPCONNECT-175; LK-TCPHANDSHAKE-176..LK-TCPHANDSHAKE-178; LK-TCPACCEPT-179..LK-TCPACCEPT-181; LK-TCPDATA-182..LK-TCPDATA-184; LK-TCPCLOSE-185..LK-TCPCLOSE-187"
+completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133; LK-EPOLL-134..LK-EPOLL-136; LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139; LK-SIGNALFD-140..LK-SIGNALFD-142; LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145; LK-TIMERFD-146..LK-TIMERFD-148; LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151; LK-PIDFD-152..LK-PIDFD-154; LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157; LK-INOTIFY-158..LK-INOTIFY-160; LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163; LK-UNIXSOCK-164..LK-UNIXSOCK-166; LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169; LK-TCPLISTEN-170..LK-TCPLISTEN-172; LK-TCPCONNECT-173..LK-TCPCONNECT-175; LK-TCPHANDSHAKE-176..LK-TCPHANDSHAKE-178; LK-TCPACCEPT-179..LK-TCPACCEPT-181; LK-TCPDATA-182..LK-TCPDATA-184; LK-TCPCLOSE-185..LK-TCPCLOSE-187; LK-TCPPEERCLOSE-188..LK-TCPPEERCLOSE-190"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
@@ -121,7 +121,10 @@ chapter = [
   { id = "LK-TCPDATA-184", title = "write怎样在ACK处理后返回5，并让read(8)取出hello？", rst = "docs/tracks/linux-kernel/184-client-write-returns-and-server-read-consumes-hello.rst", status = "complete" },
   { id = "LK-TCPCLOSE-185", title = "close(7)怎样撤销client fd并发送FIN？", rst = "docs/tracks/linux-kernel/185-close-removes-client-fd-and-sends-fin.rst", status = "complete" },
   { id = "LK-TCPCLOSE-186", title = "client FIN怎样让server H进入TCP_CLOSE_WAIT？", rst = "docs/tracks/linux-kernel/186-client-fin-moves-server-to-close-wait.rst", status = "complete" },
-  { id = "LK-TCPCLOSE-187", title = "FIN ACK怎样完成client关闭并让read返回EOF？", rst = "docs/tracks/linux-kernel/187-fin-ack-completes-client-close-and-read-returns-eof.rst", status = "complete" }
+  { id = "LK-TCPCLOSE-187", title = "FIN ACK怎样完成client关闭并让read返回EOF？", rst = "docs/tracks/linux-kernel/187-fin-ack-completes-client-close-and-read-returns-eof.rst", status = "complete" },
+  { id = "LK-TCPPEERCLOSE-188", title = "close(8)怎样撤销accepted fd并发送server FIN？", rst = "docs/tracks/linux-kernel/188-close-accepted-fd-sends-server-fin.rst", status = "complete" },
+  { id = "LK-TCPPEERCLOSE-189", title = "FIN_WAIT2 TW怎样接收server FIN并发送最终ACK？", rst = "docs/tracks/linux-kernel/189-finwait2-timewait-socket-receives-server-fin.rst", status = "complete" },
+  { id = "LK-TCPPEERCLOSE-190", title = "最终ACK怎样结束H的LAST_ACK并让close(8)返回0？", rst = "docs/tracks/linux-kernel/190-final-ack-destroys-last-ack-server-socket.rst", status = "complete" }
 ]
 
 [origin]
@@ -262,19 +265,30 @@ timewait_result = "default 60-second tcp_fin_timeout equals TCP_TIMEWAIT_LEN, so
 read_result = "tcp_recvmsg consumes the FIN marker without copying payload, advances H.copied_seq to C_ISN+7 and returns zero without scheduling"
 final_result = "fd7 closed; fd6 and fd8 remain open; TW waits for peer FIN; H remains TCP_CLOSE_WAIT with an empty receive queue; next entry is close(8)"
 
+[completed_tcp_peer_close_scenario]
+name = "TCP IPv4 loopback peer FIN, true TIME_WAIT transition and LAST_ACK server teardown"
+status = "complete"
+userspace_calls = "close(8) returns 0 without scheduling"
+fd_result = "file_close_fd clears fdtable.fd[8] and the open bit before fput_close_sync synchronously reaches tcp_close(H,0)"
+server_fin_result = "H changes TCP_CLOSE_WAIT to TCP_LAST_ACK and sends ACK|FIN covering S_ISN+1..S_ISN+2 through IPv4 output and lo; original HFIN remains retransmittable"
+timewait_result = "client lookup finds lightweight TW; exact HFIN changes tw_substate from TCP_FIN_WAIT2 to TCP_TIME_WAIT, advances tw_rcv_nxt to S_ISN+2 and rearms 60-second timer"
+final_ack_result = "per-CPU control socket sends TACK seq C_ISN+7 ack S_ISN+2; user-owned H queues it on backlog"
+server_destroy_result = "orphan close drains TACK, clears original HFIN; LAST_ACK sees snd_una equal write_seq, tcp_done enters TCP_CLOSE and destroys full H"
+final_result = "fd7/8 closed; full C/H and F8/AS/I8 are gone; fd6 listener remains open; true TIME_WAIT TW is the only connection tuple object; next entry is TW timer expiration"
+
 [progress]
-completed_chapters = 187
+completed_chapters = 190
 total_chapters = "unfixed"
 remaining_chapters = "unknown"
 planning_rule = "follow source-reading scope and natural narrative closure"
 
 [current]
-last_complete = "LK-TCPCLOSE-187"
-executor = "parent in x86-64 userspace after close(7) returned 0 and read(8,buf,1) returned EOF"
+last_complete = "LK-TCPPEERCLOSE-190"
+executor = "parent in x86-64 userspace after close(8) returned 0"
 cpu_mode = "x86-64 CPL 3 on CPU0"
-current_task = "SCHED_NORMAL parent; TASK_RUNNING; close and EOF read did not schedule"
-next_entry = "close(8)"
-next_action = "remove accepted fd publication, send the server FIN from TCP_LAST_ACK, let FIN_WAIT2 TW acknowledge it and finish H teardown"
+current_task = "SCHED_NORMAL parent; TASK_RUNNING; close did not schedule"
+next_entry = "TW timer expiration after TCP_TIMEWAIT_LEN"
+next_action = "remove true TIME_WAIT TW from timer, ehash and bind identities, then close listener fd6 and finish TCP loopback teardown"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完整"
