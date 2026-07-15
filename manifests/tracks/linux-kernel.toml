@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133; LK-EPOLL-134..LK-EPOLL-136; LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139; LK-SIGNALFD-140..LK-SIGNALFD-142; LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145; LK-TIMERFD-146..LK-TIMERFD-148; LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151; LK-PIDFD-152..LK-PIDFD-154; LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157; LK-INOTIFY-158..LK-INOTIFY-160; LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163; LK-UNIXSOCK-164..LK-UNIXSOCK-166; LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169; LK-TCPLISTEN-170..LK-TCPLISTEN-172; LK-TCPCONNECT-173..LK-TCPCONNECT-175; LK-TCPHANDSHAKE-176..LK-TCPHANDSHAKE-178; LK-TCPACCEPT-179..LK-TCPACCEPT-181; LK-TCPDATA-182..LK-TCPDATA-184"
+completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133; LK-EPOLL-134..LK-EPOLL-136; LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139; LK-SIGNALFD-140..LK-SIGNALFD-142; LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145; LK-TIMERFD-146..LK-TIMERFD-148; LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151; LK-PIDFD-152..LK-PIDFD-154; LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157; LK-INOTIFY-158..LK-INOTIFY-160; LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163; LK-UNIXSOCK-164..LK-UNIXSOCK-166; LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169; LK-TCPLISTEN-170..LK-TCPLISTEN-172; LK-TCPCONNECT-173..LK-TCPCONNECT-175; LK-TCPHANDSHAKE-176..LK-TCPHANDSHAKE-178; LK-TCPACCEPT-179..LK-TCPACCEPT-181; LK-TCPDATA-182..LK-TCPDATA-184; LK-TCPCLOSE-185..LK-TCPCLOSE-187"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
@@ -118,7 +118,10 @@ chapter = [
   { id = "LK-TCPACCEPT-181", title = "peer地址怎样写回用户态并最终发布close-on-exec fd 8？", rst = "docs/tracks/linux-kernel/181-peer-address-copy-publishes-accepted-fd.rst", status = "complete" },
   { id = "LK-TCPDATA-182", title = "write(7,\"hello\",5)怎样把5字节排入client TCP write queue？", rst = "docs/tracks/linux-kernel/182-client-write-queues-five-byte-tcp-segment.rst", status = "complete" },
   { id = "LK-TCPDATA-183", title = "PSH|ACK数据段怎样通过lo进入H并触发立即ACK？", rst = "docs/tracks/linux-kernel/183-loopback-data-reaches-server-child-and-triggers-ack.rst", status = "complete" },
-  { id = "LK-TCPDATA-184", title = "write怎样在ACK处理后返回5，并让read(8)取出hello？", rst = "docs/tracks/linux-kernel/184-client-write-returns-and-server-read-consumes-hello.rst", status = "complete" }
+  { id = "LK-TCPDATA-184", title = "write怎样在ACK处理后返回5，并让read(8)取出hello？", rst = "docs/tracks/linux-kernel/184-client-write-returns-and-server-read-consumes-hello.rst", status = "complete" },
+  { id = "LK-TCPCLOSE-185", title = "close(7)怎样撤销client fd并发送FIN？", rst = "docs/tracks/linux-kernel/185-close-removes-client-fd-and-sends-fin.rst", status = "complete" },
+  { id = "LK-TCPCLOSE-186", title = "client FIN怎样让server H进入TCP_CLOSE_WAIT？", rst = "docs/tracks/linux-kernel/186-client-fin-moves-server-to-close-wait.rst", status = "complete" },
+  { id = "LK-TCPCLOSE-187", title = "FIN ACK怎样完成client关闭并让read返回EOF？", rst = "docs/tracks/linux-kernel/187-fin-ack-completes-client-close-and-read-returns-eof.rst", status = "complete" }
 ]
 
 [origin]
@@ -247,22 +250,33 @@ ack_result = "first-data quickack sends ACK C_ISN+6; ACK queues on user-owned C 
 read_result = "tcp_recvmsg copies five bytes without waiting; copied_seq becomes C_ISN+6; receive queue becomes empty"
 final_result = "fd6/7/8 remain open; C/H remain TCP_ESTABLISHED; write, retransmission, receive and socket backlog queues are empty; next entry is close(7)"
 
+[completed_tcp_client_close_scenario]
+name = "TCP IPv4 loopback client active close, FIN_WAIT2 lightweight socket and accepted-side EOF"
+status = "complete"
+userspace_calls = "close(7) returns 0; read(8,buf,1) returns 0 EOF"
+fd_result = "file_close_fd clears fdtable.fd[7] and the open bit before fput_close_sync synchronously reaches __fput, sock_close, inet_release and tcp_close; any stale close-on-exec bit is overwritten on reuse"
+fin_result = "C enters TCP_FIN_WAIT1 and sends ACK|FIN covering C_ISN+6..C_ISN+7 through IPv4 output and lo; original FIN remains retransmittable until ACK"
+server_result = "H queues the zero-payload FIN marker, advances rcv_nxt to C_ISN+7, sets RCV_SHUTDOWN and SOCK_DONE, enters TCP_CLOSE_WAIT and exposes EOF on fd8"
+ack_result = "quickack sends ACK C_ISN+7; user-owned C queues it on backlog; orphan close drains it, clears original FIN and enters TCP_FIN_WAIT2"
+timewait_result = "default 60-second tcp_fin_timeout equals TCP_TIMEWAIT_LEN, so TW replaces full C with tw_state TCP_TIME_WAIT and tw_substate TCP_FIN_WAIT2"
+read_result = "tcp_recvmsg consumes the FIN marker without copying payload, advances H.copied_seq to C_ISN+7 and returns zero without scheduling"
+final_result = "fd7 closed; fd6 and fd8 remain open; TW waits for peer FIN; H remains TCP_CLOSE_WAIT with an empty receive queue; next entry is close(8)"
+
 [progress]
-completed_chapters = 184
+completed_chapters = 187
 total_chapters = "unfixed"
 remaining_chapters = "unknown"
 planning_rule = "follow source-reading scope and natural narrative closure"
 
 [current]
-last_complete = "LK-TCPDATA-184"
-executor = "parent in x86-64 userspace after read(8,buf,5) returned 5"
+last_complete = "LK-TCPCLOSE-187"
+executor = "parent in x86-64 userspace after close(7) returned 0 and read(8,buf,1) returned EOF"
 cpu_mode = "x86-64 CPL 3 on CPU0"
-current_task = "SCHED_NORMAL parent; TASK_RUNNING; write and read did not schedule"
-next_entry = "close(7)"
-next_action = "remove client fd publication, enter TCP active close, send FIN through lo and expose EOF on accepted fd8"
+current_task = "SCHED_NORMAL parent; TASK_RUNNING; close and EOF read did not schedule"
+next_entry = "close(8)"
+next_action = "remove accepted fd publication, send the server FIN from TCP_LAST_ACK, let FIN_WAIT2 TW acknowledge it and finish H teardown"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完整"
 verified = "关键结论已用固定源码或规范核对，章节仍在续写"
 complete = "章节到达自然终点，关键事实已核对"
-
