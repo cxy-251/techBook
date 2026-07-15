@@ -9,11 +9,11 @@
 ::
 
    x86-64
-   → QEMU q35
-   → SeaBIOS
-   → GRUB i386-pc
+   → QEMU q35 @ a759542a2c62f0fd3b65f5a66ad9868201014669
+   → SeaBIOS @ c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
+   → GRUB 2.14 i386-pc @ d38d6a1a9b79427848976f53d474392cd29c2a71
    → bzImage
-   → Linux 6.12.95
+   → Linux 7.2-rc1 @ 7404ce51637231382873d0b55edabc2f3b841a9d
 
 真实主板的电源控制器、电压调节器、时钟发生器和复位线路因平台而异。QEMU 也不会模拟电压上升和晶振
 锁定这样的模拟过程。因此，本章先讲物理机器必然存在的“供电、时钟、复位”关系；从处理器被释放复位
@@ -51,6 +51,12 @@ QEMU 中的“上电”是什么
 多处理器机器中，启动故事先沿 bootstrap processor，也就是 BSP 展开。其他处理器不会与 BSP 一起执行
 同一条固件主线；它们会在后续阶段通过专门的启动协议加入。SeaBIOS 源码也为后续处理器启动保留了独立的
 ``entry_smp`` 入口。本章只跟随 BSP。
+
+固定QEMU源码把这个复位状态写得很具体。``x86_cpu_reset_hold()`` 为 ``CS`` 装入
+可见选择子 ``0xf000``、隐藏基址 ``0xffff0000``，再把 ``EIP`` 设成 ``0xfff0``。
+``x86_bios_rom_init()`` 则把完整BIOS映像映射到4 GiB顶部，并把末尾128 KiB另建别名
+放到1 MiB以下的ISA BIOS窗口。前者决定第一次取指地址，后者保证高地址复位入口与
+后续低地址F-segment都能读到同一份固件末端内容。
 
 复位不是调用一个 reset 函数
 --------------------------
@@ -219,8 +225,8 @@ SeaBIOS 文档把这一段控制流概括为：模拟器让 CPU 在 16 位模式
 ``reset_vector`` 调用 ``entry_post``，随后 ``entry_post`` 再把执行带入 32 位的
 ``post.c:handle_post()``。本章只走到 ``entry_post``，模式切换和 ``handle_post()`` 留给下一段故事。
 
-本章结束时的机器状态
-------------------
+本章结束状态
+------------
 
 控制权目前走过：
 
@@ -247,13 +253,30 @@ SeaBIOS 文档把这一段控制流概括为：模拟器让 CPU 在 16 位模式
 * GRUB：尚未被搜索或装入；
 * Linux：尚未出现在内存中。
 
-第一章在这里结束。下一段控制流从 ``entry_post`` 的第一条比较指令开始：SeaBIOS 要先判断这究竟是一次
-真正的冷启动，还是已经运行过 POST 后发生的恢复或重启，然后才会建立进入 32 位 C 代码所需的环境。
+关键边界
+--------
+
+#. ``0xfffffff0`` 来自复位时特殊的 ``CS`` 隐藏基址加 ``EIP``，不能用普通
+   ``CS × 16 + IP`` 得到。
+#. x86 CPU只产生取指地址；QEMU的BIOS映射决定该地址返回SeaBIOS字节，两者是不同层次。
+#. 固定QEMU把完整BIOS映射到4 GiB顶部，并只把末尾128 KiB别名到1 MiB以下；
+   ``f000:e05b`` 落在这个低地址别名内。
+#. ``reset_vector`` 只执行远跳转；DRAM识别、PCI枚举、磁盘搜索、GRUB与Linux都尚未开始。
+#. 远跳转重新装入 ``CS`` 后，复位时的特殊隐藏基址不再继续参与取址。
+
+下一入口
+--------
+
+从 ``src/romlayout.S:entry_post`` 的 ``cmpl $0, %cs:HaveRunPost`` 开始。SeaBIOS先区分
+正常首次POST与resume/reboot，再为进入32位C代码建立栈和保护模式环境。
 
 资料
 ----
 
+* `QEMU target/i386/cpu.c：固定BSP复位寄存器状态 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/target/i386/cpu.c#L9374-L9438>`_；
+* `QEMU hw/i386/x86-common.c：BIOS低地址别名 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/x86-common.c#L997-L1008>`_；
+* `QEMU hw/i386/x86-common.c：完整BIOS映射到4 GiB顶部 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/x86-common.c#L1096-L1118>`_；
 * `Intel® 64 and IA-32 Architectures Software Developer’s Manual <https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html>`_；
 * `SeaBIOS execution and code flow <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/docs/Execution_and_code_flow.md>`_；
-* `SeaBIOS src/romlayout.S <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/romlayout.S>`_；
-* `SeaBIOS src/config.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/config.h>`_。
+* `SeaBIOS src/romlayout.S：entry_post与reset_vector <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/romlayout.S#L588-L690>`_；
+* `SeaBIOS src/config.h：BIOS地址与段常量 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/config.h#L32-L70>`_。

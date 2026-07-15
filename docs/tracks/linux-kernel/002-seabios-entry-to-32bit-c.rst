@@ -18,6 +18,7 @@ SeaBIOS 接下来要做的，是建立一个可以安全执行 32 位 C 代码�
 
    repository: coreboot/seabios
    commit: c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
+   build target: QEMU
 
 entry_post 先判断这是不是第一次启动
 -----------------------------------
@@ -192,6 +193,10 @@ transition32 先阻止外部事件打断切换
 ``cld`` 清除方向标志 ``DF``。清零后，``movs``、``stos`` 等字符串指令默认从低地址向高地址移动。C 编译器
 通常要求函数入口处 ``DF=0``，所以 SeaBIOS 在进入 C 环境前把它设为确定状态。
 
+固定QEMU的BSP复位状态已经把 ``EFLAGS`` 设成 ``0x2``，所以正常冷启动走到这里时
+``IF=0``、 ``DF=0``。``cli`` 与 ``cld`` 在当前输入下没有造成 ``1→0`` 的变化；它们的
+作用是让这个通用转换入口不依赖调用者遗留的标志状态。
+
 cli 不能屏蔽 NMI
 ---------------
 
@@ -222,8 +227,8 @@ SeaBIOS 接着操作 CMOS/RTC 索引端口：
 代码先把 ``EAX`` 保存到 ``ECX``，完成端口访问后再恢复 ``EAX``，避免通用跳板无故破坏调用入口可能保留
 的寄存器值。
 
-A20 必须打开
------------
+A20在固定QEMU中已经开启，SeaBIOS仍再次确认
+-------------------------------------------
 
 接下来执行：
 
@@ -254,8 +259,10 @@ A20 是地址的第 20 位，从位 0 开始计数。它决定地址能否真正
 
    0x00000000
 
-这对某些旧软件有兼容意义，对即将使用的 32 位平坦地址空间却是错误行为。SeaBIOS 通过端口 ``0x92``
-打开 A20，让低端地址和 1 MiB 以上地址真正分离。
+这对某些旧软件有兼容意义，对即将使用的32位平坦地址空间却是错误行为。不过固定
+QEMU提交的 ``x86_cpu_reset_hold()`` 已在BSP reset时写入 ``env->a20_mask = ~0x0``，
+也就是本场景到达SeaBIOS前A20已经有效。SeaBIOS仍读取端口 ``0x92``、OR上bit 1再写回，
+把“保持A20开启”变成固件自己建立的入口条件；这里不是固定场景中的 ``0→1`` 转换。
 
 如果不完成这一步，后面访问高于 1 MiB 的内存可能悄悄覆盖最低端的 IVT、BDA 或其他关键数据。
 
@@ -468,8 +475,8 @@ CPU 使用 ``0x08`` 查询 GDT，加载 32 位平坦代码段描述符。新的 
 * 被控制住的中断状态；
 * 可以直接运行编译器生成 C 代码的环境。
 
-第二章结束时的机器状态
-----------------------
+本章结束状态
+------------
 
 控制权目前走过：
 
@@ -481,7 +488,7 @@ CPU 使用 ``0x08`` 查询 GDT，加载 32 位平坦代码段描述符。新的 
    → EDX 保存 handle_post 入口
    → transition32
    → cli / cld / 屏蔽 NMI
-   → 打开 A20
+   → 确认 A20 保持开启
    → 装入临时 IDT 和 GDT
    → 设置 CR0.PE
    → 远跳转并装入 CS=0x08
@@ -503,19 +510,37 @@ CPU 使用 ``0x08`` 查询 GDT，加载 32 位平坦代码段描述符。新的 
 * GRUB：尚未被搜索；
 * Linux：尚未装入内存。
 
-下一段控制流从 ``handle_post()`` 的第一批调用继续：建立早期调试输出、检查 Xen 路径、把 BIOS 低地址
-映射改成可写，然后进入真正的 POST 初始化 ``dopost()``。
+关键边界
+--------
+
+#. ``ENTRY_INTO32`` 是汇编期展开的宏，不是额外运行时栈帧。
+#. 固定冷启动中 ``IF``、 ``DF`` 与A20已经处于目标值；SeaBIOS仍显式重建这些入口条件，
+   不能把幂等写入描述成必然发生的状态翻转。
+#. ``lidt``/``lgdt`` 装载的是描述表位置结构，不是把整张表复制进CPU。
+#. 写 ``CR0.PE`` 后还必须远跳转重载 ``CS``，随后再重载数据段；不能把单次CR0写入
+   当成完整模式切换。
+#. ``jmpl *%edx`` 进入 ``handle_post()`` 时没有像 ``call`` 那样压入返回地址；这个入口
+   不计划返回 ``entry_post``。
+#. 当前只建立了可执行32位C代码的最小环境，尚未完成E820发现、通用分配器或设备初始化。
+
+下一入口
+--------
+
+从 ``src/post.c:handle_post()`` 开始：先建立早期调试输出，排除Xen路径，再通过q35 PAM
+让低地址BIOS shadow RAM可写，随后进入 ``dopost()``。
 
 资料
 ----
 
-* `SeaBIOS src/romlayout.S <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/romlayout.S>`_；
-* `SeaBIOS src/entryfuncs.S <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/entryfuncs.S>`_；
-* `SeaBIOS src/config.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/config.h>`_；
+* `QEMU target/i386/cpu.c：固定reset标志与A20状态 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/target/i386/cpu.c#L9396-L9440>`_；
+* `SeaBIOS src/romlayout.S：transition32 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/romlayout.S#L20-L67>`_；
+* `SeaBIOS src/romlayout.S：entry_post <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/romlayout.S#L588-L597>`_；
+* `SeaBIOS src/entryfuncs.S：ENTRY_INTO32 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/entryfuncs.S#L152-L159>`_；
+* `SeaBIOS src/config.h：栈、BIOS与段选择子 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/config.h#L32-L70>`_；
 * `SeaBIOS src/x86.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/x86.h>`_；
 * `SeaBIOS src/hw/rtc.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/rtc.h>`_；
-* `SeaBIOS src/misc.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/misc.c>`_；
-* `SeaBIOS src/post.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/post.c>`_；
+* `SeaBIOS src/misc.c：占位IDT与GDT <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/misc.c#L130-L169>`_；
+* `SeaBIOS src/post.c：handle_post <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/post.c#L317-L336>`_；
 * `SeaBIOS execution and code flow <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/docs/Execution_and_code_flow.md>`_；
 * `SeaBIOS memory model <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/docs/Memory_Model.md>`_；
 * `Intel® 64 and IA-32 Architectures Software Developer’s Manual <https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html>`_。

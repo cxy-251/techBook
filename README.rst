@@ -3,6 +3,16 @@ techBook
 
 ``techBook`` 当前只写 Linux Kernel。
 
+当前维护状态
+------------
+
+历史正文已经存在第001—193章；现在暂停继续生成，从第001章开始按固定QEMU、SeaBIOS、
+GRUB与Linux提交顺序回溯审查。当前已验证并修复001—003，下一批为004—006。
+
+* `稳定生产与回溯审查合同 <project/LINUX_KERNEL_CONTRACT.rst>`_
+* `当前接续状态 <project/STATE.rst>`_
+* `回溯审查账本 <project/audits/linux-kernel/index.rst>`_
+
 当前正文
 --------
 
@@ -19,8 +29,8 @@ techBook
    x86-64 → QEMU q35 → SeaBIOS → GNU GRUB 2.14 i386-pc
    → Linux 7.2-rc1 @ 7404ce51637231382873d0b55edabc2f3b841a9d
 
-已经完成
---------
+历史正文已存在
+--------------
 
 ::
 
@@ -65,11 +75,12 @@ techBook
 完成目标
 --------
 
-当前盘点的Linux Kernel源码主线共43条，目标是全部完成。现在已完成19条、剩余24条；
-章节总数不固定，仍按源码控制流与自然叙事边界分章。
+历史状态曾把43条Linux Kernel源码主线中的19条标记为完成。回溯审查期间，这个数字只作
+历史库存参考；当前可信进度是001—003已经过固定源码审查，004—193仍待审。审查到193后
+重新核定主线进度和后续入口，章节总数仍不预设。
 
-最新场景
---------
+历史前向场景（尚未回溯验证）
+----------------------------
 
 ::
 
@@ -84,9 +95,12 @@ techBook
    → close(6)返回0，不等待SOCK_RCU_FREE grace period
    → RCU callback最终回收L存储
 
-TCP/IPv4 loopback主线已经完成。fd 6/7/8全部关闭，C、H、R、TW与L均不可达，端口40000与28080不再由旧场景占用。下一入口是UDP/IPv4的 ``socket(AF_INET,SOCK_DGRAM|SOCK_CLOEXEC,IPPROTO_UDP)``。
+历史正文声称TCP/IPv4 loopback主线已经完成，并把UDP socket创建列为下一入口。该终点
+保存在 ``project/LINUX_KERNEL_FORWARD_CHECKPOINT.rst``，在001—193回溯审查闭合前不得
+据此继续生产UDP章节。
 
 开始工作
 --------
 
-新的对话或助手先阅读 ``AGENTS.md``、 ``project/STATE.rst``、章节目录和manifest。
+新的对话或助手严格按 ``AGENTS.md`` 的接入顺序读取稳定合同、动态状态、当前审查批次
+和固定源码；不要一次性载入全部正文和完整manifest。

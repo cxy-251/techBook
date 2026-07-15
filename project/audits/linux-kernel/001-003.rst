@@ -1,0 +1,145 @@
+Linux Kernel第001—003章回溯审查
+================================
+
+批次结果
+--------
+
+::
+
+   range            = 001-003
+   status           = repaired
+   verified_through = 003
+   blockers         = none
+   next_batch       = 004-006
+
+本批逐章读取固定QEMU与SeaBIOS提交，修复正文问题后重新检查了001→002、002→003以及
+003→004的入口连续性。正文存在不等于验证完成；本报告只把001—003推进为已验证范围。
+
+固定源码
+--------
+
+::
+
+   QEMU repository   = qemu/qemu
+   QEMU commit       = a759542a2c62f0fd3b65f5a66ad9868201014669
+   SeaBIOS repository = coreboot/seabios
+   SeaBIOS commit    = c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
+   SeaBIOS target    = QEMU
+   CONFIG_RELOCATE_INIT = y
+
+本地缓存核验：
+
+* ``.sources/qemu`` 的 ``HEAD`` 等于固定QEMU commit，稀疏检出覆盖当前所需目录，工作树干净；
+* ``.sources/seabios`` 的 ``HEAD`` 等于固定SeaBIOS commit，工作树干净。
+
+批次开始状态
+------------
+
+固定QEMU q35已经建立客户机RAM、q35平台和固件地址映射。BSP进入QEMU的x86 reset
+状态： ``CS.selector=0xf000``、 ``CS.base=0xffff0000``、 ``EIP=0xfff0``、
+``CR0.PE=0``、 ``CR0.PG=0``、 ``EFLAGS=0x2``、 ``a20_mask=~0``。完整BIOS映像
+位于4 GiB顶部，末尾128 KiB另有1 MiB以下ISA别名。
+
+第001章
+--------
+
+核验入口与证据：
+
+* QEMU ``x86_cpu_reset_hold()`` 固定CS隐藏基址、EIP、EFLAGS与A20状态；
+* QEMU ``x86_bios_rom_init()`` 建立顶部完整映射， ``x86_isa_bios_init()`` 建立低端别名；
+* SeaBIOS ``reset_vector`` 位于 ``ORG 0xfff0``，执行
+  ``ljmpw $SEG_BIOS, $entry_post``；
+* ``entry_post`` 位于固定偏移 ``0xe05b``。
+
+发现并修复：
+
+#. 主线列表仍写 ``Linux 6.12.95``，与固定Linux commit的 ``7.2-rc1`` 不一致；已修正
+   并补齐全部固定commit。
+#. 原文只用SeaBIOS解释复位入口，没有把QEMU CPU reset状态和固件高低地址映射接入证据链；
+   已增加固定QEMU源码依据。
+#. 原章末不是当前合同要求的四节结构；已补齐“本章结束状态—关键边界—下一入口—资料”。
+
+结束边界：BSP执行远跳转后到达 ``f000:e05b`` 的SeaBIOS ``entry_post``，仍在16位
+启动环境；尚未建立早期栈，也未进入POST C代码。
+
+第002章
+--------
+
+核验入口与证据：
+
+* ``entry_post`` 在冷启动的 ``HaveRunPost==0`` 路径展开 ``ENTRY_INTO32``；
+* 宏把 ``SS`` 清零、栈顶设为 ``0x7000``、目标入口装入 ``EDX``，再跳
+  ``transition32``；
+* ``transition32`` 执行 ``cli``/``cld``、NMI屏蔽、端口0x92 A20写入、IDT/GDT装载、
+  CR0修改、远跳转和数据段重载，最后 ``jmpl *%edx``；
+* QEMU reset源码已证明本固定路径到达SeaBIOS时 ``IF=0``、 ``DF=0`` 且A20有效。
+
+发现并修复：
+
+#. 原文把SeaBIOS A20操作写成固定场景中的“打开”转换；实际上QEMU reset已经设置
+   ``a20_mask=~0``。已改成SeaBIOS再次确认并保持A20开启。
+#. 同样补充 ``cli``/``cld`` 在固定冷启动下是幂等操作，避免把防御性入口代码误写成
+   必然的标志翻转。
+#. 补齐固定QEMU build target、精确源码行锚和合同章末四节。
+
+结束边界：BSP以32位保护模式进入 ``post.c:handle_post()``；分页关闭，早期栈顶为
+``0x7000``，A20有效，可屏蔽中断关闭，NMI仍被当前CMOS index写入屏蔽。
+
+第003章
+--------
+
+核验入口与证据：
+
+* ``handle_post()`` 依次执行早期调试、Xen检查、 ``make_bios_writable()`` 和 ``dopost()``；
+* q35路径通过PAM0让 ``0xc0000-0x100000`` shadow RAM可写，并在需要时从高地址固件
+  副本执行复制辅助函数；
+* 默认QEMU构建的 ``CONFIG_RELOCATE_INIT=y``；
+* QEMU把含RAM与保留项的 ``etc/e820`` 放入fw_cfg，SeaBIOS ``qemu_early_e820()``
+  在malloc建立前分块读取；
+* ``malloc_preinit()`` 建立 ``ZoneTmpLow``、 ``ZoneTmpHigh`` 与被E820保留的 ``ZoneHigh``；
+* ``reloc_preinit()`` 复制 ``code32init``、应用三类重定位并调用移动后的 ``maininit()``。
+
+发现并修复：
+
+#. 原文没有固定 ``CONFIG_RELOCATE_INIT=y``，却无条件叙述复制分支；已固定构建条件并
+   说明关闭配置时控制流不同。
+#. 原结束状态把当前栈写成仍在 ``0x7000``。该值是初始栈顶；经过多层C调用后当前
+   ``ESP`` 已在其下方，不能固定为0x7000。已修正。
+#. 增加QEMU生成 ``etc/e820`` 的固定源码证据和关键SeaBIOS行锚。
+#. 补齐合同章末四节。
+
+结束边界：控制权进入重定位后的 ``maininit()``；BSP仍是32位保护模式、分页关闭；
+低地址BIOS shadow可写，初始E820与临时分配区已经建立，一次性初始化代码已搬迁。
+
+连续性检查
+----------
+
+``001 → 002``
+   第001章停在 ``entry_post``；第002章从同一地址和 ``HaveRunPost`` 比较开始。
+
+``002 → 003``
+   第002章停在 ``handle_post()`` 入口；第003章从该函数第一批调用开始。
+
+``003 → 004``
+   第003章停在重定位后的 ``maininit()``，下一入口为 ``interface_init()``；现有第004章
+   也从 ``maininit()`` 和 ``interface_init()`` 开始。第004章尚未通过审查，其中关于
+   当前栈“仍位于0x7000”的表述将在004—006批次核验，不能提前视为正确。
+
+验证
+----
+
+* ``tools/check-linux-kernel-track.sh 3``：通过001—003结构检查；
+* 全局检查同时报告第065、066章各有重复文件，已登记为尚未轮到的结构债务；
+* ``git diff --check``：通过；
+* 本批没有修改004之后的正文内容。
+
+资料
+----
+
+* `QEMU固定提交：x86 CPU reset <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/target/i386/cpu.c#L9374-L9440>`_；
+* `QEMU固定提交：BIOS映射 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/x86-common.c#L997-L1118>`_；
+* `QEMU固定提交：etc/e820 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/fw_cfg.c#L53-L60>`_；
+* `SeaBIOS固定提交：reset与transition32 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/romlayout.S#L20-L690>`_；
+* `SeaBIOS固定提交：POST与重定位 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/post.c#L197-L336>`_；
+* `SeaBIOS固定提交：shadow RAM <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/shadow.c#L20-L146>`_；
+* `SeaBIOS固定提交：早期E820 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/paravirt.c#L729-L794>`_。

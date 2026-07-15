@@ -3,6 +3,14 @@ Linux Kernel
 
 这本书讲 Linux 内核。开头从设备上电后的真实执行过程进入，先交代内核取得控制权之前发生的必要故事；启动链完成后，切换到明确的运行期入口继续追踪。
 
+回溯审查状态
+------------
+
+历史正文存在001—193章。当前暂停后续生产，从001开始按固定源码顺序审查；001—003已经
+验证并修复，下一批是004—006。不同对话的接续以
+`项目状态 <../../../project/STATE.rst>`_ 和
+`审查账本 <../../../project/audits/linux-kernel/index.rst>`_ 为准。
+
 当前正文
 --------
 
@@ -70,8 +78,8 @@ Linux Kernel
    → close(6) returns 0 before the SOCK_RCU_FREE grace period
    → RCU callback reclaims L storage; TCP/IPv4 loopback mainline completes
 
-完成范围
---------
+历史正文范围（不等于已验证）
+--------------------------
 
 ::
 
@@ -118,7 +126,8 @@ Linux Kernel
 进度
 ----
 
-当前完成193章。Linux Kernel目标是完成当前盘点的全部43条源码主线；现已完成19条、剩余24条。43不是固定章节总数，章节仍按源码主线与必要场景自然推进。
+当前正文存在193章，但只有001—003完成新合同下的固定源码审查。004—193仍待顺序核验。
+历史19/43主线进度将在审查闭合后重新计算；43不是固定章节总数。
 
 最新三章
 --------
@@ -127,8 +136,8 @@ Linux Kernel
 #. `第一百九十二章：close(6)怎样撤销listener fd并退出TCP_LISTEN？ <192-close-listener-removes-fd-and-listen-hash.rst>`_
 #. `第一百九十三章：listener怎样释放bind端口与最后的sockfs对象？ <193-listener-final-teardown-completes-tcp-scenario.rst>`_
 
-下一候选
---------
+历史下一候选（生产已暂停）
+------------------------
 
 ::
 
@@ -140,6 +149,8 @@ Linux Kernel
    → build blocking close-on-exec socket file
    → fd_install publishes datagram fd 6
    → continue with loopback bind, route and datagram delivery
+
+该UDP入口尚未在回溯审查后重新确认，当前不得据此生成新章。
 
 章节组织
 --------

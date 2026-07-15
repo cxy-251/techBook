@@ -1,167 +1,99 @@
 # AGENTS.md
 
-## 当前任务
+本仓库当前只维护 Linux Kernel 学习主线。任何新对话都必须从本文件恢复工作，
+不得依赖聊天记录或上一位 Agent 的口头总结。
 
-`techBook` 当前只写 Linux Kernel。
+接入顺序
+========
 
-```text
-LK-BOOT-001..LK-BOOT-073
-LK-READ-074..LK-READ-082
-LK-WRITE-083..LK-WRITE-091
-LK-FORK-092..LK-FORK-094
-LK-COW-095..LK-COW-097
-LK-EXEC-098..LK-EXEC-100
-LK-EXIT-101..LK-EXIT-103
-LK-OPEN-104..LK-OPEN-106
-LK-DELALLOC-107..LK-DELALLOC-109
-LK-UNLINK-110..LK-UNLINK-112
-LK-SLEEP-113..LK-SLEEP-115
-LK-SIGNAL-116..LK-SIGNAL-118
-LK-PIPE-119..LK-PIPE-121
-LK-PIPECLOSE-122..LK-PIPECLOSE-124
-LK-FUTEX-125..LK-FUTEX-127
-LK-EVENTFD-128..LK-EVENTFD-130
-LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133
-LK-EPOLL-134..LK-EPOLL-136
-LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139
-LK-SIGNALFD-140..LK-SIGNALFD-142
-LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145
-LK-TIMERFD-146..LK-TIMERFD-148
-LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151
-LK-PIDFD-152..LK-PIDFD-154
-LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157
-LK-INOTIFY-158..LK-INOTIFY-160
-LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163
-LK-UNIXSOCK-164..LK-UNIXSOCK-166
-LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169
-LK-TCPLISTEN-170..LK-TCPLISTEN-172
-LK-TCPCONNECT-173..LK-TCPCONNECT-175
-LK-TCPHANDSHAKE-176..LK-TCPHANDSHAKE-178
-LK-TCPACCEPT-179..LK-TCPACCEPT-181
-LK-TCPDATA-182..LK-TCPDATA-184
-LK-TCPCLOSE-185..LK-TCPCLOSE-187
-LK-TCPPEERCLOSE-188..LK-TCPPEERCLOSE-190
-LK-TCPCLEANUP-191..LK-TCPCLEANUP-193
-```
+开始工作前依次完整读取：
 
-最新三章：
+#. ``AGENTS.md``；
+#. ``project/LINUX_KERNEL_CONTRACT.rst``；
+#. ``project/STATE.rst``；
+#. ``project/audits/linux-kernel/index.rst``；
+#. ``project/STATE.rst`` 指定的当前批次报告、正文和manifest片段；
+#. 当前批次涉及的固定提交源码。
 
-- `LK-TCPCLEANUP-191`：TIME_WAIT timer怎样撤销最后的四元组并释放TW？
-- `LK-TCPCLEANUP-192`：close(6)怎样撤销listener fd并退出TCP_LISTEN？
-- `LK-TCPCLEANUP-193`：listener怎样释放bind端口与最后的sockfs对象？
+不要把README、完整章节目录、全部历史正文或全部旧审计报告一次性装入上下文。
+它们是导航与历史，不是当前接续状态。只有当前批次确实需要时才读取。
 
-进度：当前完成193章。Linux Kernel目标是完成当前盘点的全部43条源码主线，现已完成19条、剩余24条；章节总数不预设，仍按源码边界自然分章。
+唯一执行合同
+============
 
-## 固定实现
+Linux Kernel 的审查、修订与后续生产统一遵守
+``project/LINUX_KERNEL_CONTRACT.rst``。``project/`` 中其他通用学习设计文件与该合同
+冲突时，以本文件和该合同为准。需要改变合同必须由用户明确决定，并同步长期决策。
 
-```text
-SeaBIOS commit    = c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
-QEMU commit       = a759542a2c62f0fd3b65f5a66ad9868201014669
-GNU GRUB release  = 2.14
-GRUB commit       = d38d6a1a9b79427848976f53d474392cd29c2a71
-GRUB target       = i386-pc
-Linux release     = 7.2-rc1
-Linux repository  = gregkh/linux
-Linux commit      = 7404ce51637231382873d0b55edabc2f3b841a9d
-partition table   = MBR
-first partition   = LBA 2048, ext4
-storage           = q35 ICH9 AHCI SATA port 0
-```
+当前模式
+========
 
-## 已完成TCP/IPv4最终清理
+当前模式、已验证范围、下一批次和是否允许生产新章，只从 ``project/STATE.rst`` 读取。
 
-```text
-TW timer expiration on CPU0
-→ TIMER_SOFTIRQ invokes tw_timer_handler
-→ inet_twsk_kill removes TW from ehash
-→ inet_twsk_bind_unhash removes bind and bind2 identities
-→ tw_refcnt 3→2→1→0
-→ inet_twsk_free returns lightweight TW to twsk_slab
+在回溯审查模式中：
 
-close(6) listener identity teardown
-→ file_close_fd clears fdtable.fd[6] and the open bit
-→ fput_close_sync enters __fput synchronously
-→ sock_close → inet_release → tcp_close(L,0)
-→ tcp_set_state unhashes L while old state is TCP_LISTEN
-→ L leaves exact-address lhash2 and publishes TCP_CLOSE
-→ explicit SOCK_BINDPORT_LOCK keeps port 28080 bound until destroy
-→ inet_csk_listen_stop finishes empty request/accept queues
+* 从第001章开始按编号顺序审查；
+* 每批通常三章；
+* 审查与修复在同一批完成；
+* 不得跳过未验证章节；
+* 不得继续第193章之后的新主线；
+* “正文已经存在”不等于“技术内容已经验证”。
 
-listener protocol and object teardown
-→ adjudge_to_death orphans L
-→ inet_csk_destroy_sock enters tcp_v4_destroy_sock
-→ inet_put_port removes bind, bind2 and inet_num 28080
-→ final socket reference schedules __sk_destruct through SOCK_RCU_FREE
-→ sockfs/VFS release makes F6, LS and I6 unreachable
-→ close(6) returns 0 without waiting for the RCU grace period
-→ later RCU callback reclaims L storage
-```
+固定实现
+========
 
-## 当前精确状态
+::
 
-```text
-system_state                 = SYSTEM_RUNNING
-current executor             = parent
-CPU/mode                     = CPU0, x86-64 CPL 3
-last syscall                 = close(6)
-last return                  = 0
-listener close schedule count = 0
+   SeaBIOS commit    = c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
+   QEMU commit       = a759542a2c62f0fd3b65f5a66ad9868201014669
+   GNU GRUB release  = 2.14
+   GRUB commit       = d38d6a1a9b79427848976f53d474392cd29c2a71
+   GRUB target       = i386-pc
+   Linux release     = 7.2-rc1
+   Linux repository  = gregkh/linux
+   Linux commit      = 7404ce51637231382873d0b55edabc2f3b841a9d
+   partition table   = MBR
+   first partition   = LBA 2048, ext4
+   storage           = q35 ICH9 AHCI SATA port 0
 
-server/client/accepted fd    = 6/7/8 all closed
-listener L                   = TCP_CLOSE / orphan / unhashed
-L lhash2                     = removed
-L bind/bind2                 = removed
-L inet_num                   = 0
-L storage                    = reclaimed after SOCK_RCU_FREE grace period
+项目内源码缓存位于 ``.sources/``，整个目录由 ``.gitignore`` 排除。缓存只用于本地
+检索，正文事实仍必须绑定上面的仓库与提交。使用缓存前先核对 ``git rev-parse HEAD``；
+缺少哪个仓库时按当前批次增量下载，不为未来章节预读全部源码。
 
-full client C/server H       = gone
-request R/TIME_WAIT TW       = gone
-client/server old ports      = 40000/28080 no longer owned
-TCP queues/timers/skbs       = empty / none / none
-packet/softirq backlog       = empty
+每批事务
+========
 
-completed mainlines          = 19 of 43
-remaining mainlines          = 24
-next mainline                = UDP/IPv4
-next entry                   = socket(AF_INET,SOCK_DGRAM|SOCK_CLOEXEC,IPPROTO_UDP)
-```
+#. 确认分支是 ``main``，工作树没有与当前任务无关的改动。
+#. 只读取当前三章、上一章结束边界、下一章入口和必要固定源码。
+#. 先建立源码证据和状态连续性，再修改正文。
+#. 逐章完成事实、叙事、边界和资料检查；不确定的结论必须查清或阻塞，不能补写。
+#. 运行 ``tools/check-linux-kernel-track.sh <审查到的最高章号>``。
+#. 写当前批次审计报告，并更新审计索引、 ``project/STATE.rst`` 和必要manifest字段。
+#. 复核完整diff，确保没有越过本批范围或改动用户无关内容。
+#. 将本批正文、审计记录和接续状态作为一个原子提交直接提交到 ``main``，随后推送
+   ``origin/main``。检查失败或存在未解决技术问题时不得提交为完成。
 
-## 必须保持的技术边界
+正文固定格式
+============
 
-1. TW timer在TIMER_SOFTIRQ执行，ehash、bind、timer三份引用按3→2→1→0释放。
-2. ``inet_twsk_kill`` 先撤销ehash，再撤销bind/bind2，最后放timer引用。
-3. client端口40000不再被旧TW占用，不代表下一次分配必然选中40000。
-4. close(6)先撤销fdtable slot和open位；旧close-on-exec位可留到fd重用时覆盖。
-5. 最后F6引用通过 ``fput_close_sync`` 同步进入socket release。
-6. listener close不发送FIN/RST，不创建TIME_WAIT，也不等待网络确认。
-7. ``tcp_set_state`` 在发布TCP_CLOSE前按旧TCP_LISTEN状态从lhash2 unhash。
-8. 显式bind设置 ``SOCK_BINDPORT_LOCK``，端口28080不会在tcp_set_state提前释放。
-9. 空request/accept/Fast Open队列仍经过 ``inet_csk_listen_stop``。
-10. ``tcp_v4_destroy_sock`` 通过 ``inet_put_port`` 最终撤销bind、bind2和inet_num。
-11. lhash2身份撤销与bind端口撤销是前后两个不同边界。
-12. listener的 ``SOCK_RCU_FREE`` 只延后存储回收，不延后端口释放或可达性终止。
-13. ``close(6)=0`` 不等待RCU grace period。
-14. sockfs inode内嵌LS；VFS对象生命期与L的协议RCU回收是两套机制。
-15. TCP/IPv4主线完成后，fd 6/7/8、C/H/R/TW/L及旧端口身份均不可达。
-16. 总目标固定为完成43条Linux Kernel源码主线；当前19条完成、剩余24条。
-17. 43是主线盘点，不是章节总数；章节仍按源码边界自然增长。
-18. 章节格式以第176—178章为准：连续正文，章末依次为本章结束状态、关键边界、下一入口、资料。
+正文按源码时间线连续展开。每段交代与当前判断相关的执行者、CPU/mode、关键对象、
+锁或引用、状态变化和下一入口。篇幅服从源码边界，不设字数目标，也不以压缩篇幅为
+进度指标。
 
-## 下一建议场景
+章末依次使用：
 
-```text
-mainline 20: UDP/IPv4
-→ socket(AF_INET,SOCK_DGRAM|SOCK_CLOEXEC,IPPROTO_UDP)
-→ reserve lowest available fd 6
-→ sock_alloc creates sockfs socket/inode
-→ inet_create selects udp_prot and initializes inet_sock
-→ sock_alloc_file builds blocking close-on-exec file
-→ fd_install publishes datagram fd 6
-→ continue with explicit loopback bind, route and UDP datagram delivery
-```
+#. ``本章结束状态``；
+#. ``关键边界``；
+#. ``下一入口``；
+#. ``资料``。
 
-开始前固定UDP socket创建时尚未bind、尚未进入UDP hash的状态，以及fd reservation、sockfs对象、协议socket和失败回滚的顺序。
+资料必须链接到固定提交；关键结论优先使用精确行锚点。文件级链接不能替代正文中的
+源码推理。章节格式的叙事基准是第176—178章，但它们在轮到自身审查前也不自动视为
+技术正确。
 
-## 连续叙事与流程
+跨对话边界
+============
 
-每段交代当前执行者、CPU mode、关键对象、锁/引用、状态变化与下一入口。章节格式以第176—178章为基准：正文沿时间线连续展开，章末使用条目式“本章结束状态”，再写“关键边界”“下一入口”，资料统一放在最后；不使用单独“固定源码依据”章节或大块状态表代替正文。继续时读取`AGENTS.md`、`project/STATE.rst`、目录、最近章节和manifest；每批固定写三章并同步五份接续文件，直接提交`main`。
+``AGENTS.md`` 和生产合同是稳定文件，不按批次复制当前调用链。动态状态只写入
+``project/STATE.rst``；详细证据只写入本批审计报告与对应正文。每批完成后结束当前
+任务，下一对话重新从上述接入顺序开始，以此限制上下文增长和质量漂移。

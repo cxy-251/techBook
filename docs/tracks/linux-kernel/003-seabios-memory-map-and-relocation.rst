@@ -14,8 +14,11 @@
 
 ::
 
-   repository: coreboot/seabios
-   commit: c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
+   SeaBIOS repository: coreboot/seabios
+   SeaBIOS commit: c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
+   SeaBIOS target: QEMU, CONFIG_RELOCATE_INIT=y
+   QEMU repository: qemu/qemu
+   QEMU commit: a759542a2c62f0fd3b65f5a66ad9868201014669
 
 故事从 ``handle_post()`` 的第一条调用开始，结束在一次性初始化代码完成重定位，重定位后的
 ``maininit()`` 开始执行。
@@ -544,8 +547,8 @@ maininit 的函数指针也要跟着移动
 执行重定位后的一次性初始化代码。原先传统 BIOS 区中对应的空间以后可以让给运行时固件、Option ROM 和
 其他兼容数据。
 
-第三章结束时的机器状态
---------------------
+本章结束状态
+------------
 
 控制权目前走过：
 
@@ -571,7 +574,8 @@ maininit 的函数指针也要跟着移动
 * 当前 CPU：BSP；
 * CPU 模式：32 位保护模式；
 * 分页：关闭；
-* 当前栈：仍位于低端地址 ``0x7000``；
+* 当前栈：仍使用栈顶初始化为 ``0x7000`` 的早期低端栈；经过多层C调用后，当前
+  ``ESP`` 位于该栈顶以下，本章不固定其精确值；
 * BIOS 低地址映射：shadow RAM，可写；
 * E820：已经形成初始内存地图；
 * 临时内存分配区：已经建立；
@@ -579,19 +583,41 @@ maininit 的函数指针也要跟着移动
 * GRUB：尚未被搜索；
 * Linux：尚未装入内存。
 
-下一段控制流从 ``maininit()`` 开始。它将初始化 SeaBIOS 内部接口、IVT、BDA、EBDA、平台设备和计时
-设施，随后才逐步获得访问磁盘、键盘、显示设备和其他启动资源的能力。
+关键边界
+--------
+
+#. ``make_bios_writable()`` 改变的是q35 PAM控制的低地址shadow映射；辅助函数从
+   高地址固件副本执行，避免在切换自身取指来源时失去当前代码。
+#. ``HaveRunPost=1`` 表示POST已经开始，不表示POST完成；完成值2要到后续prepareboot阶段发布。
+#. 固定QEMU的 ``etc/e820`` 同时包含RAM和保留项；只有找不到该文件时SeaBIOS才回退
+   CMOS容量路径。
+#. E820先于 ``malloc_preinit()``，因为临时区和永久高端区必须从已分类的RAM范围建立。
+#. ``ZoneTmpHigh`` 与 ``ZoneHigh`` 生命期不同；后者会以 ``E820_RESERVED`` 从普通RAM中扣除。
+#. 本章固定默认 ``CONFIG_RELOCATE_INIT=y``；若关闭该配置， ``reloc_preinit()`` 会直接
+   调用原位置函数，不能沿用本章的复制与重定位叙事。
+#. ``0x7000`` 是早期栈顶初值，不是进入 ``maininit()`` 后仍保持不变的当前 ``ESP``。
+#. ``reloc_preinit()`` 要求目标函数不返回；控制权进入重定位后的 ``maininit()`` 后
+   不回到原 ``dopost()`` 调用点继续执行。
+
+下一入口
+--------
+
+从重定位后的 ``src/post.c:maininit()`` 开始。它先运行 ``interface_init()``，修正搬迁后
+的分配器指针并初始化固件接口，再进入IVT、BDA、EBDA和平台设备初始化。
 
 资料
 ----
 
-* `SeaBIOS src/post.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/post.c>`_；
-* `SeaBIOS src/fw/shadow.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/shadow.c>`_；
-* `SeaBIOS src/fw/paravirt.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/paravirt.c>`_；
+* `SeaBIOS src/post.c：reloc_preinit与POST入口 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/post.c#L242-L336>`_；
+* `SeaBIOS src/fw/shadow.c：q35 PAM与高地址复制 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/shadow.c#L20-L146>`_；
+* `SeaBIOS src/fw/paravirt.c：QEMU检测与E820入口 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/paravirt.c#L189-L258>`_；
+* `SeaBIOS src/fw/paravirt.c：早期etc/e820读取 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/paravirt.c#L729-L794>`_；
 * `SeaBIOS src/fw/xen.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/xen.c>`_；
-* `SeaBIOS src/malloc.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/malloc.c>`_；
+* `SeaBIOS src/malloc.c：早期分配区 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/malloc.c#L408-L456>`_；
 * `SeaBIOS src/output.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/output.c>`_；
 * `SeaBIOS src/hw/serialio.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/serialio.c>`_；
 * `SeaBIOS Linking overview <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/docs/Linking_overview.md>`_；
 * `SeaBIOS Memory model <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/docs/Memory_Model.md>`_；
-* `SeaBIOS execution and code flow <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/docs/Execution_and_code_flow.md>`_。
+* `SeaBIOS execution and code flow <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/docs/Execution_and_code_flow.md>`_；
+* `QEMU hw/i386/e820_memory_layout.c：etc/e820包含RAM与保留项 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/e820_memory_layout.c#L13-L37>`_；
+* `QEMU hw/i386/fw_cfg.c：发布etc/e820 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/fw_cfg.c#L53-L60>`_。
