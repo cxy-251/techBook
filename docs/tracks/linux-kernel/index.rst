@@ -54,6 +54,13 @@ Linux Kernel
    → full C becomes a lightweight TW with FIN_WAIT2 substate
    → close(7) returns 0
    → read(8,buf,1) consumes the FIN marker and returns EOF
+   → close(8) removes accepted fd and synchronously enters tcp_close
+   → H enters TCP_LAST_ACK and sends FIN S_ISN+1..S_ISN+2
+   → client lightweight TW validates the peer FIN
+   → TW advances into true TCP_TIME_WAIT and rearms 60-second timer
+   → per-CPU control socket sends final ACK S_ISN+2
+   → H drains the ACK, clears its FIN and enters TCP_CLOSE
+   → close(8) returns 0 and full H is destroyed
 
 完成范围
 --------
@@ -95,34 +102,34 @@ Linux Kernel
    LK-TCPACCEPT-179..LK-TCPACCEPT-181
    LK-TCPDATA-182..LK-TCPDATA-184
    LK-TCPCLOSE-185..LK-TCPCLOSE-187
+   LK-TCPPEERCLOSE-188..LK-TCPPEERCLOSE-190
 
 固定commit的 ``Makefile`` 标识为Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定commit为准。
 
 进度
 ----
 
-当前完成187章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
+当前完成190章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
 
 最新三章
 --------
 
-#. `第一百八十五章：close(7)怎样撤销client fd并发送FIN？ <185-close-removes-client-fd-and-sends-fin.rst>`_
-#. `第一百八十六章：client FIN怎样让server H进入TCP_CLOSE_WAIT？ <186-client-fin-moves-server-to-close-wait.rst>`_
-#. `第一百八十七章：FIN ACK怎样完成client关闭并让read返回EOF？ <187-fin-ack-completes-client-close-and-read-returns-eof.rst>`_
+#. `第一百八十八章：close(8)怎样撤销accepted fd并发送server FIN？ <188-close-accepted-fd-sends-server-fin.rst>`_
+#. `第一百八十九章：FIN_WAIT2 TW怎样接收server FIN并发送最终ACK？ <189-finwait2-timewait-socket-receives-server-fin.rst>`_
+#. `第一百九十章：最终ACK怎样结束H的LAST_ACK并让close(8)返回0？ <190-final-ack-destroys-last-ack-server-socket.rst>`_
 
 下一候选
 --------
 
 ::
 
-   close(8)
-   → fdtable removes accepted fd 8
-   → final __fput enters tcp_close(H,0)
-   → H enters TCP_LAST_ACK and sends FIN S_ISN+1..S_ISN+2
-   → loopback lookup finds TW with FIN_WAIT2 substate
-   → TW validates peer FIN, sends final ACK and enters true TIME_WAIT
-   → H consumes ACK and completes TCP_LAST_ACK teardown
-   → TW timer later releases the client tuple
+   TW timer expires after TCP_TIMEWAIT_LEN
+   → time-wait callback removes TW from timer schedule
+   → inet_twsk_kill removes ehash and bind identities
+   → final TW references drop and lightweight socket is freed
+   → close(6) removes listener fd
+   → TCP_LISTEN, lhash2 and bind identities are dismantled
+   → listener file/socket/sockfs objects finish teardown
 
 章节组织
 --------
