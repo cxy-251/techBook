@@ -41,15 +41,16 @@ LK-TCPACCEPT-179..LK-TCPACCEPT-181
 LK-TCPDATA-182..LK-TCPDATA-184
 LK-TCPCLOSE-185..LK-TCPCLOSE-187
 LK-TCPPEERCLOSE-188..LK-TCPPEERCLOSE-190
+LK-TCPCLEANUP-191..LK-TCPCLEANUP-193
 ```
 
 最新三章：
 
-- `LK-TCPPEERCLOSE-188`：close(8)怎样撤销accepted fd并发送server FIN？
-- `LK-TCPPEERCLOSE-189`：FIN_WAIT2 TW怎样接收server FIN并发送最终ACK？
-- `LK-TCPPEERCLOSE-190`：最终ACK怎样结束H的LAST_ACK并让close(8)返回0？
+- `LK-TCPCLEANUP-191`：TIME_WAIT timer怎样撤销最后的四元组并释放TW？
+- `LK-TCPCLEANUP-192`：close(6)怎样撤销listener fd并退出TCP_LISTEN？
+- `LK-TCPCLEANUP-193`：listener怎样释放bind端口与最后的sockfs对象？
 
-进度：当前完成190章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
+进度：当前完成193章。Linux Kernel目标是完成当前盘点的全部43条源码主线，现已完成19条、剩余24条；章节总数不预设，仍按源码边界自然分章。
 
 ## 固定实现
 
@@ -67,108 +68,99 @@ first partition   = LBA 2048, ext4
 storage           = q35 ICH9 AHCI SATA port 0
 ```
 
-## 已完成TCP/IPv4 peer close与四次挥手
+## 已完成TCP/IPv4最终清理
 
 ```text
-close(8)
-→ file_close_fd clears fdtable.fd[8] and the open bit
+TW timer expiration on CPU0
+→ TIMER_SOFTIRQ invokes tw_timer_handler
+→ inet_twsk_kill removes TW from ehash
+→ inet_twsk_bind_unhash removes bind and bind2 identities
+→ tw_refcnt 3→2→1→0
+→ inet_twsk_free returns lightweight TW to twsk_slab
+
+close(6) listener identity teardown
+→ file_close_fd clears fdtable.fd[6] and the open bit
 → fput_close_sync enters __fput synchronously
-→ sock_close → inet_release → tcp_close(H,0)
-→ empty receive queue selects normal FIN close
-→ H changes TCP_CLOSE_WAIT → TCP_LAST_ACK
-→ HFIN seq S_ISN+1..S_ISN+2 traverses IPv4 output and lo
+→ sock_close → inet_release → tcp_close(L,0)
+→ tcp_set_state unhashes L while old state is TCP_LISTEN
+→ L leaves exact-address lhash2 and publishes TCP_CLOSE
+→ explicit SOCK_BINDPORT_LOCK keeps port 28080 bound until destroy
+→ inet_csk_listen_stop finishes empty request/accept queues
 
-client lightweight TW
-→ client-direction lookup finds TW, not full C
-→ tw_substate TCP_FIN_WAIT2 validates the exact peer FIN
-→ tw_rcv_nxt advances S_ISN+1→S_ISN+2
-→ tw_substate becomes true TCP_TIME_WAIT
-→ TW timer is rearmed for 60 seconds
-→ per-CPU control socket sends TACK ack S_ISN+2
-
-server final ACK completion
-→ parent still owns H, so TACK enters H.sk_backlog
-→ __tcp_close orphans H and __release_sock drains TACK
-→ H.snd_una becomes S_ISN+2; original HFIN leaves retransmission tree
-→ TCP_LAST_ACK sees snd_una==write_seq and calls tcp_done
-→ H enters TCP_CLOSE and full server child is destroyed
-→ F8/AS/I8 finish their final lifecycle
-→ close(8) returns 0 without scheduling
+listener protocol and object teardown
+→ adjudge_to_death orphans L
+→ inet_csk_destroy_sock enters tcp_v4_destroy_sock
+→ inet_put_port removes bind, bind2 and inet_num 28080
+→ final socket reference schedules __sk_destruct through SOCK_RCU_FREE
+→ sockfs/VFS release makes F6, LS and I6 unreachable
+→ close(6) returns 0 without waiting for the RCU grace period
+→ later RCU callback reclaims L storage
 ```
 
 ## 当前精确状态
 
 ```text
-system_state              = SYSTEM_RUNNING
-current executor          = parent
-CPU/mode                  = CPU0, x86-64 CPL 3
-last syscall              = close(8)
-last return               = 0
-close schedule count      = 0
+system_state                 = SYSTEM_RUNNING
+current executor             = parent
+CPU/mode                     = CPU0, x86-64 CPL 3
+last syscall                 = close(6)
+last return                  = 0
+listener close schedule count = 0
 
-server fd 6               = open, blocking, close-on-exec
-listener L                = TCP_LISTEN
-L local endpoint          = 127.0.0.1:28080
-L bind/lhash2             = active
-L accept queue            = empty
-L sk_ack_backlog          = 0
+server/client/accepted fd    = 6/7/8 all closed
+listener L                   = TCP_CLOSE / orphan / unhashed
+L lhash2                     = removed
+L bind/bind2                 = removed
+L inet_num                   = 0
+L storage                    = reclaimed after SOCK_RCU_FREE grace period
 
-client fd 7               = closed
-full client C             = TCP_CLOSE / teardown complete
-client tuple identity     = lightweight TW
-TW tuple                  = 127.0.0.1:40000 → 127.0.0.1:28080
-TW state/substate         = TCP_TIME_WAIT / TCP_TIME_WAIT
-TW rcv_nxt/snd_nxt        = S_ISN+2 / C_ISN+7
-TW timer                  = rearmed 60 seconds after peer FIN
+full client C/server H       = gone
+request R/TIME_WAIT TW       = gone
+client/server old ports      = 40000/28080 no longer owned
+TCP queues/timers/skbs       = empty / none / none
+packet/softirq backlog       = empty
 
-accepted fd 8             = closed
-accepted F8/AS/I8         = final lifecycle complete
-server child H            = TCP_CLOSE / destroyed
-H established ehash      = removed
-H retrans/backlog/timers  = empty / empty / cleared
-
-packet/softirq backlog    = empty
-next entry                = TW timer expiration after TCP_TIMEWAIT_LEN
+completed mainlines          = 19 of 43
+remaining mainlines          = 24
+next mainline                = UDP/IPv4
+next entry                   = socket(AF_INET,SOCK_DGRAM|SOCK_CLOEXEC,IPPROTO_UDP)
 ```
 
 ## 必须保持的技术边界
 
-1. fd 8先从fdtable撤销并清除open位；最后一个F8引用再同步进入__fput。
-2. H receive queue为空，timeout=0仍选择正常FIN而不是RST。
-3. TCP_CLOSE_WAIT在应用close时进入TCP_LAST_ACK。
-4. HFIN是零payload，仍占用 ``[S_ISN+1,S_ISN+2)`` 一个sequence number。
-5. HFIN original留在H retransmission tree，发送clone经IPv4与lo。
-6. client方向lookup命中轻量TW，不恢复完整C。
-7. tw_state标识轻量对象类型；tw_substate在收到HFIN前仍是TCP_FIN_WAIT2。
-8. 合法HFIN必须在window内并精确覆盖tw_rcv_nxt到tw_rcv_nxt+1。
-9. FIN_WAIT2轻量对象不接受新的应用payload。
-10. HFIN把tw_rcv_nxt推进到S_ISN+2并把substate改为真正TCP_TIME_WAIT。
-11. 真正TIME_WAIT timer从peer FIN到达时重新计60秒。
-12. TACK由per-CPU control socket发送，seq C_ISN+7、ack S_ISN+2。
-13. parent持有H时，TACK先进入H.sk_backlog。
-14. sock_orphan切断H与AS；__release_sock仍能在process context消费TACK。
-15. TACK把H.snd_una推进到S_ISN+2并清除original HFIN。
-16. TCP_LAST_ACK以snd_una==write_seq确认本地FIN完成。
-17. tcp_done把H推进到TCP_CLOSE并清除ehash身份与传输timer。
-18. passive closer H不创建server TW；client TW承担TIME_WAIT。
-19. close(8)=0不等待TW timer，F8/AS/I8与完整H已经结束生命周期。
-20. listener L与H独立；H销毁不影响fd 6继续listen。
-21. 章节格式以第176—178章为准：连续正文，章末依次为本章结束状态、关键边界、下一入口、资料。
+1. TW timer在TIMER_SOFTIRQ执行，ehash、bind、timer三份引用按3→2→1→0释放。
+2. ``inet_twsk_kill`` 先撤销ehash，再撤销bind/bind2，最后放timer引用。
+3. client端口40000不再被旧TW占用，不代表下一次分配必然选中40000。
+4. close(6)先撤销fdtable slot和open位；旧close-on-exec位可留到fd重用时覆盖。
+5. 最后F6引用通过 ``fput_close_sync`` 同步进入socket release。
+6. listener close不发送FIN/RST，不创建TIME_WAIT，也不等待网络确认。
+7. ``tcp_set_state`` 在发布TCP_CLOSE前按旧TCP_LISTEN状态从lhash2 unhash。
+8. 显式bind设置 ``SOCK_BINDPORT_LOCK``，端口28080不会在tcp_set_state提前释放。
+9. 空request/accept/Fast Open队列仍经过 ``inet_csk_listen_stop``。
+10. ``tcp_v4_destroy_sock`` 通过 ``inet_put_port`` 最终撤销bind、bind2和inet_num。
+11. lhash2身份撤销与bind端口撤销是前后两个不同边界。
+12. listener的 ``SOCK_RCU_FREE`` 只延后存储回收，不延后端口释放或可达性终止。
+13. ``close(6)=0`` 不等待RCU grace period。
+14. sockfs inode内嵌LS；VFS对象生命期与L的协议RCU回收是两套机制。
+15. TCP/IPv4主线完成后，fd 6/7/8、C/H/R/TW/L及旧端口身份均不可达。
+16. 总目标固定为完成43条Linux Kernel源码主线；当前19条完成、剩余24条。
+17. 43是主线盘点，不是章节总数；章节仍按源码边界自然增长。
+18. 章节格式以第176—178章为准：连续正文，章末依次为本章结束状态、关键边界、下一入口、资料。
 
 ## 下一建议场景
 
 ```text
-TW timer expires after TCP_TIMEWAIT_LEN
-→ tw_timer_handler removes TW from death-row schedule
-→ inet_twsk_kill removes ehash and bind identities
-→ timer/hash references drop and TW is freed
-→ client tuple becomes fully reusable
-→ close(6) removes listener fd
-→ TCP_LISTEN and lhash2/bind identities are dismantled
-→ listener file/socket/sockfs objects finish teardown
+mainline 20: UDP/IPv4
+→ socket(AF_INET,SOCK_DGRAM|SOCK_CLOEXEC,IPPROTO_UDP)
+→ reserve lowest available fd 6
+→ sock_alloc creates sockfs socket/inode
+→ inet_create selects udp_prot and initializes inet_sock
+→ sock_alloc_file builds blocking close-on-exec file
+→ fd_install publishes datagram fd 6
+→ continue with explicit loopback bind, route and UDP datagram delivery
 ```
 
-开始前固定TW timer callback、ehash/bind拆除引用顺序，以及close(6)的listener queue、lhash2、bind与sockfs销毁边界。
+开始前固定UDP socket创建时尚未bind、尚未进入UDP hash的状态，以及fd reservation、sockfs对象、协议socket和失败回滚的顺序。
 
 ## 连续叙事与流程
 
