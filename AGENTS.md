@@ -40,15 +40,16 @@ LK-TCPHANDSHAKE-176..LK-TCPHANDSHAKE-178
 LK-TCPACCEPT-179..LK-TCPACCEPT-181
 LK-TCPDATA-182..LK-TCPDATA-184
 LK-TCPCLOSE-185..LK-TCPCLOSE-187
+LK-TCPPEERCLOSE-188..LK-TCPPEERCLOSE-190
 ```
 
 最新三章：
 
-- `LK-TCPCLOSE-185`：close(7)怎样撤销client fd并发送FIN？
-- `LK-TCPCLOSE-186`：client FIN怎样让server H进入TCP_CLOSE_WAIT？
-- `LK-TCPCLOSE-187`：FIN ACK怎样完成client关闭并让read返回EOF？
+- `LK-TCPPEERCLOSE-188`：close(8)怎样撤销accepted fd并发送server FIN？
+- `LK-TCPPEERCLOSE-189`：FIN_WAIT2 TW怎样接收server FIN并发送最终ACK？
+- `LK-TCPPEERCLOSE-190`：最终ACK怎样结束H的LAST_ACK并让close(8)返回0？
 
-进度：当前完成187章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
+进度：当前完成190章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
 
 ## 固定实现
 
@@ -66,38 +67,33 @@ first partition   = LBA 2048, ext4
 storage           = q35 ICH9 AHCI SATA port 0
 ```
 
-## 已完成TCP/IPv4 client active close与server EOF
+## 已完成TCP/IPv4 peer close与四次挥手
 
 ```text
-close(7)
-→ file_close_fd clears fdtable.fd[7] and the open bit
+close(8)
+→ file_close_fd clears fdtable.fd[8] and the open bit
 → fput_close_sync enters __fput synchronously
-→ sock_close → inet_release → tcp_close(C,0)
-→ empty client receive queue selects normal FIN close
-→ C enters TCP_FIN_WAIT1
-→ FIN seq C_ISN+6..C_ISN+7 traverses IPv4 output and lo
+→ sock_close → inet_release → tcp_close(H,0)
+→ empty receive queue selects normal FIN close
+→ H changes TCP_CLOSE_WAIT → TCP_LAST_ACK
+→ HFIN seq S_ISN+1..S_ISN+2 traverses IPv4 output and lo
 
-server child H
-→ in-order FIN enters H receive queue
-→ H.rcv_nxt C_ISN+6→C_ISN+7
-→ RCV_SHUTDOWN and SOCK_DONE become visible
-→ H enters TCP_CLOSE_WAIT and fd8 becomes EOF-readable
-→ remaining quickack sends ACK C_ISN+7
+client lightweight TW
+→ client-direction lookup finds TW, not full C
+→ tw_substate TCP_FIN_WAIT2 validates the exact peer FIN
+→ tw_rcv_nxt advances S_ISN+1→S_ISN+2
+→ tw_substate becomes true TCP_TIME_WAIT
+→ TW timer is rearmed for 60 seconds
+→ per-CPU control socket sends TACK ack S_ISN+2
 
-client FIN completion
-→ parent still owns C, so FIN ACK enters C.sk_backlog
-→ __tcp_close orphans C and __release_sock drains ACK
-→ C.snd_una becomes C_ISN+7; original FIN leaves retransmission tree
-→ C enters TCP_FIN_WAIT2
-→ default 60-second boundary converts full C to TW
-→ TW.tw_state=TCP_TIME_WAIT, TW.tw_substate=TCP_FIN_WAIT2
-→ close(7) returns 0
-
-accepted fd 8
-→ read(8,buf,1) finds zero-payload FIN skb
-→ H.copied_seq C_ISN+6→C_ISN+7
-→ remove FIN skb without copying a user byte
-→ read returns 0 EOF without scheduling
+server final ACK completion
+→ parent still owns H, so TACK enters H.sk_backlog
+→ __tcp_close orphans H and __release_sock drains TACK
+→ H.snd_una becomes S_ISN+2; original HFIN leaves retransmission tree
+→ TCP_LAST_ACK sees snd_una==write_seq and calls tcp_done
+→ H enters TCP_CLOSE and full server child is destroyed
+→ F8/AS/I8 finish their final lifecycle
+→ close(8) returns 0 without scheduling
 ```
 
 ## 当前精确状态
@@ -106,9 +102,9 @@ accepted fd 8
 system_state              = SYSTEM_RUNNING
 current executor          = parent
 CPU/mode                  = CPU0, x86-64 CPL 3
-last syscall              = read(8,buf,1)
-last return               = 0 (EOF)
-close/read schedule count = 0 / 0
+last syscall              = close(8)
+last return               = 0
+close schedule count      = 0
 
 server fd 6               = open, blocking, close-on-exec
 listener L                = TCP_LISTEN
@@ -121,64 +117,58 @@ client fd 7               = closed
 full client C             = TCP_CLOSE / teardown complete
 client tuple identity     = lightweight TW
 TW tuple                  = 127.0.0.1:40000 → 127.0.0.1:28080
-TW state/substate         = TCP_TIME_WAIT / TCP_FIN_WAIT2
-TW rcv_nxt/snd_nxt        = S_ISN+1 / C_ISN+7
-TW timer                  = 60 seconds, waiting for peer FIN
+TW state/substate         = TCP_TIME_WAIT / TCP_TIME_WAIT
+TW rcv_nxt/snd_nxt        = S_ISN+2 / C_ISN+7
+TW timer                  = rearmed 60 seconds after peer FIN
 
-accepted fd 8             = open, blocking, close-on-exec
-accepted socket AS        = SS_CONNECTED
-server child H            = TCP_CLOSE_WAIT
-H tuple                   = 127.0.0.1:28080 ← 127.0.0.1:40000
-H shutdown/SOCK_DONE      = RCV_SHUTDOWN / true
-H rcv_nxt/copied_seq      = C_ISN+7 / C_ISN+7
-H snd_una/snd_nxt         = S_ISN+1 / S_ISN+1
-H receive queue           = empty
-H readable bytes          = 0
-H ehash/bind ownership    = active
+accepted fd 8             = closed
+accepted F8/AS/I8         = final lifecycle complete
+server child H            = TCP_CLOSE / destroyed
+H established ehash      = removed
+H retrans/backlog/timers  = empty / empty / cleared
 
 packet/softirq backlog    = empty
-next entry                = close(8)
+next entry                = TW timer expiration after TCP_TIMEWAIT_LEN
 ```
 
 ## 必须保持的技术边界
 
-1. fd 7先从fdtable撤销并清除open位；旧close-on-exec位允许保留到fd重用时覆盖。
-2. 没有SO_LINGER，inet_release使用timeout=0；不linger等待不等于发送RST。
-3. client receive queue为空，所以descriptor close不进入unread-data active reset。
-4. TCP_ESTABLISHED通过tcp_close_state进入TCP_FIN_WAIT1并发送FIN。
-5. FIN是零payload，仍占用 ``[C_ISN+6,C_ISN+7)`` 一个sequence number。
-6. CFIN original留在retransmission tree，发送clone通过IPv4 output与lo。
-7. H按反向四元组由established ehash命中，不经过listener。
-8. H收到FIN时rcv_nxt推进，copied_seq在read消费FIN前保持C_ISN+6。
-9. tcp_fin设置RCV_SHUTDOWN、SOCK_DONE并把H推进到TCP_CLOSE_WAIT。
-10. EOF readiness不要求存在用户payload；FIN标记已经让blocking read可立即返回。
-11. H的quickack计数仍为正，所以FIN ACK在本场景立即发送。
-12. parent持有C时，反向ACK先进入C.sk_backlog。
-13. sock_orphan切断C与CS；__release_sock仍能在process context消费已有ACK。
-14. ACK把snd_una推进到C_ISN+7并清除original FIN，C进入TCP_FIN_WAIT2。
-15. 默认tcp_fin_timeout与TCP_TIMEWAIT_LEN均为60秒，严格大于比较为false。
-16. tcp_time_wait建立tw_state=TCP_TIME_WAIT、tw_substate=TCP_FIN_WAIT2的轻量TW。
-17. TW接管client四元组，完整C进入TCP_CLOSE并结束生命周期。
-18. close(7)=0不表示peer已经close，也不表示TW已经消失。
-19. read(8)消费FIN时只推进copied_seq，不复制用户字节，返回0 EOF。
-20. H保持TCP_CLOSE_WAIT；只有后续close(8)才发送server FIN。
+1. fd 8先从fdtable撤销并清除open位；最后一个F8引用再同步进入__fput。
+2. H receive queue为空，timeout=0仍选择正常FIN而不是RST。
+3. TCP_CLOSE_WAIT在应用close时进入TCP_LAST_ACK。
+4. HFIN是零payload，仍占用 ``[S_ISN+1,S_ISN+2)`` 一个sequence number。
+5. HFIN original留在H retransmission tree，发送clone经IPv4与lo。
+6. client方向lookup命中轻量TW，不恢复完整C。
+7. tw_state标识轻量对象类型；tw_substate在收到HFIN前仍是TCP_FIN_WAIT2。
+8. 合法HFIN必须在window内并精确覆盖tw_rcv_nxt到tw_rcv_nxt+1。
+9. FIN_WAIT2轻量对象不接受新的应用payload。
+10. HFIN把tw_rcv_nxt推进到S_ISN+2并把substate改为真正TCP_TIME_WAIT。
+11. 真正TIME_WAIT timer从peer FIN到达时重新计60秒。
+12. TACK由per-CPU control socket发送，seq C_ISN+7、ack S_ISN+2。
+13. parent持有H时，TACK先进入H.sk_backlog。
+14. sock_orphan切断H与AS；__release_sock仍能在process context消费TACK。
+15. TACK把H.snd_una推进到S_ISN+2并清除original HFIN。
+16. TCP_LAST_ACK以snd_una==write_seq确认本地FIN完成。
+17. tcp_done把H推进到TCP_CLOSE并清除ehash身份与传输timer。
+18. passive closer H不创建server TW；client TW承担TIME_WAIT。
+19. close(8)=0不等待TW timer，F8/AS/I8与完整H已经结束生命周期。
+20. listener L与H独立；H销毁不影响fd 6继续listen。
 21. 章节格式以第176—178章为准：连续正文，章末依次为本章结束状态、关键边界、下一入口、资料。
 
 ## 下一建议场景
 
 ```text
-close(8)
-→ fdtable撤销accepted fd 8
-→ final __fput enters tcp_close(H,0)
-→ H changes TCP_CLOSE_WAIT → TCP_LAST_ACK
-→ server FIN seq S_ISN+1..S_ISN+2 traverses lo
-→ client lookup finds TW with tw_substate TCP_FIN_WAIT2
-→ TW validates FIN, sends final ACK and enters true TCP_TIME_WAIT
-→ H receives ACK and completes TCP_LAST_ACK → TCP_CLOSE
-→ later TW timer releases the client tuple
+TW timer expires after TCP_TIMEWAIT_LEN
+→ tw_timer_handler removes TW from death-row schedule
+→ inet_twsk_kill removes ehash and bind identities
+→ timer/hash references drop and TW is freed
+→ client tuple becomes fully reusable
+→ close(6) removes listener fd
+→ TCP_LISTEN and lhash2/bind identities are dismantled
+→ listener file/socket/sockfs objects finish teardown
 ```
 
-开始前固定close(8)到同步__fput、H FIN sequence、TW FIN_WAIT2处理、最终ACK、H LAST_ACK销毁以及TW timer边界。
+开始前固定TW timer callback、ehash/bind拆除引用顺序，以及close(6)的listener queue、lhash2、bind与sockfs销毁边界。
 
 ## 连续叙事与流程
 
