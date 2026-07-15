@@ -40,6 +40,12 @@ Linux Kernel
    → copy peer 127.0.0.1:40000 to userspace
    → publish F8 with fd_install
    → accept4 returns 8
+   → client write queues one ACK|PSH hello segment
+   → IPv4 output and lo deliver five bytes to server child H
+   → H receive queue gains hello and accepted fd 8 becomes readable
+   → first-data quickack returns ACK C_ISN+6
+   → release_sock(C) drains ACK and write returns 5
+   → read(8,buf,5) consumes hello without sleeping
 
 完成范围
 --------
@@ -79,37 +85,37 @@ Linux Kernel
    LK-TCPCONNECT-173..LK-TCPCONNECT-175
    LK-TCPHANDSHAKE-176..LK-TCPHANDSHAKE-178
    LK-TCPACCEPT-179..LK-TCPACCEPT-181
+   LK-TCPDATA-182..LK-TCPDATA-184
 
 固定commit的 ``Makefile`` 标识为Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定commit为准。
 
 进度
 ----
 
-当前完成181章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
+当前完成184章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
 
 最新三章
 --------
 
-#. `第一百七十九章：accept4怎样先预留fd 8并创建尚未graft的socket与file？ <179-accept4-reserves-fd-and-builds-unattached-socket-file.rst>`_
-#. `第一百八十章：inet_csk_accept怎样取出R/H并把child graft到accepted socket？ <180-inet-csk-accept-removes-child-and-grafts-socket.rst>`_
-#. `第一百八十一章：peer地址怎样写回用户态并最终发布close-on-exec fd 8？ <181-peer-address-copy-publishes-accepted-fd.rst>`_
+#. `第一百八十二章：write(7,"hello",5)怎样把5字节排入client TCP write queue？ <182-client-write-queues-five-byte-tcp-segment.rst>`_
+#. `第一百八十三章：PSH|ACK数据段怎样通过lo进入H并触发立即ACK？ <183-loopback-data-reaches-server-child-and-triggers-ack.rst>`_
+#. `第一百八十四章：write怎样在ACK处理后返回5，并让read(8)取出hello？ <184-client-write-returns-and-server-read-consumes-hello.rst>`_
 
 下一候选
 --------
 
 ::
 
-   write(7,"hello",5)
-   → tcp_sendmsg copies bytes into client write queue
-   → tcp_push / tcp_write_xmit builds a data segment
-   → IPv4 output sends it through lo
-   → established ehash finds server child H
-   → tcp_rcv_established queues five bytes on H
-   → accepted fd 8 becomes readable
-   → write returns 5
-   → read(8,buf,5) copies hello
+   close(7)
+   → fdtable removes client fd 7
+   → final __fput enters TCP active close
+   → C sends FIN through lo
+   → H enters TCP_CLOSE_WAIT and accepted fd 8 observes EOF
+   → FIN ACK advances C toward TCP_FIN_WAIT2
+   → later close(8) finishes peer close and TIME_WAIT transition
 
 章节组织
 --------
 
 正文沿时间线连续讲述。故事达到适合一次阅读的篇幅，并遇到执行者、CPU mode、运行环境或控制入口交接时换章。每章末尾记录当前执行者、当前状态和下一入口；不要在一批的最后一章重复概括前两章。
+
