@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第一百八十八章：close(8)怎样撤销accepted fd并发送server FIN？ <docs/tracks/linux-kernel/188-close-accepted-fd-sends-server-fin.rst>`_
-* `第一百八十九章：FIN_WAIT2 TW怎样接收server FIN并发送最终ACK？ <docs/tracks/linux-kernel/189-finwait2-timewait-socket-receives-server-fin.rst>`_
-* `第一百九十章：最终ACK怎样结束H的LAST_ACK并让close(8)返回0？ <docs/tracks/linux-kernel/190-final-ack-destroys-last-ack-server-socket.rst>`_
+* `第一百九十一章：TIME_WAIT timer怎样撤销最后的四元组并释放TW？ <docs/tracks/linux-kernel/191-timewait-timer-kills-lightweight-socket.rst>`_
+* `第一百九十二章：close(6)怎样撤销listener fd并退出TCP_LISTEN？ <docs/tracks/linux-kernel/192-close-listener-removes-fd-and-listen-hash.rst>`_
+* `第一百九十三章：listener怎样释放bind端口与最后的sockfs对象？ <docs/tracks/linux-kernel/193-listener-final-teardown-completes-tcp-scenario.rst>`_
 
 固定来源
 --------
@@ -60,27 +60,31 @@ techBook
    LK-TCPDATA-182..LK-TCPDATA-184
    LK-TCPCLOSE-185..LK-TCPCLOSE-187
    LK-TCPPEERCLOSE-188..LK-TCPPEERCLOSE-190
+   LK-TCPCLEANUP-191..LK-TCPCLEANUP-193
+
+完成目标
+--------
+
+当前盘点的Linux Kernel源码主线共43条，目标是全部完成。现在已完成19条、剩余24条；
+章节总数不固定，仍按源码控制流与自然叙事边界分章。
 
 最新场景
 --------
 
 ::
 
-   close(8)
-   → file_close_fd先撤销fd 8
-   → fput_close_sync同步进入socket release与tcp_close
-   → H进入TCP_LAST_ACK并发送HFIN S_ISN+1..S_ISN+2
-   → IPv4 output与lo把HFIN送到client轻量TW
-   → TW以FIN_WAIT2子状态验证精确peer FIN
-   → tw_rcv_nxt推进到S_ISN+2，substate进入真正TCP_TIME_WAIT
-   → TIME_WAIT timer从HFIN到达时重新计60秒
-   → per-CPU control socket发送TACK ack S_ISN+2
-   → TACK先进入仍被parent持有的H.sk_backlog
-   → orphan close处理TACK并清除HFIN original
-   → H完成TCP_LAST_ACK到TCP_CLOSE并销毁
-   → close(8)返回0
+   TIME_WAIT timer到期
+   → tw_timer_handler进入inet_twsk_kill
+   → TW依次离开ehash、bind/bind2并释放timer引用
+   → tw_refcnt从3降到0，轻量TW释放
+   → close(6)先从fdtable撤销listener fd
+   → tcp_set_state按旧TCP_LISTEN状态把L移出lhash2
+   → 显式bind让28080保留到tcp_v4_destroy_sock
+   → inet_put_port撤销bind、bind2与inet_num
+   → close(6)返回0，不等待SOCK_RCU_FREE grace period
+   → RCU callback最终回收L存储
 
-最终fd 6保持open，fd 7/8已关闭。完整C与H都已销毁；client四元组仅由真正 ``TCP_TIME_WAIT`` 的轻量TW维护。下一入口是TW的60秒timer到期，随后再关闭listener fd 6。
+TCP/IPv4 loopback主线已经完成。fd 6/7/8全部关闭，C、H、R、TW与L均不可达，端口40000与28080不再由旧场景占用。下一入口是UDP/IPv4的 ``socket(AF_INET,SOCK_DGRAM|SOCK_CLOEXEC,IPPROTO_UDP)``。
 
 开始工作
 --------
