@@ -61,6 +61,14 @@ Linux Kernel
    → per-CPU control socket sends final ACK S_ISN+2
    → H drains the ACK, clears its FIN and enters TCP_CLOSE
    → close(8) returns 0 and full H is destroyed
+   → TIME_WAIT timer expires and inet_twsk_kill removes TW from ehash
+   → bind/bind2 and timer references drop; TW is freed
+   → close(6) removes listener fd and synchronously enters tcp_close
+   → L leaves exact-address lhash2 and publishes TCP_CLOSE
+   → empty listener queues stop without packets or scheduling
+   → tcp_v4_destroy_sock releases explicit bind port 28080
+   → close(6) returns 0 before the SOCK_RCU_FREE grace period
+   → RCU callback reclaims L storage; TCP/IPv4 loopback mainline completes
 
 完成范围
 --------
@@ -103,33 +111,35 @@ Linux Kernel
    LK-TCPDATA-182..LK-TCPDATA-184
    LK-TCPCLOSE-185..LK-TCPCLOSE-187
    LK-TCPPEERCLOSE-188..LK-TCPPEERCLOSE-190
+   LK-TCPCLEANUP-191..LK-TCPCLEANUP-193
 
 固定commit的 ``Makefile`` 标识为Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定commit为准。
 
 进度
 ----
 
-当前完成190章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
+当前完成193章。Linux Kernel目标是完成当前盘点的全部43条源码主线；现已完成19条、剩余24条。43不是固定章节总数，章节仍按源码主线与必要场景自然推进。
 
 最新三章
 --------
 
-#. `第一百八十八章：close(8)怎样撤销accepted fd并发送server FIN？ <188-close-accepted-fd-sends-server-fin.rst>`_
-#. `第一百八十九章：FIN_WAIT2 TW怎样接收server FIN并发送最终ACK？ <189-finwait2-timewait-socket-receives-server-fin.rst>`_
-#. `第一百九十章：最终ACK怎样结束H的LAST_ACK并让close(8)返回0？ <190-final-ack-destroys-last-ack-server-socket.rst>`_
+#. `第一百九十一章：TIME_WAIT timer怎样撤销最后的四元组并释放TW？ <191-timewait-timer-kills-lightweight-socket.rst>`_
+#. `第一百九十二章：close(6)怎样撤销listener fd并退出TCP_LISTEN？ <192-close-listener-removes-fd-and-listen-hash.rst>`_
+#. `第一百九十三章：listener怎样释放bind端口与最后的sockfs对象？ <193-listener-final-teardown-completes-tcp-scenario.rst>`_
 
 下一候选
 --------
 
 ::
 
-   TW timer expires after TCP_TIMEWAIT_LEN
-   → time-wait callback removes TW from timer schedule
-   → inet_twsk_kill removes ehash and bind identities
-   → final TW references drop and lightweight socket is freed
-   → close(6) removes listener fd
-   → TCP_LISTEN, lhash2 and bind identities are dismantled
-   → listener file/socket/sockfs objects finish teardown
+   mainline 20: UDP/IPv4
+   → socket(AF_INET,SOCK_DGRAM|SOCK_CLOEXEC,IPPROTO_UDP)
+   → reserve lowest available fd 6
+   → allocate sockfs socket/inode and UDP inet_sock
+   → select udp_prot without bind or UDP hash membership yet
+   → build blocking close-on-exec socket file
+   → fd_install publishes datagram fd 6
+   → continue with loopback bind, route and datagram delivery
 
 章节组织
 --------
