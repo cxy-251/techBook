@@ -46,6 +46,14 @@ Linux Kernel
    → first-data quickack returns ACK C_ISN+6
    → release_sock(C) drains ACK and write returns 5
    → read(8,buf,5) consumes hello without sleeping
+   → close(7) removes client fd and synchronously enters tcp_close
+   → C sends FIN C_ISN+6..C_ISN+7 through IPv4 and lo
+   → H queues the FIN marker and enters TCP_CLOSE_WAIT
+   → RCV_SHUTDOWN and SOCK_DONE expose EOF on accepted fd 8
+   → FIN ACK advances C into TCP_FIN_WAIT2
+   → full C becomes a lightweight TW with FIN_WAIT2 substate
+   → close(7) returns 0
+   → read(8,buf,1) consumes the FIN marker and returns EOF
 
 完成范围
 --------
@@ -86,36 +94,37 @@ Linux Kernel
    LK-TCPHANDSHAKE-176..LK-TCPHANDSHAKE-178
    LK-TCPACCEPT-179..LK-TCPACCEPT-181
    LK-TCPDATA-182..LK-TCPDATA-184
+   LK-TCPCLOSE-185..LK-TCPCLOSE-187
 
 固定commit的 ``Makefile`` 标识为Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定commit为准。
 
 进度
 ----
 
-当前完成184章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
+当前完成187章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
 
 最新三章
 --------
 
-#. `第一百八十二章：write(7,"hello",5)怎样把5字节排入client TCP write queue？ <182-client-write-queues-five-byte-tcp-segment.rst>`_
-#. `第一百八十三章：PSH|ACK数据段怎样通过lo进入H并触发立即ACK？ <183-loopback-data-reaches-server-child-and-triggers-ack.rst>`_
-#. `第一百八十四章：write怎样在ACK处理后返回5，并让read(8)取出hello？ <184-client-write-returns-and-server-read-consumes-hello.rst>`_
+#. `第一百八十五章：close(7)怎样撤销client fd并发送FIN？ <185-close-removes-client-fd-and-sends-fin.rst>`_
+#. `第一百八十六章：client FIN怎样让server H进入TCP_CLOSE_WAIT？ <186-client-fin-moves-server-to-close-wait.rst>`_
+#. `第一百八十七章：FIN ACK怎样完成client关闭并让read返回EOF？ <187-fin-ack-completes-client-close-and-read-returns-eof.rst>`_
 
 下一候选
 --------
 
 ::
 
-   close(7)
-   → fdtable removes client fd 7
-   → final __fput enters TCP active close
-   → C sends FIN through lo
-   → H enters TCP_CLOSE_WAIT and accepted fd 8 observes EOF
-   → FIN ACK advances C toward TCP_FIN_WAIT2
-   → later close(8) finishes peer close and TIME_WAIT transition
+   close(8)
+   → fdtable removes accepted fd 8
+   → final __fput enters tcp_close(H,0)
+   → H enters TCP_LAST_ACK and sends FIN S_ISN+1..S_ISN+2
+   → loopback lookup finds TW with FIN_WAIT2 substate
+   → TW validates peer FIN, sends final ACK and enters true TIME_WAIT
+   → H consumes ACK and completes TCP_LAST_ACK teardown
+   → TW timer later releases the client tuple
 
 章节组织
 --------
 
-正文沿时间线连续讲述。故事达到适合一次阅读的篇幅，并遇到执行者、CPU mode、运行环境或控制入口交接时换章。每章末尾记录当前执行者、当前状态和下一入口；不要在一批的最后一章重复概括前两章。
-
+正文沿时间线连续讲述。故事达到适合一次阅读的篇幅，并遇到执行者、CPU mode、运行环境或控制入口交接时换章。章节格式以第176—178章为准：章末依次使用条目式“本章结束状态”“关键边界”“下一入口”“资料”；不以大块状态表或单独“固定源码依据”代替连续正文。每章只记录自己的当前状态和下一入口；不要在一批的最后一章重复概括前两章。
