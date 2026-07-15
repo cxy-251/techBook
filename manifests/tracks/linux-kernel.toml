@@ -2,7 +2,7 @@ id = "linux-kernel"
 title = "Linux Kernel"
 language = "zh-CN"
 status = "writing"
-completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133; LK-EPOLL-134..LK-EPOLL-136; LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139; LK-SIGNALFD-140..LK-SIGNALFD-142; LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145; LK-TIMERFD-146..LK-TIMERFD-148; LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151; LK-PIDFD-152..LK-PIDFD-154; LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157; LK-INOTIFY-158..LK-INOTIFY-160; LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163; LK-UNIXSOCK-164..LK-UNIXSOCK-166; LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169; LK-TCPLISTEN-170..LK-TCPLISTEN-172; LK-TCPCONNECT-173..LK-TCPCONNECT-175; LK-TCPHANDSHAKE-176..LK-TCPHANDSHAKE-178"
+completed_range = "LK-BOOT-001..LK-BOOT-073; LK-READ-074..LK-READ-082; LK-WRITE-083..LK-WRITE-091; LK-FORK-092..LK-FORK-094; LK-COW-095..LK-COW-097; LK-EXEC-098..LK-EXEC-100; LK-EXIT-101..LK-EXIT-103; LK-OPEN-104..LK-OPEN-106; LK-DELALLOC-107..LK-DELALLOC-109; LK-UNLINK-110..LK-UNLINK-112; LK-SLEEP-113..LK-SLEEP-115; LK-SIGNAL-116..LK-SIGNAL-118; LK-PIPE-119..LK-PIPE-121; LK-PIPECLOSE-122..LK-PIPECLOSE-124; LK-FUTEX-125..LK-FUTEX-127; LK-EVENTFD-128..LK-EVENTFD-130; LK-EVENTFDCLOSE-131..LK-EVENTFDCLOSE-133; LK-EPOLL-134..LK-EPOLL-136; LK-EPOLLCLOSE-137..LK-EPOLLCLOSE-139; LK-SIGNALFD-140..LK-SIGNALFD-142; LK-SIGNALFDCLOSE-143..LK-SIGNALFDCLOSE-145; LK-TIMERFD-146..LK-TIMERFD-148; LK-TIMERFDCLOSE-149..LK-TIMERFDCLOSE-151; LK-PIDFD-152..LK-PIDFD-154; LK-PIDFDCLOSE-155..LK-PIDFDCLOSE-157; LK-INOTIFY-158..LK-INOTIFY-160; LK-INOTIFYCLOSE-161..LK-INOTIFYCLOSE-163; LK-UNIXSOCK-164..LK-UNIXSOCK-166; LK-UNIXSOCKCLOSE-167..LK-UNIXSOCKCLOSE-169; LK-TCPLISTEN-170..LK-TCPLISTEN-172; LK-TCPCONNECT-173..LK-TCPCONNECT-175; LK-TCPHANDSHAKE-176..LK-TCPHANDSHAKE-178; LK-TCPACCEPT-179..LK-TCPACCEPT-181"
 chapter_catalog = "docs/tracks/linux-kernel/index.rst"
 state_document = "project/STATE.rst"
 agent_handoff = "AGENTS.md"
@@ -77,7 +77,7 @@ chapter = [
   { id = "LK-SIGNALFD-140", title = "signalfd4() 怎样把阻塞信号变成可poll的fd并挂进epoll？", rst = "docs/tracks/linux-kernel/140-signalfd4-creates-pollable-signal-fd-and-epoll-registration.rst", status = "complete" },
   { id = "LK-SIGNALFD-141", title = "tgkill() 怎样让blocked SIGUSR1经signalfd callback唤醒epoll_wait？", rst = "docs/tracks/linux-kernel/141-tgkill-wakes-signalfd-epoll-waiter.rst", status = "complete" },
   { id = "LK-SIGNALFD-142", title = "parent怎样从epoll event进入signalfd read并取出128字节siginfo？", rst = "docs/tracks/linux-kernel/142-epoll-returns-signalfd-event-and-read-dequeues-siginfo.rst", status = "complete" },
-  { id = "LK-SIGNALFDCLOSE-143", title = "零超时epoll_wait() 怎样清理signalfd的stale-ready item？", rst = "docs/tracks/linux-kernel/143-zero-time-epoll-wait-removes-signalfd-stale-ready-item.rst", status = "complete" },
+  { id = "LK-SIGNALFDCLOSE-143", title = "零超时epoll_wait怎样清理signalfd的stale-ready item？", rst = "docs/tracks/linux-kernel/143-zero-time-epoll-wait-removes-signalfd-stale-ready-item.rst", status = "complete" },
   { id = "LK-SIGNALFDCLOSE-144", title = "EPOLL_CTL_DEL 怎样拆除signalfd callback与epitem？", rst = "docs/tracks/linux-kernel/144-epoll-del-detaches-signalfd-callback.rst", status = "complete" },
   { id = "LK-SIGNALFDCLOSE-145", title = "close() 怎样释放signalfd与eventpoll，却保留共享sighand wait queue？", rst = "docs/tracks/linux-kernel/145-final-close-frees-signalfd-and-eventpoll.rst", status = "complete" },
   { id = "LK-TIMERFD-146", title = "timerfd怎样建立一次性hrtimer并让parent阻塞在epoll_wait？", rst = "docs/tracks/linux-kernel/146-timerfd-creates-arms-and-registers-with-epoll.rst", status = "complete" },
@@ -112,7 +112,10 @@ chapter = [
   { id = "LK-TCPCONNECT-175", title = "listener怎样创建request_sock并把SYN-ACK排入client backlog？", rst = "docs/tracks/linux-kernel/175-listener-creates-request-and-queues-synack-to-client-backlog.rst", status = "complete" },
   { id = "LK-TCPHANDSHAKE-176", title = "release_sock怎样处理SYN-ACK并让client发送最终ACK？", rst = "docs/tracks/linux-kernel/176-release-sock-processes-synack-and-sends-final-ack.rst", status = "complete" },
   { id = "LK-TCPHANDSHAKE-177", title = "最终ACK怎样把request_sock替换成ESTABLISHED server child？", rst = "docs/tracks/linux-kernel/177-final-ack-replaces-request-with-established-server-child.rst", status = "complete" },
-  { id = "LK-TCPHANDSHAKE-178", title = "blocking connect为什么无需真正睡眠就返回0？", rst = "docs/tracks/linux-kernel/178-blocking-connect-skips-schedule-and-returns-zero.rst", status = "complete" }
+  { id = "LK-TCPHANDSHAKE-178", title = "blocking connect为什么无需真正睡眠就返回0？", rst = "docs/tracks/linux-kernel/178-blocking-connect-skips-schedule-and-returns-zero.rst", status = "complete" },
+  { id = "LK-TCPACCEPT-179", title = "accept4怎样先预留fd 8并创建尚未graft的socket与file？", rst = "docs/tracks/linux-kernel/179-accept4-reserves-fd-and-builds-unattached-socket-file.rst", status = "complete" },
+  { id = "LK-TCPACCEPT-180", title = "inet_csk_accept怎样取出R/H并把child graft到accepted socket？", rst = "docs/tracks/linux-kernel/180-inet-csk-accept-removes-child-and-grafts-socket.rst", status = "complete" },
+  { id = "LK-TCPACCEPT-181", title = "peer地址怎样写回用户态并最终发布close-on-exec fd 8？", rst = "docs/tracks/linux-kernel/181-peer-address-copy-publishes-accepted-fd.rst", status = "complete" }
 ]
 
 [origin]
@@ -219,19 +222,31 @@ queue_result = "request qlen/young becomes 0/0; R is reused as accept node with 
 wait_result = "CW.WQ_FLAG_WOKEN is already set; wait_woken skips schedule_timeout; CS becomes SS_CONNECTED"
 final_result = "fd6 remains listener; fd7 connected; H is established in accept queue without struct socket, file or fd; next entry is accept4 and fd8 publication"
 
+[completed_tcp_accept_scenario]
+name = "TCP IPv4 accept4 removes an established child, grafts it to sockfs objects and publishes fd 8"
+status = "complete"
+userspace_calls = "accept4(6,&peer,&peer_len,SOCK_CLOEXEC) returns 8"
+reservation_result = "FD_ADD reserves fd8 first; open and close-on-exec bits are set while fdtable.fd[8] remains NULL"
+allocation_result = "sock_alloc creates AS/I8 and sock_alloc_file creates blocking F8 before protocol accept"
+queue_result = "inet_csk_accept removes R/H; listener sk_ack_backlog becomes 0; R is released"
+graft_result = "sock_graft links H.sk_wq, H.sk_socket and AS.sk; AS becomes SS_CONNECTED"
+peer_result = "inet_getname and move_addr_to_user return AF_INET 127.0.0.1:40000 with length 16"
+publish_result = "fd_install publishes F8 at close-on-exec fd8; accepted file remains blocking"
+final_result = "fd6 listener, fd7 client and fd8 accepted socket remain open; C/H are TCP_ESTABLISHED; next entry is client write hello"
+
 [progress]
-completed_chapters = 178
+completed_chapters = 181
 total_chapters = "unfixed"
 remaining_chapters = "unknown"
 planning_rule = "follow source-reading scope and natural narrative closure"
 
 [current]
-last_complete = "LK-TCPHANDSHAKE-178"
-executor = "parent in x86-64 userspace after connect returned 0"
+last_complete = "LK-TCPACCEPT-181"
+executor = "parent in x86-64 userspace after accept4 returned 8"
 cpu_mode = "x86-64 CPL 3 on CPU0"
-current_task = "SCHED_NORMAL parent; TASK_RUNNING; connect wait did not schedule"
-next_entry = "accept4(6,user_addr,user_addrlen,SOCK_CLOEXEC)"
-next_action = "remove R/H from accept queue, graft H to a new socket, create sockfs file, publish fd 8 and copy peer address"
+current_task = "SCHED_NORMAL parent; TASK_RUNNING; accept did not schedule"
+next_entry = "write(7,\"hello\",5)"
+next_action = "copy five bytes into client TCP send queue, transmit through lo, queue them on H and expose readability on accepted fd8"
 
 [status_semantics]
 draft = "正文正在编写或事实链尚未核对完整"

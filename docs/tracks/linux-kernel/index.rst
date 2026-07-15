@@ -31,16 +31,15 @@ Linux Kernel
    → eventfd, signalfd, timerfd, pidfd and inotify eventpoll lifecycles complete
    → Unix stream socketpair data, half-close and final teardown complete
    → server fd 6 listens on 127.0.0.1:28080
-   → client fd 7 autobinds 127.0.0.1:40000 and sends SYN
-   → listener creates request R and sends SYN-ACK
-   → release_sock drains SYN-ACK from client backlog
-   → client enters TCP_ESTABLISHED and sends final ACK
-   → final ACK replaces R's ehash identity with server child H
-   → R becomes accept FIFO node and H enters TCP_ESTABLISHED
-   → wait_woken skips scheduling because WQ_FLAG_WOKEN is already set
-   → client socket API state becomes SS_CONNECTED
-   → connect returns 0
-   → server accept queue contains one unaccepted child
+   → client fd 7 completes loopback three-way handshake
+   → server child H enters accept queue without socket/file/fd
+   → accept4 reserves close-on-exec fd 8
+   → create accepted socket AS, sockfs inode I8 and blocking file F8
+   → remove R/H from accept queue; sk_ack_backlog becomes 0
+   → release accept node R and graft H to AS
+   → copy peer 127.0.0.1:40000 to userspace
+   → publish F8 with fd_install
+   → accept4 returns 8
 
 完成范围
 --------
@@ -79,35 +78,36 @@ Linux Kernel
    LK-TCPLISTEN-170..LK-TCPLISTEN-172
    LK-TCPCONNECT-173..LK-TCPCONNECT-175
    LK-TCPHANDSHAKE-176..LK-TCPHANDSHAKE-178
+   LK-TCPACCEPT-179..LK-TCPACCEPT-181
 
 固定commit的 ``Makefile`` 标识为Linux 7.2-rc1。旧章节中出现的 ``Linux 6.12.95`` 是历史版本标签错误；技术事实与链接一直以固定commit为准。
 
 进度
 ----
 
-当前完成178章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
+当前完成181章。项目没有预设固定总章数；后续按源码主线与必要场景自然推进，不计算剩余章数。
 
 最新三章
 --------
 
-#. `第一百七十六章：release_sock怎样处理SYN-ACK并让client发送最终ACK？ <176-release-sock-processes-synack-and-sends-final-ack.rst>`_
-#. `第一百七十七章：最终ACK怎样把request_sock替换成ESTABLISHED server child？ <177-final-ack-replaces-request-with-established-server-child.rst>`_
-#. `第一百七十八章：blocking connect为什么无需真正睡眠就返回0？ <178-blocking-connect-skips-schedule-and-returns-zero.rst>`_
+#. `第一百七十九章：accept4怎样先预留fd 8并创建尚未graft的socket与file？ <179-accept4-reserves-fd-and-builds-unattached-socket-file.rst>`_
+#. `第一百八十章：inet_csk_accept怎样取出R/H并把child graft到accepted socket？ <180-inet-csk-accept-removes-child-and-grafts-socket.rst>`_
+#. `第一百八十一章：peer地址怎样写回用户态并最终发布close-on-exec fd 8？ <181-peer-address-copy-publishes-accepted-fd.rst>`_
 
 下一候选
 --------
 
 ::
 
-   accept4(6,...,SOCK_CLOEXEC)
-   → remove R/H from listener accept queue
-   → sk_ack_backlog 1 → 0
-   → allocate accepted struct socket
-   → graft H to accepted socket
-   → create sockfs file
-   → publish close-on-exec fd 8
-   → copy peer sockaddr
-   → return 8
+   write(7,"hello",5)
+   → tcp_sendmsg copies bytes into client write queue
+   → tcp_push / tcp_write_xmit builds a data segment
+   → IPv4 output sends it through lo
+   → established ehash finds server child H
+   → tcp_rcv_established queues five bytes on H
+   → accepted fd 8 becomes readable
+   → write returns 5
+   → read(8,buf,5) copies hello
 
 章节组织
 --------
