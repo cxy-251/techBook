@@ -1,4 +1,4 @@
-第六章：SeaBIOS 怎样建立中断基础并启动内部线程？
+第六章：SeaBIOS 怎样建立中断基础并准备内部线程？
 =================================================
 
 上一章结束时，SeaBIOS 已经建立了 BIOS 软件接口，控制流回到重定位后的：
@@ -45,8 +45,9 @@
    → thread_setup()
    → mathcp_setup()
 
-本章结束时，SeaBIOS 已经让传统 DMA 保持在安全状态，建立 8259A 中断路由，允许固件内部协作式线程运行，
-并装好旧式数学协处理器异常的兼容路径。下一段才进入 QEMU q35 专属的平台初始化。
+本章结束时，SeaBIOS 已经让传统 DMA 保持在安全状态，建立 8259A 中断路由，准备好
+固件内部协作式线程策略，并装好旧式数学协处理器异常的兼容路径。真正的设备线程要
+等后续代码调用 ``run_thread()`` 才会创建。下一段才进入 QEMU q35 专属的平台初始化。
 
 本章固定使用：
 
@@ -54,6 +55,11 @@
 
    repository: coreboot/seabios
    commit: c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
+
+当前路径使用该提交的默认QEMU配置： ``CONFIG_HARDWARE_IRQ=y``、
+``CONFIG_THREADS=y``、 ``CONFIG_RTC_TIMER=y``。本章仍只写
+``platform_hardware_setup()`` 的当前四个调用；默认配置允许的RTC辅助线程执行要到
+更晚的Option ROM阶段才可能开启。
 
 DMA 控制器为什么必须先复位
 -------------------------
@@ -79,9 +85,9 @@ DMA 是 Direct Memory Access，直接内存访问。设备使用 DMA 时，可�
       管理高编号的 16 位 DMA 通道
       其中一个通道用于级联第一片控制器
 
-SeaBIOS 还没有开始使用软盘等 DMA 设备，但固件不能假设控制器上电后的所有内部状态都符合自己需要。
-设备复位、虚拟机复位、固件重启和前一次启动残留，都可能让 DMA 请求、通道掩码或内部地址触发器处于不适合
-继续启动的状态。
+SeaBIOS 还没有开始使用软盘等 DMA 设备。这里的源码也不先读取寄存器来证明某个通道正在传输；
+它无条件重写控制器状态，使冷启动、固件重入等不同入口都在同一个边界继续。因而本章能从固定源码
+确认的是“SeaBIOS主动建立静止状态”，不能把它写成当前QEMU冷启动中必然先有一笔活动DMA被停止。
 
 如果 DMA 控制器仍然保留一个活动传输，后续内存被固件重新分配后，它可能继续向旧地址写入数据。CPU 不需要
 执行相应写指令，内存也会被改坏。因此 SeaBIOS 在建立更复杂的平台状态前，先让两片控制器回到已知状态。
@@ -373,8 +379,10 @@ PIC 和 IVT 已经可以接住受控中断后，SeaBIOS 调用：
 call16_override 为什么选择 big real 环境
 ---------------------------------------
 
-``call16_override(1)`` 清理 SeaBIOS 保存的 16/32 位转换状态，并把后续 16 位调用的默认方式设为
-``C16_BIG``。
+``call16_override(1)`` 先检查当前 ``ESP`` 没有高于早期栈顶 ``0x7000``，然后清零
+``Call16Data``，把 ``method`` 设为 ``C16_BIG``，并把保存的A20状态设为1。它为下一次
+16/32位转换准备一份无调用者残留的初始记录；当前调用本身没有切换CPU模式，也没有
+立即进入16位代码。
 
 SeaBIOS 经常需要从当前 32 位平坦 C 代码进入 16 位 BIOS 入口，再返回 32 位代码。普通实模式段寄存器只能自然
 描述 64 KiB 段；固件内部的一些转换代码还需要保持更大的地址访问能力。
@@ -385,7 +393,8 @@ SeaBIOS 经常需要从当前 32 位平坦 C 代码进入 16 位 BIOS 入口，�
 这不是新的正式 CPU 模式，也不是 32 位保护模式仍然开启。它利用的是段寄存器可见值与隐藏描述符缓存之间的
 差异，让 16 位代码在特定固件路径中访问超过普通 64 KiB 段界限的地址。
 
-``call16_override(1)`` 还记录 A20 应保持开启，避免 1 MiB 以上地址在 16 位兼容调用中发生回绕。
+保存值 ``a20=1`` 使对应转换返回路径不把A20恢复成关闭状态，避免1 MiB以上地址在
+16位兼容调用中发生回绕。
 
 SeaBIOS 的协作式线程怎样切换
 ---------------------------
@@ -528,8 +537,8 @@ slave 收到 EOI 还不够；master 的级联 IRQ2 也必须结束，否则后�
 现代操作系统通常使用 CPU 的原生浮点异常机制和自己的异常向量，不依赖这条 BIOS IRQ13 路径。SeaBIOS 仍然
 建立它，是为了保证传统启动软件和旧式运行环境看到完整的 PC BIOS 接口。
 
-第六章结束时的机器状态
---------------------
+本章结束状态
+------------
 
 控制权目前走过：
 
@@ -546,7 +555,7 @@ slave 收到 EOI 还不够；master 的级联 IRQ2 也必须结束，否则后�
    → IRQ8-15 映射到 0x70-0x77
    → 默认屏蔽全部设备 IRQ，只保留级联 IRQ2
    → thread_setup()
-   → 允许受控中断窗口
+   → 允许后续受控中断窗口
    → 建立 big-real 兼容调用状态
    → 读取 SeaBIOS 内部线程策略
    → mathcp_setup()
@@ -559,12 +568,16 @@ slave 收到 EOI 还不够；master 的级联 IRQ2 也必须结束，否则后�
 * 当前 CPU：BSP；
 * CPU 模式：32 位保护模式；
 * 分页：关闭；
+* NMI：仍由CMOS index bit 7屏蔽；
+* 当前 ``ESP``：不高于早期栈顶 ``0x7000``，精确值不固定；
 * 传统 DMA：控制器已复位，普通通道未开始传输；
 * PIC：两片 8259A 已初始化；
 * PIC 向量布局：已采用传统 BIOS ``0x08`` 和 ``0x70`` 基址；
 * 当前解除屏蔽的关键线路：master IRQ2 级联线和 slave IRQ13；
 * 可屏蔽中断：只会在 SeaBIOS 受控位置短暂开放；
-* SeaBIOS 内部线程机制：已经初始化，设备线程尚未创建；
+* ``Call16Data``：已清零并预置 ``C16_BIG``、A20保持开启；
+* SeaBIOS 内部线程机制：策略已经初始化，链表中仍只有 ``MainThread``；
+* 设备线程栈与RTC辅助执行：均尚未创建或开启；
 * 数学协处理器 BIOS 标志和 IRQ13 兼容入口：已经建立；
 * PCI 枚举：尚未执行；
 * SMM、MTRR 和其他处理器启动：尚未建立；
@@ -574,22 +587,44 @@ slave 收到 EOI 还不够；master 的级联 IRQ2 也必须结束，否则后�
 * GRUB：尚未被搜索；
 * Linux：尚未装入内存。
 
-下一条控制流仍在 ``platform_hardware_setup()`` 内：
+关键边界
+--------
+
+#. ``dma_setup()`` 无条件重写DMA控制器；它证明本章结束时的状态，不证明调用前必然
+   存在活动传输。
+#. PIC向量基址、PIC掩码和IVT入口是三组不同状态； ``pic_setup()`` 先建立前两组，
+   ``mathcp_setup()`` 再解除IRQ13并覆盖对应 ``INT 75h`` 项。
+#. 初始化PIC不等于长期执行 ``sti``； ``CanInterrupt=1`` 只允许 ``check_irqs()``
+   在受控位置短暂开放后重新关闭IF。
+#. ``call16_override(1)`` 只准备下一次转换所用的 ``Call16Data``，本身没有把当前CPU
+   切到big real环境。
+#. 即使 ``CONFIG_THREADS=y`` 且运行时 ``ThreadControl`` 非零，也只是允许后续
+   ``run_thread()`` 创建线程；本章没有调用它，不能提前产生设备线程或4 KiB线程栈。
+#. ``ThreadControl=2`` 的RTC辅助执行还要求之后的时钟初始化与
+   ``start_preempt()``，当前尚未发生。
+
+下一入口
+--------
+
+控制流仍在 ``platform_hardware_setup()``，下一条真实调用是：
 
 .. code-block:: c
 
    qemu_platform_setup();
 
-下一段将进入 QEMU q35 专属的平台层，从 PCI 配置空间和设备枚举开始，继续建立 SMM、MTRR、SMP 和固件表。
+第007章从 ``qemu_platform_setup()`` 的普通QEMU分支继续； ``kvmclock_init()`` 先按
+KVM检测结果选择是否返回，随后 ``pci_setup()`` 才开始当前q35的PCI主线。
 
 资料
 ----
 
-* `SeaBIOS src/post.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/post.c>`_；
-* `SeaBIOS src/hw/dma.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/dma.c>`_；
-* `SeaBIOS src/hw/pic.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pic.c>`_；
-* `SeaBIOS src/hw/pic.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pic.h>`_；
-* `SeaBIOS src/stacks.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/stacks.c>`_；
-* `SeaBIOS src/stacks.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/stacks.h>`_；
-* `SeaBIOS src/misc.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/misc.c>`_；
+* `SeaBIOS src/post.c：platform_hardware_setup顺序 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/post.c#L137-L158>`_；
+* `SeaBIOS src/hw/dma.c：8237复位与级联 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/dma.c#L56-L67>`_；
+* `SeaBIOS src/hw/pic.c：8259A初始化与enable_hwirq <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pic.c#L40-L80>`_；
+* `SeaBIOS src/hw/pic.h：向量、掩码与EOI <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pic.h#L29-L51>`_；
+* `SeaBIOS src/stacks.c：Call16Data与call16_override <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/stacks.c#L22-L130>`_；
+* `SeaBIOS src/stacks.c：线程初始化、创建与受控中断窗口 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/stacks.c#L466-L621>`_；
+* `SeaBIOS src/misc.c：mathcp与INT 75h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/misc.c#L40-L85>`_；
+* `SeaBIOS src/Kconfig：线程默认配置 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/Kconfig#L35-L53>`_；
+* `SeaBIOS src/Kconfig：RTC与硬件中断默认配置 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/Kconfig#L326-L345>`_；
 * `SeaBIOS execution and code flow <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/docs/Execution_and_code_flow.md>`_。

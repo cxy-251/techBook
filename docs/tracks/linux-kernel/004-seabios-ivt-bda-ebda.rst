@@ -7,8 +7,9 @@
 
    post.c:maininit()
 
-CPU 仍然处于 32 位保护模式，分页关闭，主栈仍位于 ``0x7000``。E820 初始内存地图已经存在，SeaBIOS
-也已经有了临时内存分配区。
+CPU 仍然处于 32 位保护模式，分页关闭。早期栈顶最初设为 ``0x7000``；经过前一章的多层C调用后，
+当前 ``ESP`` 位于该地址以下，不能再把 ``0x7000`` 当成当前栈指针。E820 初始内存地图已经存在，
+SeaBIOS 也已经有了临时内存分配区。
 
 现在它要做的不是马上找磁盘，而是先建立传统 BIOS 软件约定的低端内存结构。后面的键盘、显示、磁盘、
 定时器和启动服务，都需要通过这些结构交换状态。
@@ -19,6 +20,11 @@ CPU 仍然处于 32 位保护模式，分页关闭，主栈仍位于 ``0x7000``�
 
    repository: coreboot/seabios
    commit: c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
+
+当前路径使用该提交的默认QEMU配置： ``CONFIG_MALLOC_UPPERMEMORY=y``、
+``CONFIG_ENTRY_EXTRASTACK=y``，而 ``CONFIG_COREBOOT_FLASH=n``、
+``CONFIG_MULTIBOOT=n``。这些配置决定EBDA位置、额外栈入口以及两条非QEMU文件来源
+是否执行。
 
 maininit 先建立内部接口
 ---------------------
@@ -185,6 +191,14 @@ SeaBIOS 把每个条目登记成内部 ``romfile``。后面的初始化代码可
 
 这一步让固件不用理解 QEMU 命令行和宿主机对象，只需要按约定名称读取平台交给它的数据。
 
+每个目录项都要先从临时区分配一个 ``qemu_romfile_s``。正常成功路径会把条目接入
+romfile链表；若某一项分配失败，源码只发出警告并跳过该项，不会回滚此前已经登记的
+条目，也不会把整个POST倒回上一阶段。
+
+``interface_init()`` 随后仍会调用 ``coreboot_cbfs_init()`` 和 ``multiboot_init()``。
+在当前默认QEMU构建中，前者因 ``CONFIG_COREBOOT_FLASH=n`` 返回，后者因
+``CONFIG_MULTIBOOT=n`` 返回；两者都没有创建romfile，控制流继续进入 ``ivt_init()``。
+
 IVT 为什么必须放在物理地址 0
 --------------------------
 
@@ -269,6 +283,8 @@ BIOS 软件服务也通过 IVT 暴露
 
 .. code-block:: c
 
+   SET_IVT(0x02, FUNC16(entry_02));
+   SET_IVT(0x05, FUNC16(entry_05));
    SET_IVT(0x10, FUNC16(entry_10));
    SET_IVT(0x11, FUNC16(entry_11));
    SET_IVT(0x12, FUNC16(entry_12));
@@ -280,6 +296,7 @@ BIOS 软件服务也通过 IVT 暴露
    SET_IVT(0x18, FUNC16(entry_18));
    SET_IVT(0x19, FUNC16(entry_19_official));
    SET_IVT(0x1a, FUNC16(entry_1a_official));
+   SET_IVT(0x40, FUNC16(entry_40));
 
 其中后面最重要的几个入口包括：
 
@@ -299,6 +316,14 @@ BIOS 软件服务也通过 IVT 暴露
    启动引导入口。SeaBIOS 完成 POST 后会通过它开始寻找启动设备。
 
 目前这些向量只是指向 SeaBIOS 的入口代码。入口背后的设备状态和服务数据还会在后续初始化中继续建立。
+
+保留给用户的向量不是默认iret入口
+----------------------------------
+
+安装具体入口之后， ``ivt_init()`` 还把 ``INT 60h`` 到 ``INT 66h`` 逐项写成
+``0000:0000``，并把兼容软件使用的 ``INT 79h`` 同样清零。它们不是继续保留为
+``entry_iret_official``：零向量明确表示当前没有由SeaBIOS安装的处理入口。因而“先把
+256项全部设为默认返回”只是初始化中间态，不是函数返回时每个未列出向量的最终值。
 
 BDA 固定在 0x400
 ---------------
@@ -351,7 +376,7 @@ EBDA 为什么通常位于 0x9fc00
 
 BDA 容量固定，后来增加的 BIOS 状态需要另一块区域，于是产生了 Extended BIOS Data Area，也就是 EBDA。
 
-当前 SeaBIOS 定义：
+当前默认QEMU配置使用 ``CONFIG_MALLOC_UPPERMEMORY=y``。SeaBIOS 定义：
 
 .. code-block:: c
 
@@ -363,7 +388,7 @@ BDA 容量固定，后来增加的 BIOS 状态需要另一块区域，于是产�
    #define EBDA_SEGMENT_START \
        FLATPTR_TO_SEG(BUILD_LOWRAM_END - EBDA_SIZE_START*1024)
 
-当前 ``extended_bios_data_area_s`` 的初始结构小于 1 KiB，向上取整后：
+当前 ``extended_bios_data_area_s`` 的结构结束偏移为 ``0x121``，小于 1 KiB，向上取整后：
 
 ::
 
@@ -388,6 +413,10 @@ BDA 容量固定，后来增加的 BIOS 状态需要另一块区域，于是产�
    SET_BDA(ebda_seg, 0x9fc0);
 
 写进 BDA。以后软件先从 BDA 读取 EBDA 段地址，再定位 EBDA；它不应该把 ``0x9fc00`` 永久写死。
+
+这里的精确地址依赖当前默认配置。若关闭 ``CONFIG_MALLOC_UPPERMEMORY``，
+``bda_init()`` 会改从 ``final_varlow_start`` 向下对齐并预留EBDA，不能继续沿用
+``0x9fc00``；本章不把那个替代构建写成当前执行路径。
 
 为什么传统可用内存会变成 639 KiB
 ------------------------------
@@ -473,10 +502,12 @@ SeaBIOS 因此准备一块自己的低端额外栈。需要时，16 位入口会
 #. 在自己的栈上运行处理逻辑；
 #. 返回前恢复调用者的栈。
 
-``StackPos`` 指向数组尾部，是因为 x86 栈从高地址向低地址增长。
+``StackPos`` 保存的是数组尾部相对 ``zonelow_base`` 的段内偏移，因为16位入口会把
+``SS`` 切换到 ``SEG_LOW``。它选择数组尾部，是因为 x86 栈从高地址向低地址增长。
+当前只是准备这块栈；尚未发生一次外部BIOS中断调用。
 
-第四章结束时的机器状态
---------------------
+本章结束状态
+------------
 
 控制权目前走过：
 
@@ -490,9 +521,11 @@ SeaBIOS 因此准备一块自己的低端额外栈。需要时，16 位入口会
    → 建立 ZoneLow 和 ZoneFSeg
    → qemu_cfg_init()
    → 注册 fw_cfg 文件目录
+   → coreboot CBFS / multiboot路径按当前配置返回
    → ivt_init()
    → 在 0x00000 建立 256 项 IVT
    → 安装默认硬件与 BIOS 软件中断入口
+   → 清零 INT 60h—66h 与 INT 79h
    → bda_init()
    → 在 0x00400 建立 BDA
    → 在 0x9fc00 建立 1 KiB EBDA
@@ -505,7 +538,10 @@ SeaBIOS 因此准备一块自己的低端额外栈。需要时，16 位入口会
 * 当前 CPU：BSP；
 * CPU 模式：32 位保护模式；
 * 分页：关闭；
+* 可屏蔽中断：关闭；NMI仍由CMOS index bit 7屏蔽；
+* 当前 ``ESP``：低于初始栈顶 ``0x7000``，精确值不固定；
 * IVT：已经建立；
+* IVT保留项： ``INT 60h—66h`` 与 ``INT 79h`` 为 ``0000:0000``；
 * BDA：已经建立，后续设备字段仍待填充；
 * EBDA：位于 ``0x9fc00``，初始大小 1 KiB；
 * traditional memory size：639 KiB；
@@ -514,17 +550,35 @@ SeaBIOS 因此准备一块自己的低端额外栈。需要时，16 位入口会
 * GRUB：尚未被搜索；
 * Linux：尚未装入内存。
 
-下一条控制流仍在 ``interface_init()`` 内，进入 ``boot_init()``。SeaBIOS 接下来会建立启动设备列表、
-BIOS32 服务目录、PMM、PnP BIOS、键盘和鼠标软件接口。
+关键边界
+--------
+
+#. ``0x7000`` 是早期栈顶初值，不是本章结束时的精确 ``ESP``；
+   ``call16_override()`` 后续只要求当前栈没有越过该上界。
+#. 当前默认QEMU构建只由 ``qemu_cfg_init()`` 添加fw_cfg romfile；coreboot CBFS和
+   multiboot模块路径在各自配置检查处返回。
+#. IVT先统一填默认入口，再覆盖硬件和软件服务，最后明确清零用户保留向量；不能把
+   第一轮循环当成最终IVT全貌。
+#. ``0x9fc00``、639 KiB和1 KiB EBDA是默认 ``CONFIG_MALLOC_UPPERMEMORY=y``
+   路径的共同结果，不是所有SeaBIOS构建的不变量。
+#. BDA的传统内存计数与E820保留项从两个接口描述同一块EBDA所有权；两者不能只更新一个。
+#. ``ExtraStack`` 和 ``StackPos`` 此时只建立可用空间，没有证明任何外部中断已经发生。
+
+下一入口
+--------
+
+控制流仍在 ``interface_init()``，下一条真实调用是 ``boot_init()``。此时具体启动设备、
+PCI枚举、PS/2控制器和磁盘控制器都尚未初始化。
 
 资料
 ----
 
-* `SeaBIOS src/post.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/post.c>`_；
-* `SeaBIOS src/malloc.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/malloc.c>`_；
-* `SeaBIOS src/fw/paravirt.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/paravirt.c>`_；
-* `SeaBIOS src/biosvar.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/biosvar.h>`_；
-* `SeaBIOS src/std/bda.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/std/bda.h>`_；
-* `SeaBIOS src/stacks.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/stacks.c>`_；
+* `SeaBIOS src/post.c：IVT、BDA与interface_init <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/post.c#L32-L123>`_；
+* `SeaBIOS src/malloc.c：重定位后malloc修复 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/malloc.c#L493-L528>`_；
+* `SeaBIOS src/fw/paravirt.c：fw_cfg romfile目录 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/paravirt.c#L691-L727>`_；
+* `SeaBIOS src/biosvar.h：IVT和EBDA定位 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/biosvar.h#L15-L71>`_；
+* `SeaBIOS src/std/bda.h：BDA与EBDA布局 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/std/bda.h#L13-L159>`_；
+* `SeaBIOS src/stacks.c：ExtraStack切换 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/stacks.c#L321-L367>`_；
+* `SeaBIOS src/Kconfig：额外栈与低端分配默认配置 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/Kconfig#L105-L130>`_；
 * `SeaBIOS Memory model <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/docs/Memory_Model.md>`_；
 * `SeaBIOS execution and code flow <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/docs/Execution_and_code_flow.md>`_。

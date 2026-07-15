@@ -45,6 +45,8 @@ Linux Kernel 的审查、修订与后续生产统一遵守
 ::
 
    SeaBIOS commit    = c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
+   SeaBIOS target    = QEMU
+   SeaBIOS config    = unmodified defaults for the QEMU target
    QEMU commit       = a759542a2c62f0fd3b65f5a66ad9868201014669
    GNU GRUB release  = 2.14
    GRUB commit       = d38d6a1a9b79427848976f53d474392cd29c2a71

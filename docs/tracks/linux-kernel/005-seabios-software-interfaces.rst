@@ -38,6 +38,11 @@
    repository: coreboot/seabios
    commit: c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
 
+当前路径使用该提交的默认QEMU配置，其中 ``CONFIG_BOOT``、 ``CONFIG_BOOTORDER``、
+``CONFIG_PCIBIOS``、 ``CONFIG_OPTIONROMS``、 ``CONFIG_PMM``、 ``CONFIG_PNPBIOS``、
+``CONFIG_KEYBOARD`` 和 ``CONFIG_MOUSE`` 均为 ``y``。关闭对应配置时，相关入口会返回
+或不被发布，不能沿用本章的结束状态。
+
 本章结束在 ``interface_init()`` 返回。下一条控制流将是 ``maininit()`` 中的
 ``platform_hardware_setup()``。
 
@@ -94,7 +99,7 @@ QEMU CMOS 中的传统启动类别
 
 BEV 是 Boot Entry Vector，通常由可启动 Option ROM 提供，例如某些网络启动 ROM。
 
-SeaBIOS 为各类别准备默认优先级：
+源码的四个静态初值是：
 
 ::
 
@@ -103,8 +108,16 @@ SeaBIOS 为各类别准备默认优先级：
    hard disk 103
    BEV       104
 
-数字越小，排序越靠前。QEMU 的 CMOS 启动字段会重写这些默认值。没有出现在 CMOS 顺序中的类别会保持
-``DEFAULT_PRIO = 9999``，因此排到后面。
+这些值不是当前QEMU分支读取CMOS后的最终默认值。进入 ``if (CONFIG_QEMU)`` 后，
+``boot_init()`` 先把四类全部改成 ``DEFAULT_PRIO = 9999``，再只消费三个四位槽位：
+
+::
+
+   i = 101, 102, 103
+
+每个非零槽位把对应类别改成当前 ``i``；没有出现在这三个槽位中的类别保持9999。
+所以在当前QEMU路径中，BEV不能无条件继承静态初值104。数字仍然越小越靠前，但最终
+类别顺序取决于这三个CMOS槽位。
 
 这里处理的是类别级别的旧式启动顺序，例如“先光驱，再硬盘”。它还不能区分两块具体硬盘之间谁先谁后。
 
@@ -237,7 +250,9 @@ BIOS32 入口当前只公开 PCI BIOS
 * 写入 PCI 配置字节、字和双字；
 * 取得 PCI IRQ routing 信息。
 
-当前阶段只是把入口公布出去。PCI 设备本身还要等后面的平台初始化完成枚举。
+当前阶段只是把入口公布出去。 ``MaxPCIBus`` 尚未由后续PCI探测形成最终值，
+``PirAddr`` 也尚未指向之后生成的IRQ routing table；此刻调用查找或IRQ routing服务
+不能被解释成已经拥有完整PCI结果。PCI设备枚举从第七章才开始。
 
 PMM 让 Option ROM 在 POST 期间申请内存
 ------------------------------------
@@ -451,8 +466,8 @@ interface_init 完成了什么
 * Option ROM 运行时可以使用 PMM，而不会随意覆盖固件内存；
 * 16 位和 32 位启动软件已经有固定入口寻找 BIOS 服务。
 
-第五章结束时的机器状态
---------------------
+本章结束状态
+------------
 
 控制权目前走过：
 
@@ -480,35 +495,54 @@ interface_init 完成了什么
 * 当前 CPU：BSP；
 * CPU 模式：32 位保护模式；
 * 分页：关闭；
+* 可屏蔽中断：关闭；NMI仍由CMOS index bit 7屏蔽；
 * BIOS 软件服务发现结构：已经建立；
 * 启动优先级规则：已经建立；
-* 具体启动设备列表：尚待设备驱动填充；
+* QEMU类别优先级：只由三个CMOS槽位赋予101—103，未出现类别保持9999；
+* 具体启动设备列表：仍为空，尚待设备驱动填充；
+* PCI BIOS32入口：已经发布，但PCI枚举与PIR表尚未建立；
 * 键盘 BDA 队列：已经初始化，尚无按键；
 * 鼠标 BIOS 支持标志：已经设置；
 * PCI、PIC、定时器、PS/2 和磁盘硬件初始化：尚未执行；
 * GRUB：尚未被搜索；
 * Linux：尚未装入内存。
 
-下一条控制流回到 ``maininit()``，执行：
+关键边界
+--------
+
+#. ``boot_init()`` 建立排序输入，不探测任何磁盘、光驱或网卡； ``BootList`` 与
+   bootorder规则是两个不同对象。
+#. 101/102/103/104只是四个变量的静态初值；当前QEMU分支会先清成9999，再从三个
+   CMOS槽位分配101—103。
+#. ``_32_``、 ``$PMM`` 与 ``$PnP`` 结构的出现只发布调用契约，不证明其后依赖的
+   PCI设备、PIR表、Option ROM或硬件控制器已经就绪。
+#. PMM永久高端分配只有在实际请求且 ``ZoneHigh`` 失败后，才可能从
+   ``ZoneTmpHigh`` 取得内存并添加E820保留项；本章没有发生PMM分配。
+#. ``kbd_init()`` 只初始化BDA队列， ``mouse_init()`` 只设置equipment bit；PS/2与USB
+   输入硬件均尚未初始化。
+
+下一入口
+--------
+
+控制流回到 ``maininit()``，下一条真实调用是：
 
 .. code-block:: c
 
    platform_hardware_setup();
 
-SeaBIOS 接下来才真正开始处理 DMA、PIC、内部线程、浮点环境、QEMU 平台设备、计时器、周期时钟和 TPM。
+``platform_hardware_setup()`` 将先执行 ``dma_setup()``；此时仍是BSP上的32位保护模式
+POST上下文，分页关闭，具体设备线程尚不存在。
 
 资料
 ----
 
-* `SeaBIOS src/post.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/post.c>`_；
-* `SeaBIOS src/boot.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/boot.c>`_；
-* `SeaBIOS src/pcibios.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/pcibios.c>`_；
-* `SeaBIOS src/romlayout.S <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/romlayout.S>`_；
-* `SeaBIOS src/pmm.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/pmm.c>`_；
-* `SeaBIOS src/std/pmm.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/std/pmm.h>`_；
-* `SeaBIOS src/pnpbios.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/pnpbios.c>`_；
-* `SeaBIOS src/std/pnpbios.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/std/pnpbios.h>`_；
-* `SeaBIOS src/kbd.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/kbd.c>`_；
-* `SeaBIOS src/mouse.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/mouse.c>`_；
-* `SeaBIOS src/std/bda.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/std/bda.h>`_；
+* `SeaBIOS src/post.c：interface_init调用顺序 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/post.c#L101-L158>`_；
+* `SeaBIOS src/boot.c：bootorder与QEMU CMOS优先级 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/boot.c#L241-L496>`_；
+* `SeaBIOS src/pcibios.c：PCI BIOS服务与BIOS32头 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/pcibios.c#L27-L240>`_；
+* `SeaBIOS src/romlayout.S：BIOS32与PCI 32位入口 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/romlayout.S#L310-L355>`_；
+* `SeaBIOS src/pmm.c：PMM分配与入口生命期 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/pmm.c#L19-L176>`_；
+* `SeaBIOS src/pnpbios.c：PnP头与支持函数 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/pnpbios.c#L17-L88>`_；
+* `SeaBIOS src/kbd.c：BDA键盘环形队列 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/kbd.c#L18-L105>`_；
+* `SeaBIOS src/mouse.c：鼠标标志与EBDA状态 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/mouse.c#L16-L68>`_；
+* `SeaBIOS src/Kconfig：软件接口默认配置 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/Kconfig#L390-L442>`_；
 * `SeaBIOS Memory model <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/docs/Memory_Model.md>`_。
