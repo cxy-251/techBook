@@ -7,9 +7,9 @@ techBook
 --------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
-* `第一百八十二章：write(7,"hello",5)怎样把5字节排入client TCP write queue？ <docs/tracks/linux-kernel/182-client-write-queues-five-byte-tcp-segment.rst>`_
-* `第一百八十三章：PSH|ACK数据段怎样通过lo进入H并触发立即ACK？ <docs/tracks/linux-kernel/183-loopback-data-reaches-server-child-and-triggers-ack.rst>`_
-* `第一百八十四章：write怎样在ACK处理后返回5，并让read(8)取出hello？ <docs/tracks/linux-kernel/184-client-write-returns-and-server-read-consumes-hello.rst>`_
+* `第一百八十五章：close(7)怎样撤销client fd并发送FIN？ <docs/tracks/linux-kernel/185-close-removes-client-fd-and-sends-fin.rst>`_
+* `第一百八十六章：client FIN怎样让server H进入TCP_CLOSE_WAIT？ <docs/tracks/linux-kernel/186-client-fin-moves-server-to-close-wait.rst>`_
+* `第一百八十七章：FIN ACK怎样完成client关闭并让read返回EOF？ <docs/tracks/linux-kernel/187-fin-ack-completes-client-close-and-read-returns-eof.rst>`_
 
 固定来源
 --------
@@ -58,29 +58,30 @@ techBook
    LK-TCPHANDSHAKE-176..LK-TCPHANDSHAKE-178
    LK-TCPACCEPT-179..LK-TCPACCEPT-181
    LK-TCPDATA-182..LK-TCPDATA-184
+   LK-TCPCLOSE-185..LK-TCPCLOSE-187
 
 最新场景
 --------
 
 ::
 
-   write(7,"hello",5)
-   → tcp_sendmsg_locked复制5字节并建立ACK|PSH skb
-   → tcp_write_xmit发送clone，原始skb进入retransmission tree
-   → IPv4 output与lo把data送到server child H
-   → H.rcv_nxt推进到C_ISN+6，receive queue得到hello
-   → fd 8变为可读
-   → first-data quickack发送ACK C_ISN+6
+   close(7)
+   → file_close_fd先撤销fd 7
+   → fput_close_sync同步进入socket release与tcp_close
+   → C进入TCP_FIN_WAIT1并发送FIN C_ISN+6..C_ISN+7
+   → IPv4 output与lo把FIN送到server child H
+   → H.rcv_nxt推进到C_ISN+7并进入TCP_CLOSE_WAIT
+   → RCV_SHUTDOWN与SOCK_DONE使fd 8 EOF-readable
+   → quickack发送ACK C_ISN+7
    → ACK先进入仍被parent持有的C.sk_backlog
-   → release_sock(C)处理ACK并清空client retransmission tree
-   → write返回5
-   → read(8,buf,5)无等待复制hello并清空H receive queue
-   → read返回5
+   → orphan close处理ACK并把C推进到TCP_FIN_WAIT2
+   → 默认60秒边界建立tw_substate TCP_FIN_WAIT2的轻量TW
+   → close(7)返回0
+   → read(8,buf,1)消费FIN标记并返回0 EOF
 
-最终fd 6/7/8保持open。C与H仍为TCP_ESTABLISHED；双方数据队列、retransmission tree与socket backlog为空。下一章从client close(7)开始。
+最终fd 6与fd 8保持open，fd 7已关闭。client四元组由轻量TW以 ``TCP_FIN_WAIT2`` 子状态维护；H为 ``TCP_CLOSE_WAIT``，receive queue为空。下一章从server ``close(8)`` 开始。
 
 开始工作
 --------
 
 新的对话或助手先阅读 ``AGENTS.md``、 ``project/STATE.rst``、章节目录和manifest。
-
