@@ -318,6 +318,15 @@ F8建立成功后， ``do_accept`` 调用：
 
 本章没有从accept queue移除R，没有减少 ``L.sk_ack_backlog``，没有调用 ``sock_graft``。
 
+固定源码依据
+------------
+
+以下链接全部固定到 Linux commit ``7404ce51637231382873d0b55edabc2f3b841a9d``：
+
+* `net/socket.c <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/net/socket.c>`_： ``__sys_accept4``、 ``__sys_accept4_file``、 ``do_accept``、 ``sock_alloc`` 与 ``sock_alloc_file``；
+* `include/linux/file.h <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/include/linux/file.h>`_： ``FD_PREPARE``、 ``FD_ADD``、 ``fd_publish`` 与失败清理；
+* `fs/file.c <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/fs/file.c>`_： ``alloc_fd``、 ``get_unused_fd_flags``、 ``put_unused_fd`` 与fdtable位图更新。
+
 本章结束状态
 ------------
 

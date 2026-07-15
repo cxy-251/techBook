@@ -337,6 +337,16 @@ accept没有复制TCP连接
 
 本章新增的是用户访问路径，不是新的SYN、ACK、route或sequence空间。
 
+固定源码依据
+------------
+
+以下链接全部固定到 Linux commit ``7404ce51637231382873d0b55edabc2f3b841a9d``：
+
+* `net/socket.c <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/net/socket.c>`_： ``do_accept``、 ``move_addr_to_user``、 ``__sys_accept4_file`` 与错误回滚；
+* `net/ipv4/af_inet.c <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/net/ipv4/af_inet.c>`_： ``inet_getname`` 如何从H生成peer ``sockaddr_in``；
+* `include/linux/file.h <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/include/linux/file.h>`_： ``fd_publish``、 ``FD_ADD`` 与prepare ownership转移；
+* `fs/file.c <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/fs/file.c>`_： ``fd_install`` 将F8发布到 ``fdtable.fd[8]`` 的实现。
+
 本章结束状态
 ------------
 

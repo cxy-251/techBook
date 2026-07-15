@@ -337,6 +337,16 @@ queue removal与graft之间有哪些暂态
 
 client C保持TCP_ESTABLISHED，sequence number与队列均未变化。
 
+固定源码依据
+------------
+
+以下链接全部固定到 Linux commit ``7404ce51637231382873d0b55edabc2f3b841a9d``：
+
+* `net/ipv4/af_inet.c <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/net/ipv4/af_inet.c>`_： ``inet_accept``、 ``__inet_accept`` 与 ``SS_CONNECTED`` 更新；
+* `net/ipv4/inet_connection_sock.c <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/net/ipv4/inet_connection_sock.c>`_： ``inet_csk_wait_for_connect``、 ``inet_csk_accept``、 ``reqsk_put`` 与 ``inet_init_csk_locks``；
+* `include/net/request_sock.h <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/include/net/request_sock.h>`_：accept FIFO结构与 ``reqsk_queue_remove``；
+* `include/net/sock.h <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/include/net/sock.h>`_： ``sock_graft`` 与 ``sk_set_socket`` 的具体指针写入。
+
 本章结束状态
 ------------
 
