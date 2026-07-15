@@ -632,8 +632,9 @@ pci_enable_default_vga 确保存在可达的主显示设备
 
    smm_device_setup();
 
-下一章将进入 System Management Mode 相关准备：先配置会触发 SMI 的 q35/ICH9 设备状态，再把 SeaBIOS 的 SMM
-处理代码安装到 SMRAM。CPU 将第一次进入一种对普通软件隐藏的特殊执行环境。
+下一章将进入System Management Mode相关准备：先由q35/ICH9状态判定QEMU执行后端
+是否提供SMM；能力可用时安装SMI入口并让BSP完成第一次SMI/RSM，能力不可用时按
+ICH9的预置标记跳过。
 
 资料
 ----

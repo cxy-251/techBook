@@ -1,582 +1,269 @@
-第十二章：SeaBIOS 怎样用 INIT/SIPI 唤醒其他 CPU？
-==================================================
+第十二章：SeaBIOS怎样扫描CPU并在存在AP时用INIT/SIPI启动它们？
+=========================================================
 
-上一章结束时，BSP 已经完成自己的 MTRR 与 ``IA32_FEATURE_CONTROL`` 设置，并把每一条需要其他 CPU 重放的
-MSR 写入保存到 ``smp_msr`` 数组。
-
-控制流仍在：
+上一章停在 ``msr_feature_control_setup()`` 返回后。BSP仍是SeaBIOS MainThread的唯一
+执行者； ``smp_msr`` 最多保存32项已经对BSP执行过的MSR写入，但只有日志未截断时，
+它才是完整的AP模板。下一条调用是：
 
 ::
 
    qemu_platform_setup()
+   → smp_setup()
 
-下一条调用是：
+当前固定配置没有规定 ``-smp``，所以present vCPU数不能唯一确定。固定QEMU源码把通用
+machine class的 ``default_cpus`` 缺省为1，并用它初始化 ``smp.cpus`` 与
+``smp.max_cpus``；没有额外命令行时，q35实例只有BSP，显式 ``-smp`` 则可创建AP。
+这并不让 ``smp_setup()`` 消失：有local APIC时，
+SeaBIOS仍安装临时跳板、配置BSP local APIC并广播INIT/SIPI，只是没有AP接收。
 
-.. code-block:: c
+本章把QEMU缺省单CPU出口与显式 ``-smp`` 产生的多CPU出口
+分开。不能先把“代码支持AP”写成“本次必有AP”，再让后续Linux章节假定CPU0是唯一
+online CPU。
 
-   smp_setup();
+present CPU数与etc/max-cpus不是一个量
+--------------------------------------
 
-本章将第一次让 BSP 之外的 Application Processor，简称 AP，开始执行指令。
-
-这里需要区分两个称呼：
-
-``BSP``
-   Bootstrap Processor。复位后负责执行固件主流程的 CPU。
-
-``AP``
-   Application Processor。系统中的其他 CPU，开机时先等待 BSP 通过 local APIC 启动。
-
-本章沿下面的真实控制流前进：
-
-::
-
-   smp_setup()
-   → 读取 etc/max-cpus
-   → 读取当前实际存在的 CPU 数
-   → smp_scan()
-   → 检查 local APIC 能力
-   → 在 0x10000 写入 AP 启动跳板
-   → 开启 BSP local APIC
-   → 配置 LINT0 / LINT1
-   → BSP 暂时占有共享栈锁
-   → 广播 INIT
-   → 广播 SIPI，vector = 0x10
-   → AP 从物理地址 0x10000 开始取指
-   → AP 远跳转到 entry_smp
-   → AP 进入 32 位保护模式
-   → AP 竞争共享栈锁
-   → handle_smp()
-   → 记录 APIC ID
-   → 重放 MTRR 与 feature-control MSR
-   → CountCPUs++
-   → AP 释放锁并 HLT
-   → BSP 等到全部当前 CPU 报到
-   → 恢复 0x10000 原始内容
-   → smp_setup() 返回
-
-本章固定使用：
-
-::
-
-   SeaBIOS repository: coreboot/seabios
-   SeaBIOS commit:     c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
-
-实际存在的 CPU 数与最大可支持 CPU 数不是一回事
------------------------------------------------
-
-``smp_setup()`` 首先读取：
+``smp_setup()`` 先读取：
 
 .. code-block:: c
 
    MaxCountCPUs = romfile_loadint("etc/max-cpus", 0);
    u16 smp_count = qemu_get_present_cpus_count();
-
    if (MaxCountCPUs < smp_count)
        MaxCountCPUs = smp_count;
 
-这里有三个容易混淆的数量。
+``qemu_get_present_cpus_count()`` 从 ``FW_CFG_NB_CPUS`` 取得16位在场CPU数；RTC存在
+时还读取 ``CMOS_BIOS_SMP_COUNT + 1``，取两者较大值。fresh QEMU机器至少包含BSP；
+无 ``-smp`` override时该结果为1，显式多CPU配置时则是对应present count。
+
+``etc/max-cpus`` 对应 ``FW_CFG_MAX_CPUS``。固定QEMU源码明确说明，x86为了兼容旧
+SeaBIOS接口，这个名字实际传递的是 ``apic_id_limit``：所有可能CPU的APIC ID都小于
+它。它可以因为 ``maxcpus``、拓扑空洞或热插拔范围而大于当前present CPU数。因此：
 
 ``smp_count``
-   当前虚拟机已经存在、这次开机应当被唤醒的 CPU 数量。
+   QEMU/CMOS宣告本次应报到的在场CPU数量。
 
 ``CountCPUs``
-   SeaBIOS 实际已经看到并完成报到的 CPU 数量。进入扫描前只计 BSP，所以从 1 开始。
+   SeaBIOS在本轮实际完成登记的CPU计数。
 
 ``MaxCountCPUs``
-   固件表需要描述的最大 CPU/APIC ID 范围，可能包含以后通过热插拔出现的 CPU。QEMU 的兼容接口
-   ``etc/max-cpus`` 历史上更接近 APIC ID limit，不应简单理解为“当前在线 CPU 数”。
+   至少不小于present count的APIC-ID描述上界；后续表构造用它选择xAPIC/x2APIC与
+   legacy table边界。
 
-因此一个虚拟机可能当前只有 4 个 CPU，固件表却为更多潜在 CPU 位置保留描述空间。
+把 ``MaxCountCPUs`` 直接翻译为“最大CPU数量”会在稀疏APIC ID拓扑中产生错误表意。
 
-SeaBIOS 怎样得到当前存在的 CPU 数
+没有local APIC时只登记BSP并返回
 --------------------------------
 
-``qemu_get_present_cpus_count()`` 优先从 fw_cfg 的：
-
-::
-
-   QEMU_CFG_NB_CPUS
-
-读取 16 位数量。
-
-如果 RTC/CMOS 存在，它还读取：
-
-::
-
-   CMOS_BIOS_SMP_COUNT + 1
-
-然后取两者中的较大值。
-
-``+1`` 的原因是旧 CMOS 字段保存的通常是“除 BSP 之外的 CPU 数”或 ``count - 1`` 形式。fw_cfg 是当前主路径，
-CMOS 兼容值用于旧平台和旧接口。
-
-这一数量只是 BSP 接下来等待的目标值。真正是否有 AP 执行到 ``handle_smp()``，还需要下面的 INIT/SIPI 启动过程确认。
-
-没有 local APIC 时退化成单 CPU
------------------------------
-
-``smp_scan()`` 读取 ``CPUID.01H``，检查 APIC feature bit。
-
-如果处理器没有 local APIC，SeaBIOS 直接：
+``smp_scan()`` 读取CPUID leaf 1。如果版本字段不满足测试，或EDX没有 ``CPUID_APIC``，
+它执行：
 
 .. code-block:: c
 
    CountCPUs = 1;
    return;
 
-后面的 INIT/SIPI 全部不会发生。
+这个出口不写 ``0x10000``，不配置LINT，不发送IPI，也不调用 ``yield()``。固定q35的
+正常x86-64 CPU提供local APIC，所以下面的APIC路径适用；“是否有AP”仍由present count
+决定。
 
-固定 q35 x86-64 虚拟 CPU 主线提供 local APIC，所以继续执行多处理器扫描。
+0x10000只在本轮扫描期间保存远跳转
+---------------------------------
 
-为什么 AP 需要一个低端内存启动地址
---------------------------------
-
-x86 AP 接收 Startup IPI，简称 SIPI，之后不会直接跳到任意 32 位 C 函数。SIPI 携带一个 8 位 vector，CPU 将它解释为：
-
-::
-
-   physical start address = vector << 12
-
-也就是以 4 KiB 为单位选择 1 MiB 以下的启动页。
-
-SeaBIOS 固定：
+APIC路径先令 ``CountCPUs=1`` 把BSP计入，再保存物理地址 ``0x10000`` 的原8字节。
+SeaBIOS用 ``BUILD_AP_BOOT_ADDR=0x10000`` 构造一条16位far jump：
 
 ::
-
-   BUILD_AP_BOOT_ADDR = 0x10000
-
-所以 SIPI vector 是：
-
-.. code-block:: c
-
-   sipi_vector = BUILD_AP_BOOT_ADDR >> 12;
-               = 0x10000 >> 12;
-               = 0x10;
-
-AP 接收 SIPI 后从：
-
-::
-
-   0x10 << 12 = 0x10000
-
-开始执行。
-
-0x10000 原本不是永久保留的 AP 固件区
------------------------------------
-
-SeaBIOS 在写跳板前先保存原来的 8 字节：
-
-.. code-block:: c
-
-   u64 old = *(u64 *)BUILD_AP_BOOT_ADDR;
-
-随后构造一条 16 位 far jump：
-
-.. code-block:: asm
 
    ljmpw $SEG_BIOS, $(entry_smp - BUILD_BIOS_ADDR)
 
-机器码的首字节是 ``0xea``，后面依次是 16 位 offset 和 16 位 segment。SeaBIOS 把这条指令直接写到物理地址
-``0x10000``。
+机器码写入 ``0x10000``。SIPI的8位vector按 ``vector << 12`` 形成起始物理地址，
+所以SeaBIOS稍后发送 ``0x10``，接收者从 ``0x10000`` 取这条跳转并进入BIOS映射中的
+``entry_smp``。该低端页不是永久AP固件区；扫描正常完成后原8字节会恢复。
 
-因此 AP 的第一小段路径是：
+BSP启用local APIC并只改变LINT接线
+---------------------------------
 
-::
-
-   SIPI vector 0x10
-   → 物理地址 0x10000
-   → 16 位 far jump
-   → SeaBIOS F-segment 中的 entry_smp
-
-这块低端 RAM 只被临时借用。所有 AP 报到后，BSP 会把保存的原始 8 字节写回去。
-
-BSP 先开启自己的 local APIC
---------------------------
-
-local APIC 的 MMIO 基址固定为：
+SeaBIOS以 ``BUILD_APIC_ADDR`` 定位BSP local APIC，先在SVR中保留原值并设置bit 8，
+打开software enable。随后写：
 
 ::
 
-   0xfee00000
+   LINT0 = 0x8700   ExtINT, level-triggered
+   LINT1 = 0x8400   NMI,    level-triggered
 
-SeaBIOS 操作三个寄存器：
+LINT0把传统8259A输出接入local APIC；它没有解除第009章留下的PIC mask，也没有把BSP
+的IF改成1。LINT1只是规定未来输入的delivery mode，本章没有生成NMI。CMOS index
+bit 7的NMI屏蔽状态也没有在这里改写。
+
+INIT与一个SIPI发给all-excluding-self
+----------------------------------
+
+BSP把 ``SMPLock`` 写成1，先阻止潜在AP使用当前栈；经过compiler barrier后，依次向
+ICR low写：
 
 ::
 
-   SVR   = 0xfee000f0
-   LINT0 = 0xfee00350
-   LINT1 = 0xfee00360
-   ICR low = 0xfee00300
+   0x000c4500          INIT,    all excluding self
+   0x000c4600 | 0x10   Startup, all excluding self, vector 0x10
 
-它先读取 Spurious Interrupt Vector Register，简称 SVR，并设置 bit 8：
+代码发送一个INIT和一个SIPI，没有为每个AP逐一寻址，也没有在两次写入之间轮询delivery
+status。缺省单CPU实例中目标集合为空：写寄存器仍发生，但没有第二个CPU从0x10000
+执行。显式配置多个present vCPU时，所有AP收到相同vector并竞争同一个入口。
 
-.. code-block:: c
+SeaBIOS在发出IPI后才调用 ``apic_id_init()`` 登记BSP。这个顺序让IPI继续通过xAPIC
+MMIO发送；若 ``MaxCountCPUs >= 256`` 且CPUID提供x2APIC，BSP随后才设置
+``IA32_APIC_BASE.EXTD`` 并从x2APIC ID MSR读取自身ID。
 
-   val = readl(APIC_SVR);
-   writel(APIC_SVR, val | 0x0100);
+``MaxCountCPUs < 256`` 时，ID来自 ``CPUID.1:EBX[31:24]``，并在256-bit
+``FoundAPICIDs`` 中置位。需要更大ID范围但CPUID没有x2APIC时，函数返回 ``-1``；
+扫描计数仍可继续，但后续不能把该无效ID假装成legacy 8-bit记录。
 
-bit 8 是 local APIC software enable。没有这一位，后面的 IPI 发送路径不能按预期工作。
-
-LINT0 接收传统 8259A 的 ExtINT
------------------------------
-
-SeaBIOS 写入：
-
-.. code-block:: c
-
-   writel(APIC_LINT0, 0x8700);
-
-其中 delivery mode 是 ``ExtINT``，trigger mode 是 level。
-
-这使 BSP 的 local APIC LINT0 能接收传统 PIC 输出。前面章节已经配置两片 8259A；这里把传统中断系统与 local APIC
-输入端接上。
-
-LINT1 被配置成 NMI
------------------
-
-SeaBIOS 写入：
-
-.. code-block:: c
-
-   writel(APIC_LINT1, 0x8400);
-
-delivery mode 是 ``NMI``，并采用 level-triggered 配置。
-
-这不表示此刻已经发生 NMI，只是规定 local APIC 的 LINT1 输入以后按不可屏蔽中断处理。
-
-BSP 为什么先把共享栈锁设为占用
------------------------------
-
-SeaBIOS 定义：
-
-.. code-block:: c
-
-   u32 SMPLock;
-   u32 SMPStack;
-
-在发出 IPI 前：
-
-.. code-block:: c
-
-   SMPLock = 1;
-
-值 1 表示锁已被 BSP 占有。这样 AP 即使很快到达 ``entry_smp``，也不能立刻使用 BSP 当前的栈。
-
-SeaBIOS 没有为每个 AP 分配独立固件栈，而是让 AP 一个接一个借用 BSP 暂时交出的栈。锁保证同一时刻只有一个 AP
-进入 C 处理函数。
-
-第一条 IPI 是 INIT
------------------
-
-BSP 向 local APIC ICR low 写：
-
-.. code-block:: c
-
-   writel(APIC_ICR_LOW, 0x000C4500);
-
-这个值包含：
-
-* delivery mode = INIT；
-* level = assert；
-* destination shorthand = all excluding self。
-
-“all excluding self”表示向除 BSP 自己之外的所有 local APIC 目标广播。
-
-INIT IPI 让 AP 进入架构规定的初始化/等待启动状态。它不是让 AP 执行 SeaBIOS C 代码，真正提供启动地址的是下一条 SIPI。
-
-第二条 IPI 是 SIPI
------------------
-
-BSP 随后写入：
-
-.. code-block:: c
-
-   writel(APIC_ICR_LOW, 0x000C4600 | 0x10);
-
-其中：
-
-* delivery mode = Startup；
-* destination shorthand = all excluding self；
-* vector = ``0x10``。
-
-因此所有目标 AP 从物理地址 ``0x10000`` 开始执行前面安装的 far jump。
-
-这里没有为每个 AP 单独发送不同入口。所有 AP 运行同一段启动代码，再通过各自 local APIC ID 区分身份。
-
-AP 从 SIPI 入口开始时处于什么状态
+缺省单CPU路径不会执行entry_smp
 --------------------------------
 
-SIPI 启动入口属于传统 x86 AP startup 环境。AP 不会继承 BSP 当前的 32 位 C 调用栈，也不会从
-``qemu_platform_setup()`` 的下一行继续。
-
-它从 ``0x10000`` 的 16 位跳板进入 ``entry_smp``：
-
-.. code-block:: asm
-
-   entry_smp:
-       cli
-       cld
-       movl $2f + BUILD_BIOS_ADDR, %edx
-       jmp transition32_nmi_off
-
-``CLI`` 关闭可屏蔽中断，``CLD`` 清除方向标志。随后复用早期章节讲过的保护模式转换代码：
+BSP再次读取present count作为 ``expected_cpus_count``。无 ``-smp`` override时：
 
 ::
 
-   装载临时 IDT/GDT
-   → 设置 CR0.PE
-   → far jump 装载 32 位 code segment
-   → 装载 32 位 data segments
-   → 跳回 entry_smp 的 32 位部分
+   expected_cpus_count = 1
+   CountCPUs            = 1
 
-函数选择 ``transition32_nmi_off``，因为这条内部路径从已经受控的 AP 启动环境继续，不重复前面普通启动入口中的完整
-NMI 处理序列。
+所以等待循环一次也不进入。 ``SMPStack`` 没有发布给其他CPU， ``handle_smp()`` 没有
+调用， ``smp_write_msrs()`` 也没有重放。代码仍调用一次 ``yield()``；第009章以来没有
+创建其他SeaBIOS线程，因此MainThread没有可切换的peer，控制权仍回到自己。
 
-所有 AP 竞争同一把锁
--------------------
+随后BSP把保存的8字节写回 ``0x10000``。这个出口中local APIC已经配置、扫描完成，
+但不存在“AP已停在HLT”的对象。若固定运行命令含显式 ``-smp``，则走下面的多CPU
+出口，不能用早期Linux只有CPU0 online反推固件阶段没有present AP；Linux会在自己的
+``smp_init()`` 之前保持AP offline。
 
-进入 32 位部分后，AP 执行：
+多CPU时AP先进入32位模式，再串行借用BSP栈
+-------------------------------------------
 
-.. code-block:: asm
-
-   lock btsl $0, SMPLock
-   jc spin
-
-``BTS`` 是 Bit Test and Set。它原子地读取 bit 0 的旧值，并把该位设为 1。
-
-* 旧值为 0：当前 AP 成功取得锁；
-* 旧值为 1：锁仍被 BSP 或另一个 AP 占有，当前 AP继续自旋。
-
-``LOCK`` 前缀保证多个虚拟 CPU 同时访问这一个内存字时，只有一个能观察到未占用状态并成功设置。
-
-取得锁后，AP 执行：
-
-.. code-block:: asm
-
-   movl SMPStack, %esp
-
-``SMPStack`` 保存的是 BSP 主动交出的当前 ``ESP``。AP 因而暂时使用 BSP 的栈空间调用 ``handle_smp()``。
-
-BSP 怎样把栈一次交给一个 AP
---------------------------
-
-BSP 在等待循环中执行一段内联汇编：
-
-.. code-block:: asm
-
-   movl %esp, SMPStack
-   movl $0, SMPLock
-
-   acquire_again:
-       lock btsl $0, SMPLock
-       jc acquire_again
-
-过程是：
-
-#. BSP 把当前 ``ESP`` 写进 ``SMPStack``；
-#. BSP 把锁清零，允许一个 AP 抢到；
-#. 某个 AP 把锁从 0 改为 1并进入 ``handle_smp()``；
-#. BSP尝试重新取得锁，在 AP 使用共享栈期间持续自旋；
-#. AP 完成后把锁清零；
-#. BSP重新取得锁，恢复对自己栈的独占；
-#. 如果还有 AP 未报到，再重复一次。
-
-所以 AP 并不是并行运行 SeaBIOS C 初始化。它们可以同时到达锁前，但会被串行放行，每次只让一个 AP 使用共享栈。
-
-handle_smp 首先确认 APIC ID
---------------------------
-
-``handle_smp()`` 调用：
-
-.. code-block:: c
-
-   int apic_id = apic_id_init();
-
-在 ``MaxCountCPUs < 256`` 的传统 xAPIC 情况下，APIC ID 来自：
+只有 ``expected_cpus_count > 1`` 且AP实际响应SIPI时，AP执行：
 
 ::
 
-   CPUID.01H:EBX[31:24]
+   0x10000 far jump
+   → entry_smp
+   → transition32_nmi_off
 
-SeaBIOS 用 256 位 ``FoundAPICIDs`` bitmap 记录已经发现的 8 位 APIC ID。后面的 legacy MP table 等固件结构会使用这份信息。
+``entry_smp`` 先 ``cli``、 ``cld``，再从 ``transition32_nmi_off`` label装入SeaBIOS
+IDT/GDT、设置CR0.PE、进入32位flat segments。该label不会再次操作CMOS NMI位，也
+不会给AP复制BSP调用栈。
 
-如果 ``MaxCountCPUs >= 256``，8 位 xAPIC ID 不足以描述全部可能 CPU。处理器支持 x2APIC 时，SeaBIOS：
+32位入口用 ``lock btsl $0, SMPLock`` 竞争bit 0。锁仍为1时AP自旋；得到0并原子置1的
+AP从 ``SMPStack`` 载入ESP，然后调用 ``handle_smp()``。所有AP共享这一栈，因而同一
+时刻只能有一个进入C代码。
 
-#. 设置 ``IA32_APIC_BASE`` 的 x2APIC enable bit；
-#. 从 x2APIC MSR ``0x802`` 读取更宽的 local APIC ID。
+BSP的等待循环负责交出栈：
 
-如果需要超过 255 的范围，而 CPUID 又没有暴露 x2APIC，当前函数返回无效 ID。后面的旧式表也不会假装能够描述不存在的
-8 位 ID 空间。
+::
 
-BSP 自己也要登记 APIC ID
------------------------
+   SMPStack = BSP.ESP
+   SMPLock  = 0
+   → BSP用lock bts反复尝试重新取得锁
 
-广播 SIPI 后，BSP 本身调用一次 ``apic_id_init()``。
+一次释放不保证某个AP一定先于BSP抢到；BSP可能立刻重取。只要计数尚未相等，循环就
+再次发布栈并释放锁。AP成功取得锁后，BSP在它使用共享栈期间无法重取；AP释放后，
+BSP或另一个AP继续竞争。
 
-因为 IPI 使用“all excluding self”，BSP 不会经过 ``entry_smp``。如果不在主流程中单独调用，``FoundAPICIDs`` 将只有 AP，
-缺少 BSP。
+handle_smp登记ID、重放已记录MSR并计数
+------------------------------------
 
-此外，当系统需要 x2APIC 模式时，BSP 也必须在发送传统 xAPIC MMIO IPI之后切换。源码特意把切换放在广播之后，让 xAPIC
-和 x2APIC 配置共用同一套 AP 唤醒代码。
+取得栈的AP依次执行：
 
-AP 重放上一章保存的 MSR 序列
----------------------------
+::
 
-AP 确认身份后执行：
+   apic_id_init()
+   → smp_write_msrs()
+   → CountCPUs++
 
-.. code-block:: c
+APIC ID走与BSP相同的xAPIC/x2APIC条件。 ``smp_write_msrs()`` 只遍历
+``smp_msr_count``，按数组顺序执行 ``wrmsr``。若第011章日志完整，AP得到相同的MTRR
+序列与条件FEATURE_CONTROL；若日志因32项上限截断，AP只得到前缀，不能宣称与BSP
+一致。
 
-   smp_write_msrs();
+``CountCPUs++`` 本身不是原子指令，但它位于 ``SMPLock`` 串行区内，同一时刻只有一
+个AP修改。handler返回后汇编把 ``SMPLock=0``，然后在IF=0下永久执行：
 
-它按保存顺序遍历 ``smp_msr``：
+::
 
-.. code-block:: c
-
-   for (i = 0; i < smp_msr_count; i++)
-       wrmsr(smp_msr[i].index,
-             smp_msr[i].val);
-
-因此每个 AP 得到与 BSP 相同的：
-
-* fixed-range MTRR；
-* variable-range MTRR；
-* ``IA32_MTRR_DEF_TYPE``；
-* 条件存在的 ``IA32_FEATURE_CONTROL``。
-
-重放仍包含“先关闭 MTRR、写完整配置、再启用”的原始顺序，不只复制最终 ``DEF_TYPE``。
-
-CountCPUs 为什么不需要原子自增
------------------------------
-
-``handle_smp()`` 最后执行：
-
-.. code-block:: c
-
-   CountCPUs++;
-
-这条自增本身没有使用原子指令。它依然安全，因为所有 AP 都必须先取得 ``SMPLock``，同一时刻只有一个 AP 能进入
-``handle_smp()``。锁已经把修改 ``CountCPUs`` 的临界区串行化。
-
-AP 完成后不会返回普通主流程
--------------------------
-
-``handle_smp()`` 返回汇编入口后：
-
-.. code-block:: asm
-
-   movl $0, SMPLock
    hlt
+   jmp hlt
 
-AP 先释放共享栈锁，让 BSP 或下一个 AP继续，然后执行 ``HLT``。
+AP不会落入BSP的POST主流程。以后操作系统若要使用它，需要自己的启动协议让它离开
+这段固件停驻代码。
 
-当前 AP 的 ``IF`` 仍为 0，因此普通可屏蔽中断不会让它开始运行 BIOS 主流程。它被停放在固件等待状态；以后 Linux 会用
-自己的 AP startup 代码和 IPI 序列再次接管这些 CPU。
+BSP等待精确相等，没有timeout
+----------------------------
 
-SeaBIOS 唤醒 AP 的目的不是让多个 CPU 一起执行 POST，而是：
-
-* 确认当前实际存在多少 CPU；
-* 记录 APIC ID；
-* 把必要的每 CPU MSR 配置复制给它们；
-* 再把它们停回等待状态。
-
-BSP 等待的不是固定延时
----------------------
-
-BSP 读取：
-
-.. code-block:: c
-
-   expected_cpus_count = qemu_get_present_cpus_count();
-
-然后持续比较：
+多CPU路径的退出条件是：
 
 .. code-block:: c
 
    while (expected_cpus_count != CountCPUs)
        release_stack_and_reacquire();
 
-它不会简单睡眠若干毫秒后猜测 AP 已经启动，而是等待实际报到数达到 QEMU/CMOS 宣布的当前 CPU 数。
+这是精确不等比较，不是 ``CountCPUs < expected``。少一个AP、AP在MSR重放时异常、
+或意外多计数都会让BSP永久循环；代码没有deadline、退化为较少CPU或失败回滚。正常
+条件下，每个在场AP恰好递增一次，计数最终相等，BSP调用 ``yield()`` 并恢复
+``0x10000`` 原字节。
 
-如果某个 AP 永远没有执行到 ``CountCPUs++``，这段固件流程也无法正常继续。这体现了平台契约：QEMU 声明存在的 CPU
-必须响应广播启动并运行跳板。
+恢复跳板只撤销SeaBIOS临时入口，不会唤醒或终止已经停驻的AP。多CPU正常出口中，AP
+仍停在 ``entry_smp`` 的HLT循环；缺省单CPU出口中从未有AP进入。
 
-为什么等待结束后还调用 yield
----------------------------
+本章结束状态
+------------
 
-当计数相等后，SeaBIOS 调用：
+共同状态：
 
-.. code-block:: c
+* current executor：BSP上的SeaBIOS ``MainThread``；
+* CPU/mode：BSP处于32位保护模式，分页关闭、A20开启、IF=0；
+* ``MaxCountCPUs``：保存QEMU APIC-ID上界，并保证不小于present count；
+* BSP local APIC：SVR software enable已置位；LINT0=ExtINT，LINT1=NMI；
+* PIC/NMI：PIC mask与CMOS NMI mask未被本章解除；
+* ``FoundAPICIDs``：正常APIC路径已登记BSP；
+* ``0x10000``：临时8-byte far jump已经撤销，原内容恢复；
+* PIRQ table、MP table、SMBIOS：尚未由后续调用构造；
+* 设备驱动、GRUB与Linux：尚未进入。
 
-   yield();
+未提供 ``-smp`` override、采用QEMU缺省CPU拓扑时：
 
-这给前面建立的 SeaBIOS 协作式任务机制一次运行机会。SMP 报到本身已经完成；``yield()`` 不是等待 AP 数量的核心条件，
-核心条件是 ``CountCPUs`` 与 expected count 相等。
+* present count=1， ``CountCPUs=1``；
+* INIT/SIPI广播没有AP接收者；
+* 没有CPU执行 ``entry_smp``、 ``handle_smp`` 或 ``smp_write_msrs``；
+* 不存在“SeaBIOS已经停驻的AP”；当前唯一CPU仍是BSP/CPU0。
 
-0x10000 的原始内容被恢复
------------------------
+显式配置多个present vCPU且全部正常报到时：
 
-所有当前 CPU 报到后：
+* ``CountCPUs=expected_cpus_count``；
+* 每个AP已登记ID，并串行执行日志内的MSR前缀；
+* 日志完整时BSP/AP得到相同序列，日志截断时不能保证相同最终MSR状态；
+* 每个AP释放共享栈后停在IF=0的HLT循环；
+* BSP仍是唯一继续执行SeaBIOS POST的CPU。
 
-.. code-block:: c
+若present count与实际报到不一致，BSP没有本章返回出口。
 
-   *(u64 *)BUILD_AP_BOOT_ADDR = old;
+关键边界
+--------
 
-临时 far jump 被撤销，物理 ``0x10000`` 恢复进入 SMP 扫描前的 8 字节。
+#. QEMU未给 ``-smp`` 时缺省为1个vCPU；当前固定条件没有排除显式多CPU配置。
+#. ``FW_CFG_NB_CPUS`` 是present count； ``etc/max-cpus`` 在x86上实际是APIC-ID上界。
+#. 有local APIC时，即使present count为1，SeaBIOS仍临时写0x10000并广播INIT/SIPI。
+#. INIT/SIPI目标是all-excluding-self；缺省单CPU广播没有接收者。
+#. BSP在IPI发出后登记自身APIC ID，必要时才转入x2APIC。
+#. 多CPU路径用一把内存锁串行共享BSP栈；AP不并行运行SeaBIOS C handler。
+#. AP只重放32项数组里实际记录的MSR，继承第011章的截断风险。
+#. AP递增计数后在IF=0的HLT循环停驻；缺省单CPU路径没有这种AP对象。
+#. BSP等待精确计数相等且没有timeout，缺报到不会自动退化。
+#. 恢复0x10000只撤销临时trampoline，不改变local APIC配置。
 
-因此 AP trampoline 不会永久占用这块低端 RAM，也不会作为 Linux 以后启动 AP 的入口。Linux 会建立自己的 trampoline。
+下一入口
+--------
 
-第十二章结束时的机器状态
-----------------------
-
-控制权目前走过：
-
-::
-
-   qemu_platform_setup()
-   → smp_setup()
-   → 读取 etc/max-cpus
-   → 读取当前 present CPU count
-   → smp_scan()
-   → 在 0x10000 安装 far-jump trampoline
-   → 开启 BSP local APIC
-   → LINT0 = ExtINT
-   → LINT1 = NMI
-   → 广播 INIT
-   → 广播 SIPI vector 0x10
-   → AP 从 0x10000 进入 entry_smp
-   → AP 切换到 32 位保护模式
-   → AP 串行借用 BSP 栈
-   → handle_smp()
-   → 记录 APIC ID
-   → 重放 MTRR / feature-control MSR
-   → CountCPUs++
-   → AP HLT
-   → BSP 等待全部 CPU 报到
-   → 恢复 0x10000
-   → smp_setup() 返回
-
-此刻：
-
-* 当前执行者：SeaBIOS ``qemu_platform_setup()``；
-* 当前主流程 CPU：BSP；
-* BSP 模式：32 位保护模式；
-* 分页：关闭；
-* 当前存在 CPU 数：已经由真实 AP 报到确认；
-* APIC ID：已经发现；
-* BSP 与 AP 的 MTRR：已经一致；
-* BSP 与 AP 的条件 feature-control：已经一致；
-* BSP local APIC：已经开启；
-* AP：已经执行过 SeaBIOS 启动代码，当前停在 ``HLT``；
-* ``0x10000`` SeaBIOS 临时 trampoline：已经移除；
-* ``CountCPUs``：保存本次实际报到数量；
-* ``MaxCountCPUs``：保存固件表需要覆盖的最大 CPU/APIC ID 范围；
-* PIRQ table、MP table、SMBIOS：尚未建立；
-* ACPI：尚未装载或生成；
-* 存储与 USB 驱动：尚未开始介质探测；
-* GRUB：尚未被读取或执行；
-* Linux：尚未装入内存。
-
-``smp_setup()`` 返回后，``qemu_platform_setup()`` 继续创建固件表：
+``smp_setup()`` 正常返回后， ``qemu_platform_setup()`` 进入固件表阶段：
 
 .. code-block:: c
 
@@ -586,14 +273,17 @@ BSP 读取：
    }
    smbios_setup();
 
-下一章将解释 PCI IRQ Routing Table、Intel MP table 与 SMBIOS 分别向后续软件描述什么，以及为什么
-``MaxCountCPUs > 255`` 时 SeaBIOS 跳过两种旧式表。
+所以下一章的真实第一步是先比较 ``MaxCountCPUs <= 255``，再决定是否调用
+``pirtable_setup()``；不能以“AP必已停驻”作为无条件开场状态。
 
 资料
 ----
 
-* `SeaBIOS src/fw/smp.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/smp.c>`_；
-* `SeaBIOS src/romlayout.S <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/romlayout.S>`_；
-* `SeaBIOS src/config.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/config.h>`_；
-* `SeaBIOS src/fw/paravirt.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/paravirt.c>`_；
-* `Intel 64 and IA-32 Architectures Software Developer Manuals <https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html>`_。
+* `SeaBIOS固定提交：CPU数量、INIT/SIPI与等待循环 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/smp.c#L52-L184>`_
+* `SeaBIOS固定提交：AP入口、共享栈与HLT <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/romlayout.S#L202-L221>`_
+* `SeaBIOS固定提交：present CPU读取 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/paravirt.c#L527-L540>`_
+* `SeaBIOS固定提交：固件表调用顺序 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/paravirt.c#L289-L299>`_
+* `QEMU固定提交：默认CPU数量初始化 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/core/machine.c#L1216-L1275>`_
+* `QEMU固定提交：FW_CFG_NB_CPUS与APIC-ID上界 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/fw_cfg.c#L119-L146>`_
+* `QEMU固定提交：APIC-ID上界计算与present CPU创建 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/x86-common.c#L70-L115>`_
+* `Intel 64 and IA-32 Architectures Software Developer Manuals <https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html>`_

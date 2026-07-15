@@ -1,566 +1,271 @@
-第十一章：SeaBIOS 怎样规定物理地址的缓存类型并准备每个 CPU 的 MSR？
-===================================================================
+第十一章：SeaBIOS怎样设置MTRR并为后续CPU记录MSR写入？
+===================================================
 
-上一章结束时，SeaBIOS 已经完成 SMM 安装。控制流回到：
-
-::
-
-   qemu_platform_setup()
-
-接下来的调用顺序是：
-
-.. code-block:: c
-
-   mtrr_setup();
-   msr_feature_control_setup();
-   smp_setup();
-
-本章只处理前两项，停在 ``smp_setup()`` 即将开始的位置。
-
-这两项都在写 Model-Specific Register，简称 MSR。MSR 是处理器内部的专用寄存器，不属于普通内存，也不属于
-PCI 配置空间。软件使用 ``RDMSR`` 和 ``WRMSR`` 指令访问它们。
-
-``mtrr_setup()`` 规定不同物理地址范围使用什么缓存类型；``msr_feature_control_setup()`` 根据 QEMU 提供的策略
-写入 ``MSR_IA32_FEATURE_CONTROL``。它们还有一个共同要求：配置不能只作用于当前 BSP。稍后被唤醒的每个 AP
-也必须得到相同设置。
-
-本章沿下面的真实控制流前进：
+上一章的两个正常出口都会回到BSP上的 ``qemu_platform_setup()``：QEMU提供SMM时，
+BSP已经完成SMBASE迁移；QEMU不提供SMM时，SeaBIOS已经跳过。两条路径的下一条调用
+相同：
 
 ::
 
-   qemu_platform_setup()
-   → mtrr_setup()
-   → 检查 CPUID.MTRR 与 CPUID.MSR
-   → 读取 IA32_MTRRCAP
-   → 暂时关闭 MTRR
-   → 配置 1 MiB 以下 fixed-range MTRR
-   → 清空 variable-range MTRR
-   → 把 q35 PCI MMIO hole 标成 UC
-   → 重新启用 MTRR，默认类型设为 WB
+   mtrr_setup()
    → msr_feature_control_setup()
-   → 从 fw_cfg 读取 etc/msr_feature_control
-   → 条件写入 IA32_FEATURE_CONTROL
-   → 停在 smp_setup() 之前
+   → smp_setup()
 
-本章固定使用：
+本章处理前两项，停在 ``smp_setup()`` 之前。执行者仍是SeaBIOS MainThread，CPU仍是
+BSP，普通执行环境为32位保护模式、分页关闭、IF=0；没有AP与BSP并发。MTRR和
+``IA32_FEATURE_CONTROL`` 都是每个逻辑CPU的MSR状态，所以代码一边立即写BSP，
+一边把相同的 ``index/value`` 序列留给下一章可能出现的AP重放。
 
-::
+能进入函数不等于一定改写MTRR
+----------------------------
 
-   SeaBIOS repository: coreboot/seabios
-   SeaBIOS commit:     c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
-   QEMU repository:    qemu/qemu
-   QEMU commit:        a759542a2c62f0fd3b65f5a66ad9868201014669
-
-缓存类型影响的是 CPU 怎样访问同一个物理地址
--------------------------------------------
-
-CPU 看到一个物理地址时，不是所有范围都能按照普通 RAM 的方式缓存。
-
-例如：
-
-* 普通 DRAM 适合 ``Write-Back``，简称 ``WB``；
-* PCI MMIO 寄存器通常必须是 ``Uncacheable``，简称 ``UC``；
-* 固件 ROM 区可以使用 ``Write-Protect``，简称 ``WP``；
-* VGA legacy aperture ``0xa0000-0xbffff`` 也不能被当成普通可回写 RAM。
-
-如果把设备寄存器误标为 WB，CPU 可能把写操作暂存在 cache 中、合并写入或改变可见顺序。软件以为自己已经向设备
-发送命令，设备实际上可能还没有看到那次写入。
-
-如果把普通 DRAM 全部标成 UC，功能通常仍可能正确，性能会急剧下降，因为大量读写无法使用正常 cache 路径。
-
-MTRR 是页表之外的物理内存类型来源
---------------------------------
-
-MTRR 的全名是 Memory Type Range Registers。
-
-Linux 以后还会通过页表项中的 PCD、PWT、PAT 等机制控制缓存属性。当前 SeaBIOS 尚未开启分页，所以这里不存在
-页表属性。MTRR 直接依据物理地址范围决定基础内存类型。
-
-因此当前关系是：
-
-::
-
-   CPU 发出物理地址访问
-   → MTRR 判断该地址属于哪种内存类型
-   → cache 和总线逻辑按该类型处理
-
-Linux 接管后会重新建立自己的页表，并在 MTRR、PAT 和页表属性之间进行一致性管理。SeaBIOS 当前建立的是操作系统
-启动前必须合理工作的固件环境。
-
-mtrr_setup 先确认处理器真的支持 MTRR 和 MSR
--------------------------------------------
-
-``mtrr_setup()`` 的第一层判断来自编译配置：
+默认QEMU构建启用 ``CONFIG_MTRR_INIT``，但 ``mtrr_setup()`` 仍按运行时能力保留
+三个返回门：
 
 .. code-block:: c
 
    if (!CONFIG_MTRR_INIT)
        return;
-
-随后读取 ``CPUID.01H:EDX``，检查两个能力位：
-
-``CPUID_MTRR``
-   处理器实现 MTRR。
-
-``CPUID_MSR``
-   处理器实现 ``RDMSR`` 和 ``WRMSR``。
-
-只有两者同时存在，SeaBIOS 才继续。
-
-接着读取：
-
-::
-
-   IA32_MTRRCAP = MSR 0x000000fe
-
-低 8 位给出 variable-range MTRR 的数量 ``vcnt``，bit 8 表示 fixed-range MTRR 是否存在。当前代码要求两者都存在：
-
-.. code-block:: c
-
-   int vcnt = mtrr_cap & 0xff;
-   int fix  = mtrr_cap & 0x100;
-
-   if (!vcnt || !fix)
+   if (!(cpuid_features & CPUID_MTRR))
+       return;
+   if (!(cpuid_features & CPUID_MSR))
        return;
 
-SeaBIOS 不假设所有 x86 CPU 都拥有相同数量的 variable MTRR，而是读取处理器自己报告的能力。
-
-为什么修改前先关闭 MTRR
-----------------------
-
-第一条实际写入是：
-
-.. code-block:: c
-
-   wrmsr_smp(MSR_MTRRdefType, 0);
-
-``IA32_MTRR_DEF_TYPE`` 位于 MSR ``0x2ff``。写 0 会暂时关闭 fixed 与 variable MTRR，并把默认类型字段清零。
-
-修改 MTRR 时，处理器架构通常还要求软件妥善处理 cache、并发 CPU 和执行环境。SeaBIOS 当前仍只让 BSP 执行主流程，
-其他 AP 尚未被唤醒；在这个受控启动阶段，它先关闭 MTRR，写完整套寄存器，再一次性重新启用。
-
-这里调用的不是普通 ``wrmsr()``，而是 ``wrmsr_smp()``。这个区别会在本章后半部分展开。
-
-1 MiB 以下为什么使用 fixed-range MTRR
-------------------------------------
-
-传统 PC 的第一个 1 MiB 不是一种均匀用途：
-
-::
-
-   0x00000 - 0x7ffff   低端 RAM
-   0x80000 - 0x9ffff   低端 RAM / EBDA 附近
-   0xa0000 - 0xbffff   VGA legacy aperture / SMRAM 相关窗口
-   0xc0000 - 0xfffff   Option ROM 与 BIOS 区
-
-fixed-range MTRR 专门精细描述这 1 MiB。它使用不同粒度：
-
-::
-
-   0x00000 - 0x7ffff   8 × 64 KiB
-   0x80000 - 0x9ffff   8 × 16 KiB
-   0xa0000 - 0xbffff   8 × 16 KiB
-   0xc0000 - 0xfffff  64 × 4 KiB
-
-一个 64 位 fixed-range MSR 内含 8 个 8 位类型字段。每个字节描述一个连续子区间。
-
-0 到 512 KiB 被标为 WB
----------------------
-
-SeaBIOS 先构造 ``IA32_MTRR_FIX64K_00000``：
-
-.. code-block:: c
-
-   for (i = 0; i < 8; i++)
-       if (RamSize >= 65536 * (i + 1))
-           u.valb[i] = MTRR_MEMTYPE_WB;
-
-8 个字节分别对应：
-
-::
-
-   byte 0 → 0x00000-0x0ffff
-   byte 1 → 0x10000-0x1ffff
-   ...
-   byte 7 → 0x70000-0x7ffff
-
-只要对应范围落在 ``RamSize`` 内，就写入类型值 ``6``，即 WB。
-
-当前 q35 虚拟机显然拥有远大于 512 KiB 的 RAM，因此这些字段通常全部成为 WB。源码仍保留按 ``RamSize`` 判断，
-避免把并不存在的地址范围无条件标成普通 RAM。
-
-512 KiB 到 640 KiB 继续按 16 KiB 标为 WB
----------------------------------------
-
-接下来配置 ``IA32_MTRR_FIX16K_80000``：
-
-.. code-block:: c
-
-   if (RamSize >= 0x80000 + 16384 * (i + 1))
-       u.valb[i] = MTRR_MEMTYPE_WB;
-
-它覆盖：
-
-::
-
-   0x80000 - 0x9ffff
-
-这一段仍属于低端内存，里面可能包含 EBDA 以及前面 SeaBIOS 的低端分配对象。对当前平台，它继续使用 WB。
-
-0xa0000 到 0xbffff 被明确设为 UC
---------------------------------
-
-SeaBIOS 对 ``IA32_MTRR_FIX16K_A0000`` 直接写 0：
-
-.. code-block:: c
-
-   wrmsr_smp(MSR_MTRRfix16K_A0000, 0);
-
-MTRR 类型 0 就是 UC，因此整个：
-
-::
-
-   0xa0000 - 0xbffff
-
-都按不可缓存方式访问。
-
-这个范围具有多重历史用途：VGA legacy aperture 位于这里；上一章中 q35 还通过 SMRAM 映射机制让 ``0xa0000``
-区域在 SMM 与普通执行环境中呈现不同内容。将它设为 UC 可以避免普通 cache 行掩盖这种设备或芯片组控制的映射变化。
-
-0xc0000 到 0xfffff 使用 WP
--------------------------
-
-最后 256 KiB 由 8 个 fixed-range MSR 描述，每个 MSR 管理 32 KiB，每个字节管理 4 KiB。
-
-SeaBIOS 对存在的范围写入：
-
-::
-
-   MTRR_MEMTYPE_WP = 5
-
-WP 表示读取可以缓存，处理器写入不会按照普通可回写内存处理。这适合 Option ROM 与 BIOS 映射：代码和静态数据经常
-被读取执行，正常情况下不应把它当作普通可写 RAM。
-
-注意，前面章节中 q35 PAM 可以临时把 BIOS shadow 区切换为可写 RAM。PAM 控制的是芯片组地址映射；MTRR 控制的是
-CPU cache 类型。两者描述不同层面，不能互相替代。
-
-variable MTRR 先全部清零
-----------------------
-
-fixed-range 配完后，SeaBIOS 读取 ``CPUID.80000008H:EAX`` 的低 8 位，得到处理器支持的物理地址位数。没有该 CPUID
-leaf 时，代码回退到 36 位。
-
-然后构造：
-
-.. code-block:: c
-
-   phys_mask = (1ULL << phys_bits) - 1;
-
-接着把每一组 variable MTRR 的 base 和 mask 都写 0：
-
-.. code-block:: c
-
-   for (i = 0; i < vcnt; i++) {
-       wrmsr_smp(MTRRphysBase_MSR(i), 0);
-       wrmsr_smp(MTRRphysMask_MSR(i), 0);
-   }
-
-每组 variable MTRR 使用两个 MSR：
-
-``IA32_MTRR_PHYSBASEn``
-   保存基址和内存类型。
-
-``IA32_MTRR_PHYSMASKn``
-   保存地址 mask，并用 bit 11 表示该范围有效。
-
-先清空全部组，可以避免继承虚拟 CPU 初始状态中无法确认的旧范围。
-
-q35 的 PCI hole 从 0xc0000000 开始
---------------------------------
-
-上一章已经得到：
-
-::
-
-   pcimem_start = 0xc0000000
-   pcimem_end   = 0xfec00000
-
-SeaBIOS 使用 variable MTRR 0，把从 ``pcimem_start`` 到 4 GiB 的整个区域设为 UC：
-
-.. code-block:: c
-
-   wrmsr_smp(MTRRphysBase_MSR(0),
-             pcimem_start | MTRR_MEMTYPE_UC);
-
-   wrmsr_smp(MTRRphysMask_MSR(0),
-             (-((1ULL << 32) - pcimem_start) & phys_mask) | 0x800);
-
-对固定 q35 路径：
-
-::
-
-   base = 0xc0000000
-   size = 0x100000000 - 0xc0000000
-        = 0x40000000
-        = 1 GiB
-
-所以实际被 variable MTRR 覆盖的是：
-
-::
-
-   0xc0000000 - 0xffffffff
-
-SeaBIOS 源码注释写着 ``Mark 3.5-4GB as UC``，那是历史性的概括。当前固定 q35 路径的 ``pcimem_start`` 是
-``0xc0000000``，也就是 3 GiB；本书以实际变量值为准，不能把注释中的 3.5 GiB 直接套到当前平台。
-
-为什么范围扩大到 4 GiB，而不只标实际 BAR
---------------------------------------
-
-``0xc0000000-0xffffffff`` 不只有本轮分配出来的 endpoint BAR。它还包含或可能包含：
-
-* PCI/PCIe MMIO window；
-* IOAPIC、local APIC 等固定平台 MMIO；
-* BIOS 顶部映射；
-* 芯片组保留范围；
-* 未分配但不应被当作 DRAM 缓存的地址洞。
-
-把整个 PCI hole 设为 UC，比逐个追踪当前 BAR 更稳妥。默认 WB 只应用于没有被这个 UC variable range 覆盖的地址。
-
-重新启用 MTRR，并把默认类型设为 WB
----------------------------------
-
-最后写回：
-
-.. code-block:: c
-
-   wrmsr_smp(MSR_MTRRdefType,
-             0xc00 | MTRR_MEMTYPE_WB);
-
-``0xc00`` 包含两个关键使能位：
-
-* bit 10：fixed-range MTRR enable；
-* bit 11：MTRR enable。
-
-低类型字段写入 ``6``，把未被其他 MTRR 特别覆盖的物理范围默认设成 WB。
-
-因此完成后的基础规则可以概括为：
-
-::
-
-   普通 RAM                    → WB
-   0xa0000-0xbffff             → UC
-   0xc0000-0xfffff             → WP
-   0xc0000000-0xffffffff       → UC
-
-高于 4 GiB 的普通 RAM没有落入这个 PCI-hole UC 范围，因默认类型为 WB，仍按正常可缓存内存访问。高位 PCI BAR 的
-最终属性以后还需要操作系统结合 MTRR 与 PAT 正确映射。
-
-wrmsr_smp 为什么既写寄存器又保存一份记录
---------------------------------------
-
-``mtrr_setup()`` 的每次写入都经过：
+通过CPUID后，BSP读取 ``MSR_MTRRcap``：低8位是variable-range pair数量
+``vcnt``，bit 8表示fixed-range MTRR可用。 ``vcnt==0`` 或fixed能力不存在时也直接
+返回。当前固定条件没有唯一指定QEMU CPU model，因此正文不能只凭“x86-64”删除这些
+分支。
+
+只有全部检查通过，下面的写入才发生。源函数在这里没有执行 ``WBINVD``，也没有通过
+CR0.CD关闭cache；它做的是先清 ``IA32_MTRR_DEF_TYPE``，完成寄存器序列，再重新启用
+MTRR。不能把架构文档中更完整的多处理器更新协议当成这段SeaBIOS已经执行的步骤。
+
+wrmsr_smp先改BSP，再尝试写入32项日志
+-----------------------------------
+
+所有实际写入都经过：
 
 .. code-block:: c
 
    void wrmsr_smp(u32 index, u64 val)
    {
        wrmsr(index, val);
+       if (smp_msr_count >= ARRAY_SIZE(smp_msr)) {
+           warn_noalloc();
+           return;
+       }
        smp_msr[smp_msr_count].index = index;
        smp_msr[smp_msr_count].val = val;
        smp_msr_count++;
    }
 
-第一行 ``wrmsr()`` 立即修改当前 BSP。
+顺序决定了溢出的真实语义： ``wrmsr()`` 总是先作用于当前BSP；32项静态
+``smp_msr`` 数组已满时，SeaBIOS随后告警并停止记录该项，但不会撤销BSP写入，也不会
+中止 ``mtrr_setup()``。所以这不是“容量检查失败，所有CPU都不写”，而是可能产生
+“BSP继续前进，未来AP只重放前32项”的不一致。
 
-后面三行把相同的 ``MSR index + value`` 顺序保存到最多 32 项的 ``smp_msr`` 数组。
-
-MSR 通常是每个逻辑处理器各自拥有的状态。BSP 写了 MTRR，不表示尚未运行的 AP 自动拥有相同设置。因此 SeaBIOS
-先生成一份需要重放的 MSR 写入日志：
-
-::
-
-   BSP 现在执行 WRMSR
-   +
-   保存 index/value
-   → AP 醒来后逐项执行相同 WRMSR
-
-这也是为什么 ``mtrr_setup()`` 必须在 ``smp_setup()`` 之前：AP 被唤醒时，完整的 MTRR 写入序列已经准备好了。
-
-MSR 写入顺序也被完整保留
-----------------------
-
-记录的不只是最终值，还包括先关闭、逐项配置、再重新启用的顺序：
-
-::
-
-   IA32_MTRR_DEF_TYPE = 0
-   → fixed MTRR
-   → variable base/mask 清零
-   → PCI hole UC range
-   → IA32_MTRR_DEF_TYPE = enable + WB
-
-AP 之后调用 ``smp_write_msrs()`` 时会按数组顺序重放。这样 AP 不会先启用一套尚未写完整的 MTRR。
-
-数组只有 32 项。如果写入数超过数组容量，SeaBIOS 会报告分配警告，当前固定配置的 MTRR 与 feature-control 写入数量
-必须落在这一实现限制内。
-
-IA32_FEATURE_CONTROL 的策略来自 QEMU
------------------------------------
-
-``mtrr_setup()`` 返回后执行：
-
-.. code-block:: c
-
-   msr_feature_control_setup();
-
-SeaBIOS 自己不根据 CPUID 临时拼出位值，而是读取 fw_cfg 文件：
-
-::
-
-   etc/msr_feature_control
-
-.. code-block:: c
-
-   u64 feature_control_bits =
-       romfile_loadint("etc/msr_feature_control", 0);
-
-   if (feature_control_bits)
-       wrmsr_smp(MSR_IA32_FEATURE_CONTROL,
-                 feature_control_bits);
-
-``MSR_IA32_FEATURE_CONTROL`` 的编号是：
-
-::
-
-   0x0000003a
-
-如果 QEMU 没有提供该文件，或者值为 0，SeaBIOS不写这个 MSR。
-
-QEMU 怎样生成这份值
-------------------
-
-当前参考 QEMU 源码中的 ``fw_cfg_build_feature_control()`` 会检查虚拟 CPU 暴露的能力，并按需加入：
-
-* VMX outside SMX enable；
-* Local Machine Check Exception，简称 LMCE；
-* SGX enable；
-* SGX Launch Control enable。
-
-只要存在任一功能位，QEMU 还会加入 ``FEATURE_CONTROL_LOCKED``，然后把 64 位值发布为：
-
-::
-
-   etc/msr_feature_control
-
-这意味着策略分工是：
-
-::
-
-   QEMU 根据虚拟 CPU 型号和功能决定允许哪些位
-   → fw_cfg 把位图交给 SeaBIOS
-   → SeaBIOS 写入每个 CPU 的 IA32_FEATURE_CONTROL
-
-本书不假定所有 q35 启动都得到同一个固定数值。数值取决于虚拟 CPU 配置，例如是否暴露 VMX、SGX 或 LMCE。
-
-LOCK 位为什么重要
-----------------
-
-``IA32_FEATURE_CONTROL`` 中的 lock bit 一旦设置，通常在 CPU 复位前不能再修改受控字段。
-
-因此这是固件阶段的安全边界：操作系统看到的不只是“某功能是否由 CPUID 宣布”，还受到固件已经锁定的 feature-control
-策略约束。
-
-SeaBIOS 使用 ``wrmsr_smp()`` 写入该值，因此：
-
-* BSP 立即得到 feature-control 设置；
-* 写入动作被追加到 ``smp_msr`` 日志；
-* 后续每个 AP 会获得同样的位图和 lock 状态。
-
-如果只设置 BSP，系统不同 CPU 对 VMX、SGX 或 LMCE 的可用状态可能不一致，这是多处理器启动不能接受的。
-
-当前还没有真正唤醒其他 CPU
+关闭MTRR是日志中的第一项
 -------------------------
 
-到本章结束，SeaBIOS 已经准备好 AP 所需的 MSR 模板，但 ``smp_setup()`` 尚未调用。
+成功路径第一项为：
 
-当前发生的是：
+.. code-block:: c
+
+   wrmsr_smp(MSR_MTRRdefType, 0);
+
+它清除 ``IA32_MTRR_DEF_TYPE`` 的默认类型与fixed/variable enable。BSP立即看到MTRR
+关闭；相同写入占用重放表的一项。之后的AP若存在，会从这项开始按相同顺序重放。
+
+低端1 MiB由11个fixed-range MSR描述
+----------------------------------
+
+SeaBIOS用一个 ``FIX64K_00000`` MSR覆盖0—512 KiB。64位值中的每个byte对应64 KiB；
+只有 ``RamSize`` 到达该byte结尾时才写入类型6（WB），未到达的byte保持0（UC）。
+
+第二个 ``FIX16K_80000`` 用八个16 KiB字段覆盖0x80000—0x9ffff，同样按
+``RamSize`` 逐段置WB。 ``FIX16K_A0000`` 则无条件写0，使0xa0000—0xbffff为UC；
+这一区间同时承载传统VGA aperture和芯片组控制的SMRAM视图，不能当普通write-back
+RAM缓存。
+
+最后八个 ``FIX4K_C0000`` 至 ``FIX4K_F8000`` 覆盖0xc0000—0xfffff。SeaBIOS把
+仍落在 ``RamSize`` 内的4 KiB字段写成5（WP），其余保持UC。这里的MTRR类型与Q35
+PAM地址译码是不同层：PAM决定访问落到ROM还是shadow RAM；MTRR决定CPU怎样缓存该
+物理访问。
+
+这部分一共写11个fixed-range MSR。连同开头关闭 ``DEF_TYPE`` 的一项，日志此时
+已经使用12项。
+
+variable pair先全部失效，再用pair 0覆盖PCI hole
+-----------------------------------------------
+
+SeaBIOS默认把物理地址宽度设为36；如果扩展CPUID最高leaf达到 ``0x80000008``，则用
+该leaf EAX低8位替换。随后：
+
+.. code-block:: c
+
+   phys_mask = (1ULL << phys_bits) - 1;
+   for (i = 0; i < vcnt; i++) {
+       wrmsr_smp(MTRRphysBase_MSR(i), 0);
+       wrmsr_smp(MTRRphysMask_MSR(i), 0);
+   }
+
+每个variable pair都先以base=0、mask=0失效，因此这里增加 ``2 * vcnt`` 项写入。
+代码不读取并恢复此前的variable MTRR；它直接以自己的完整启动配置覆盖。
+
+第008章已经由固定Q35 PCIEXBAR得到：
 
 ::
 
-   BSP 配置自己的 MTRR
-   → BSP 条件配置 IA32_FEATURE_CONTROL
-   → 保存所有需要 AP 重放的 WRMSR 序列
+   PCIEXBAR base = 0xb0000000
+   PCIEXBAR size = 0x10000000
+   pcimem_start  = 0xc0000000
 
-尚未发生的是：
+SeaBIOS再写variable pair 0：base带UC类型，mask覆盖从 ``pcimem_start`` 到4 GiB并
+置valid bit。因此固定q35的实际UC范围是：
 
 ::
 
-   local APIC 启用
-   → INIT/SIPI 广播
-   → AP 从 0x10000 启动
-   → entry_smp
-   → handle_smp
-   → AP 重放 MSR
+   0xc0000000—0xffffffff  (3 GiB—4 GiB)
 
-这些属于下一章。
+``mtrr.c`` 中“3.5—4GB”的注释与这一固定变量值不一致；可执行表达式使用
+``pcimem_start``，所以本书采用3—4 GiB。这个范围包含PCI/PCIe MMIO窗口、平台固定
+MMIO与顶端保留映射，不只包含本轮实际分配的BAR。
 
-第十一章结束时的机器状态
-----------------------
+最后重新启用并以WB作为默认类型
+--------------------------------
 
-控制权目前走过：
+pair 0的base/mask占两次写入。最后：
+
+.. code-block:: c
+
+   wrmsr_smp(MSR_MTRRdefType, 0xc00 | MTRR_MEMTYPE_WB);
+
+bit 10启用fixed ranges，bit 11启用MTRR，低类型值6把未被特定range覆盖的地址设为
+WB。能力完整且写入没有CPU异常时，BSP此时的基础类型为：
+
+::
+
+   RamSize内的低端RAM字段       WB
+   0xa0000—0xbffff              UC
+   RamSize内的0xc0000—0xfffff  WP
+   0xc0000000—0xffffffff        UC
+   未被特定range覆盖的地址      WB
+
+高于4 GiB的普通RAM不落入本pair 0，沿用WB默认类型。操作系统以后仍需让PAT、页表属性
+与MTRR组合保持一致；本章没有分页，也没有建立Linux映射。
+
+MTRR成功路径实际需要15加2倍vcnt项
+----------------------------------
+
+把源码中的调用逐项计数：
+
+::
+
+   disable DEF_TYPE       1
+   fixed-range MSR       11
+   clear variable pairs  2 * vcnt
+   program pair 0         2
+   enable DEF_TYPE        1
+   --------------------------------
+   total                  15 + 2 * vcnt
+
+如果 ``vcnt=8``，MTRR占31项；后面的FEATURE_CONTROL最多还能使用最后一项。如果
+``vcnt>=9``，MTRR自身就超过32项。由于当前固定条件没有规定 ``MTRRcap.vcnt``，
+不能断言静态数组一定够用。
+
+溢出不会改变BSP已经写完的结果，但会截断AP模板。例如 ``vcnt=9`` 时，第33次调用是
+最终重新启用 ``DEF_TYPE``：BSP会执行它，日志却没有空间记录；下一章的AP会重放到
+pair 0为止，却不重新启用MTRR。更大的 ``vcnt`` 还会更早截断。这个边界必须在AP状态
+中继续携带，不能笼统写成“每个CPU必然相同”。
+
+FEATURE_CONTROL是否存在由QEMU CPU能力决定
+-----------------------------------------
+
+``mtrr_setup()`` 返回后，BSP调用 ``msr_feature_control_setup()``，从fw_cfg读取：
+
+::
+
+   etc/msr_feature_control
+
+QEMU只在vCPU公布下列至少一种能力时创建该文件：VMX outside SMX、LMCE、SGX或
+SGX Launch Control。它组合相应enable位并一并设置 ``FEATURE_CONTROL_LOCKED``；
+没有任何功能位时直接不创建文件。
+
+SeaBIOS用缺省值0加载该文件，只有非零时才执行：
+
+.. code-block:: c
+
+   wrmsr_smp(MSR_IA32_FEATURE_CONTROL, feature_control_bits);
+
+因此固定CPU model未唯一化时有两条正常结果：文件缺失/值0，不写MSR也不增加日志；
+文件非零，BSP写入带lock的QEMU策略，并尝试把它追加到同一个32项重放表。
+
+若MTRR已经占满日志，这次FEATURE_CONTROL仍先写BSP，再告警且不记录。于是“BSP已锁
+FEATURE_CONTROL”与“未来AP会得到同一lock值”也必须分开陈述。
+
+本章结束状态
+------------
+
+共同状态：
+
+* current executor：BSP上的SeaBIOS ``MainThread``；
+* CPU/mode：BSP，32位保护模式，分页关闭、A20开启、IF=0；
+* NMI/PIC：继承第010章，未改变；
+* AP：尚未由SeaBIOS启动，没有MSR重放发生；
+* ``smp_msr``：保存至多32个 ``index/value``，保持实际调用顺序；
+* 溢出语义：BSP先写成功，超限项只是不进入AP模板；
+* SMM：保持第010章的成功或跳过分支，不受本章改变；
+* 固件表、设备驱动、GRUB与Linux：尚未进入。
+
+若CPUID与 ``MTRRcap`` 满足全部门：
+
+* BSP MTRR：按fixed ranges、variable pair 0和WB默认类型完成配置；
+* q35 ``0xc0000000—0xffffffff``：UC；
+* MTRR调用数： ``15 + 2 * vcnt``；
+* 日志不超过32项时：完整MTRR序列可供AP重放；
+* 日志超过32项时：BSP配置仍继续，AP模板被截断。
+
+若任一MTRR能力门不满足：
+
+* ``mtrr_setup()`` 返回，不改BSP MTRR，也不为MTRR增加日志项。
+
+若QEMU发布非零 ``etc/msr_feature_control``：
+
+* BSP写入带lock的 ``IA32_FEATURE_CONTROL``；
+* 仅在日志尚有容量时，该项也可供AP重放。
+
+否则本章不写 ``IA32_FEATURE_CONTROL``。
+
+关键边界
+--------
+
+#. 默认构建启用MTRR初始化，不删除CPUID与 ``MTRRcap`` 的运行时返回分支。
+#. 固定函数没有执行完整的cache-disable/flush协议；正文只记录它实际写的MSR序列。
+#. ``pcimem_start`` 是固定Q35路径算出的3 GiB，不采用源码注释中的3.5 GiB泛称。
+#. ``wrmsr_smp`` 先写BSP、后检查32项日志容量；溢出不是写入前拒绝。
+#. MTRR成功路径需要 ``15 + 2 * vcnt`` 项，容量是否足够取决于未固定的CPU能力。
+#. FEATURE_CONTROL文件与数值由QEMU vCPU能力决定，不是所有q35启动的固定常量。
+#. 日志完整时AP可按原顺序重放；日志截断时不能宣称BSP/AP的MSR状态一致。
+
+下一入口
+--------
+
+``msr_feature_control_setup()`` 返回后，BSP执行：
 
 ::
 
    qemu_platform_setup()
-   → smm_setup() 返回
-   → mtrr_setup()
-   → 检查 MTRR/MSR 能力
-   → 暂时关闭 MTRR
-   → 低端 RAM fixed range = WB
-   → 0xa0000-0xbffff = UC
-   → 0xc0000-0xfffff = WP
-   → 清空 variable MTRR
-   → 0xc0000000-0xffffffff = UC
-   → 默认内存类型 = WB
-   → 重新启用 fixed/variable MTRR
-   → msr_feature_control_setup()
-   → 条件读取 etc/msr_feature_control
-   → 条件写 IA32_FEATURE_CONTROL
+   → smp_setup()
 
-此刻：
-
-* 当前执行者：SeaBIOS ``qemu_platform_setup()``；
-* 当前 CPU：BSP；
-* 普通执行模式：32 位保护模式；
-* 分页：关闭；
-* BSP MTRR：已经配置；
-* 普通 RAM 默认缓存类型：WB；
-* ``0xa0000-0xbffff``：UC；
-* ``0xc0000-0xfffff``：WP；
-* q35 3-4 GiB PCI hole：UC；
-* ``IA32_FEATURE_CONTROL``：在 QEMU提供非零策略时已写入并锁定；
-* ``smp_msr``：已经保存 AP 需要重放的 MTRR 与 feature-control 写入序列；
-* AP：尚未被 SeaBIOS 唤醒；
-* ACPI、SMBIOS、MP table：尚未建立；
-* 设备驱动和启动介质探测：尚未开始；
-* GRUB：尚未被读取或执行；
-* Linux：尚未装入内存。
-
-下一条调用是：
-
-.. code-block:: c
-
-   smp_setup();
-
-下一章将从 BSP 的 local APIC 开始，解释 INIT/SIPI 广播、``0x10000`` 启动跳板、AP 之间共享栈的锁、APIC ID
-记录，以及每个 AP 怎样重放本章保存的 MSR 序列。
+下一章先读取 ``etc/max-cpus`` 与在场CPU数，再决定是否真的有AP执行
+``entry_smp()``；本章只建立可能被重放的MSR模板。
 
 资料
 ----
 
-* `SeaBIOS src/fw/mtrr.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/mtrr.c>`_；
-* `SeaBIOS src/fw/smp.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/smp.c>`_；
-* `SeaBIOS src/fw/paravirt.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/paravirt.c>`_；
-* `SeaBIOS src/x86.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/x86.h>`_；
-* `QEMU hw/i386/fw_cfg.c <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/fw_cfg.c>`_；
-* `Intel 64 and IA-32 Architectures Software Developer Manuals <https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html>`_。
+* `SeaBIOS固定提交：MTRR能力门与写入序列 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/mtrr.c#L36-L105>`_
+* `SeaBIOS固定提交：wrmsr_smp容量与重放顺序 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/smp.c#L27-L50>`_
+* `SeaBIOS固定提交：FEATURE_CONTROL读取与平台调用顺序 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/paravirt.c#L260-L299>`_
+* `SeaBIOS固定提交：Q35 PCIEXBAR与pcimem_start <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pciinit.c#L480-L503>`_
+* `QEMU固定提交：FEATURE_CONTROL fw_cfg构造 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/fw_cfg.c#L176-L211>`_
+* `Intel 64 and IA-32 Architectures Software Developer Manuals <https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html>`_

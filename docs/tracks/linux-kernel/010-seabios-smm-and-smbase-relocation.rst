@@ -1,699 +1,296 @@
-第十章：SeaBIOS 怎样进入 SMM 并把处理入口藏进 SMRAM？
-====================================================
+第十章：SeaBIOS怎样判定SMM可用并在可用时迁移SMBASE？
+=====================================================
 
-上一章结束时，SeaBIOS 已经完成 PCI 地址分配、INTx 路由和 q35/ICH9 设备解码。控制流回到：
-
-::
-
-   qemu_platform_setup()
-
-接下来两条调用是：
-
-.. code-block:: c
-
-   smm_device_setup();
-   smm_setup();
-
-这一段第一次让 CPU 进入 System Management Mode，简称 SMM。SMM 不是 Linux 内核态，也不是普通的 x86
-保护模式特权级。CPU 收到 System Management Interrupt，简称 SMI，之后会暂时离开当前执行环境，把寄存器状态
-保存到一块专用内存，转去执行固件准备的 SMI handler。handler 最终执行 ``RSM``，CPU 才恢复被打断的环境。
-
-本章沿下面的真实控制流前进：
+上一章停在 ``pci_setup()`` 返回后。BSP仍在SeaBIOS POST的32位保护模式中执行，
+分页关闭、A20开启、IF=0，NMI继续由CMOS index bit 7屏蔽；PIC只放行master IRQ2与
+slave IRQ13。 ``PCIDevices`` 已经包含Q35 MCH和ICH9 LPC，下一段同步调用是：
 
 ::
 
    qemu_platform_setup()
    → smm_device_setup()
-   → 从 PCIDevices 找到 q35 MCH 与 ICH9 LPC
-   → 保存两者的 BDF
    → smm_setup()
-   → ich9_lpc_apmc_smm_setup()
-   → 临时打开 SMRAM 窗口
-   → 在默认 SMM 入口安装跳板
-   → 允许写 0xb2 产生 SMI
-   → 触发第一次 SMI
-   → CPU 在默认 SMBASE 下进入 SMM
-   → handle_smi() 把 SMBASE 改到 0xa0000
-   → RSM 返回正常执行
-   → 在新 SMBASE 安装正式入口
-   → 关闭普通软件对 SMRAM 的访问
 
-本章结束在 ``smm_setup()`` 返回。此时 SMM 已经可以工作，普通 PCI 驱动和磁盘介质探测仍然没有开始。
+SeaBIOS默认QEMU构建启用 ``CONFIG_USE_SMM`` 和 ``CONFIG_CALL32_SMM``，但这还不能
+推出CPU一定会进入SMM。当前固定条件没有规定QEMU加速器，也没有把machine属性
+``smm`` 固定为 ``on``。QEMU把它初始化成 ``auto``：TCG与qtest提供SMM；KVM只有
+``KVM_CAP_X86_SMM`` 可用时提供SMM；其他不支持SMM的执行后端在auto模式下关闭它。
 
-本章固定使用：
+这条能力判断会同时传给Q35 host bridge的 ``smm-ranges`` 和ICH9 LPC的
+``smm-enabled``。ICH9复位时，如果SMM不可用，QEMU预先设置
+``SMI_EN.APMC_EN``，源码注释明确说这是把SMM标成“已经初始化”，阻止固件再运行
+SMM。因而本章必须保留两个出口：能力可用时执行一次SMBASE迁移；能力不可用时
+SeaBIOS看到标记后跳过。把前一条写成无条件历史，会让后面所有状态从这里开始漂移。
 
-::
+smm_device_setup只把PCI身份交给SMM代码
+-----------------------------------------
 
-   repository: coreboot/seabios
-   commit: c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
-
-SMM 与普通中断不是同一套机制
-----------------------------
-
-前面已经见过两片 8259A、IRQ 和 IVT。普通硬件中断大致是：
-
-::
-
-   外设发出 IRQ
-   → PIC 选择中断向量
-   → CPU 查询 IVT 或 IDT
-   → 跳到普通中断处理入口
-
-SMI 不走这条路径。它具有独立的 CPU 进入机制：
-
-::
-
-   平台产生 SMI
-   → CPU 保存当前机器状态到 SMM save-state area
-   → CPU 进入 SMM
-   → 从 SMBASE + 0x8000 取第一条 SMI handler 指令
-   → handler 执行 RSM
-   → CPU 恢复进入 SMM 前的状态
-
-这里没有查询当前操作系统的 IDT，也不要求 Linux 提前安装中断门。SMI 对操作系统来说通常表现为一段无法直接解释的
-停顿：CPU 暂停原来的代码，执行固件 handler，随后从原位置继续。
-
-SMM 的特权来源也不只是 CPL 0。进入 SMM 后，CPU 使用专用的保存状态和地址环境；SMRAM 在完成配置后通常不会映射给
-普通软件。即使以后 Linux 已经进入 ring 0，它也不会因为处于内核态就自然获得 SMRAM 的普通读写权限。
-
-SeaBIOS 当前建立 SMM 的直接用途包括自己的 32 位调用跳板和传统平台管理接口。这里不把 SMM 泛化成所有物理主板的完整
-管理固件实现；当前只追踪 QEMU q35 与这份 SeaBIOS 源码实际执行的路径。
-
-smm_device_setup 只寻找设备，不会立即进入 SMM
-----------------------------------------------
-
-``smm_device_setup()`` 首先检查构建配置：
-
-.. code-block:: c
-
-   if (!CONFIG_USE_SMM)
-       return;
-
-启用 SMM 时，它从前面已经建立的 ``PCIDevices`` 链表寻找平台组合。源码支持两条主要路径：
-
-::
-
-   i440fx / PIIX4
-   q35 / ICH9
-
-当前固定平台是 q35，所以真正匹配的是：
+``smm_device_setup()`` 先受 ``CONFIG_USE_SMM`` 约束，再从已有
+``PCIDevices`` 链表查找支持的平台组合。它先尝试i440fx/PIIX4；固定q35机器匹配：
 
 .. code-block:: c
 
    isapci = pci_find_device(PCI_VENDOR_ID_INTEL,
                             PCI_DEVICE_ID_INTEL_ICH9_LPC);
-   pmpci  = pci_find_device(PCI_VENDOR_ID_INTEL,
-                            PCI_DEVICE_ID_INTEL_Q35_MCH);
+   pmpci = pci_find_device(PCI_VENDOR_ID_INTEL,
+                           PCI_DEVICE_ID_INTEL_Q35_MCH);
 
-名字中的 ``isapci`` 和 ``pmpci`` 是 SeaBIOS 沿用下来的内部变量名。当前 q35 路径对应的实际设备是：
-
-``ICH9 LPC``
-   位于南桥一侧，提供传统 LPC、ACPI PM、SMI 控制等平台功能。
-
-``Q35 MCH``
-   Memory Controller Hub，也是 PCI 根复合体的 host bridge。它控制本章需要使用的 SMRAM 映射寄存器。
-
-找到两者后，SeaBIOS只保存 BDF：
+两者同时存在时，只保存：
 
 .. code-block:: c
 
    SMMISADeviceBDF = isapci->bdf;
    SMMPMDeviceBDF  = pmpci->bdf;
 
-这一步没有：
+这里的 ``SMMISADeviceBDF`` 指向ICH9 LPC， ``SMMPMDeviceBDF`` 指向Q35 MCH。
+没有SMRAM写入，没有SMI，也没有CPU模式切换；执行者始终是BSP上的MainThread。
 
-* 打开 SMRAM；
-* 产生 SMI；
-* 修改 SMBASE；
-* 执行 SMI handler。
-
-它只是把第七章发现的 PCI 身份信息转换成后续 SMM 代码可以直接使用的设备坐标。
-
-smm_setup 根据设备 ID 选择 q35 路径
---------------------------------
-
-下一条调用是：
-
-.. code-block:: c
-
-   smm_setup();
-
-函数先检查：
-
-.. code-block:: c
-
-   if (!CONFIG_USE_SMM || SMMISADeviceBDF < 0)
-       return;
-
-如果平台设备没有匹配成功，SeaBIOS不会猜测寄存器位置，也不会强行触发 SMI。
-
-设备存在时，``smm_setup()`` 读取先前保存 BDF 的 ``PCI_DEVICE_ID``。PIIX4 使用
-``piix4_apmc_smm_setup()``；当前 ICH9 LPC 使用：
-
-.. code-block:: c
-
-   ich9_lpc_apmc_smm_setup(SMMISADeviceBDF,
-                           SMMPMDeviceBDF);
-
-两个实参分别是 ICH9 LPC 和 q35 MCH 的 BDF。后面的写寄存器操作因此都落到前面真实发现的虚拟 PCI function，不依赖
-硬编码“它一定在某个槽位”的假设。
-
-APMC 端口为什么能触发 SMI
-------------------------
-
-SeaBIOS 和 QEMU 约定两个传统 I/O port：
+``smm_setup()`` 再检查构建开关和BDF，读取LPC的device ID，并为固定ICH9设备调用：
 
 ::
 
-   0x00b2  PORT_SMI_CMD
-   0x00b3  PORT_SMI_STATUS
+   ich9_lpc_apmc_smm_setup(SMMISADeviceBDF, SMMPMDeviceBDF)
 
-``0xb2`` 常称为 APMC command port。SeaBIOS 会配置 ICH9，使对这个端口的写操作成为一种 SMI source。
-``0xb3`` 在当前初始化流程中作为 SeaBIOS 与 SMI handler 之间的简易握手状态端口。
+如果设备查找失败，函数直接返回；固定q35创建了这两个function，所以fresh boot中的
+分歧发生在下一次 ``SMI_EN`` 读取。
 
-进入 setup 时，SeaBIOS 先读取 ICH9 PM I/O 空间中的 ``SMI_EN``：
+APMC_EN把成功路径与跳过路径分开
+--------------------------------
+
+ICH9 PM I/O空间的 ``SMI_EN`` 已由上一章配置好的 ``acpi_pm_base`` 定位。SeaBIOS
+先读取该寄存器：
 
 .. code-block:: c
 
    value = inl(acpi_pm_base + ICH9_PMIO_SMI_EN);
-
-如果 ``APMC_EN`` 已经打开，函数直接返回：
-
-.. code-block:: c
-
    if (value & ICH9_PMIO_SMI_EN_APMC_EN)
        return;
 
-这避免重复安装 SMM 环境。SMM 的入口地址、保存状态和 SMRAM 锁定都不是适合反复覆盖的普通临时配置。
+在本书的fresh QEMU实例中，这个测试有明确的两种含义：
 
-SMRAM 为什么位于 0xa0000
-----------------------
+* QEMU判定SMM不可用时，ICH9复位代码已经置位 ``APMC_EN``；SeaBIOS立即返回，
+  不打开SMRAM、不安装入口、不触发SMI；
+* QEMU判定SMM可用时，ICH9复位值没有该位，SeaBIOS继续完成下面的安装流程。
 
-SeaBIOS 固定了两个地址：
+这个单一bit本身没有携带原因。一般情况下它也可能表示先前代码已经初始化过SMM；
+SeaBIOS在这里不重新验证SMBASE或handler。当前fresh boot之所以能解释分支，是因为
+QEMU复位路径和初始化顺序都已固定。
 
-::
+成功路径先借用两个地址布局
+--------------------------
 
-   BUILD_SMM_INIT_ADDR = 0x30000
-   BUILD_SMM_ADDR      = 0xa0000
-
-``0x30000`` 是初次进入 SMM 时使用的默认 SMBASE。x86 SMI 入口位于：
-
-::
-
-   SMBASE + 0x8000
-
-所以第一次 SMI 的入口地址是：
+继续执行时，SeaBIOS使用两个SMBASE常量：
 
 ::
 
-   0x30000 + 0x8000 = 0x38000
+   BUILD_SMM_INIT_ADDR = 0x00030000
+   BUILD_SMM_ADDR      = 0x000a0000
 
-SeaBIOS 最终希望把 SMBASE 迁移到：
-
-::
-
-   0x000a0000
-
-之后正式入口位于：
+x86从 ``SMBASE + 0x8000`` 取得SMI第一条指令，所以默认入口是 ``0x38000``，迁移后
+入口是 ``0xa8000``。 ``struct smm_layout`` 从各自SMBASE起组织为：
 
 ::
 
-   0x000a0000 + 0x8000 = 0x000a8000
+   +0x0000  backup1（0x200 bytes）
+   +0x0200  backup2（0x200 bytes）
+   +0x0400  A20 backup，随后是stack
+   +0x8000  8-byte codeentry
+   +0xfe00  CPU save-state（0x200 bytes）
 
-``0xa0000`` 在普通 PC 内存布局中还是传统 VGA window 的起点。这里需要区分两种访问视图：
+``backup1``、 ``backup2`` 与A20字段服务于默认开启的 ``CALL32_SMM`` trampoline；
+这不是普通SeaBIOS线程栈。 ``entry_smi`` 把ESP设为 ``0xa8000``，栈向低地址增长，
+因此即使第一次SMI从默认 ``0x38000`` 进入，C handler也使用目标SMRAM布局里的栈。
 
-``普通执行环境``
-   ``0xa0000`` 通常属于 VGA/legacy 映射区域。
-
-``SMM 环境``
-   芯片组把同一地址范围切换成 SMRAM，CPU 在 SMM 中看到的是保存状态、栈和 SMI handler 数据。
-
-相同数值地址不代表普通软件和 SMM 一定看到相同存储单元。q35 的 SMRAM 控制寄存器决定当前窗口是开放给普通访问，还是
-只在 SMM 中可见。
-
-为什么安装过程中必须临时打开 SMRAM
---------------------------------
-
-最终状态下，普通软件不应直接修改 SMI handler。可是在安装 handler 时，SeaBIOS 当前仍处于普通 32 位保护模式，必须
-先把代码和备份数据写入目标 SMRAM。
-
-q35 路径执行：
-
-.. code-block:: c
-
-   pci_config_writeb(mch_bdf,
-                     Q35_HOST_BRIDGE_SMRAM,
-                     0x02 | 0x48);
-
-源码把这一步描述为：
+为了让普通POST代码能够写目标区，SeaBIOS先把Q35 ``SMRAM`` 寄存器写成 ``0x4a``：
 
 ::
 
-   enable the SMM memory window
+   C_BASE=2 | G_SMRAME | D_OPEN
 
-窗口打开后，SeaBIOS 的普通执行代码才能通过 ``0xa0000`` 一带访问未来的 SMRAM 内容。
-
-这里的“打开”只服务于安装过程，不表示最终允许 Linux 或 bootloader 随意访问 SMRAM。后面完成迁移后，SeaBIOS 会再次
-修改同一寄存器，把普通访问关闭。
-
-smm_layout 怎样组织两套入口和保存状态
-----------------------------------
-
-SeaBIOS 用 ``struct smm_layout`` 描述从 SMBASE 开始的一整块布局。关键部分可以简化为：
+QEMU据此让A0000—BFFFF窗口在普通地址空间可访问。 ``smm_save_and_copy()`` 随后把
+默认布局中将被CPU覆盖的 ``cpu`` save-state原字节和 ``codeentry`` 原8字节复制到
+目标布局，再只把默认 ``0x38000`` 的8字节替换成 ``SMI_INSN``：
 
 ::
-
-   SMBASE + 0x0000   backup1
-   SMBASE + 0x0200   backup2
-   SMBASE + 0x0400   A20 backup 与 SMM stack
-   SMBASE + 0x8000   codeentry
-   SMBASE + 0xfe00   CPU save-state area
-
-``codeentry``
-   CPU 响应 SMI 后开始取指的位置。
-
-``cpu``
-   CPU 自动保存进入 SMM 前寄存器状态的位置。具体字段布局取决于 32 位或 64 位 SMM save-state revision。
-
-``backup1`` 与 ``backup2``
-   SeaBIOS 在启用 ``CONFIG_CALL32_SMM`` 时保存两份 CPU 状态，用于在 SMM 中切换到指定 32 位执行上下文，再恢复原来的
-   SMM 进入现场。
-
-``stack``
-   ``entry_smi`` 切换到 32 位模式后使用的专用栈空间。
-
-这块布局不是 Linux 的 task stack，也不是 SeaBIOS 普通协作式线程栈。它只服务于 SMI 进入和 SMM 内部执行。
-
-第一次 SMI 前先保存两处原始内存
-----------------------------
-
-SeaBIOS 调用：
-
-.. code-block:: c
-
-   smm_save_and_copy();
-
-函数建立两个指针：
-
-.. code-block:: c
-
-   initsmm = (void *)0x30000;
-   smm     = (void *)0xa0000;
-
-接着把默认区域中稍后会被 CPU 保存状态覆盖的内容，复制到当前已经打开的 SMRAM：
-
-.. code-block:: c
-
-   memcpy(&smm->cpu, &initsmm->cpu, sizeof(smm->cpu));
-   memcpy(&smm->codeentry, &initsmm->codeentry,
-          sizeof(smm->codeentry));
-
-然后只在默认 SMI 入口 ``0x38000`` 写入一段极短跳板：
-
-.. code-block:: c
-
-   initsmm->codeentry = SMI_INSN;
-
-这段跳板对应：
-
-.. code-block:: asm
 
    movw %cs, %ax
    ljmpw $SEG_BIOS, $entry_smi
 
-第一条指令把当前 SMM 的 ``CS`` 保存到 ``AX``。第一次进入时，这个 segment 对应默认 SMBASE；后续迁移到 ``0xa0000``
-以后，值也会随入口位置变化。第二条远跳转进入 SeaBIOS 位于 F-segment 的固定 ``entry_smi``。
+第一条指令保留当前SMM segment，远跳则复用BIOS映射中的入口代码。默认区不需要
+长期保存一份完整handler。
 
-为什么不把完整 handler 直接复制到 0x38000
---------------------------------------
+SeaBIOS写两个SMI_EN位，但固定QEMU只以APMC_EN触发
+--------------------------------------------------
 
-SeaBIOS 的主要 16/32 位代码已经位于 BIOS 映射区。默认 SMM 入口只需要完成一个可靠的最小跳转：
+入口准备好后，SeaBIOS把此前读到的 ``SMI_EN`` 加上：
 
 ::
 
-   SMM 固定入口
-   → 记录当前 SMM segment
-   → 远跳入 SeaBIOS entry_smi
+   ICH9_PMIO_SMI_EN_APMC_EN
+   ICH9_PMIO_SMI_EN_GLB_SMI_EN
 
-这样不需要在 ``0x38000`` 放置一份完整 C handler，也避免维护两套长代码副本。真正的模式切换和 C 调用仍复用 SeaBIOS
-已有的汇编与 32 位代码。
+然后在ICH9 ``GEN_PMCON_1`` 中设置 ``SMI_LOCK``。这三个动作不能被概括成“整个SMM
+配置已经锁死”。在固定QEMU实现中：
 
-ICH9 怎样允许写 0xb2 产生 SMI
+* APM command回调只检查 ``APMC_EN``，没有再次以 ``GLB_SMI_EN`` 为门；
+* ``SMI_LOCK`` 使锁位自身不可再清除，并从 ``SMI_EN`` 写掩码中去掉bit 0，锁住的是
+  ``GLB_SMI_EN``；
+* ``APMC_EN`` 和 ``SMI_EN`` 的其他位没有因此全部变成只读；
+* Q35 MCH的SMRAM窗口锁 ``D_LCK`` 是另一套寄存器语义，本路径尚未设置它。
+
+SeaBIOS确实同时写入APMC与global enable；这里只是不能把硬件手册的泛化模型覆盖到
+固定QEMU回调的实际判断上。
+
+写0xb2让当前BSP进入第一次SMI
 ---------------------------
 
-安装默认入口后，SeaBIOS修改 ``ICH9_PMIO_SMI_EN``：
+``smm_relocate_and_restore()`` 先把状态端口 ``0xb3`` 写成1，再把command端口
+``0xb2`` 写成0：
 
 .. code-block:: c
 
-   outl(value
-        | ICH9_PMIO_SMI_EN_APMC_EN
-        | ICH9_PMIO_SMI_EN_GLB_SMI_EN,
-        acpi_pm_base + ICH9_PMIO_SMI_EN);
+   outb(0x01, PORT_SMI_STATUS);
+   outb(0x00, PORT_SMI_CMD);
 
-两个关键位是：
+命令0不是QEMU特殊处理的ACPI enable/disable值。ICH9回调看到 ``APMC_EN`` 后，默认
+没有协商broadcast feature，于是对 ``current_cpu`` 注入SMI；此刻current CPU就是
+BSP。SMI不经过8259A，不消费PIC vector，也不依赖IF=1。CPU把普通执行现场写进默认
+``0x3fe00`` save-state，从 ``0x38000`` 执行刚安装的跳板。
 
-``APMC_EN``
-   允许 APMC command port 成为 SMI source。
-
-``GLB_SMI_EN``
-   打开全局 SMI 生成。
-
-只打开 APMC source 而没有全局开关，写 ``0xb2`` 仍不能形成完整 SMI。SeaBIOS 一次设置两者。
-
-随后又读取 ICH9 LPC 的 ``GEN_PMCON_1``，设置：
-
-::
-
-   SMI_LOCK
-
-这一位用于锁住 SMI 相关配置，避免后续普通软件重新改写关键使能状态。当前实现不是等到 Linux 启动后再锁，而是在 SMM
-安装阶段立即完成。
-
-SeaBIOS 怎样主动制造第一次 SMI
-----------------------------
-
-入口和触发条件准备好后，调用：
-
-.. code-block:: c
-
-   smm_relocate_and_restore();
-
-第一步先写状态端口：
-
-.. code-block:: c
-
-   outb(0x01, 0x00b3);
-
-然后写 command port：
-
-.. code-block:: c
-
-   outb(0x00, 0x00b2);
-
-第二次写操作触发 SMI。此刻 BSP 正在执行 SeaBIOS 的普通 32 位 C 代码。SMI 到来后，CPU 不从下一条 C 指令继续，而是：
-
-::
-
-   把当前状态保存到 0x30000 + 0xfe00
-   → 从 0x30000 + 0x8000 取指
-   → 执行 mov CS, AX
-   → 远跳到 SeaBIOS entry_smi
-
-普通执行流程暂时被冻结，直到 SMI handler 执行 ``RSM``。
-
-entry_smi 怎样从 SMM 入口进入 32 位 C
------------------------------------
-
-``src/romlayout.S`` 中的入口是：
+``entry_smi`` 沿 ``transition32_nmi_off`` 装入SeaBIOS GDT/IDT，清除CR0中的PG、CD、
+NW并设置PE，进入32位flat代码。该入口名中的 ``nmi_off`` 表示调用者已经处在NMI关闭
+条件；它从这个label开始，不会再次写CMOS。随后：
 
 .. code-block:: asm
 
-   entry_smi:
-       movl $1f + BUILD_BIOS_ADDR, %edx
-       jmp transition32_nmi_off
-       .code32
-   1:
-       movl $BUILD_SMM_ADDR + 0x8000, %esp
-       calll _cfunc32flat_handle_smi - BUILD_BIOS_ADDR
-       rsm
+   movl $BUILD_SMM_ADDR + 0x8000, %esp
+   calll handle_smi
+   rsm
 
-CPU刚进入 SMM 时并不直接处于 SeaBIOS 平时使用的 32 位 flat C 环境。``transition32_nmi_off`` 会装入 SeaBIOS 的 GDT，
-设置 ``CR0.PE``，通过远跳转进入 32 位代码段。
+传入 ``handle_smi(cs)`` 的CS来自默认跳板保存的AX，所以 ``MAKE_FLATPTR(cs, 0)``
+得到当前SMBASE布局。
 
-进入 32 位代码后，栈顶设置为：
+handle_smi通过save-state迁移SMBASE
+---------------------------------
 
-::
-
-   BUILD_SMM_ADDR + 0x8000
-   = 0xa0000 + 0x8000
-   = 0xa8000
-
-然后调用：
-
-.. code-block:: c
-
-   handle_smi(cs);
-
-传入的 ``cs`` 来自跳板先前执行的 ``movw %cs, %ax``。因此 C 代码能判断本次 SMI 是从默认 SMBASE 进入，还是已经从迁移后的
-SMBASE 进入。
-
-handle_smi 怎样识别第一次进入
----------------------------
-
-``handle_smi()`` 把传入 segment 转成 flat pointer：
-
-.. code-block:: c
-
-   struct smm_layout *smm = MAKE_FLATPTR(cs, 0);
-
-第一次进入时：
-
-::
-
-   smm == (void *)BUILD_SMM_INIT_ADDR
-       == 0x30000
-
-函数因此进入 relocation 分支。
-
-CPU save-state area 带有 SMM revision 字段。SeaBIOS 支持两种当前布局：
+第一次进入满足 ``smm == 0x30000``。SeaBIOS读取save-state revision的低位格式，
+只接受：
 
 ::
 
    SMM_REV_I32 = 0x00020000
    SMM_REV_I64 = 0x00020064
 
-这里的 I64 表示 CPU 使用 64 位形式的 SMM save-state layout，不代表当前 SeaBIOS 正在 long mode 中执行。当前主线普通代码仍是
-32 位保护模式；SeaBIOS只是需要根据 CPU 实际保存格式找到正确的 ``smm_base`` 字段。
+I64表示64位save-state布局，不表示POST主控制流已经进入long mode。两个支持分支都把
+对应布局中的 ``smm_base`` 写成 ``0xa0000``，然后清零 ``0xb3``，向普通环境公布迁移
+已经执行。
 
-修改保存状态就能迁移 SMBASE
--------------------------
+默认 ``CONFIG_CALL32_SMM=y`` 时，handler还把当前CPU save-state分别复制到目标布局
+的 ``backup1`` 和 ``backup2``，并设置全局 ``HaveSmmCall32=1``。这些副本给未来
+``CALL32SMM_CMDID`` 往返使用；本次迁移不在这里执行任意设备驱动。
 
-32 位布局执行：
-
-.. code-block:: c
-
-   smm->cpu.i32.smm_base = BUILD_SMM_ADDR;
-
-64 位布局执行：
-
-.. code-block:: c
-
-   smm->cpu.i64.smm_base = BUILD_SMM_ADDR;
-
-写入值都是：
-
-::
-
-   BUILD_SMM_ADDR = 0xa0000
-
-SeaBIOS没有直接写一个普通 MSR 来迁移 SMBASE，而是修改 CPU 已经生成的 SMM save-state area。稍后 ``RSM`` 恢复现场时，CPU
-接受这份更新，从而让下一次 SMI 使用新的 SMBASE。
-
-完成修改后，handler 写：
-
-.. code-block:: c
-
-   outb(0x00, PORT_SMI_STATUS);
-
-也就是把 ``0xb3`` 从 1 改回 0。普通执行环境中的 ``smm_relocate_and_restore()`` 正在轮询这个端口：
+revision若既不是I32也不是I64， ``handle_smi`` 只调用 ``warn_internalerror()`` 后
+返回，没有清零 ``0xb3``。汇编仍执行 ``RSM``，但普通环境随后永久停在：
 
 .. code-block:: c
 
    while (inb(PORT_SMI_STATUS) != 0x00)
        ;
 
-因此状态清零同时承担两层含义：
+这里没有timeout，也没有恢复窗口的失败回滚。本章后续“成功出口”明确以revision受支持
+为条件。
 
-* SMI handler 已经真实执行；
-* SMBASE save-state 字段已经修改完成。
+RSM返回后恢复默认RAM并关闭当前窗口
+---------------------------------
 
-RSM 怎样回到被打断的 SeaBIOS
--------------------------
+成功handler返回到 ``entry_smi`` 后执行 ``RSM``。CPU从save-state恢复进入SMI前的
+寄存器、CR0和指令位置，并采用已更新的SMBASE；BSP继续执行原来的
+``smm_relocate_and_restore()``，IF与NMI屏蔽状态也回到进入前的值。
 
-``handle_smi()`` 返回汇编入口后，下一条指令是：
+轮询看到 ``0xb3=0`` 后，SeaBIOS从目标区的备份恢复默认 ``0x30000`` 布局中被借用的
+save-state与 ``0x38000`` 原8字节；再把 ``SMI_INSN`` 写到目标 ``0xa8000``，执行
+``wbinvd()``。从此下一次SMI使用SMBASE ``0xa0000``，而默认低端RAM不再承担入口。
 
-.. code-block:: asm
+最后Q35 ``SMRAM`` 寄存器写成 ``0x0a``： ``G_SMRAME`` 保持、 ``D_OPEN`` 清除，
+当前普通地址空间不再直接看到目标SMRAM窗口。这个值不含 ``D_LCK``，所以准确状态是
+“窗口已经关闭”，不是“Q35窗口寄存器永久锁定”。本章也不能由当前关闭状态推导出
+未来ring 0代码绝无可能重新编程host bridge。
 
-   rsm
+随后 ``ich9_lpc_apmc_smm_setup()``、 ``smm_setup()`` 依次返回。没有调度、没有新
+SeaBIOS线程；成功路径中只有BSP发生一次同步SMI/RSM往返。
 
-``RSM`` 不是普通 ``ret``，也不是 ``iret``。它专门用于退出 SMM：
+本章结束状态
+------------
 
-::
+共同状态：
 
-   从 SMM save-state area 恢复寄存器和执行状态
-   → 应用修改后的 SMBASE
-   → 离开 SMM
-   → 回到触发 SMI 前被暂停的普通代码
+* current executor：BSP上的SeaBIOS ``MainThread``；
+* CPU/mode：普通出口为32位保护模式，分页关闭、A20开启、IF=0；
+* NMI/PIC：CMOS仍屏蔽NMI；PIC mask仍只放行IRQ2与IRQ13；
+* Q35 MCH与ICH9 LPC BDF：已由 ``smm_device_setup()`` 记录；
+* PCI资源与 ``PCIDevices``：保持第009章结果；
+* MTRR、FEATURE_CONTROL与SMP扫描：尚未由后续调用处理；
+* SeaBIOS线程：仍只有MainThread；
+* GRUB/Linux：均未装入。
 
-所以 ``outb(0x00, 0xb2)`` 看起来像一个普通 I/O 指令，实际执行过程中间发生了一整次隐藏的 CPU 模式切换。等该指令返回后，
-SeaBIOS 已经完成一次 SMM 往返。
+若QEMU SMM能力可用且save-state revision受支持：
 
-为什么还要恢复 0x30000 的原始内容
-------------------------------
+* BSP完成一次SMI/RSM；
+* SMBASE：从 ``0x30000`` 迁移到 ``0xa0000``；
+* permanent SMI entry： ``0xa8000`` 的 ``SMI_INSN``；
+* 默认 ``0x30000`` save-state和 ``0x38000`` 原内容：已恢复；
+* ``HaveSmmCall32=1``；
+* ``SMI_EN.APMC_EN=1``、 ``GLB_SMI_EN=1``；后者被ICH9 ``SMI_LOCK`` 锁定；
+* Q35 SMRAM：普通窗口当前关闭，但 ``D_LCK`` 未设置。
 
-第一次 SMI 会在默认区域写入：
+若QEMU SMM能力不可用：
 
-* ``0x38000`` 的入口跳板；
-* ``0x3fe00`` 附近的 CPU save-state。
+* ICH9复位预置 ``SMI_EN.APMC_EN=1``；
+* SeaBIOS在第一次测试处返回，没有触发SMI；
+* 本章没有迁移SMBASE、没有安装 ``0xa8000`` 入口，也没有置
+  ``HaveSmmCall32``；
+* Q35没有启用SMM ranges。
 
-这些地址属于普通低端 RAM，不应永久保留为 SMM 工作区。返回普通执行后，SeaBIOS把先前暂存在 ``0xa0000`` SMRAM 中的内容复制
-回 ``0x30000`` 区域：
+若能力可用但save-state revision不受支持，BSP停在状态端口轮询，没有本章返回出口。
 
-.. code-block:: c
+关键边界
+--------
 
-   memcpy(&initsmm->cpu, &smm->cpu, sizeof(initsmm->cpu));
-   memcpy(&initsmm->codeentry, &smm->codeentry,
-          sizeof(initsmm->codeentry));
+#. SeaBIOS的构建开关不等于QEMU执行后端一定提供SMM；固定条件必须保留能力分支。
+#. fresh boot中 ``APMC_EN`` 既是成功路径要设置的source enable，也是QEMU关闭SMM时
+   预置给SeaBIOS的跳过标记。
+#. SMI由ICH9 APM回调注入当前BSP，不经过PIC，也不要求普通IF已打开。
+#. 第一次入口是 ``0x38000``；handler通过修改CPU save-state里的 ``smm_base`` 让
+   ``RSM`` 接受 ``0xa0000``。
+#. ``HaveSmmCall32`` 只在成功revision分支设置。
+#. 不支持的revision会让BSP永久轮询；代码没有timeout或事务回滚。
+#. ICH9 ``SMI_LOCK`` 只锁住它自身和 ``GLB_SMI_EN`` 写位，不锁整个 ``SMI_EN``。
+#. SeaBIOS用 ``0x0a`` 关闭Q35 SMRAM窗口，但没有设置MCH ``D_LCK``。
+#. SMM成功或跳过都不启动设备驱动、不创建AP，也不改变MainThread调度状态。
 
-这里恢复的是第一次 SMI 为迁移而借用的默认区域。恢复完成后，普通低端 RAM 不再承担正式 SMI handler 的职责。
+下一入口
+--------
 
-正式入口安装在 0xa8000
--------------------
-
-接着 SeaBIOS 在迁移后的布局中写入同一个跳板：
-
-.. code-block:: c
-
-   smm->codeentry = SMI_INSN;
-
-现在 ``smm`` 指向 ``0xa0000``，``codeentry`` 位于 offset ``0x8000``，所以写入位置是：
-
-::
-
-   0xa8000
-
-下一次 SMI 将执行：
-
-::
-
-   CPU 使用 SMBASE 0xa0000
-   → 从 0xa8000 取跳板
-   → 进入 SeaBIOS entry_smi
-   → 使用 0xa8000 附近的 SMM 专用布局和栈
-
-SeaBIOS 最后执行：
-
-.. code-block:: c
-
-   wbinvd();
-
-``WBINVD`` 会写回并失效 CPU cache，确保刚刚修改的 SMRAM 入口和相关数据不会只停留在旧缓存视图中。SMM 映射即将被关闭，
-在改变可见性前刷新缓存可以避免处理器继续使用不一致内容。
-
-关闭 SMRAM 后普通软件看不到 handler
---------------------------------
-
-迁移结束后，q35 路径再次写 host bridge 的 SMRAM 控制寄存器：
-
-.. code-block:: c
-
-   pci_config_writeb(mch_bdf,
-                     Q35_HOST_BRIDGE_SMRAM,
-                     0x02 | 0x08);
-
-源码描述为：
-
-::
-
-   close the SMM memory window and enable normal SMM
-
-这时 ``0xa0000`` 对普通执行环境恢复为传统平台映射视图；SMRAM 中的 handler、栈和保存状态只在 SMM 进入后使用。
-
-因此“把 handler 放在 0xa8000”不能理解成 Linux 以后直接读物理地址 ``0xa8000`` 就能看到相同字节。地址译码受当前 CPU 模式
-和 q35 SMRAM 状态共同控制。
-
-SMM 安装完成不代表设备驱动已经运行
---------------------------------
-
-``smm_setup()`` 返回时，SeaBIOS已经完成：
-
-* 找到 q35 MCH 和 ICH9 LPC；
-* 配置 APMC 写操作产生 SMI；
-* 锁定 SMI 使能配置；
-* 临时打开 SMRAM；
-* 在默认 ``0x38000`` 安装迁移跳板；
-* 主动触发第一次 SMI；
-* 把 SMBASE 从 ``0x30000`` 改到 ``0xa0000``；
-* 在 ``0xa8000`` 安装正式入口；
-* 恢复默认低端 RAM 内容；
-* 关闭普通环境对 SMRAM 的访问。
-
-尚未完成：
-
-* MTRR 内存类型配置；
-* AP 启动和 CPU 数量确认；
-* ACPI、SMBIOS、MP table；
-* ATA、AHCI、NVMe、USB、virtio 和网络设备驱动；
-* 磁盘扇区读取；
-* 启动介质选择；
-* GRUB 加载。
-
-第十章结束时的机器状态
---------------------
-
-控制权目前走过：
+``smm_setup()`` 正常返回后的下一条调用在两种正常分支中相同：
 
 ::
 
    qemu_platform_setup()
-   → pci_setup() 返回
-   → smm_device_setup()
-   → 找到 ICH9 LPC 与 q35 MCH
-   → smm_setup()
-   → ich9_lpc_apmc_smm_setup()
-   → 打开 SMRAM window
-   → 在 0x38000 安装临时 SMI 跳板
-   → 打开 APMC_EN 与 GLB_SMI_EN
-   → 设置 SMI_LOCK
-   → 写 0xb2 触发第一次 SMI
-   → entry_smi
-   → handle_smi()
-   → 修改 save-state 中的 SMBASE = 0xa0000
-   → RSM
-   → 恢复 0x30000 默认区域
-   → 在 0xa8000 安装正式入口
-   → WBINVD
-   → 关闭普通 SMRAM window
-   → smm_setup() 返回
+   → mtrr_setup()
 
-此刻：
-
-* 当前执行者：SeaBIOS ``qemu_platform_setup()``；
-* 当前 CPU：BSP；
-* 普通执行模式：32 位保护模式；
-* 分页：关闭；
-* SMM：已经完成一次真实进入和退出；
-* 默认 SMBASE ``0x30000``：只用于首次迁移，原始内容已经恢复；
-* 正式 SMBASE：``0xa0000``；
-* 正式 SMI entry：``0xa8000``；
-* SMM save-state：位于正式 SMBASE 布局高端；
-* SMRAM：普通执行环境窗口已经关闭；
-* APMC port ``0xb2``：已经可产生 SMI；
-* SMI enable：已经锁定；
-* PCI 资源与地址解码：已经完成；
-* MTRR：尚未配置；
-* 其他 CPU：尚未由 SeaBIOS 启动；
-* 固件表：尚未建立；
-* 存储和 USB 驱动：尚未探测介质；
-* ``BootList``：尚无具体启动设备；
-* GRUB：尚未被读取或执行；
-* Linux：尚未装入内存。
-
-``smm_setup()`` 返回后，``qemu_platform_setup()`` 的下一条调用是：
-
-.. code-block:: c
-
-   mtrr_setup();
-
-下一段将处理 Memory Type Range Registers，明确哪些物理范围按 write-back、uncacheable 等内存类型访问；随后还会设置
-``MSR_IA32_FEATURE_CONTROL`` 并进入 ``smp_setup()``，让 BSP 唤醒其他虚拟 CPU。
+下一章从BSP读取CPUID ``MTRR``/``MSR`` 能力和 ``MSR_MTRRcap`` 开始；SMM成功与否
+不会改变这条调用顺序。
 
 资料
 ----
 
-* `SeaBIOS src/fw/smm.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/smm.c>`_；
-* `SeaBIOS src/romlayout.S <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/romlayout.S>`_；
-* `SeaBIOS src/fw/paravirt.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/paravirt.h>`_；
-* `SeaBIOS src/fw/dev-q35.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/dev-q35.h>`_；
-* `SeaBIOS src/config.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/config.h>`_；
-* `Intel 64 and IA-32 Architectures Software Developer Manuals <https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html>`_。
+* `SeaBIOS固定提交：SMM发现、迁移与q35设置 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/smm.c#L70-L278>`_
+* `SeaBIOS固定提交：SMI汇编入口 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/romlayout.S#L190-L200>`_
+* `SeaBIOS固定提交：SMM地址常量 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/config.h>`_
+* `SeaBIOS固定提交：默认SMM构建选项 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/Kconfig#L347-L360>`_
+* `QEMU固定提交：SMM auto能力判定 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/x86.c#L166-L188>`_
+* `QEMU固定提交：q35传递SMM能力 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/pc_q35.c#L215-L246>`_
+* `QEMU固定提交：ICH9复位时的SMM跳过标记 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/acpi/ich9.c#L251-L266>`_
+* `QEMU固定提交：APM command触发当前CPU SMI <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/isa/lpc_ich9.c#L463-L486>`_
+* `QEMU固定提交：SMI_LOCK写掩码 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/isa/lpc_ich9.c#L532-L553>`_
+* `QEMU固定提交：Q35 SMRAM窗口与D_LCK <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/pci-host/q35.c#L351-L388>`_
