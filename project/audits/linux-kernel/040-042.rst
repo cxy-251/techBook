@@ -1,0 +1,157 @@
+Linux Kernel第040—042章回溯审查
+================================
+
+批次状态
+--------
+
+::
+
+   range            = 040-042
+   status           = repaired
+   verified_before  = 039
+   verified_after   = 042
+   mode             = retrospective-audit
+   blocking_issue   = none
+
+审查范围
+--------
+
+* ``040-linux-start-kernel-establishes-earliest-generic-state.rst``；
+* ``041-linux-setup-arch-imports-command-line-and-e820.rst``；
+* ``042-linux-fixes-e820-and-computes-max-pfn.rst``；
+* 入口为 ``x86_64_start_reservations(Z)`` 第一条语句尚未执行；
+* 出口为 ``setup_arch`` 即将调用 ``early_alloc_pgt_buf()``，callee尚未执行。
+
+固定源码
+--------
+
+Linux release 7.2-rc1、gregkh/linux commit
+``7404ce51637231382873d0b55edabc2f3b841a9d``：
+
+* ``arch/x86/kernel/head64.c`` 与 ``platform-quirks.c``；
+* ``init/main.c:start_kernel`` 与一次性early parameter parser；
+* ``arch/x86/kernel/setup.c:setup_arch``、reservation、resource和PFN helper；
+* ``arch/x86/kernel/e820.c`` 的三表、import/update与end-PFN语义；
+* ``mm/init-mm.c``、x86 IDT/APIC/GART/MP parser、hypervisor/TSC条件helper；
+* GRUB 2.14 fixed commit
+  ``d38d6a1a9b79427848976f53d474392cd29c2a71`` 的i386 Linux loader参数初始化。
+
+``/Volumes/LinuxKernel/{seabios,qemu,grub,linux-7.2-rc1}`` 再次核对为fixed HEAD、clean、完整、
+非shallow、无active sparse checkout。本地GRUB/Linux origin使用Git mirror地址，commit object ID
+与公共fixed链接完全相同；正文证据固定到object ID而不是跟随remote branch。最终 ``.config``、
+QEMU ``-cpu``、完整device CLI、RAM容量、build ID与builtin command line未提供，相关结论按
+build/runtime条件记录。
+
+整批成功路径
+------------
+
+``第040章``
+   ``x86_64_start_reservations(Z) sees copied hdr.version != 0 → skip fallback copy → ordinary PC
+   legacy defaults + reserve_bios_regions policy → skip Intel MID → start_kernel → stack-end magic →
+   x86 weak smp_setup_processor_id no-op → conditional debug objects/build-ID/cgroup early → force
+   local IRQ off and publish early_boot_irqs_disabled → boot_cpu_init publishes CPU0 in four masks →
+   x86-64 page_address no-op → linux_banner record → stop before setup_arch``。
+
+``第041章``
+   ``setup_arch prints GRUB line → provisional x86_phys_bits → conditional builtin append/override →
+   x86 command_line copy → non-OLPC → early DB/BP/conditional VE gates while #PF retained → early CPU
+   identify → jump-label/static-call + early ioremap → parse boot params, BIOS not EFI → PC OEM no-op →
+   reserve kernel/0-64K/R-N/no setup_data/BIOS/conditional SNB → iomem physical address limit → import
+   and sanitize base E820 → copy firmware/kexec snapshots → setup_data loop empty → conditional EDD
+   copy → stop before setup_initial_init_mm``。
+
+``第042章``
+   ``setup_initial_init_mm records virtual boundaries only → NX mask → parse early parameters once and
+   set done → skip EFI reserve → NX report/APIC calls/conditional ACPI-MPS result → finish optional
+   user E820 → skip EFI init → conditional iBFT/DMI/hypervisor/TSC/ROM → kernel resource children →
+   ensure kernel E820 RAM → trim page0 and BIOS RAM → conditional x86-64 GART edit → end RAM/ACPI PFN →
+   cache/MTRR and optional PFN recalc → max_possible_pfn → conditional memory KASLR virtual layout →
+   x2APIC check → max_low_pfn → conditional MP table reserve → stop before early_alloc_pgt_buf``。
+
+命令行、IDT与CPU边界
+--------------------
+
+* 039复制的GRUB字符串精确包含
+  ``BOOT_IMAGE=/boot/bzImage root=/dev/sda1 ro console=ttyS0``；
+* 041先打印GRUB字符串，再按未固定 ``CONFIG_CMDLINE`` 保留、前置追加或覆盖，effective line不被
+  错写成唯一值；
+* 040 ``smp_setup_processor_id`` 在fixed x86没有override，实际是generic weak no-op；CPU0身份来自
+  038 formal startup；
+* ``boot_cpu_init`` 才把现有CPU0发布到possible/present/online/active masks，没有发现或启动AP；
+* 041 ``idt_setup_early_traps`` 只替换DB/BP与条件VE；formal early PF必须保留给direct-map自举；
+* 042 ``setup_initial_init_mm`` 令 ``init_mm.pgd=init_top_pgt`` 的既有静态关系获得range字段，但
+  active CR3仍是 ``early_top_pgt``；
+* 042第一次 ``parse_early_param`` 设置静态 ``done=1``，generic后续第二次源码调用立即返回，不会
+  重复修改E820。
+
+reservation、E820与resource边界
+------------------------------
+
+* early reservation在E820 RAM进入 ``memblock.memory`` 前完成；reserved集合可先记录range；
+* kernel reserve精确为 ``[_text,__end_of_kernel_reserve)``，initramfs为
+  ``[R,PAGE_ALIGN(R+N))``；
+* fixed GRUB ``setup_data=0``，reserve/parse两个setup-data loop均为空；
+* PC BIOS reservation读取BDA/EBDA后记录 ``[bios_start,1MiB)``，042 BIOS E820 trim是另一边界；
+* old boot params Z/旧command buffer在039 copy后明确不reserve，后续可以作为普通RAM重用；
+* base E820 sanitize后立即复制working/firmware/kexec三表；early params、kernel/BIOS/GART/MTRR
+  主要继续修改working表，不机械同步firmware snapshot；
+* E820 RAM type、memblock reserved、 ``iomem_resource`` child与page-table mapping是四种不同身份；
+* 042结束时 ``memblock.memory`` 仍未从E820建立，不能把max PFN写成allocator已可用页。
+
+PFN与build/runtime条件
+---------------------
+
+* GRUB字符串没有 ``mem/memmap``，但builtin command line未固定，working E820可按build条件成为
+  user-defined；无法据此给出numeric max PFN；
+* ``e820__end_of_ram_pfn`` 同时考虑RAM与ACPI type，按exclusive end取PFN并限制到
+  ``MAX_ARCH_PFN``；它不是可分配页计数；
+* MTRR trim返回有修改时才重算 ``max_pfn``；随后才发布 ``max_possible_pfn``；
+* memory KASLR按build/runtime选择page-offset/vmalloc/vmemmap virtual layout，不再次搬kernel O，
+  也不在调用内建立完整direct map；
+* NX、debug objects、build-ID、cgroup、EDD、iBFT、DMI、hypervisor、TSC、ROM、GART、MTRR、x2APIC
+  与MP parser均保留实际compile/runtime条件；
+* fixed q35/SeaBIOS事实不被扩写为未固定QEMU CPU model、RAM size或device CLI。
+
+发现并修复
+----------
+
+#. 三章从旧6.12.95叙事整章改为fixed Linux 7.2-rc1，并补齐统一章末四节与fixed links。
+#. 修正 ``smp_setup_processor_id``：fixed x86实际使用weak no-op，不在040重新选择CPU0。
+#. 区分 ``linux_banner`` release与build-ID，删除不存在的具体build产物推断。
+#. 收紧040 platform quirk：policy设置与041真实BDA/EBDA reservation分开，并补
+   ``set_legacy_features`` null/override边界。
+#. 恢复命令行中的 ``BOOT_IMAGE=/boot/bzImage``，并把GRUB原字符串与builtin append/override后的
+   effective line分开。
+#. 修正041 IDT：early traps只替换DB/BP/条件VE，x86-64 early PF仍由039 handler承担。
+#. 按fixed ``parse_boot_params`` 字段范围重写，不把它扩写成磁盘、rootfs或普通参数解析。
+#. 固定early reservation精确清单，特别指出Z不reserve、R/N reserve、当前setup_data链为空。
+#. 固定E820基础import、sanitize、三表copy与空setup-data parse的真实顺序。
+#. 修正 ``init_mm``：只登记virtual range，CPU不会在042入口切到init_top CR3。
+#. 修正early parameter语义：静态 ``done`` 使整个boot只实际解析一次，而不是“两次重复解析”。
+#. 区分firmware/kexec snapshots与继续被early params/quirks修整的working E820。
+#. 固定kernel iomem resources、kernel E820 range与kernel memblock reservation的不同endpoint和用途。
+#. 修正max PFN来源为RAM/ACPI end、arch limit与条件MTRR重算，不制造numeric RAM/PFN。
+#. 区分physical kernel KASLR与042 memory virtual-layout KASLR，并把完整page-table建立留给043。
+
+失败与未发生
+------------
+
+* ``hdr.version==0`` 的fallback copy存在，但当前GRUB成功路径不选择；
+* malformed effective early option会警告，无法sanitize的user E820会panic；当前fixed GRUB字符串本身
+  不含memory override，但builtin config未知；
+* E820 kernel range若并非RAM会警告并修working map；真实non-RAM hardware仍可能稍后失败；
+* 本批没有打开IF、没有普通external IRQ、没有schedule、没有AP bring-up或用户态；
+* initramfs只被reserved，未relocate或unpack；
+* original Z未在本批覆盖，只获得“后续可重用”身份；
+* ``early_alloc_pgt_buf``、 ``reserve_brk``、 ``e820__memblock_setup``、完整direct map与CR3切换均未
+  执行。
+
+连续性与验证
+------------
+
+* 039出口与040 ``x86_64_start_reservations(Z)`` 第一条一致；
+* 040出口为 ``setup_arch(&command_line)`` call前，与041一致；
+* 041出口为 ``setup_initial_init_mm`` call前，与042一致；
+* 042出口为 ``early_alloc_pgt_buf`` call前，与pending 043入口一致；
+* ``tools/check-linux-kernel-track.sh 42`` 通过，仅报告既有065/066 duplicate debt；
+* TOML、 ``git diff --check`` 与旧版本正文guard通过；无阻塞；下一批043—045。

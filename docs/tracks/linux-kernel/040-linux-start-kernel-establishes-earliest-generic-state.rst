@@ -1,62 +1,67 @@
-第四十章：Linux 怎样进入 start_kernel 并建立最早的通用内核状态？
-================================================================
+第四十章：Linux start_kernel 怎样建立最早的通用内核状态？
+=============================================================
 
-第三十九章结束时，``x86_64_start_kernel()`` 已经清理早期 identity mapping、清零 BSS、复制 ``boot_params`` 和命令行、加载 BSP microcode，并调用：
+第三十九章结束时，BSP已经在正式kernel高地址映射中以 ``init_task`` 身份执行，IF和DF均为0；
+formal BSS/brk已经清零，一般early IDT已经加载，全局 ``boot_params`` 与
+``boot_command_line`` 也已从物理Z复制完成。当前入口是：
 
 .. code-block:: c
 
-   x86_64_start_reservations(real_mode_data);
+   x86_64_start_reservations(Z)
 
-这是 x86 专用启动代码进入通用 ``start_kernel()`` 前的最后一层。
+本章按fixed Linux 7.2-rc1的真实调用顺序，从这个x86尾入口进入generic
+``start_kernel()``，处理到 ``setup_arch(&command_line)`` 第一条语句尚未执行。内存图、
+memblock和完整direct map仍留给后续章节。
 
-为什么还保留 ``real_mode_data`` 参数
-------------------------------------
+有效 ``boot_params`` 使fallback copy不发生
+---------------------------------------------
 
-``x86_64_start_kernel()`` 已经执行过 ``copy_bootdata()``，正常情况下全局 ``boot_params.hdr.version`` 必定非零。
-
-``x86_64_start_reservations()`` 仍保留一道防护：
+``x86_64_start_reservations`` 首先保留一道特殊入口防护：
 
 .. code-block:: c
 
    if (!boot_params.hdr.version)
        copy_bootdata(__va(real_mode_data));
 
-这使其他特殊入口若绕过前一层清理，也能在进入通用内核前补齐启动参数。当前固定 GRUB 主线不会再次复制，因为 ``boot_params`` 已经有效。
+第三十九章已从GRUB交出的Z复制并sanitize了有效boot protocol header，当前
+``hdr.version`` 非0，所以条件为假。CPU不会第二次读取Z，也不会第二次建立或撤销SME boot-data
+mapping。参数 ``real_mode_data`` 仍携带物理数值Z，只是本批成功路径已经不再解引用它。
 
-建立最早的平台兼容假设
-----------------------
+这道guard不能反推“Z会一直保留”。 ``copy_bootdata`` 的源码恰好说明old boot data不再需要且
+不会被reserve；第041章检查early reservation时会看到，Z不在显式保留清单中。
 
-函数随后调用：
+ordinary PC先固定legacy平台假设
+---------------------------------
+
+下一条调用是：
 
 .. code-block:: c
 
    x86_early_init_platform_quirks();
 
-这里的 ``quirks`` 不是扫描具体 PCI 设备，而是先定义“这类 x86 平台默认具有什么传统组件”。初始值包括：
+它先写入一组platform class默认值：i8042预期存在、RTC存在、允许warm reset、PnP BIOS可用，
+并先把 ``reserve_bios_regions`` 清0。随后才按 ``boot_params.hdr.hardware_subarch`` 修正。
 
-.. code-block:: text
-
-   i8042 keyboard controller  expected present
-   RTC                        present
-   warm reset                 supported
-   PnP BIOS                   permitted
-
-随后根据 ``boot_params.hdr.hardware_subarch`` 调整。
-
-当前固定平台是 QEMU q35，经 SeaBIOS 和 GRUB 走普通 PC boot protocol，所以属于 ``X86_SUBARCH_PC``。该分支开启：
+固定SeaBIOS加GRUB i386-pc路径交出的 ``hardware_subarch`` 是
+``X86_SUBARCH_PC``。该case只把：
 
 .. code-block:: c
 
    x86_platform.legacy.reserve_bios_regions = 1;
 
-这告诉后续内存初始化：传统 BIOS 相关低端区域需要识别和保留，不能因为已经进入 64 位内核就把整段低内存当作普通 RAM。
+打开。它没有在这里扫描EBDA或立刻保留任何物理页，只是为第041章
+``reserve_bios_regions()`` 选择成功分支。Xen会关闭PnP BIOS与RTC；Intel MID和CE4100还会声明
+i8042缺席，但这些都不是当前PC路径。
 
-Xen、Intel MID、CE4100 等路径会关闭部分 RTC、PnP BIOS 或 i8042 假设，但当前主线不进入这些分支。
+函数末尾允许已经安装的 ``x86_platform.set_legacy_features`` callback再覆盖默认值。fixed
+``x86_platform`` 的ordinary PC初值没有安装该callback，当前也不是先行改写它的Xen PV入口，
+所以这里没有额外调用。这个null-check仍是源码边界，不能把“当前不调用”写成所有x86平台都没有
+override。
 
-``hardware_subarch`` 的第二次分流
--------------------------------
+第二个subarch switch也不进入Intel MID
+-----------------------------------------
 
-紧接着又有一个 switch：
+``x86_64_start_reservations`` 随后再次检查同一subarch：
 
 .. code-block:: c
 
@@ -68,221 +73,204 @@ Xen、Intel MID、CE4100 等路径会关闭部分 RTC、PnP BIOS 或 i8042 假�
        break;
    }
 
-普通 PC/q35 进入 ``default``，不执行 Intel MID 的专用无传统 PC 固件初始化。
-
-到这里，x86 专用入口已经完成。控制流正式进入：
+当前PC值走 ``default``。因此没有把q35改造成Intel MID平台，也没有在这个入口提前改写timer、
+PCI或legacy设备钩子。x86专用reservations wrapper至此只完成了platform class选择，随后以
+``__noreturn`` 控制流调用：
 
 .. code-block:: c
 
    start_kernel();
 
-``start_kernel()`` 是什么边界
------------------------------
+从这里开始，执行者仍是BSP/CPU0上的 ``init_task``，只是源码入口从x86汇合到所有体系结构共有的
+``init/main.c``。
 
-``start_kernel()`` 位于 ``init/main.c``，是所有体系结构最终汇合的通用内核启动函数。
+先给 ``init_task`` 栈写overflow sentinel
+------------------------------------------
 
-之前的代码一直在回答：
-
-* x86 CPU 怎样进入 long mode；
-* 页表怎样让内核高半区可执行；
-* bootloader 参数怎样保存；
-* x86 GDT、IDT、GSBASE 和微码怎样准备。
-
-从现在开始，主线逐渐转向：
-
-* 通用内存管理；
-* 调度器；
-* 中断与时间；
-* VFS；
-* initcall；
-* 用户空间 init。
-
-不过 ``start_kernel()`` 的第一批调用仍然极早，很多常见内核设施尚不可用。
-
-给 ``init_task`` 栈底写入哨兵
-----------------------------
-
-第一条调用是：
+``start_kernel`` 第一条调用：
 
 .. code-block:: c
 
    set_task_stack_end_magic(&init_task);
 
-内核在线程栈边界写入固定 magic。后续检查若发现该值被覆盖，可以判断栈已经越过合法边界。
+它用 ``end_of_stack(&init_task)`` 找到架构定义的栈末边界，写入 ``STACK_END_MAGIC``。这只建立
+后续stack-overflow检查所需的哨兵；没有分配新栈、创建新task或切换当前栈。当前RSP仍位于第038章
+选定的 ``init_task`` initial stack。
 
-当前只有静态创建的 ``init_task`` 在执行。普通进程栈分配器和调度器尚未初始化，因此必须先给这一个最早任务建立基本的栈溢出检测标记。
+``smp_setup_processor_id`` 在fixed x86上是weak no-op
+-----------------------------------------------------
 
-再次建立通用层看到的 processor ID
----------------------------------
-
-接下来：
+下一行虽然写作：
 
 .. code-block:: c
 
    smp_setup_processor_id();
 
-第三十八章已经在 x86 汇编里选择 CPU 0，并建立 per-CPU offset。这里是通用启动代码给予体系结构的 processor-ID 初始化钩子，使 ``smp_processor_id()`` 等通用接口从一开始就有一致语义。
+但fixed树中没有x86 override，实际链接到 ``init/main.c`` 的weak空函数。它不读取APIC ID、
+不重写per-CPU offset，也不在这里“选择CPU0”。当前logical CPU0、GSBASE和
+``current_task=&init_task`` 已由第038章 ``common_startup_64`` 建立。
 
-不同架构可以在这里从硬件 ID、固件 ID 或启动寄存器建立逻辑 CPU 编号。当前 x86 主线的 BSP 仍是逻辑 CPU 0，没有唤醒任何 AP。
+保留这个generic hook是为了允许其他architecture在同一通用入口更早固定processor ID；不能从
+函数名给当前x86路径补出并不存在的runtime动作。
 
-最早期 debug objects
---------------------
+debug objects与build ID都受build条件约束
+-----------------------------------------
 
-随后调用：
+接下来的两次调用是：
 
 .. code-block:: c
 
    debug_objects_early_init();
-
-debug objects 用来追踪 timer、work、RCU head 等内核对象的生命周期，发现“未初始化就使用”“已经释放又激活”等错误。
-
-此刻 slab allocator 尚不可用，所以 early init 只能使用静态对象池和最小哈希结构。它建立的是调试框架的生存基础，不代表所有对象类型已经注册。
-
-记录当前内核映像的 build ID
---------------------------
-
-.. code-block:: c
-
    init_vmlinux_build_id();
 
-构建系统可以把 GNU build ID 放入 ELF note。内核在极早阶段保存它，后续崩溃转储、模块匹配、调试工具和日志可以精确识别正在运行的是哪一个 ``vmlinux`` 构建产物。
+启用 ``CONFIG_DEBUG_OBJECTS`` 时，前者初始化每个early object hash bucket的raw spinlock，并把
+静态object pool节点接入boot pool。此时slab尚不可用，所以没有把它们转换成动态对象。关闭配置
+时，header提供空inline。
 
-版本号 ``6.12.95`` 只能描述源码发布版本；build ID 进一步区分不同配置、编译器和本地修改生成的二进制。
+``init_vmlinux_build_id`` 仅在stacktrace build-ID或vmcore-info相关配置需要时，解析运行中
+``vmlinux`` 的notes并保存build ID；否则同样是空inline。build ID区分的是具体构建产物，不是把
+``Linux 7.2-rc1`` release string再保存一次。最终 ``.config``、compiler与本地version suffix未被
+固定，因此本书不制造一个具体build-ID值。
 
-为什么 cgroup 在调度器前就出现
------------------------------
+cgroup early阶段只建立root task最小归属
+-----------------------------------------
 
-接下来：
+随后：
 
 .. code-block:: c
 
    cgroup_init_early();
 
-这一步不会挂载 cgroupfs，也不会创建完整控制器层级。它先把 ``init_task`` 接到初始 cgroup 结构，并建立后续调度、CPU accounting 等代码能够依赖的最小关系。
+启用cgroup时，它初始化default root，把 ``init_task.cgroups`` 以RCU指针指向静态
+``init_css_set``，并只初始化声明 ``early_init`` 的controller。这里没有挂载cgroupfs、没有创建
+用户可见目录，也没有遍历普通进程；关闭cgroup配置时调用退化为空stub。
 
-许多内核子系统初始化时会读取当前任务的 cgroup 信息，所以根任务不能等到用户空间或 VFS 完成后才拥有归属。
+当前仍只有CPU0执行，scheduler与普通RCU运行期尚未建立。这里的 ``RCU_INIT_POINTER`` 是发布
+静态启动关系，不意味着已经发生一次grace period。
 
-重新强制关闭本地中断
---------------------
+软件标志与hardware IF在同一处对齐
+----------------------------------
 
-虽然从 GRUB 交接开始中断一直关闭，``start_kernel()`` 仍明确执行：
+``start_kernel`` 明确执行：
 
 .. code-block:: c
 
    local_irq_disable();
    early_boot_irqs_disabled = true;
 
-原因是 ``start_kernel()`` 是通用边界，不能仅靠“前面应该已经关闭”这种隐含约定。
+第039章入口已经继承IF=0，所以 ``local_irq_disable`` 在当前CPU上不会产生0→1→0的中断窗口；它
+重新兑现generic入口的前置条件。紧接着的global boolean把这一阶段记录为“early boot要求IRQ
+关闭”。
 
-``early_boot_irqs_disabled`` 是软件状态标记。后续代码若过早打开中断，内核可以检测并报告。此时 IDT、IRQ descriptor、local APIC、timer 和调度器都没有完成，任何普通硬件中断都不能安全处理。
+IDT已有early exception gates不等于普通maskable IRQ已经可用。IRQ descriptor、APIC mode、
+timer与scheduler都尚未完成，本章没有执行 ``local_irq_enable``，也没有因为某个helper而发生
+schedule。
 
-把 boot CPU 加入四类 CPU mask
----------------------------
+``boot_cpu_init`` 发布CPU0的四种mask身份
+-----------------------------------------
 
-``boot_cpu_init()`` 将当前 CPU 登记为：
-
-.. code-block:: text
-
-   possible
-   present
-   online
-   active
-
-这些词含义不同：
-
-* ``possible``：内核数据结构允许该逻辑 CPU 存在；
-* ``present``：固件/硬件表明该 CPU 实际存在；
-* ``online``：该 CPU 已经运行内核代码；
-* ``active``：调度与迁移逻辑可以把它作为活动 CPU 使用。
-
-对 CPU 0，四个条件此时都成立。其他 AP 可能是 possible/present，却尚未 online/active；它们要等后面的 SMP bring-up。
-
-``page_address_init()`` 的兼容位置
----------------------------------
-
-随后：
+下一条真正建立global CPU topology状态的调用是：
 
 .. code-block:: c
 
-   page_address_init();
+   boot_cpu_init();
 
-该接口主要为无法永久映射全部物理页的 HIGHMEM 架构建立 ``struct page`` 到临时虚拟地址的关联表。
+它读取已经可用的 ``smp_processor_id()``，当前得到0，再依次把CPU0加入：
 
-在当前 x86-64 主线中，物理内存最终通过 64 位 direct map 访问，不采用传统 32 位 HIGHMEM page-address 哈希机制，因此该调用通常退化为空实现。
+.. code-block:: text
 
-它仍保留在通用顺序中，因为 ``start_kernel()`` 同时服务不同体系结构和配置。
+   cpu_online_mask
+   cpu_active_mask
+   cpu_present_mask
+   cpu_possible_mask
 
-第一条正式内核 banner
----------------------
+SMP build还写 ``__boot_cpu_id=0``。四个mask分别表达能否运行、能否参与调度迁移、是否实际存在、
+以及内核是否允许该logical CPU存在；把BSP加入四者不等于发现或启动任何AP。AP的present/
+possible信息与online bring-up要到后续firmware table和SMP阶段。
 
-接下来：
+x86-64不建立hashed highmem page-address表
+------------------------------------------
+
+generic顺序接着调用 ``page_address_init()``。真正的函数只在
+``HASHED_PAGE_VIRTUAL`` 架构初始化 ``page_address_htable`` 与其spinlock；当前x86-64不使用传统
+32-bit HIGHMEM hashed page virtual机制，因此走空实现。此处既没有创建 ``struct page`` 数组，
+也没有扩大direct map。
+
+banner进入printk buffer不等于串口已经注册
+-------------------------------------------
+
+最后一条属于本章的调用是：
 
 .. code-block:: c
 
    pr_notice("%s", linux_banner);
 
-``linux_banner`` 包含版本、编译用户/主机、编译器和构建时间等信息。
+``linux_banner`` 包含release、compiler与build metadata。源码release固定为7.2-rc1，但最终
+build字符串仍取决于未固定构建产物。 ``pr_notice`` 把记录送入当前printk路径；固定命令行中的
+``console=ttyS0`` 尚未经过普通参数解析与console registration，所以不能仅凭这一行断言字符已经
+从串口发出。
 
-这通常是用户串口或控制台上看到的第一条正式内核 banner。前面的 SeaBIOS、GRUB 和 compressed ``Decompressing Linux`` 输出都不属于正式通用内核日志系统。
-
-需要注意：此时完整 console、ring buffer 扩容和 printk kthread 尚未初始化。早期 printk 仍依赖架构和 early console 提供的最小输出路径。
-
-停在 ``setup_arch()`` 入口
--------------------------
-
-下一条调用是：
+下一条源码就是：
 
 .. code-block:: c
 
    setup_arch(&command_line);
 
-这是一个非常自然的章节边界。
+本章在call发生前停止，不把x86 command line、E820或memblock状态提前写进generic前缀。
 
-``start_kernel()`` 是通用函数，但它必须先让具体架构把：
-
-* firmware/E820 内存图；
-* 内核、initramfs 与 boot data 保留区；
-* direct map 和最终早期页表；
-* CPU feature；
-* ACPI、NUMA、PCI 早期资源；
-* 命令行；
-
-转换成通用内核可以继续使用的状态。
-
-因此 ``setup_arch()`` 不是一个小辅助函数，而是 x86 从“能执行正式内核 C 代码”走向“通用内存管理能够启动”的大型交接阶段。下一批会从这里逐层展开，不能一句“架构初始化完成”跳过。
-
-当前机器状态
+本章结束状态
 ------------
 
-本章结束时：
+* current executor：Linux 7.2-rc1 ``start_kernel``，即将调用
+  ``setup_arch(&command_line)``；callee第一条尚未执行；
+* CPU/mode：BSP / logical CPU0，64-bit long mode，kernel high mapping；IF=0，DF=0；
+* current task/stack： ``init_task`` / original initial stack；stack-end magic已写入；
+* processor-ID hook：fixed x86 weak no-op；CPU0身份未被重选；
+* platform class：ordinary ``X86_SUBARCH_PC``；legacy i8042/RTC/warm-reset/PnP BIOS默认有效，
+  ``reserve_bios_regions=1``；
+* CPU masks：CPU0为possible、present、online、active；没有AP被启动；
+* early boot IRQ software state： ``early_boot_irqs_disabled=true``；
+* debug objects/build ID/cgroup early状态：按build执行真实helper或空stub；
+* general early IDT、early direct-map ``#PF`` 与CR3：继承第039章，未在本章替换；
+* global ``boot_params`` 与bootloader command line：保持有效；Z未再次读取；
+* E820、memblock RAM、 ``init_mm``、完整direct map：尚未建立本章后续状态；
+* initramfs：仍只记录R/N，未relocate、未unpack；
+* scheduler、maskable IRQ、AP与用户态：均未进入。
 
-* 当前执行者：Linux 6.12.95 ``start_kernel()``；
-* 当前停点：即将调用 ``setup_arch(&command_line)``；
-* CPU：BSP / Linux CPU 0；
-* CPU 0 masks：possible、present、online、active；
-* current task：``init_task``；
-* init task 栈哨兵：已写入；
-* interrupts：关闭；
-* ``early_boot_irqs_disabled``：true；
-* early debug objects：已建立静态基础；
-* vmlinux build ID：已记录；
-* init_task 初始 cgroup 关系：已建立；
-* linux banner：已提交到早期日志；
-* architecture memory setup：尚未执行；
-* initramfs：尚未展开；
-* scheduler：尚未初始化；
-* VFS：尚未初始化；
-* initcall：尚未执行；
-* 用户空间 ``init``：尚未创建。
+关键边界
+--------
 
-下一段从 ``arch/x86/kernel/setup.c:setup_arch()`` 开始，首先接管命令行、``boot_params``、E820 和早期保留区，再逐步建立 memblock 与 x86 内存布局。
+#. ``hdr.version`` guard当前为假；fallback存在不等于当前又copy一次Z。
+#. PC quirk这里只设置 ``reserve_bios_regions`` policy，真正读取BDA/EBDA并reserve在041。
+#. ordinary PC的 ``set_legacy_features`` 当前为NULL；Xen等平台仍可提供override。
+#. fixed x86没有 ``smp_setup_processor_id`` override；CPU0来自038，不来自函数名暗示的探测。
+#. debug objects、build ID与cgroup调用均有config stub边界，不得写成所有build都分配对象。
+#. ``boot_cpu_init`` 只发布BSP mask身份，不发现或唤醒AP。
+#. IDT可处理early exception与普通IRQ可用是两个边界；本章始终IF=0。
+#. banner进入printk不保证 ``ttyS0`` 已输出；console参数仍未完成解析。
+#. 本章不调用 ``setup_arch``，所以没有命令行override、E820导入或memblock RAM。
+
+下一入口
+--------
+
+第041章从fixed ``init/main.c`` 的：
+
+.. code-block:: c
+
+   setup_arch(&command_line);
+
+进入 ``arch/x86/kernel/setup.c``。开始前CPU0已加入四个CPU mask，IF仍为0；global
+``boot_command_line`` 的bootloader字符串是
+``BOOT_IMAGE=/boot/bzImage root=/dev/sda1 ro console=ttyS0``，但compile-time
+``CONFIG_CMDLINE`` 是否追加或覆盖尚未处理。
 
 资料
 ----
 
-* `Linux 6.12.95 head64.c：x86_64_start_reservations 到 start_kernel <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/head64.c>`_
-* `Linux 6.12.95 platform-quirks.c：普通 PC、Xen、Intel MID 的 legacy feature 初值 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/platform-quirks.c>`_
-* `Linux 6.12.95 init/main.c：start_kernel 最早调用顺序 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c>`_
-* `Linux 6.12.95 kernel/cpu.c：boot CPU mask 初始化 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/cpu.c>`_
-* `Linux 6.12.95 mm/highmem.c：page_address_init 条件实现 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/mm/highmem.c>`_
-* `Linux 6.12.95 debugobjects.c：early debug objects 静态池 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/lib/debugobjects.c>`_
+* `Linux 7.2-rc1固定提交：x86_64_start_reservations <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/head64.c#L294-L310>`_；
+* `Linux 7.2-rc1固定提交：ordinary PC platform quirks <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/platform-quirks.c#L9-L35>`_；
+* `Linux 7.2-rc1固定提交：start_kernel最早前缀 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c#L971-L995>`_；
+* `Linux 7.2-rc1固定提交：boot_cpu_init发布CPU masks <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/cpu.c#L3153-L3169>`_；
+* `Linux 7.2-rc1固定提交：init_task stack magic <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/fork.c#L906-L912>`_；
+* `Linux 7.2-rc1固定提交：early cgroup root与init_task关系 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/cgroup/cgroup.c#L6378-L6415>`_；
+* `Linux 7.2-rc1固定提交：build-ID条件helper <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/lib/buildid.c#L393-L406>`_。

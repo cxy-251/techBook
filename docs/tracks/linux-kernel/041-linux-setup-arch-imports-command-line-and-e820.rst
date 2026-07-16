@@ -1,399 +1,359 @@
 第四十一章：Linux setup_arch 怎样接管命令行并导入 E820 内存图？
 ===================================================================
 
-第四十章结束时，通用 ``start_kernel()`` 已经建立 ``init_task`` 的最早状态、登记 CPU 0、保持中断关闭，并停在：
+第四十章结束时，BSP/CPU0仍以 ``init_task`` 在64-bit kernel high mapping中执行，IF=0；CPU0
+已经加入possible、present、online与active masks。 ``start_kernel`` 的下一条调用是：
 
 .. code-block:: c
 
    setup_arch(&command_line);
 
-``setup_arch()`` 位于 ``arch/x86/kernel/setup.c``。它不是一个简单的“体系结构初始化钩子”，而是 x86 把 bootloader 留下的物理机器描述，转换成 Linux 后续内存管理能够使用的内部状态的主入口。
+本章沿fixed Linux 7.2-rc1 ``arch/x86/kernel/setup.c`` 的前半段执行，先建立x86实际采用的
+command line与boot-CPU能力，再按“先reserve、后导入E820”的顺序保存启动对象，停在
+``setup_initial_init_mm(...)`` 尚未执行的位置。
 
-这一章先追踪它的前半段，直到基础 E820 表和 ``setup_data`` 扩展链被导入。此时 Linux 已经知道“物理地址空间由哪些区间组成”，但还没有把这些 RAM 区间正式加入 memblock，也没有建立完整 direct map。
+先打印bootloader字符串，再处理built-in command line
+---------------------------------------------------------
 
-先确定最终生效的命令行
-----------------------
+x86-64分支首先执行：
 
-``x86_64_start_kernel()`` 已经把 bootloader 提供的命令行复制到全局 ``boot_command_line``。当前固定配置中，它的内容是：
+.. code-block:: c
 
-.. code-block:: text
+   printk(KERN_INFO "Command line: %s\n", boot_command_line);
+   boot_cpu_data.x86_phys_bits = MAX_PHYSMEM_BITS;
 
-   root=/dev/sda1 ro console=ttyS0
+此刻 ``boot_command_line`` 还是第039章从GRUB buffer复制的有效字符串：
 
-``setup_arch()`` 在 x86-64 路径首先输出这条命令行，然后处理编译期 ``CONFIG_CMDLINE``。
+::
 
-编译期命令行存在三种情况：
+   BOOT_IMAGE=/boot/bzImage root=/dev/sda1 ro console=ttyS0
 
-* 没有配置 ``CONFIG_CMDLINE_BOOL``：直接使用 bootloader 命令行；
-* 配置了内建命令行但没有 ``CONFIG_CMDLINE_OVERRIDE``：内建字符串放在前面，bootloader 字符串追加在后面；
-* 配置了 ``CONFIG_CMDLINE_OVERRIDE``：完全用内建字符串覆盖 bootloader 命令行。
+所以第一条command-line日志记录的是这个bootloader版本。 ``x86_phys_bits`` 暂以架构最大值作
+早期上界；本章稍后的 ``early_cpu_init`` 会用CPUID address-size信息更新boot CPU描述，不能把
+这次赋值当成QEMU CPU已经支持全部 ``MAX_PHYSMEM_BITS``。
 
-最终结果被复制到 x86 自己的静态缓冲区：
+接下来才处理build-time ``CONFIG_CMDLINE``：
+
+* 未启用 ``CONFIG_CMDLINE_BOOL``：保留GRUB字符串；
+* 启用但不override，且built-in string非空：形成
+  ``<builtin> + " " + <GRUB string>``；
+* 启用 ``CONFIG_CMDLINE_OVERRIDE``：用built-in string覆盖GRUB字符串。
+
+最后：
 
 .. code-block:: c
 
    strscpy(command_line, boot_command_line, COMMAND_LINE_SIZE);
    *cmdline_p = command_line;
 
-这里同时出现三个名字：
+``command_line`` 是x86静态缓冲， ``*cmdline_p`` 把它交还generic ``start_kernel``。固定磁盘
+约定足以确定GRUB字符串，却没有提供最终kernel ``.config``，因此后续“有效command line”必须
+保留上述三分支；不能把 ``BOOT_IMAGE=...`` 既误删，也不能擅自断言它一定没有被built-in
+override。
 
-.. code-block:: text
+OLPC探测不把当前q35改成OFW平台
+--------------------------------
 
-   boot_command_line   从 bootloader 启动数据复制来的全局原始字符串
-   command_line        setup_arch() 持有的可处理副本
-   *cmdline_p          返回给 start_kernel() 的指针
+``olpc_ofw_detect()`` 先检查OLPC OFW交接标记。当前是SeaBIOS/GRUB i386-pc，未携带该OFW
+handoff，普通q35路径不会安装OLPC callbacks或因 ``reserve_top`` 调整fixmap。源码仍把探测放在
+触碰early ioremap area之前，以保证真正的OLPC入口有机会先改layout。
 
-后面的 ``setup_command_line()``、``parse_early_param()`` 和普通内核参数解析会继续复制或原地修改字符串，所以不能让所有阶段共享同一个不可区分的缓冲区。
+``idt_setup_early_traps`` 只替换选定exception gate
+----------------------------------------------------
 
-为什么先建立 traps、CPU 特征和 early ioremap
-------------------------------------------
-
-命令行准备好后，控制流依次执行：
+第039章 ``idt_setup_early_handler`` 已把前32个exception vector接到
+``early_idt_handler_array``，其中 ``#PF`` 能为formal early direct map补PMD。现在：
 
 .. code-block:: c
 
-   olpc_ofw_detect();
    idt_setup_early_traps();
-   early_cpu_init();
+
+在同一个 ``idt_table`` 中把 ``#DB`` 与 ``#BP`` 换成真实early debug/int3 entry，TDX guest build
+还可替换 ``#VE``，随后reload IDTR。x86-64此时故意不替换 ``#PF``：real page-fault gate要等
+``cpu_init`` 建好TSS/IST之后，当前memory initialization仍依赖第039章的
+``early_make_pgtable`` handler。
+
+所以这一步不是“安装一张完全不同且完整的最终IDT”。普通external IRQ gates、IST版本的NMI/
+DF/MC和最终page-fault entry仍未就绪，IF也没有打开。
+
+``early_cpu_init`` 建立boot CPU最小能力描述
+------------------------------------------
+
+下一条调用初始化compiled-in CPU vendor表，然后对 ``boot_cpu_data`` 执行
+``early_identify_cpu``。有CPUID时，它读取vendor、family/model、capabilities与physical/virtual
+address sizes，解析CPU相关early options，建立early topology，并运行vendor的early/BSP hooks；
+最终把boot CPU index固定为0。
+
+这正是前面 ``x86_phys_bits=MAX_PHYSMEM_BITS`` 被实际CPU address-size结果收紧的边界。QEMU
+``-cpu`` model和kernel config未固定，所以正文不制造family、model、NX、MTRR或physical-bit
+具体数值；但从这里以后， ``boot_cpu_data`` 已足够支持本批后续的NX、APIC、E820 resource-end与
+cache决策。
+
+static key/call必须早于会使用它们的arch路径
+----------------------------------------------
+
+控制流继续：
+
+.. code-block:: c
+
    jump_label_init();
    static_call_init();
    early_ioremap_init();
 
-当前 QEMU q35 普通 PC 路径不会进入 OLPC OFW 专用逻辑，但其余调用都很关键。
+前两项先修正built-in jump-label与static-call sites，使接下来的x86探测可以安全经过相关分支。
+generic ``start_kernel`` 在 ``setup_arch`` 返回后还会再次调用这两个公开入口；初始化实现必须处理
+重复入口，不能据此想象本章执行了两遍当前代码。
 
-``idt_setup_early_traps()`` 把更完整的早期异常入口放入 IDT。前面 ``head_64.S`` 建立的 IDT 主要保证最早汇编和页表故障能够生存；从现在开始，C 代码即将读取固件表、映射物理地址并探测 CPU，异常处理能力必须进一步完善。
+``early_ioremap_init`` 建立完整vmalloc/ioremap之前的临时mapping slots。后续读取setup_data、
+firmware table或其他不宜直接解引用的physical range时，可以短时map/unmap；它不把所有E820 RAM
+加入direct map，也不是普通ioremap allocator已经可用。
 
-``early_cpu_init()`` 建立 boot CPU 的早期能力描述和厂商相关钩子。它还不是最终的 ``identify_boot_cpu()`` 全流程，但后续 NX、APIC、MTRR 和页表决策已经需要一份可靠的 CPU feature 基础。
+``parse_boot_params`` 只翻译已复制的boot protocol对象
+------------------------------------------------------
 
-``jump_label_init()`` 与 ``static_call_init()`` 很早出现，是因为 x86 架构初始化本身已经会经过使用静态分支和静态调用的代码。这里建立的是最早可用状态，``start_kernel()`` 返回后还会再次完成通用层所需的初始化。
+``parse_boot_params()`` 不回到GRUB或BIOS取数据。它从global ``boot_params`` 建立：
 
-``early_ioremap_init()`` 建立临时映射窗口。此时完整 ``ioremap()``、vmalloc allocator 和最终页表都不存在，内核仍需要短暂访问不在当前直接映射中的物理固件数据，因此使用固定 slot 的 early ioremap 机制。
+* 由 ``hdr.root_dev`` decode的 ``ROOT_DEV``；
+* ``screen_info`` 与条件EDID对应的primary display描述；
+* ``saved_video_mode``；
+* 组合 ``type_of_loader/ext_loader_type`` 与扩展version后的bootloader type/version；
+* 条件ramdisk兼容字段；
+* EFI loader signature flags；
+* ``root_flags==0`` 时对初始 ``root_mountflags`` 的可写调整。
 
-``parse_boot_params()`` 把协议字段转成内核变量
---------------------------------------------
+当前loader是GRUB，但 ``type_of_loader`` 表示Linux boot-protocol loader身份，不表示SATA设备或
+root filesystem类型。SeaBIOS加GRUB i386-pc没有写EFI loader signature，所以
+``EFI_BOOT`` 不会在这里置位。命令行里的 ``root=``、 ``ro`` 与 ``console=`` 仍要由后续参数
+解析，不在 ``parse_boot_params`` 内消费。
 
-``boot_params`` 是 Linux/x86 Boot Protocol 的交接对象。前面的章节已经说明 GRUB 填写它，``x86_64_start_kernel()`` 再把它复制到正式内核全局对象。
+ordinary PC的OEM arch hook为空
+------------------------------
 
-``parse_boot_params()`` 不重新读取磁盘，也不访问 BIOS。它只是把协议结构中的字段翻译成后续代码更容易使用的全局状态，包括：
+``setup_olpc_ofw_pgd()`` 在当前非OLPC路径不改页表，随后
+``x86_init.oem.arch_setup()`` 调用fixed ordinary PC默认 ``x86_init_noop``。某些平台能在这里替换
+hook，但当前q35没有产生新的OEM对象或额外reservation。
 
-* ``root_dev`` 转成旧式 ``ROOT_DEV`` 编码；
-* ``screen_info`` 和可选 EDID 复制到系统 framebuffer 描述；
-* 保存 ``vid_mode``；
-* 解析 ``type_of_loader``、``ext_loader_type`` 和版本字段；
-* 读取 ramdisk 相关兼容字段；
-* 判断 EFI loader signature；
-* 根据 ``root_flags`` 决定是否清除只读根挂载标志。
+先写 ``memblock.reserved``，再提供 ``memblock.memory``
+------------------------------------------------------
 
-当前主线来自 SeaBIOS + GRUB i386-pc，不是 EFI loader，因此不会设置 ``EFI_BOOT`` 标志。命令行中的 ``ro`` 仍会在后续参数解析阶段决定根文件系统初始只读语义。
-
-bootloader 类型字段有什么用
----------------------------
-
-``type_of_loader`` 不是“当前磁盘设备类型”。它标识是谁按照 Linux Boot Protocol 装入了内核。
-
-内核把旧字段和扩展字段组合为：
-
-.. code-block:: text
-
-   bootloader_type
-   bootloader_version
-
-后续日志、兼容判断和某些启动器特例可以据此区分 GRUB、LILO、syslinux、EFI stub 等入口。它不会改变当前 CPU 已经处于 long mode 的事实，也不会让 Linux继续调用 GRUB。
-
-先保留，再把 RAM 加入 allocator
------------------------------
-
-接下来 ``setup_arch()`` 调用：
+下一条关键调用：
 
 .. code-block:: c
 
-   x86_init.oem.arch_setup();
    early_reserve_memory();
 
-默认 PC 路径的 OEM 钩子通常为空。真正重要的是 ``early_reserve_memory()``。
+此时memblock的reserved集合已经能记录区间，E820 RAM却还没有批量进入
+``memblock.memory``。顺序刻意如此：如果先允许allocator看到全部RAM，再补记kernel、initramfs
+与setup data，中间的任何allocation都可能覆盖仍在使用的boot object。
 
-此时 memblock 的 ``reserved`` 集合已经能记录不可覆盖范围，但 E820 中的普通 RAM 还没有批量加入 ``memblock.memory``。Linux 故意先做保留，原因很直接：
+整个调用期间仍只有CPU0、IF=0，没有另一CPU或interrupt allocator与它竞争；这里依赖single-
+threaded early-boot顺序，而不是后期buddy/slab锁域。
 
-.. code-block:: text
+kernel reserve范围不是任意整个解压区
+-------------------------------------
 
-   如果先告诉 allocator“这些都是可用 RAM”
-   再补记 kernel / initrd / setup_data
-   中间的早期分配就可能覆盖启动所必需的数据
-
-因此顺序必须是：
-
-.. code-block:: text
-
-   先登记绝对不能动的物理区间
-   → 再导入固件 RAM 图
-   → 再允许 memblock 从 RAM 中分配
-
-保留正式内核映像
-----------------
-
-第一项是：
+第一项：
 
 .. code-block:: c
 
    memblock_reserve_kern(__pa_symbol(_text),
                          __end_of_kernel_reserve - _text);
 
-它保留从正式内核 ``_text`` 到 ``__end_of_kernel_reserve`` 的物理区间。
+它保留正式kernel从物理 ``_text`` 到 ``__end_of_kernel_reserve`` 的linked reserve范围。这个范围
+覆盖链接脚本指定的early不可回收内容，但 ``__end_of_kernel_reserve`` 之后的section不会自动
+因为“属于vmlinux”而被纳入；需要保留者必须另有显式reserve。
 
-这里不是只保留可执行代码。范围还覆盖早期仍必须存在的只读数据、普通数据、BSS、brk 以及链接脚本明确放入 kernel reserve 区间的对象。
+这份memblock identity与E820 type不同。firmware/GRUB仍可能把kernel所在区写作RAM；reserved
+overlay负责让后续allocator从RAM候选中排除它。
 
-``__end_of_kernel_reserve`` 之后的特殊 section 不会被自动包含；需要保留的内容必须由各自代码另行调用 ``memblock_reserve()``。这条规则防止链接脚本新增 section 后被无意永久保留，也防止启动早期错误释放仍在使用的 section。
+最低64 KiB无条件进入reserved
+------------------------------
 
-为什么先保留低 64 KiB
-----------------------
-
-随后：
+接着：
 
 .. code-block:: c
 
    memblock_reserve(0, SZ_64K);
 
-理论上 page 0 和 BIOS 数据区已经能从 E820/低端布局中推断，Linux 仍明确保留前 64 KiB，原因包括：
+这同时覆盖page 0安全边界与历史BIOS可能破坏low memory的保守区间。它不是“已经保留整个低
+1 MiB”；real-mode trampoline定位后还有更宽的low-memory处理。当前也没有在这一步读取E820
+并把类型改成reserved。
 
-* 第一页通常属于 BIOS/实模式遗留区域；
-* 历史 BIOS 可能在启动后仍破坏低端内存；
-* page 0 不能被普通内核对象使用；
-* L1TF 等漏洞使 page 0 内容具有额外安全风险；
-* AP real-mode trampoline 还要在 1 MiB 以下寻找安全位置。
+initramfs保留R到page-aligned end
+--------------------------------
 
-后面找到 trampoline 后，Linux 会进一步保留整个低 1 MiB。当前这里只先建立不可被早期分配踩中的最小边界。
-
-initramfs 此时只做物理保留
--------------------------
-
-``early_reserve_initrd()`` 从 ``boot_params`` 合并 32 位和扩展高 32 位字段：
+``early_reserve_initrd`` 从setup header的low/high字段重组 ``R`` 和真实size ``N``，并检查
+loader type、start与size非0。固定GRUB路径满足条件，因此执行：
 
 .. code-block:: text
 
-   ramdisk_image = ext_ramdisk_image : ramdisk_image
-   ramdisk_size  = ext_ramdisk_size  : ramdisk_size
+   memblock_reserve_kern(R, PAGE_ALIGN(R + N) - R)
 
-只要 bootloader 类型、起始地址和大小有效，就执行：
+这只保护initramfs原始physical bytes不被allocator覆盖。 ``initrd_start/initrd_end`` 尚未形成
+长期direct-map virtual identity，也没有搬迁、解压或解析cpio；这些都不是early reserve的效果。
 
-.. code-block:: c
+当前 ``setup_data=0``，不会虚构扩展链
+--------------------------------------
 
-   memblock_reserve_kern(ramdisk_image,
-                         PAGE_ALIGN(ramdisk_image + ramdisk_size)
-                         - ramdisk_image);
+``memblock_x86_reserve_range_setup_data`` 从 ``boot_params.hdr.setup_data`` 遍历linked nodes，
+通常会reserve每个header+payload，并为合法indirect node再reserve目标range。
 
-这里还没有解析 cpio，也没有创建根文件系统。
+固定GRUB 2.14 i386-pc loader先清零整个 ``linux_params``，再复制setup header和显式填写的字段；
+本场景没有创建setup_data node，因此第039章复制来的 ``hdr.setup_data=0``。当前while loop一次也
+不进入，没有 ``SETUP_E820_EXT``、DTB、EFI、IMA、KHO或RNG seed对象凭空出现。
 
-它仅表示：
+这并不是Linux不支持这些node，而是当前GRUB handoff没有交出它们。
 
-.. code-block:: text
+PC policy现在才读取BDA/EBDA并保留BIOS区
+---------------------------------------
 
-   这段物理内存属于 GRUB 装入的 initramfs
-   在 Linux 决定是否需要重定位和何时解包之前，任何 allocator 都不能覆盖它
-
-真正的 ``reserve_initrd()`` 在 direct map 建立以后才判断该区间是否已经全部可映射；必要时会把 initramfs 搬到更低、已建立 direct map 的 RAM。
-
-保留 ``setup_data`` 链本身
--------------------------
-
-Boot Protocol 的固定 ``boot_params`` 放不下所有未来扩展，因此 ``hdr.setup_data`` 可以指向一个物理链表。每个节点包含：
+第040章设置的 ``reserve_bios_regions=1`` 在这里由 ``reserve_bios_regions()`` 消费。它通过
+direct-map读取BDA ``0x413`` 的conventional-memory KiB值，限制到128—640 KiB可信区间，再读取
+EBDA segment pointer；若EBDA起点更低且合理，就把它作为 ``bios_start``。最终：
 
 .. code-block:: c
 
-   struct setup_data {
-       u64 next;
-       u32 type;
-       u32 len;
-       u8  data[];
-   };
+   memblock_reserve(bios_start, 0x100000 - bios_start);
 
-``memblock_x86_reserve_range_setup_data()`` 先遍历链表，并保留每个节点的 header 与 payload。
+因此这项reservation的精确start来自运行时BDA/EBDA内容，不由“q35”三个字符制造。无论start
+取何合法值，它都只写memblock reserved，不替代第042章对working E820的BIOS range修整。
 
-如果节点是 ``SETUP_INDIRECT``，payload 还会描述另一段真正的数据地址；只要间接类型没有再次指向 ``SETUP_INDIRECT``，那段目标物理内存也会被保留。
+最后的 ``trim_snb_memory`` 先早期读取PCI ``00:02.0`` vendor/device；只有命中列出的Intel
+Sandy Bridge graphics IDs时，才额外reserve五个已知bad pages。fixed机器只规定q35与AHCI，
+没有固定display device/QEMU完整CLI，所以该quirk保持运行时条件，不能写成必然命中或必然未
+执行。
 
-此时只解决“不能覆盖”。节点内容的语义解析要等基础 E820 图导入后再执行。
+Z没有出现在reservation清单中
+------------------------------
 
-保留传统 BIOS 区域
-------------------
+至此被显式保护的是kernel、0—64 KiB、R/N、非空setup_data targets、BIOS low region与条件SNB
+pages。原始boot params Z和其旧command-line buffer没有被reserve；039已把二者复制到formal
+kernel globals，所以后续 ``e820__memblock_setup`` 可以把其RAM重新交给系统。
 
-``reserve_bios_regions()`` 根据第四十章建立的普通 PC legacy 标志处理传统 BIOS 所需区域。QEMU q35 虽然是虚拟现代芯片组，当前启动路径仍经过 SeaBIOS，低端 EBDA、ROM window 和实模式兼容数据仍然不能当成普通 RAM。
+“Z可被重用”不表示本章此刻已经发生覆盖： ``memblock.memory`` 仍未从E820建立，allocator还没
+得到那片候选RAM。
 
-``trim_snb_memory()`` 是 Sandy Bridge 集显硬件缺陷的条件 workaround。固定 q35 虚拟平台不会命中真实 SNB 集显 ID，因此主线不会额外保留那几页物理地址。
+physical address resource上界在E820导入前确定
+---------------------------------------------
 
-建立物理地址资源上限
---------------------
-
-早期 CPU 检测给出物理地址位数后，``setup_arch()`` 设置：
+``early_cpu_init`` 已识别CPU address size，源码现在设置：
 
 .. code-block:: c
 
    iomem_resource.end = (1ULL << boot_cpu_data.x86_phys_bits) - 1;
 
-这定义的是 Linux 全局物理内存资源树的地址上限，不代表范围内全部是 RAM。
+这是全局physical I/O-memory resource tree的address上界，不是RAM大小，也不表示上界内每个地址
+可用。实际RAM topology由下一条E820 import给出。
 
-例如 CPU 支持 46 位物理地址，只表示资源树能够描述 ``0`` 到 ``2^46-1``；其中仍可能包含 RAM、PCI MMIO、固件表、空洞和保留区。
+基础E820先进入working table，再复制两份快照
+---------------------------------------------
 
-把 bootloader E820 表导入 Linux
-------------------------------
+ordinary PC的 ``x86_init.resources.memory_setup`` 默认指向
+``e820__memory_setup_default``。fixed GRUB已在 ``boot_params.e820_table`` 提供非空、有效的
+SeaBIOS memory map，因此default helper逐项append address/size/type，随后
+``e820__update_table`` 排序、处理overlap并合并可合并range；不走 ``alt_mem_k/ext_mem_k`` 的
+fallback map。
 
-随后调用：
-
-.. code-block:: c
-
-   e820__memory_setup();
-
-默认 PC 实现从：
-
-.. code-block:: c
-
-   boot_params.e820_table
-   boot_params.e820_entries
-
-复制基础 E820 项。
-
-这张表的上游链路已经贯穿前面的章节：
+返回后 ``e820__memory_setup`` 立即把整理后的working ``e820_table`` 整体复制为：
 
 .. code-block:: text
 
-   QEMU q35 创建物理内存布局
-   → SeaBIOS 形成 E820 map
-   → GRUB 通过 BIOS 接口读取它
-   → GRUB 写入 Linux boot_params
-   → Linux e820__memory_setup() 导入
+   e820_table_firmware
+   e820_table_kexec
 
-Linux 首先尝试追加标准 E820 项。如果表无效，才会退回 ``INT 15h AH=88h`` / E801 风格的旧内存大小字段，伪造 ``0–640 KiB`` 与 ``1 MiB–end`` 两段 RAM。固定主线拥有有效 E820 表，不进入该降级路径。
+并打印BIOS-provided map。三者此刻内容相同，但职责不同：firmware表保持loader原图；kexec表供
+后续kernel handoff使用并只接受特定修正；working表还会被command-line、BIOS trim、MTRR等
+继续修改。
 
-为什么要 sanitize E820
-----------------------
+E820中的RAM identity不会抹掉先前reserved集合。K、R和Z都可能仍落在
+``E820_TYPE_RAM`` range中；其中K/R由memblock reserved排除，Z没有这份排除。两套结构表达的是
+不同问题。
 
-固件表可能存在：
-
-* 项目无序；
-* 相邻同类型区间可合并；
-* 区间重叠；
-* 同一物理范围被不同类型覆盖；
-* 零长度项目。
-
-``e820__update_table()`` 对内核工作表进行整理，使后续查询能够按有序、无歧义区间工作。
-
-然后内核复制出三份角色不同的表：
-
-.. code-block:: text
-
-   e820_table           当前内核会继续修改的工作表
-   e820_table_firmware  尽量保留 firmware 原始视图
-   e820_table_kexec     为未来 kexec 内核准备的传递视图
-
-后续 ``mem=``、``memmap=``、BIOS 修正、MTRR trim 等操作主要作用在工作表上。保留其他副本，可以避免“Linux 自己修改过的结果”被误认为固件最初报告。
-
-基础 E820 与扩展 E820 为什么分两步
+``parse_setup_data`` 当前循环为空
 ---------------------------------
 
-``e820__memory_setup()`` 只导入 ``boot_params`` 固定数组中的基础项目。紧接着：
+紧接着的 ``parse_setup_data()`` 再从 ``hdr.setup_data`` 遍历扩展链。若存在
+``SETUP_E820_EXT``，它会append超过boot_params前128项的E820 entries，update working table并
+刷新firmware/kexec快照；其他type可交给DTB、EFI、IMA、KHO或RNG seed helper。
 
-.. code-block:: c
+当前链头为0，所以这些switch branch全部未选择，三份E820表保持基础import后的状态。正文只能
+说明这些是未发生的支持路径，不能用一页node百科替代当前时间线。
 
-   parse_setup_data();
+EDD copy是最后一个build条件步骤
+--------------------------------
 
-才遍历 ``hdr.setup_data`` 链。
+本章最后执行 ``copy_edd()``。启用 ``CONFIG_EDD`` 或module support时，它把
+``boot_params`` 中MBR signature buffer、EDD info和entry counts复制到kernel-owned ``edd``
+对象；否则是空inline。它不读磁盘、不提交AHCI command，也不修改E820。
 
-如果遇到 ``SETUP_E820_EXT``，调用：
-
-.. code-block:: c
-
-   e820__memory_setup_extended(pa_data, data_len);
-
-原因是固定 ``boot_params.e820_table`` 容量有限。bootloader 若需要传递更多项目，可以把剩余项目放入扩展节点。
-
-顺序必须是：
-
-.. code-block:: text
-
-   先有基础 E820 工作表
-   → 再追加扩展 E820
-   → 后面统一执行 early 参数修正和 memblock 转换
-
-``setup_data`` 还能携带什么
--------------------------
-
-``parse_setup_data()`` 识别的节点包括：
-
-* ``SETUP_E820_EXT``：额外 E820 项；
-* ``SETUP_DTB``：设备树 blob；
-* ``SETUP_EFI``：额外 EFI setup 信息；
-* ``SETUP_IMA``：IMA kexec buffer；
-* ``SETUP_KEXEC_KHO``：kexec handover 数据；
-* ``SETUP_RNG_SEED``：bootloader 随机种子。
-
-随机种子节点被加入内核熵池后，payload 和长度会用 ``memzero_explicit()`` 清除，避免同一秘密被后续代码重复读取。
-
-当前固定 ``grub.cfg`` 没有显式配置 DTB、kexec handover 或额外 RNG 节点；解析器仍必须支持这些 Boot Protocol 扩展，因为同一个 Linux 映像可以由其他 loader 和平台启动。
-
-复制 BIOS EDD 信息
-------------------
-
-如果启用 EDD 支持，``copy_edd()`` 把 ``boot_params`` 中的 MBR signature 与 BIOS Enhanced Disk Drive 描述复制到长期安全对象。
-
-这并不会继续使用 BIOS ``INT 13h`` 读盘。它保存的是启动磁盘身份和几何信息，后续 EDD 子系统、日志和启动盘匹配可能需要这些数据。
-
-当前章节的自然终点
-------------------
-
-到这里，Linux 已经完成两类不同工作：
-
-.. code-block:: text
-
-   保护工作
-   kernel / low 64 KiB / initramfs / setup_data / BIOS regions
-
-   描述导入
-   boot_params fields / 基础 E820 / 扩展 setup_data / EDD
-
-但还没有执行：
-
-.. code-block:: text
-
-   e820 RAM → memblock.memory
-   max_pfn 计算
-   MTRR 对 RAM 的裁剪
-   early page-table buffer 分配
-   direct map 建立
-
-下一条关键调用是：
+下一条调用已经是：
 
 .. code-block:: c
 
    setup_initial_init_mm(_text, _etext, _edata, (void *)_brk_end);
 
-它开始把正式内核自身的 text/data/brk 边界登记到 ``init_mm``，随后进入 NX、early 参数、资源树和 E820 修正阶段。
+本章在call前停止。此刻E820只是x86 early memory description，仍未由
+``e820__memblock_setup`` 转换成 ``memblock.memory``。
 
-当前机器状态
+本章结束状态
 ------------
 
-本章结束时：
+* current executor：CPU0上的 ``setup_arch``， ``copy_edd()`` 已返回，
+  ``setup_initial_init_mm(...)`` 尚未调用；
+* CPU/mode：BSP/logical CPU0，64-bit long mode，IF=0；没有schedule或AP bring-up；
+* bootloader command line：
+  ``BOOT_IMAGE=/boot/bzImage root=/dev/sda1 ro console=ttyS0``；
+* effective ``boot_command_line`` / x86 ``command_line``：已按build-time
+  ``CONFIG_CMDLINE`` 保留、前置追加或覆盖；因 ``.config`` 未固定而保持条件值；
+* IDT： ``#DB/#BP`` 与条件 ``#VE`` 已换early trap； ``#PF`` 仍为039的early page-table
+  helper；普通IRQ/IST IDT未完成；
+* ``boot_cpu_data``：已做early identify并获得运行CPU address sizes/capabilities，具体model值未
+  固定；
+* memblock reserved：kernel reserve范围、0—64 KiB、R到 ``PAGE_ALIGN(R+N)``、BIOS low range，
+  以及条件SNB pages；
+* setup_data：链头0，无node被reserve或parse；
+* old boot data Z/旧command buffer：未reserve，formal global copies已接管内容；
+* E820：基础map已sanitize，working/firmware/kexec三表已建立且当前相同；
+* ``memblock.memory``：尚未从E820填充；
+* ``iomem_resource.end``：已按boot CPU physical-address bits设置；kernel child resources尚未插入；
+* initramfs：R/N受保护，未relocate、未unpack；
+* ``init_mm``：静态对象存在，但本章尚未填写start/end/brk字段，也未切换CR3。
 
-* 当前执行者：Linux 6.12.95 ``arch/x86/kernel/setup.c:setup_arch()``；
-* CPU：BSP / Linux CPU 0；
-* mode：64 位 long mode；
-* interrupts：关闭；
-* 有效命令行：已复制到 x86 ``command_line``；
-* ``boot_params``：关键协议字段已翻译；
-* kernel physical range：已加入 memblock reserved；
-* 低 64 KiB：已保留；
-* initramfs physical range：已保留，尚未解析；
-* ``setup_data`` 节点与间接 payload：已保留；
-* 基础 E820：已从 ``boot_params`` 导入并整理；
-* 扩展 ``setup_data``：已解析；
-* EDD：已复制到安全对象；
-* ``memblock.memory``：尚未由 E820 RAM 建立；
-* ``max_pfn``：尚未计算；
-* direct map：尚未重建；
-* ``start_kernel()``：仍等待 ``setup_arch()`` 返回。
+关键边界
+--------
+
+#. 第一条日志打印GRUB字符串，built-in append/override随后发生；两者不能混成一个“固定命令行”。
+#. ``x86_phys_bits`` 先取架构上界，再由 ``early_cpu_init`` 的CPUID结果收紧。
+#. ``idt_setup_early_traps`` 不在x86-64替换 ``#PF``，否则early direct-map自举会被提前拆掉。
+#. ``early_reserve_memory`` 先写reserved；E820 RAM转 ``memblock.memory`` 要到043。
+#. kernel reservation止于 ``__end_of_kernel_reserve``，不是凭印象保留任意解压输出区。
+#. initramfs这里只reserve R/N，未获得长期virtual identity，更没有unpack。
+#. 当前 ``setup_data=0``；Linux支持扩展node不等于这次实际收到node。
+#. BIOS memblock reservation与042 working-E820 trim是两个不同边界。
+#. Z明确不reserve；copy完成后的可重用性是设计行为，不是遗漏。
+#. E820 working/firmware/kexec三表先复制相同内容，后续修改规则不同。
+#. E820把一段标作RAM与memblock把同一区间列为reserved可以同时成立。
+
+下一入口
+--------
+
+第042章从：
+
+.. code-block:: c
+
+   setup_initial_init_mm(_text, _etext, _edata, (void *)_brk_end);
+
+开始。CPU当前CR3仍是 ``early_top_pgt``； ``init_mm.pgd`` 静态指向x86-64
+``init_top_pgt``，但调用只会登记kernel virtual boundaries，不会在入口瞬间load CR3。
 
 资料
 ----
 
-* `Linux 6.12.95 setup.c：setup_arch、parse_boot_params、early_reserve_memory、setup_data 与 initrd 保留 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/setup.c>`_
-* `Linux 6.12.95 e820.c：e820__memory_setup_default 与 e820__memory_setup <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/e820.c>`_
-* `Linux/x86 Boot Protocol：boot_params、E820 与 setup_data ABI <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/Documentation/arch/x86/boot.rst>`_
-* `Linux 6.12.95 bootparam.h：boot_params、setup_header 与 setup_data 类型 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/include/uapi/asm/bootparam.h>`_
-* `Linux 6.12.95 early_ioremap.c：最终内存管理建立前的临时映射机制 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/mm/early_ioremap.c>`_
+* `Linux 7.2-rc1固定提交：setup_arch命令行至init_mm边界 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/setup.c#L884-L968>`_；
+* `Linux 7.2-rc1固定提交：parse_boot_params与setup_data reserve <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/setup.c#L479-L606>`_；
+* `Linux 7.2-rc1固定提交：early_reserve_memory精确清单 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/setup.c#L796-L826>`_；
+* `Linux 7.2-rc1固定提交：initramfs early reservation <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/setup.c#L293-L360>`_；
+* `Linux 7.2-rc1固定提交：PC BDA/EBDA BIOS reservation <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/ebda.c#L51-L98>`_；
+* `Linux 7.2-rc1固定提交：基础E820导入与三表复制 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/e820.c#L1231-L1286>`_；
+* `Linux 7.2-rc1固定提交：early trap只替换DB/BP/条件VE <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/idt.c#L59-L76>`_；
+* `GRUB 2.14固定提交：linux_params清零与setup header装入 <https://github.com/rhboot/grub2/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/loader/i386/linux.c#L796-L837>`_。

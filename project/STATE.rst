@@ -14,112 +14,101 @@
    mode                 = retrospective-audit
    forward production   = paused
    content present      = 001-193
-   audit verified       = 001-039
-   verified_through     = 039
+   audit verified       = 001-042
+   verified_through     = 042
    blocked batches      = none
-   next batch           = 040-042
+   next batch           = 043-045
    next batch status    = ready
 
-037—193中文件存在不等于技术已验证；当前实际pending范围已推进为040—193。第193章审查闭合前
-不生产新章节。
+043—193中文件存在不等于技术已验证；当前pending范围是043—193。第193章审查闭合前不生产新章。
 
 最近完成批次
 ------------
 
-`037—039审查报告 <audits/linux-kernel/037-039.rst>`_：状态 ``repaired``。
+`040—042审查报告 <audits/linux-kernel/040-042.rst>`_：状态 ``repaired``。
 
 本批修复了：
 
-* fixed relocation tail实际只有32-bit与64-bit两组，删除旧稿inverse 32-bit第三组；
-* 物理O用于定位relocation target，虚拟V决定x86-64写入delta；
-* 高地址O首次写入沿compressed stage2 ``#PF`` demand-map；
-* formal startup先 ``GSBASE=0``，common取得CPU0后才写per-CPU offset；
-* formal ``verify_cpu`` 返回值未被测试； ``phys_base/load_delta=O`` 而不是O-L；
-* startup/common bringup IDT只负责条件 ``#VC``，general early exception table到039才安装；
-* 第037章transition identity PMD无global，038的CR4 PGE序列不再被夸写成必然清旧compressed项；
-* formal BSS/brk到039统一清零，boot params与完整含 ``BOOT_IMAGE`` 的command line用
-  ``__va(Z)`` 复制；
-* ``load_ucode_bsp`` 是有条件helper attempt，不等于microcode revision已更新；
-* 三章按固定7.2-rc1源码整章重写并统一章末结构。
+* 三章从历史6.12.95叙事重写为fixed Linux 7.2-rc1，并逐章固定自然源码边界；
+* fixed x86 ``smp_setup_processor_id`` 实际落到generic weak no-op，CPU0身份不在040重选；
+* platform policy设置与041 BDA/EBDA physical reservation分开；
+* GRUB原始command line保留 ``BOOT_IMAGE=/boot/bzImage``，并与未固定
+  ``CONFIG_CMDLINE`` 的append/override结果分开；
+* 041 early traps只替换DB/BP/条件VE，formal early ``#PF`` 继续服务direct-map自举；
+* reservation固定为kernel、0—64 KiB、R/N、条件setup_data/BIOS/SNB；old Z明确不reserve；
+* 当前 ``setup_data=0``，reserve与parse两个loop均为空；
+* working/firmware/kexec三份E820与memblock reserved、iomem resource、PTE identity分开；
+* ``setup_initial_init_mm`` 只登记virtual boundaries，active CR3仍是 ``early_top_pgt``；
+* ``parse_early_param`` 用静态 ``done`` 保证只实际执行一次；
+* max PFN按working E820的RAM/ACPI end、arch limit与条件MTRR重算，未制造RAM/PFN数值；
+* memory KASLR只选择virtual layout，完整direct map留给043。
 
 当前符号
 --------
 
 ::
 
-   Z = original boot_params physical address
-   R/N = original initramfs physical address / true size
-   L = build LOAD_PHYSICAL_ADDR
-   O = actual physical kernel output base
-   V = relocation virtual position value
+   Z   = original boot_params physical address; copied, no longer reserved
+   R/N = original initramfs physical address / true size; reserved to PAGE_ALIGN(R+N)
+   L   = build LOAD_PHYSICAL_ADDR
+   O   = actual physical kernel output base / formal phys_base
+   V   = relocation virtual position value
 
-``O`` 是formal ``phys_base``。``Z`` 只继续作为physical value传给reservations；正式global
-``boot_params`` 与 ``boot_command_line`` 已在039复制完成。
+``Z`` 的内容已由formal global ``boot_params`` / ``boot_command_line`` 接管，后续RAM allocator可重用
+原range；这不表示截至042已经覆盖。 ``R/N`` 仍只获得physical reservation，未relocate或unpack。
 
-第039章结束状态
+第042章结束状态
 ---------------
 
 ::
 
-   current executor       = x86_64_start_reservations(Z), first statement pending
-   CPU                    = BSP / logical CPU0
-   CPU mode               = 64-bit long mode, kernel high mapping
-   IF / DF                = 0 / 0
-   current task           = init_task
-   current stack          = init_task initial task stack
-   GSBASE                 = CPU0 initial per-CPU offset
-   GDT                    = CPU0 gdt_page
-   CR3                    = early_top_pgt
-   temporary identity map = removed from active top-level root
-   formal BSS / brk       = zeroed
-   general early IDT      = installed
-   early direct-map #PF   = available through early_make_pgtable
-   global boot_params     = copied and sanitized
-   boot_command_line      = copied 2048-byte buffer
-   valid command string   = BOOT_IMAGE=/boot/bzImage root=/dev/sda1 ro console=ttyS0
-   init_top_pgt           = conditional KASAN shadow + copied kernel high entry 511
-   early microcode        = helper called; actual update conditional/unknown
-   initramfs              = R/N recorded in global boot_params; not unpacked
-   generic start_kernel   = not called
+   current executor        = setup_arch(), early_alloc_pgt_buf call pending
+   CPU                     = BSP / logical CPU0
+   CPU mode                = 64-bit long mode, kernel high mapping
+   IF / DF                 = 0 / 0
+   current task            = init_task
+   current stack           = init_task initial task stack; end magic installed
+   CPU masks               = CPU0 possible/present/online/active
+   GSBASE / GDT            = CPU0 initial per-CPU offset / CPU0 gdt_page
+   active CR3              = early_top_pgt
+   init_mm.pgd             = init_top_pgt (swapper_pg_dir alias), not active yet
+   init_mm ranges          = _text / _etext / _edata / current _brk_end recorded
+   early IDT               = DB/BP + conditional VE real early gates; PF still early helper
+   early IRQ state         = early_boot_irqs_disabled=true; normal IRQs not enabled
+   effective command line  = GRUB line with conditional CONFIG_CMDLINE append/override
+   early params            = parsed once; done=1
+   EFI_BOOT                = false on SeaBIOS/GRUB i386-pc path
+   memblock.reserved       = kernel + low64K + R/N + BIOS + conditional platform tables/pages
+   memblock.memory         = not populated from E820
+   setup_data              = 0; no extension nodes
+   E820 firmware/kexec     = loader snapshots
+   E820 working            = early params + kernel/BIOS + conditional GART/MTRR fixes applied
+   iomem resources         = kernel code/rodata/data/bss + conditional ROM resources
+   max_pfn                 = computed symbolic working-E820 result
+   max_possible_pfn        = max_pfn
+   max_low_pfn             = computed with 4 GiB boundary
+   max_low_pfn_mapped      = distinct existing direct-map frontier
+   memory KASLR layout     = selected conditionally; page tables not built here
+   initramfs               = R/N reserved; not relocated or unpacked
+   early brk               = still open
+   early page-table buffer = not allocated
 
-已验证的037—039关系
+已验证的040—042关系
 -----------------
 
-* decoder输出：
-
-  ::
-
-     __decompress(input_data,input_len,O,output_len)
-     parse_elf: dest = O + (p_paddr-L) under CONFIG_RELOCATABLE
-     entry_offset = e_entry-L
-
-* relocation：
-
-  ::
-
-     target map adjustment = (O-L)-__START_KERNEL_map
-     x86-64 content delta  = V-L
-
-* compressed cleanup把IDTR置空后， ``RSI=Z`` 跳 ``O+entry_offset``；
-* formal startup以position-independent helper建立：
-
-  ::
-
-     p2v_offset = runtime physical common_startup_64 - linked virtual common_startup_64
-     phys_base   = __START_KERNEL_map + p2v_offset = O
-
-* ``__startup_64`` 修正high tables、只保留actual kernel PMD范围，并建立无global temporary
-  identity mapping；
-* common startup固定CPU0、 ``current_task=&init_task``、task stack、CPU0 GDT/GSBASE、
-  ``EFER.SCE`` 与conditional NXE；
-* ``early_setup_idt`` 仍是bringup/VC；039 ``idt_setup_early_handler`` 才安装一般exception和
-  direct-map early page-fault helper；
-* ``reset_early_page_tables`` 清top-level前511项并reload CR3，之后访问Z必须用direct-map
-  ``__va(Z)``；
-* 顺序固定为BSS/brk clear → init_top clear → SME flags → KASAN shadow → global TLB flush →
-  general early IDT → TDX → copy boot data；
-* 命令行复制整个2048-byte buffer，有效字符串保留 ``BOOT_IMAGE=/boot/bzImage``；
-* ``init_top_pgt[511]=early_top_pgt[511]`` 只继承kernel high subtree，不是完整direct map。
+* ``x86_64_start_reservations`` 当前不再次copy Z，选择ordinary PC legacy policy并进入
+  ``start_kernel``；
+* 040依次建立stack sentinel、conditional early subsystems、IRQ software state和CPU0 masks，停在
+  ``setup_arch`` 前；
+* 041先输出GRUB line，再处理built-in line； ``early_cpu_init`` 后才用actual physical-address bits
+  设置 ``iomem_resource.end``；
+* 041顺序固定为prepare cmdline/IDT/CPU/ioremap → parse boot params → early reservations → base E820
+  import/sanitize/copy → empty setup_data parse → EDD copy；
+* kernel K/R仍可位于E820 RAM，同时被memblock reserved；Z可位于RAM但不再reserved；
+* 042顺序固定为init_mm ranges → NX → one-shot early params → platform probes → resource/E820 fixes →
+  max PFN/cache/MTRR → memory virtual layout → max low PFN → MP-table finder；
+* 042不导入 ``memblock.memory``、不分配page-table buffer、不封存brk、不load
+  ``init_top_pgt``。
 
 固定磁盘约定
 ------------
@@ -131,42 +120,43 @@
        initrd /boot/initramfs.img
    }
 
-build ``.config``、compression、file sizes、CPU model、runtime addresses与microcode blob未提供，
-不得从commit制造。
+build ``.config``、compression、file sizes、RAM容量、QEMU CPU model/完整CLI、runtime addresses、
+builtin command line与microcode blob未提供，不得从commit制造。
 
 下一入口
 --------
 
-第040章从fixed ``head64.c``：
+第043章从fixed ``arch/x86/mm/init.c``：
 
 .. code-block:: c
 
-   x86_64_start_reservations(char *real_mode_data)
+   void __init early_alloc_pgt_buf(void)
    {
-       if (!boot_params.hdr.version)
-           copy_bootdata(__va(real_mode_data));
-       x86_early_init_platform_quirks();
+       unsigned long tables = INIT_PGT_BUF_SIZE;
+       phys_addr_t base;
+
+       base = __pa(extend_brk(tables, PAGE_SIZE));
        ...
 
-当前global ``boot_params.hdr.version`` 已由039 copy得到非零protocol值，普通GRUB路径不再次copy。
-040—042需要核定：
+开始。043—045需要重新核定旧稿，不继承其6.12.95标签或状态结论：
 
-* ordinary PC ``hardware_subarch`` 与platform quirks，及generic ``start_kernel`` 第一批调用；
-* 第040章出口是否精确停在 ``setup_arch(&command_line)`` 前；
-* ``setup_arch`` 接管boot command line、E820与setup_data的fixed 7.2-rc1顺序；
-* GRUB E820中K/R/Z仍可能标RAM，与Linux随后reservation/import身份分开；
-* ``setup_initial_init_mm``、E820 sanitize/update/finish、kernel resources、max PFN等第042真实边界；
-* 第043章 ``early_alloc_pgt_buf`` 入口只作相邻校验，不越序修改。
+* ``early_alloc_pgt_buf``、 ``reserve_brk``、x86-64 ``cleanup_highmap``、
+  ``e820__memblock_setup`` 的fixed顺序和allocator可用范围；
+* memory-encryption/random seed/EFI mirror等插入步骤是否改变旧043的自然出口；
+* real-mode trampoline、 ``init_mem_mapping``、active CR3与early PF replacement的真实边界；
+* ``setup_log_buf(1)``、 ``reserve_initrd`` 和ACPI table init的fixed 7.2-rc1顺序；
+* ``vsmp_init``、early ACPI/MADT、MP fallback、DT/NUMA及 ``initmem_init`` 的实际分支；
+* 第046章第一入口只作相邻校验，不越序修改。
 
-040—042批次读取清单
+043—045批次读取清单
 -------------------
 
-#. ``AGENTS.md``、合同、本文件与 ``037-039`` 报告；
-#. 第039章末尾、040—042全文、043开头；
-#. fixed ``head64.c:x86_64_start_reservations``、platform quirks；
-#. fixed ``init/main.c:start_kernel`` 到 ``setup_arch``；
-#. fixed ``arch/x86/kernel/setup.c`` 及实际调用的cmdline/E820/setup_data/init_mm/resource/PFN helper；
-#. 两份manifest游标；不凭旧正文继承函数顺序或具体PFN数字。
+#. ``AGENTS.md``、合同、本文件与 ``040-042`` 报告；
+#. 第042章末尾、043—045全文、046开头；
+#. fixed ``setup.c`` 从 ``early_alloc_pgt_buf`` call开始到 ``initmem_init`` 后的自然边界；
+#. fixed x86 ``mm/init.c``、 ``mm/init_64.c``、 ``kernel/e820.c``、 ``realmode/init.c`` 与memblock；
+#. fixed printk/initrd/ACPI/MP/NUMA实际被调用的helper；
+#. 两份manifest游标；旧043—045的版本标签、具体容量和调用顺序一律重新核验。
 
 固定源码工作树
 --------------
@@ -178,16 +168,16 @@ build ``.config``、compression、file sizes、CPU model、runtime addresses与m
    /Volumes/LinuxKernel/grub HEAD          = d38d6a1a9b79427848976f53d474392cd29c2a71
    /Volumes/LinuxKernel/linux-7.2-rc1 HEAD = 7404ce51637231382873d0b55edabc2f3b841a9d
 
-均为clean、完整、非shallow、无active sparse checkout。``/Volumes/LinuxKernel/linux`` 不作为
+均为clean、完整、非shallow、无active sparse checkout。 ``/Volumes/LinuxKernel/linux`` 不作为
 fixed evidence；项目 ``.sources/`` 不承担缓存。
 
 已知债务
 --------
 
-* 第040章起历史正文仍有旧版本/未经固定源码复核的断言与旧章末结构；
+* 第043章起历史正文仍有旧版本、旧结构或未经fixed源码核验的断言；
 * 第065、066章各有重复正文文件；
 * 001—073尚未逐章进入track machine-readable catalog；
-* 040—193必须继续顺序审查，不能批量机械标verified。
+* 043—193必须继续顺序审查，不能批量机械标verified。
 
 历史前向终点
 ------------
