@@ -14,136 +14,162 @@
    mode                 = retrospective-audit
    forward production   = paused
    content present      = 001-193
-   audit verified       = 001-027
-   verified_through     = 027
+   audit verified       = 001-030
+   verified_through     = 030
    blocked batches      = none
-   next batch           = 028-030
+   next batch           = 031-033
    next batch status    = ready
 
-历史正文已经写到第193章，但只有001—027按
-``project/LINUX_KERNEL_CONTRACT.rst`` 完成固定源码审查。028—193仍是 ``pending``，
+历史正文已经写到第193章，但只有001—030按
+``project/LINUX_KERNEL_CONTRACT.rst`` 完成固定源码审查。031—193仍是 ``pending``，
 不得把“文件存在”写成“技术内容已验证”。第193章之后的新生产保持暂停。
 
 最近完成批次
 ------------
 
-`025—027审查报告 <audits/linux-kernel/025-027.rst>`_：状态 ``repaired``。
+`028—030审查报告 <audits/linux-kernel/028-030.rst>`_：状态 ``repaired``。
 
 本批修复了：
 
-* 第025章把保存 ``DL`` 与INT 13h reset改回固定源码顺序，并核定当前SeaBIOS AHCI
-  ``CMD_RESET`` 只走通用成功分支，不执行COMRESET或重新探测；
-* 第025章补齐实模式/保护模式栈迁移、GDT selector、limit-0 IDT、A20 fallback、RS只保护
-  已读入数据，以及LZMA 1 MiB输出与0x9000正式core两套地址身份；
-* 第026章把console初始化收紧为只登记term对象，把E820固件payload地址修为
-  ``ES:DI=6800:0004``，并补齐每项BIOS模式往返、32项候选上限、1 MiB/4 GiB裁剪和modend
-  所有权边界；
-* 第026章保留未唯一化CPU model带来的VIA workaround与TSC/RTC条件分支，并区分PIT校准、
-  hardcoded rate与INT 1Ah fallback；
-* 第027章撤销“default core内建normal”的关键错误：standard simple install只自动加入探测
-  到的disk/partmap/fs后端及依赖，未显式 ``--modules`` 时 ``normal`` 缺席；
-* 第027章区分module init注册方法表与打开 ``hd0``，固定 ``cmdpath/root/prefix`` 合成、
-  环境字符串所有权、 ``[0x100000,modend)`` 回收和动态normal加载入口；
-* 三章均改为连续时间线，并统一章末
+* 第028章撤销“normal已内嵌、 ``grub_dl_load`` 直接返回”的错误；simple-install路径从
+  ``prefix/i386-pc/normal.mod`` 首次实际打开BIOS disk、MSDOS partition与ext4；
+* 第028章补齐module file在dependency processing前关闭、临时ELF buffer与长期sections、
+  fs probe/open两份ext2 mount data、disk cache和bufio/raw file所有权边界；
+* 第029章把旧 ``Linux 6.12.95`` 改为固定 ``Linux 7.2-rc1``，并显式约定磁盘中的
+  ``/boot/bzImage``、 ``/boot/initramfs.img`` 与最小 ``grub.cfg``；
+* 第029章核定逐语法单元parse/execute/unref、多行menuentry callback、sourcecode复制、entry
+  独立所有权、默认 ``restricted=1``，以及EOF后config变量恢复和配置文件关闭；
+* 第030章核定timeout=0在menu viewer初始化前选中index 0，restricted auth因未设置superusers
+  而短路，chosen发布、default暂时unset和entry新scope；
+* 第030章补齐linux dynamic placeholder的精确flags、linux.mod先关闭file再重定位/init、module
+  ref，以及注销placeholder后重新查找真实linux command的顺序；
+* 三章均按连续时间线重写，章末统一为
   ``本章结束状态 → 关键边界 → 下一入口 → 资料``。
 
-第027章已验证结束状态
+第030章已验证结束状态
 ---------------------
 
 ::
 
-   current executor       = BSP in GNU GRUB 2.14 grub_main
-   exact next call        = grub_load_normal_mode()
+   current executor       = CPU0 BSP in grub_dyncmd_dispatcher
+   exact next call        = grub_cmd_linux(cmd, 4, args)
    CPU mode               = 32-bit flat protected mode
    paging                 = disabled
-   A20                    = enabled and GRUB-verified
-   FLAGS                  = IF=0, DF=0 on the protected-mode main path
-   protected IDT          = limit 0
-   formal core            = initialized image at link address 0x9000; BSS cleared
-   grub_boot_device       = 0x80ffffff
-   BIOS bridge            = available for later real-mode interrupts
-   console                = BIOS input/output terms registered; Welcome already printed
-   heap                   = initialized from filtered E820 regions
-   time source            = installed; TSC/PIT or BIOS RTC according to runtime CPUID
-   loaded modules         = biosdisk, part_msdos, ext2 and required dependencies
-   registered backends    = BIOS disk, MSDOS partition map, ext2/ext3/ext4 reader
-   grub_modbase           = 0
-   reclaimed range        = [0x100000, modend), now allocator-owned
-   cmdpath                = (hd0)
+   A20                    = enabled
+   FLAGS                  = IF=0, DF=0
    root                   = hd0,msdos1
    prefix                 = (hd0,msdos1)/boot/grub
-   embedded config        = absent under the simple-install convention
-   normal module          = not embedded / not loaded
-   open disk objects      = none
-   partition/fs/file      = none opened
-   grub.cfg / menu        = not read / not built
-   Linux                  = not read / not executing
+   config_file            = unset after EOF
+   config_directory       = unset after EOF
+   menu size              = 1
+   selected entry         = Linux 7.2-rc1 / index 0
+   entry restricted       = 1; auth succeeded because superusers is unset
+   chosen                 = Linux 7.2-rc1, exported
+   default                = temporarily unset; old value "0" saved for return
+   timeout                = "0"
+   entry scope            = active; setparams completed
+   linux argc             = 4
+   linux args             = /boot/bzImage; root=/dev/sda1; ro; console=ttyS0
+   linux placeholder      = unregistered
+   linux.mod              = loaded, relocated, initialized and ref-held
+   real linux command     = registered; cmd->func is grub_cmd_linux
+   real initrd command    = registered
+   module file objects    = closed
+   disk/partition/fs/file = none open; disk cache may retain blocks
+   bzImage                = not opened
+   initramfs              = not opened
+   loader hook            = not installed
+   Linux                  = not executing
 
-“loaded modules”沿用本批明确的simple-install叙事约定：i386-pc ``grub-install`` 使用默认
-``biosdisk``，GRUB目录为第一块盘的 ``msdos1:/boot/grub``，安装到同一整盘，无
-LVM/RAID/加密、debug或额外 ``--modules``。具体dependency集合与对象大小仍需artifact，
-不在状态文件制造数值。
+timeout fast path的 ``auto_boot``、 ``grub_show_menu`` 的 ``autoboot`` 与fallback wrapper的
+``autobooted`` 是不同参数。本章真实路径由fallback wrapper以 ``auto_boot=1`` 执行entry；当前entry
+不是submenu。dynamic dispatcher仍持有脚本展开的argc/args，下一条普通command call才进入loader。
+
+固定磁盘内容约定
+----------------
+
+::
+
+   /boot/grub/grub.cfg:
+     set timeout=0
+     set default=0
+     menuentry 'Linux 7.2-rc1' {
+         linux /boot/bzImage root=/dev/sda1 ro console=ttyS0
+         initrd /boot/initramfs.img
+     }
+
+``/boot/bzImage`` 固定为Linux release 7.2-rc1、gregkh/linux commit
+``7404ce51637231382873d0b55edabc2f3b841a9d`` 构建结果；initramfs与本场景匹配。
+这些是显式镜像约定，不是源码commit自动产生的artifact路径。具体文件size、inode、extent、LBA和
+relocator target仍须按实际artifact/runtime header确定，后续正文不得制造数值。
 
 下一入口
 --------
 
-第028章从 ``grub_main()`` 的下一条调用继续：
+第031章从 ``grub_dyncmd_dispatcher()`` 调用真实command继续：
 
 ::
 
-   grub_load_normal_mode()
-   → grub_dl_load("normal")
-   → grub_dl_get("normal") misses
-   → build (hd0,msdos1)/boot/grub/i386-pc/normal.mod
-   → grub_file_open
-   → grub_device_open
-   → biosdisk opens BIOS drive 0x80
-   → part_msdos reads MBR and selects partition 1
-   → ext2 reader opens normal.mod from ext4
+   grub_cmd_linux(cmd, 4, args)
+   → grub_dl_ref(my_mod)
+   → grub_file_open("/boot/bzImage", GRUB_FILE_TYPE_LINUX_KERNEL)
+   → no explicit device, so grub_device_open(NULL) uses root=hd0,msdos1
+   → validate Linux/x86 setup header from the fixed 7.2-rc1 image
+   → allocate relocator-backed kernel/setup/cmdline state
+   → grub_loader_set(grub_linux_boot, grub_linux_unload, 0)
 
-这是本书第一次由GRUB通用disk/partition/filesystem层实际打开当前磁盘对象；不能把
-第027章“后端已注册”偷换成“磁盘已读取”。
+031—033必须把旧 ``6.12.95`` 源码、title与artifact路径全部改为固定7.2-rc1路径，并重新核定：
 
-028—030批次必须先读取：
+* ``grub_cmd_linux`` 的file/module/relocator引用与失败回滚；
+* setup header字段、protocol version、pref_address/init_size/kernel_alignment等值哪些来自实际
+  bzImage header，哪些能由固定Linux构建配置确定；
+* initrd components、地址上下界、4 KiB alignment、ramdisk字段与sourcecode结束边界；
+* implicit boot、preboot hooks、machine_fini、boot_params最终复制、E820/command line、relocator32
+  trampoline与Linux compressed ``startup_32`` 的精确交接寄存器；
+* 第034章开头必须与第033章出口对齐，但第034章正文留给后续031—033之后的顺序批次。
+
+031—033批次必须先读取
+--------------------
 
 #. ``AGENTS.md``；
 #. ``project/LINUX_KERNEL_CONTRACT.rst``；
 #. 本文件；
 #. ``project/audits/linux-kernel/index.rst``；
-#. ``project/audits/linux-kernel/025-027.rst`` 的“已核定的整批成功路径”、
+#. ``project/audits/linux-kernel/028-030.rst`` 的“已核定的整批成功路径”、
    “失败与未发生边界”、“发现并修复”和“连续性检查”；
-#. 第027章末尾、第028—030章全文和第031章开头；
+#. 第030章末尾、第031—033章全文和第034章开头；
 #. 两份track manifest的审计游标片段；
-#. 固定GRUB源码中 ``grub_load_normal_mode``、 ``grub_dl_load``/file-backed module loader、
-   ``grub_file_open``、 ``grub_device_open``、PC ``biosdisk``、 ``part_msdos``、 ``ext2``、
-   normal module init、 ``grub.cfg`` 查找/解析、menu创建与autoboot、linux module动态加载入口；
-#. 只有正文实际下钻INT 13h或AHCI副作用时，才补读固定SeaBIOS/QEMU对应路径。
+#. 固定GRUB源码的i386 Linux loader、通用Linux/initrd loader、boot command、loader core、
+   relocator、PC machine_fini、memory map和相关结构定义；
+#. 固定Linux 7.2-rc1源码的x86 boot protocol、 ``arch/x86/boot/header.S``、compressed
+   ``head_64.S`` 与本批实际引用的结构/常量；
+#. 只有正文继续下钻INT 13h/AHCI副作用时，才补读固定SeaBIOS/QEMU路径。
 
-不要读取001—026全文、完整193章目录或历史前向检查点，除非审查中发现必须回溯的矛盾。
+不要读取001—029全文、完整193章目录或历史前向检查点，除非审查中发现必须回溯的矛盾。
 
-源码缓存
---------
+固定源码工作树
+--------------
 
 ::
 
-   .sources/seabios HEAD = c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
-   .sources/qemu HEAD    = a759542a2c62f0fd3b65f5a66ad9868201014669
-   .sources/grub HEAD    = d38d6a1a9b79427848976f53d474392cd29c2a71
+   /Volumes/LinuxKernel/seabios HEAD       = c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
+   /Volumes/LinuxKernel/qemu HEAD          = a759542a2c62f0fd3b65f5a66ad9868201014669
+   /Volumes/LinuxKernel/grub HEAD          = d38d6a1a9b79427848976f53d474392cd29c2a71
+   /Volumes/LinuxKernel/linux-7.2-rc1 HEAD = 7404ce51637231382873d0b55edabc2f3b841a9d
 
-三个缓存均由 ``.gitignore`` 排除且源码worktree干净。QEMU和GRUB使用稀疏检出；GRUB当前已
-包含boot/realmode/startup、PC init/mmap、allocator/module loader、grub-install、
-biosdisk、part_msdos、ext2、normal等本批读取文件。下一批缺少文件时继续按需补齐，
-不为未来章节预读全部源码。
+四个固定工作树均为完整checkout而非sparse checkout，且必须保持干净。
+``/Volumes/LinuxKernel/linux`` 是原有master工作树，不作为正文证据；固定Linux worktree由该仓库创建，
+避免改变master。项目内 ``.sources/`` 不再承担当前源码缓存；旧 ``.gitignore`` 规则保留，防止未来误加
+临时源码目录。
 
 已知结构与内容债务
 ------------------
 
-* 第028章现有正文错误地假定 ``normal`` 已经嵌入并让 ``grub_dl_load`` 直接返回；固定
-  simple-install路径是动态打开prefix下的 ``normal.mod``，028—030批次必须首先修正；
+* 第031—034章仍使用旧 ``Linux 6.12.95`` 标签与版本化artifact路径；从031—033下一批开始顺序修复；
 * 第065章存在两个正文文件；
 * 第066章存在两个正文文件；
 * 001—073尚未逐章登记到当前track manifest；
-* 028—193尚未按专用合同补齐章末结构和精确证据，必须随顺序审查处理，不能批量机械改写。
+* 031—193尚未按专用合同补齐章末结构和精确证据，必须随顺序审查处理，不能批量机械改写。
 
 历史前向终点
 ------------

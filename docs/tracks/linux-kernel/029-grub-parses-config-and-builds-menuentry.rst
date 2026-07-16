@@ -1,250 +1,239 @@
-第二十九章：GRUB 怎样解析 grub.cfg 并建立第一个 Linux 菜单项？
-================================================================
+第二十九章：GRUB 怎样解析 grub.cfg 并建立 Linux 菜单项？
+===========================================================
 
-上一章结束时，``grub.cfg`` 已经通过 ``biosdisk → part_msdos → ext2`` 打开，外面套上了
-``bufio``，第一条不以 ``#`` 开头的配置行也已经读入内存。控制流停在：
+上一章停止在 ``read_config_file()`` 的循环中。CPU0 上的 BSP 仍以 32 位保护模式运行 GRUB，
+paging 关闭，``IF=0``、``DF=0``。``grub.cfg`` 的 bufio wrapper 和底层 ext4 file/device/disk
+对象仍然打开，第一条可解析行已经进入 heap；menu data slot 则只含一个空容器：
 
-.. code-block:: c
+::
 
-   grub_normal_parse_line(line, read_config_file_getline, file);
+   menu->entry_list = NULL
+   menu->size       = 0
 
-这里的“解析配置文件”并不是把整个文件一次性读成一棵永久语法树。GRUB normal 以当前行作为入口；
-当语法尚未闭合时，解析器再通过 ``read_config_file_getline`` 继续索取后续行。解析出一个完整脚本单元后，
-它立即执行；执行结果可能只是设置环境变量，也可能把一段尚未运行的启动脚本保存成菜单项。
+当前下一条调用是 ``grub_normal_parse_line()``。本章追踪配置解析与即时执行，直到文件到达 EOF、
+配置文件对象全部关闭、menu 返回给 ``grub_normal_execute()``；终点在 ``grub_show_menu()`` 的条件
+判断之前。这个边界保证本章只建表，不执行菜单项 body。
 
-本书固定的 grub.cfg
---------------------
+本书固定的是磁盘内容，不是 GRUB 或 Linux 源码默认值
+--------------------------------------------------------
 
-从本章开始，固定磁盘中的 ``/boot/grub/grub.cfg`` 使用下面这份最小配置：
+从本章起，固定 ext4 分区中的 ``/boot/grub/grub.cfg`` 完整内容为：
 
 .. code-block:: cfg
 
    set timeout=0
    set default=0
 
-   menuentry 'Linux 6.12.95' {
-       linux /boot/bzImage-6.12.95 root=/dev/sda1 ro console=ttyS0
-       initrd /boot/initramfs-6.12.95.img
+   menuentry 'Linux 7.2-rc1' {
+       linux /boot/bzImage root=/dev/sda1 ro console=ttyS0
+       initrd /boot/initramfs.img
    }
 
-这不是发行版自动生成配置的缩写，而是本书为了固定唯一控制流而采用的完整配置。它规定：
+同时固定 ``/boot/bzImage`` 是由 Linux release ``7.2-rc1``、gregkh/linux commit
+``7404ce51637231382873d0b55edabc2f3b841a9d`` 构建并安装的 x86 bzImage，
+``/boot/initramfs.img`` 是与本场景匹配的 initramfs。文件路径和这份最小配置是本书的镜像内容约定；
+它们不能从 GRUB commit 或 Linux commit 自动推导，也不是发行版生成器的隐含输出。
 
-* 菜单等待时间为零；
-* 默认选择第零项，也就是第一项；
-* 内核文件位于同一 ext4 分区的 ``/boot/bzImage-6.12.95``；
-* 内核命令行使用 ``/dev/sda1`` 作为根文件系统，并打开串口控制台；
-* initramfs 位于 ``/boot/initramfs-6.12.95.img``。
+这个约定只固定唯一的成功控制流：timeout 为零，默认项是索引 0，内核将来以 ``/dev/sda1`` 为根并
+启用串口 console。当前阶段不打开 bzImage 或 initramfs。
 
-本章只解释这份配置怎样变成一个 ``grub_menu_entry``。花括号中的 ``linux`` 和 ``initrd`` 还不会执行，
-磁盘上的两个文件也不会在本章被读取。
+一行配置经历 parse、execute、unref
+------------------------------------
 
-grub_normal_parse_line 会先解析再执行
---------------------------------------
-
-``grub-core/script/main.c`` 中的 ``grub_normal_parse_line()`` 主体非常短：
+当前执行者进入 ``grub_normal_parse_line(line, getline, file)``。它的主体分成三个生命期：
 
 .. code-block:: c
 
-   parsed_script = grub_script_parse(line, getline, getline_data);
+   parsed_script = grub_script_parse (line, getline, getline_data);
    if (parsed_script)
      {
-       grub_script_execute(parsed_script);
-       grub_script_unref(parsed_script);
+       grub_script_execute (parsed_script);
+       grub_script_unref (parsed_script);
      }
 
-这三步不能合并理解：
+``grub_script_parse()`` 把当前文本和必要的后续行组成临时 script object；
+``grub_script_execute()`` 立即执行这个完整语法单元；执行返回后，顶层临时对象解除引用。因此
+``read_config_file()`` 不是先把整个文件解析成一棵永久 AST 再统一执行，而是沿文件顺序反复完成
+“解析一个完整单元—执行—释放”。
 
-#. ``grub_script_parse`` 把文本变成 GRUB 脚本对象；
-#. ``grub_script_execute`` 执行这个刚构造的对象；
-#. 执行结束后，当前顶层脚本对象解除引用。
+parser 需要更多行时仍由同一个 bufio 提供数据。这个回调关系也意味着，多行 block 消耗掉的行不会再被
+外层 while 循环重复读取。
 
-菜单项之所以能在第三步之后继续存在，是因为 ``menuentry`` 命令会把标题、参数和花括号中的源码复制到
-``grub_menu_entry``，并挂入前一章创建的 menu object。保存下来的不是当前临时解析对象本身。
+timeout=0 在本章就成为环境状态
+--------------------------------
 
-词法分析器与 Bison 语法分别做什么
----------------------------------
-
-GRUB 的脚本语法由 ``grub-core/script/parser.y`` 描述。词法分析器先把输入拆成 ``NAME``、``WORD``、
-换行、分号、左右花括号等 token；Bison 生成的语法分析器再把 token 组合为 command、statement、block
-和 script。
-
-普通命令行的核心规则可以概括为：
-
-::
-
-   command name
-   + zero or more arguments
-   + optional { block }
-   → grub_script_cmdline
-
-花括号块的处理更特殊。解析器在看见 ``{`` 时开始记录原始字符位置和临时内存；随后解析块内命令，直到
-遇到配对的 ``}``。结束时它同时得到：
-
-* 一份预解析的子脚本对象；
-* 一份去掉最外层花括号的原始源码字符串。
-
-``menuentry`` 需要长期保存启动项，所以两种表示都很重要。预解析对象帮助当前命令处理 block 参数；原始
-源码字符串则会被复制到菜单项中，等用户真正选择该项时重新建立作用域并执行。
-
-为什么解析器能跨越多行
-----------------------
-
-``read_config_file()`` 表面上每次只给 ``grub_normal_parse_line()`` 一行。读取到：
-
-.. code-block:: cfg
-
-   menuentry 'Linux 6.12.95' {
-
-时，右花括号尚未出现，语法单元不完整。解析器不会把这一行当成错误立即结束，而是调用传入的
-``read_config_file_getline`` 回调继续取得：
-
-.. code-block:: cfg
-
-       linux /boot/bzImage-6.12.95 root=/dev/sda1 ro console=ttyS0
-       initrd /boot/initramfs-6.12.95.img
-   }
-
-直到花括号闭合，它才返回一个完整的顶层 ``menuentry`` 命令对象。换行因此既是文件读取边界，也是脚本
-语法中的 delimiter；花括号决定这个命令需要跨越多少个读取边界。
-
-前两行只是立即执行 set
-----------------------
-
-第一条有效配置行是：
+第一条文本是：
 
 .. code-block:: cfg
 
    set timeout=0
 
-解析器将它构造成命令名 ``set`` 和参数 ``timeout=0``。``set`` 不是从磁盘临时加载的模块命令，
-而是 ``grub_register_core_commands()`` 注册的核心命令。它在参数中寻找 ``=``，临时把字符串切成变量名
-和变量值，然后调用：
+lexer 保留 ``timeout=0`` 为一个参数，parser 生成普通 command line。脚本执行器先展开命令名和参数，
+``grub_command_find("set")`` 命中 core command，而不是 dynamic placeholder；``set`` 在 ``=`` 处分离
+变量名和值，调用 ``grub_env_set("timeout", "0")``。临时 script 随后释放，但 environment 中复制的
+值继续存在。
 
-.. code-block:: c
-
-   grub_env_set("timeout", "0");
-
-下一行同理建立：
+下一次外层迭代对 ``set default=0`` 做同样的事：
 
 ::
 
+   timeout = 0
    default = 0
 
-这两个值此时只进入 GRUB environment。菜单选择逻辑尚未运行，``0`` 还没有被解释成“立即启动第一项”。
+这里的 ``0`` 仍只是字符串。选择逻辑尚未调用 ``grub_menu_get_timeout()`` 或
+``get_entry_number()``，所以还没有发生“立即启动第零项”。空行也可进入 parser，但不会创建 menu
+entry 或改变这两个变量。
 
-menuentry 命令已经属于 normal 模块
-----------------------------------
+menuentry 的左花括号把一次解析扩展到多行
+------------------------------------------
 
-需要区分 ``menuentry`` 与后面将出现的 ``linux``：
-
-* ``menuentry`` 在 normal 模块初始化时由 ``grub_menu_init()`` 注册；
-* ``linux`` 在当前固定 core.img 中没有预装，稍后依赖 ``command.lst`` 动态加载 ``linux.mod``。
-
-因此解析到 ``menuentry`` 时，``grub_command_find("menuentry")`` 能直接找到一个带
-``GRUB_COMMAND_FLAG_BLOCKS`` 的 extended command，无需先读 ``menuentry.mod``。
-
-脚本执行器先展开参数
---------------------
-
-``grub_script_execute_cmdline()`` 先把解析器保留的 argument list 转成 ``argv``。在本例中，命令可概括为：
-
-::
-
-   argv[0] = menuentry
-   argv[1] = Linux 6.12.95
-   argv[2] = { ...block source... }
-
-单引号已经在词法阶段用于保持空格，不会作为标题内容保留下来。block 参数还携带预解析脚本指针，所以
-执行器发现该命令同时具有 ``BLOCKS`` 与 ``EXTCMD`` 标志后，会调用 extended-command dispatcher，
-把普通参数、选项状态和 block script 一起交给 ``grub_cmd_menuentry()``。
-
-菜单项保存的不是正在运行的 linux 命令
---------------------------------------
-
-``grub_cmd_menuentry()`` 不会进入花括号执行 ``linux``。它先生成一段参数前缀：
+外层循环读到：
 
 .. code-block:: cfg
 
-   setparams 'Linux 6.12.95'
+   menuentry 'Linux 7.2-rc1' {
 
-随后把这段前缀与 block 原始源码拼接，形成菜单项的 ``sourcecode``。固定菜单项中保存的内容近似为：
+时，语法单元还未闭合。lexer/parser 通过传入的 ``read_config_file_getline`` 继续从同一个 bufio 取得
+两条 body 命令和右花括号。只有配对 ``}`` 到达后，``grub_script_parse()`` 才返回完整 command object。
 
-.. code-block:: cfg
+GRUB 的 block 表示同时保留两份信息：一份带引用的子 script，供当前 extended-command dispatcher
+识别 block；一份覆盖花括号原始字符的源码字符串，供 ``menuentry`` 复制。两者不能混同：当前临时
+script 会在本次执行后释放，而菜单项需要把将来要运行的文本保存得更久。
 
-   setparams 'Linux 6.12.95'
-   linux /boot/bzImage-6.12.95 root=/dev/sda1 ro console=ttyS0
-   initrd /boot/initramfs-6.12.95.img
-
-``setparams`` 让将来的菜单项执行拥有独立的位置参数作用域。即使标题或附加参数中包含空格、引号，进入
-菜单项时仍能恢复成正确的 ``$1``、``$2`` 等参数。
-
-grub_normal_add_menu_entry 建立长期对象
----------------------------------------
-
-``grub_normal_add_menu_entry()`` 首先通过 environment 的 menu data slot 取得前一章创建的
-``grub_menu``。随后逐项复制需要跨越当前解析生命周期的数据：
+单引号只控制词法边界，标题值本身是：
 
 ::
 
-   title      = "Linux 6.12.95"
-   id         = "Linux 6.12.95"
-   argc/args  = 菜单项参数副本
-   sourcecode = setparams 前缀 + block 源码副本
+   Linux 7.2-rc1
+
+它不会包含两个 quote 字符。
+
+为什么 menuentry 此刻能执行而 linux 不能
+------------------------------------------
+
+``menuentry`` 已由 ``normal`` 模块的 ``grub_menu_init()`` 注册为 extended command，带
+``BLOCKS`` 与 ``EXTRACTOR`` 等标志。因此脚本执行器能立即把展开后的标题、option state、block
+script 和 block 原文交给 ``grub_cmd_menuentry()``。
+
+``linux`` 与 ``initrd`` 的位置不同：它们只是 block 内尚未执行的文本。上一章读取的
+``command.lst`` 已为 ``linux`` 注册按需加载映射；固定 GRUB 构建中两条命令都由 ``linux.mod``
+提供，但建表阶段不会查找它们，也不会打开 ``linux.mod``。是否有 dynamic placeholder 只影响未来
+执行 body，不改变当前 ``menuentry`` 的构造。
+
+menuentry 不运行 block，而是剪下并复制 block
+-----------------------------------------------
+
+``grub_cmd_menuentry()`` 验证标题和 block 后，把 block 原文最后一个 ``}`` 暂时改成 NUL，并从开头
+``{`` 之后取正文。它还根据标题参数生成前缀：
+
+.. code-block:: cfg
+
+   setparams 'Linux 7.2-rc1'
+
+随后 ``grub_normal_add_menu_entry()`` 把前缀与去掉外层花括号的 body 拼接成长期 ``sourcecode``。
+本场景保存的语义内容是：
+
+.. code-block:: cfg
+
+   setparams 'Linux 7.2-rc1'
+   linux /boot/bzImage root=/dev/sda1 ro console=ttyS0
+   initrd /boot/initramfs.img
+
+``setparams`` 不是现在执行的命令；它与 ``linux``、``initrd`` 一起留待 entry 被选中后在新作用域中
+重新解析。加上这个前缀，使标题和其他菜单参数在未来能作为该脚本的位置参数重建。
+
+grub_normal_add_menu_entry 建立独立所有权
+-----------------------------------------
+
+``grub_normal_add_menu_entry()`` 从 environment 的 menu data slot 取回空容器，然后逐项复制跨越
+本轮 parser 生命期所需的数据。固定 entry 的结果是：
+
+::
+
+   title      = "Linux 7.2-rc1"
+   id         = "Linux 7.2-rc1"
+   argc       = 1
+   args[0]    = "Linux 7.2-rc1"
+   sourcecode = setparams prefix + block body
    submenu    = 0
+   hotkey     = 0
    restricted = 1
    users      = ""
 
-本例没有 ``--id``，因此 id 默认复制标题；没有 ``--class``、``--hotkey`` 和明确用户列表，对应字段保持
-空值或默认值。默认的空 users 字符串使该项遵循 normal 的认证规则；当前固定环境没有配置认证用户，后续
-执行不会因此产生交互。
+没有 ``--id`` 时 id 复制 title；没有 ``--class`` 与 ``--hotkey`` 时对应链表/值为空。还要保留一个
+容易写反的认证边界：没有 ``--users`` 也没有 ``--unrestricted`` 时，handler 传入的是已分配的空
+``users`` 字符串，因此 entry 的 ``restricted`` 位确实为 1。后续是否询问认证由 ``superusers``
+环境变量决定，而不是把这里误写成 unrestricted。
 
-新对象被接到 ``menu->entry_list`` 尾部，然后：
+新 entry 被接到 ``menu->entry_list`` 尾部，最后执行 ``menu->size++``。从这条写入开始，menu 才拥有
+一个可选择项。title、id、args、users 与 sourcecode 各自属于长期 entry；当前 parser 的 argv、
+block script 和原始 line 可以安全释放。
 
-.. code-block:: c
+释放临时 script 不会释放菜单项
+--------------------------------
 
-   menu->size++;
+``grub_cmd_menuentry()`` 返回后，脚本执行器完成本语法单元，``grub_normal_parse_line()`` 对临时
+script unref。它包含的预解析 block 可以被回收，但 entry 中保存的是复制后的字符串和参数数组，
+不指向已释放的 parser 临时内存。
 
-从这一条加法完成开始，menu object 才真正拥有第一个启动项。
+这也是 GRUB 保存 sourcecode 而非只保存一棵 AST 的原因：真正启动时会在当时的 environment 和新的
+位置参数作用域中重新解析文本，变量展开与 dynamic command loading 都以选择时的状态为准。
 
-为什么 block 现在必须保持为文本
--------------------------------
+EOF 关闭的是一条完整 wrapper 所有权链
+--------------------------------------
 
-配置解析完成后，``read_config_file()`` 会继续处理剩余行、关闭配置文件并返回 menu object。当前顶层解析
-产生的临时脚本对象已经释放；若菜单项只保存其中的裸指针，后面选择菜单时会访问失效内存。
-
-保存源码还有另一个作用：用户可以编辑菜单项、进入子菜单，或者以新的 environment context 执行同一项。
-GRUB 在真正启动时重新解析 ``entry->sourcecode``，让变量展开、命令自动加载和当时的 environment 状态
-共同决定执行结果。
-
-本章结束时的状态
-----------------
+menuentry 已消耗右花括号；外层 while 再次调用 getline，最终得到 EOF。``read_config_file()`` 先恢复
+此前保存的配置上下文变量。顶层进入前没有旧值，所以此刻：
 
 ::
 
-   当前执行者       GNU GRUB 2.14 normal mode
-   CPU 模式          32 位保护模式
-   paging            off
-   timeout            0
-   default            0
-   menu->size         1
-   first entry title  Linux 6.12.95
-   first entry id     Linux 6.12.95
-   entry sourcecode   setparams + linux + initrd
-   linux command      尚未执行
-   linux.mod          尚未动态加载
-   bzImage            尚未打开
-   initramfs          尚未打开
-   Linux              尚未取得控制权
+   config_file      = unset
+   config_directory = unset
 
-配置读取循环随后到达文件末尾，关闭 bufio 和底层 ``grub.cfg``，并把已经含有一个启动项的 menu object
-返回给 ``grub_normal_execute()``。下一章从：
+这不会影响 menu entry 的 sourcecode，因为 entry 已经拥有自己的副本。随后
+``grub_file_close(file)`` 关闭 bufio wrapper；``grub_bufio_close()`` 先关闭所持 raw ext4 file，释放
+ext2 open data 与模块引用，再关闭 device/disk/partition/biosdisk 私有对象，最后释放 buffer 并把 wrapper
+的 device 清零。外层 file close 再释放 wrapper 本身，避免重复关闭底层设备。
+
+``read_config_file()`` 返回 menu，``grub_normal_execute()`` 按源码约定清掉配置执行遗留的
+``grub_errno``。当前执行者已回到 ``grub_normal_execute()``，下一条重要判断才是 menu 是否非空。
+
+本章结束状态
+------------
+
+* CPU0 上的 BSP 仍在 GRUB 32 位平坦保护模式，paging 关闭，``IF=0``、``DF=0``；当前执行者是
+  ``grub_normal_execute()``。
+* 固定 ``grub.cfg`` 已按顺序解析执行；``timeout="0"``、``default="0"`` 已进入 environment。
+* menu 已发布且 ``size=1``；唯一 entry 的 title/id 是 ``Linux 7.2-rc1``，它独立拥有 args、空 users
+  字符串和 ``setparams + linux + initrd`` sourcecode。
+* entry 的 ``restricted=1``；本章尚未调用认证检查。
+* ``config_file`` 与 ``config_directory`` 已恢复为进入配置前的状态，即顶层场景中的 unset。
+* ``grub.cfg`` 的 bufio、raw file、ext2、partition、disk 与 device open objects 均已关闭；disk cache
+  可以继续存在。
+* ``linux.mod`` 尚未装载，``grub_cmd_linux()`` 与 ``grub_cmd_initrd()`` 尚未注册；bzImage 和
+  initramfs 均未打开。
+
+关键边界
+--------
+
+* ``grub_normal_parse_line()`` 逐个完整语法单元执行，不永久保存整份 ``grub.cfg`` 的 AST。
+* 多行 ``menuentry`` 由 parser 的 getline callback 继续取行；这些行不会再回到外层循环。
+* 建立 menu entry 只复制 body，不执行 ``linux`` 或 ``initrd``。
+* 默认无 ``--unrestricted`` 的 entry 是 restricted；只有未设置 ``superusers`` 才会让后续认证检查
+  直接成功。
+* Linux commit 固定了内核源码，``/boot/bzImage`` 与 ``/boot/initramfs.img`` 则是本书明确增加的
+  磁盘内容约定，二者不可互相冒充。
+
+下一入口
+--------
 
 .. code-block:: c
 
    if (menu && menu->size)
-       grub_show_menu(menu, nested, 0);
+     grub_show_menu (menu, nested, 0);
 
-开始，追踪 ``timeout=0`` 怎样跳过菜单绘制、选择第零项，并进入该项保存的 ``sourcecode``。
+下一章追踪 ``timeout=0`` 的 fast path 如何选择索引 0、建立 ``chosen`` 与 entry scope，随后由
+``linux`` dynamic placeholder 装入 ``linux.mod``；终点停在真正 ``grub_cmd_linux()`` 调用之前。
 
 资料
 ----
@@ -255,3 +244,7 @@ GRUB 在真正启动时重新解析 ``entry->sourcecode``，让变量展开、�
 * `GNU GRUB 2.14 grub-core/script/execute.c <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/script/execute.c>`_
 * `GNU GRUB 2.14 grub-core/commands/menuentry.c <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/commands/menuentry.c>`_
 * `GNU GRUB 2.14 grub-core/kern/corecmd.c <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/corecmd.c>`_
+* `GNU GRUB 2.14 grub-core/io/bufio.c <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/io/bufio.c>`_
+* `GNU GRUB 2.14 grub-core/Makefile.am <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/Makefile.am>`_
+* `GNU GRUB 2.14 grub-core/Makefile.core.def <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/Makefile.core.def>`_
+* `Linux v7.2-rc1 fixed commit <https://github.com/gregkh/linux/tree/7404ce51637231382873d0b55edabc2f3b841a9d>`_

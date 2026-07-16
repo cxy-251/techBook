@@ -62,13 +62,24 @@ Linux Kernel稳定生产与回溯审查合同
 固定源码与本地缓存
 ------------------
 
-源码版本以 ``AGENTS.md`` 的commit为准。项目中的 ``.sources/`` 是被忽略的本地缓存，
-不得提交其内容。使用缓存时必须确认：
+源码版本以 ``AGENTS.md`` 的commit为准。当前固定源码使用大小写敏感卷上的完整工作树：
+
+::
+
+   /Volumes/LinuxKernel/seabios
+   /Volumes/LinuxKernel/qemu
+   /Volumes/LinuxKernel/grub
+   /Volumes/LinuxKernel/linux-7.2-rc1
+
+``/Volumes/LinuxKernel/linux`` 是用户原有master工作树，不作为固定正文证据；
+``linux-7.2-rc1`` 是从该仓库固定commit建立的独立worktree。项目内被忽略的 ``.sources/``
+只允许作为临时fallback，不再是当前权威缓存，也不得提交其内容。使用任一源码工作树时必须确认：
 
 * remote对应固定仓库；
 * ``HEAD`` 等于固定commit；
 * 当前核验文件没有本地修改；
-* 稀疏检出缺少文件时按需补齐，不以搜索不到推断源码不存在。
+* 工作树是完整checkout而非sparse checkout；搜索不到符号时仍要核对仓库、commit和生成条件，
+  不以一次搜索结果推断源码不存在。
 
 源码核验优先使用本地 ``rg``、 ``git show`` 和带行号视图。正文资料链接指向固定commit，
 关键路径优先带 ``#Lx-Ly`` 行锚点。架构行为使用处理器手册或规范；平台行为使用固定
