@@ -1,0 +1,212 @@
+Linux Kernel第025—027章回溯审查
+================================
+
+批次状态
+--------
+
+::
+
+   range            = 025-027
+   status           = repaired
+   verified_before  = 024
+   verified_after   = 027
+   mode             = retrospective-audit
+   blocking_issue   = none
+
+审查范围
+--------
+
+* ``025-grub-startup-raw-protected-mode-and-grub-main.rst``；
+* ``026-grub-machine-init-e820-and-heap.rst``；
+* ``027-grub-built-in-modules-root-prefix-and-hd0.rst``；
+* 上一边界为第024章进入 ``startup_raw.S:_start`` 的 ``0000:8200``；
+* 下一边界为 ``grub_main()`` 即将调用 ``grub_load_normal_mode()``。
+
+固定源码与本地缓存
+------------------
+
+* GRUB ``d38d6a1a9b79427848976f53d474392cd29c2a71``：
+  ``startup_raw.S``、 ``realmode.S``、 ``startup.S``、 ``main.c``、
+  PC ``init.c``/``mmap.c``、allocator、module loader、 ``grub-install``、
+  ``biosdisk``、 ``part_msdos`` 与 ``ext2``；
+* SeaBIOS ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``：INT 13h reset、
+  INT 15h E820与当前AHCI ``CMD_RESET`` 分派；
+* QEMU ``a759542a2c62f0fd3b65f5a66ad9868201014669``：q35 PIT；当前合同没有唯一指定
+  CPU model，VIA workaround和TSC/RTC分支按运行时CPUID保留；
+* 三个缓存HEAD均须等于固定commit且worktree保持干净；GRUB按本批需要扩充
+  sparse checkout，整个 ``.sources/`` 继续由 ``.gitignore`` 排除。
+
+批次开始状态
+------------
+
+* BSP在16位实模式、分页关闭， ``CS:IP=0000:8200``、 ``DL=80``、
+  ``DS=SS=0``、 ``SP=1ffe``、IF=1、DF=0，A20已由SeaBIOS开启；
+* ``core.img`` 的N个嵌入扇区已连续装入从 ``0x8000`` 开始的低端内存；
+* ``diskboot.img`` 已结束，GRUB保护模式、解压后core、堆、模块注册和环境变量均尚未建立。
+
+已核定的控制流
+--------------
+
+``第025章``
+   ``startup_raw:_start → codestart → 保存DL → INT 13h AH=00 →
+   real_to_prot → grub_gate_a20 → Reed–Solomon recover → LZMA decode →
+   startup.S → 复制正式core → 清BSS → grub_main``。
+
+``第026章``
+   ``grub_machine_init → VIA检查 → grub_modbase → console注册 →
+   INT 15h E820迭代 → available区筛选/合并 → 排除modend →
+   grub_mm_init_region → grub_tsc_init``。
+
+``第027章``
+   ``Welcome → verifiers → embedded config扫描 → exported symbols →
+   embedded ELF装载/init → set_prefix_and_root → reclaim_module_space →
+   register_core_commands``，出口在 ``grub_load_normal_mode`` 之前。
+
+当前镜像约定与源码事实
+----------------------
+
+固定条件没有给出可解析的 ``core.img`` artifact或完整 ``grub-install`` 命令。本批沿用并收紧为
+显式的simple-install叙事约定：i386-pc ``grub-install`` 使用默认 ``biosdisk``，GRUB目录在
+第一块盘的 ``msdos1:/boot/grub``，安装目标是同一整盘，无LVM/RAID/加密、无debug、无额外
+``--modules``。在这个约定下：
+
+* embedded prefix是 ``(,msdos1)/boot/grub``；
+* 不生成embedded ``load.cfg``；
+* ``core.img`` 包含由探测加入的 ``biosdisk``、 ``part_msdos``、 ``ext2`` 及依赖；
+* 默认模块列表没有 ``normal``； ``normal.mod`` 将由下一入口从prefix目录动态加载。
+
+上述对象组成是安装路径的条件结果，不冒充仅由“MBR、LBA 2048、ext4”就能推出的事实；具体
+压缩大小、RS冗余字节数、 ``modend`` 与heap端点仍不编造。
+
+关键对象与边界
+--------------
+
+* ``startup_raw`` 先把 ``DL`` 写到0x18特殊区的最高字节，再发AH=00 reset；当前SeaBIOS
+  AHCI后端把 ``CMD_RESET`` 交给 ``default_process_op`` 成功返回，不执行port COMRESET；
+* ``real_to_prot`` 用GDT的0x08/0x10 flat descriptors，迁移32位返回地址到保护模式栈，
+  保存实模式IDTR并装入limit=0的保护模式IDTR；保护模式期间IF保持0；
+* RS只覆盖 ``reed_solomon_part`` 起的受保护数据；BIOS读失败早已在 ``diskboot.img`` 停止，
+  不能写成RS恢复一次未读出的sector；冗余为0时recover立即返回；
+* LZMA输出从0x100000开始， ``startup.S`` 仅把 ``_start.._edata`` 复制到链接地址0x9000，
+  模块信息与原始对象仍留在高端解压区；
+* E820请求结构位于0x68000， ``ES:DI`` 实际指向其中 ``entry.addr``；SeaBIOS每次返回20字节，
+  GRUB只收1 MiB以上、4 GiB以下的available范围，最多保存32段；
+* 初始heap越过 ``grub_modules_get_end()``；第027章加载/复制完对象并建立环境变量后，
+  PC BIOS目标把 ``[0x100000,modend)`` 重新加入heap并把 ``grub_modbase`` 清零；
+* ``biosdisk`` init只注册后端（并做一次El Torito信息探测）； ``hd0`` 名称此时可解析但尚未
+  通过通用disk层打开，也尚未读分区表或ext4；
+* 第028章现有“normal已内建， ``grub_dl_load`` 直接返回”与固定standard install路径矛盾，
+  登记给下一顺序批次，不越章修改。
+
+已核定的整批成功路径
+--------------------
+
+``第025章：早期GRUB core``
+   ``startup_raw`` 先远跳越过特殊字段，重建 ``DS=SS=ES=0`` 和实模式栈，再按固定源码顺序
+   保存 ``DL=80``、调用INT 13h AH=00。当前SeaBIOS把RESET交给通用成功分支，不做AHCI
+   COMRESET；GRUB不检查结果。 ``real_to_prot`` 装载flat GDT、迁移32位返回地址、保存real
+   IDTR并安装limit-0 protected IDTR。继承的A20在第一轮检测成功；随后只对已读入内存的
+   protected region做RS恢复，并用LZMA解压到1 MiB。 ``startup.S`` 只把
+   ``_start.._edata`` 搬到0x9000、清BSS、写入 ``grub_boot_device=0x80ffffff``，再调用
+   ``grub_main``。
+
+``第026章：机器初始化``
+   GRUB先按运行时CPU model执行或跳过VIA C3 workaround，再从高端解压区算出
+   ``grub_modbase``，只注册静态BIOS console对象；随后对每个E820条目经
+   protected→real→protected桥调用SeaBIOS。返回项先裁到1 MiB以上、4 GiB以下，只保留
+   available类型并在32项静态数组内排序合并。每个heap起点若与原始module区重叠就抬到
+   ``modend``，再交给allocator。最后按CPUID选择TSC/PIT校准或BIOS RTC tick时间源并返回
+   ``grub_main``。
+
+``第027章：内建对象与环境``
+   machine init返回后才输出欢迎文本；verifier filter、exported symbols和embedded ELF依次
+   初始化。在simple-install约定下， ``biosdisk``、 ``part_msdos``、 ``ext2`` 及依赖被加载并
+   注册方法表，但未打开disk/partition/filesystem对象。启动盘编码生成 ``fwdevice=hd0`` 和
+   ``cmdpath=(hd0)``；它与embedded prefix合成 ``root=hd0,msdos1``、
+   ``prefix=(hd0,msdos1)/boot/grub``。字符串与模块运行副本取得独立所有权后，GRUB回收
+   ``[0x100000,modend)``、清零 ``grub_modbase``，注册core commands并跳过不存在的embedded
+   config，停在 ``grub_load_normal_mode()`` 之前。
+
+失败与未发生边界
+----------------
+
+* INT 13h reset失败也不会阻止模式切换；当前成功返回更不等于AHCI port发生了hardware reset。
+* A20首轮失败才会依次尝试INT 15h 2401、port 92与i8042；固定成功路径不执行这些fallback。
+* RS只处理已经由 ``diskboot.img`` 读入的编码数据；BIOS未读sector会在前章错误路径自旋，不能
+  由本章恢复。实际冗余长度未知，冗余为0时recover直接返回。
+* E820主循环只要得到过非零条目就不走旧式memory-size fallback；第33个以后候选不会进入heap。
+* CPU model未唯一化，因此VIA patch是否执行、TSC是否存在是两个条件边界；TSC校准失败还有
+  hardcoded rate，不能把任一分支伪装成当前唯一事实。
+* embedded ELF校验、重定位或init失败会终止正常启动；本批成功路径没有触发该失败边界。
+* 本批没有打开 ``hd0``、读取MBR/ext4或加载 ``normal.mod``；方法注册与对象打开是两个边界。
+* 固定条件没有磁盘artifact，故压缩大小、RS冗余、 ``_edata``、 ``modend``、heap端点及确切
+  dependency集合都不制造数值。
+
+发现并修复
+----------
+
+``第025章``
+   修正旧文把reset写在保存DL之前的时序错误；进一步核定AHCI RESET只是当前通用成功返回，
+   不是port reset。补齐实模式旧栈失效、GDT selector、返回地址迁移、limit-0 IDT、IF=0、
+   A20 fallback、RS覆盖边界、LZMA目标与“高端临时副本/低端正式core”两套地址身份。
+
+``第026章``
+   把console“可用”收紧为只登记term对象，欢迎输出留给下一章。把E820缓冲区写准为私有size在
+   0x68000、固件payload从0x68004开始，实际 ``ES:DI=6800:0004``；补齐每项BIOS模式往返、
+   20字节SeaBIOS返回、候选32项上限、1 MiB/4 GiB裁剪、modend所有权边界和allocator 16字节
+   cell语义。撤销擅自固定 ``qemu64`` 的假设，把VIA workaround、TSC/PIT、hardcoded rate与
+   INT 1Ah RTC路径按运行时CPU能力分开叙述。
+
+``第027章``
+   撤销旧文“default core已经内建normal”的错误。固定 ``grub-install`` 只自动加入探测到的
+   filesystem、partmap、disk backend及依赖；无额外 ``--modules`` 时 ``normal`` 缺席。
+   区分模块init注册后端与实际打开 ``hd0``，补齐environment字符串所有权、module空间回收顺序、
+   embedded config缺席和动态normal加载的精确下一入口。
+
+``三章``
+   全部改成连续时间线正文，章末统一为
+   ``本章结束状态 → 关键边界 → 下一入口 → 资料``，资料链接固定到指定commit。
+
+连续性检查
+----------
+
+``024 → 025``
+   第024章交出 ``CS:IP=0000:8200``、 ``DL=80``、 ``DS=SS=0``、 ``SP=1ffe``、IF=1、DF=0；
+   第025章从同一 ``startup_raw:_start`` 指令进入，第一条远跳后立即CLI并重建自己的栈。
+
+``025 → 026``
+   第025章停在低端正式core刚调用 ``grub_main``：flat protected mode、IF=0、heap不存在、
+   高端module-info仍有效。第026章从其第一个无条件机器入口 ``grub_machine_init`` 继承全部
+   状态，先确定modbase再建立heap。
+
+``026 → 027``
+   第026章停在machine init返回，console/heap/time source可用但没有模块init和欢迎输出；
+   第027章从 ``After machine init`` 时间点与欢迎文本继续，未重复E820或allocator初始化。
+
+``027 → 028``
+   第027章停在 ``grub_load_normal_mode()`` 调用前， ``grub_dl_get("normal")`` 必然miss；
+   下一批必须从prefix构造
+   ``(hd0,msdos1)/boot/grub/i386-pc/normal.mod`` 并首次打开disk/partition/ext4。现有第028章
+   相反的“normal已内建”说法已经登记，未在本批越章修改。
+
+验证
+----
+
+* ``tools/check-linux-kernel-track.sh 27``：001—027结构检查通过；
+* 025—027均且仅有一次 ``本章结束状态—关键边界—下一入口—资料``，顺序正确；
+* SeaBIOS、QEMU与GRUB缓存HEAD等于合同固定commit，源码worktree无修改；
+* 三个缓存位于被忽略的 ``.sources/``，GRUB sparse checkout按本批所需扩充；
+* ``git diff --check``：通过；
+* 全局重复文件警告仍只有第065、066章；
+* 本批无技术阻塞，下一顺序批次为028—030。
+
+资料
+----
+
+* `GRUB固定提交：startup_raw与A20 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/boot/i386/pc/startup_raw.S#L36-L356>`_；
+* `GRUB固定提交：real/protected bridge <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/i386/realmode.S#L80-L195>`_；
+* `GRUB固定提交：PC machine init <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/i386/pc/init.c#L68-L272>`_；
+* `GRUB固定提交：grub_main顺序 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/main.c#L57-L370>`_；
+* `GRUB固定提交：grub-install模块与prefix <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/util/grub-install.c#L1320-L1684>`_；
+* `SeaBIOS固定提交：E820服务 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/system.c#L259-L325>`_；
+* `QEMU固定提交：q35通用PC设备与PIT <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/pc.c#L1039-L1131>`_。

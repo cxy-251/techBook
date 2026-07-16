@@ -1,341 +1,272 @@
-第二十六章：GRUB 怎样通过 BIOS E820 建立自己的堆？
-=================================================
+第二十六章：GRUB怎样通过BIOS E820建立自己的堆？
+==============================================
 
-上一章结束时，GRUB 已经把正式核心复制到链接地址 ``0x9000``，清零 BSS，并在 32 位保护模式下
-调用：
+第025章把正式GRUB core放到链接地址 ``0x9000``，清零BSS并以
+``grub_boot_device=0x80ffffff`` 调用 ``grub_main()``。BSP处于32位flat保护模式、分页
+关闭、A20已验证，IF=0、DF=0，保护模式IDT的limit为0；高端 ``0x100000`` 解压区仍保存
+临时kernel副本、module-info和原始预装对象。
 
-.. code-block:: c
-
-   grub_main();
-
-此时 GRUB 已经可以执行普通 C 代码，却还不能随意调用 ``grub_malloc()``。原因很直接：它尚未把
-哪段物理内存属于可用 RAM、哪段仍被自身映像和预装模块占用，转换成自己的内存分配器。
-
-``grub_main()`` 的第一条主流程调用因此是：
+此刻普通C代码已经能运行，但 ``grub_malloc()`` 还没有可分配region。 ``grub_main`` 若按
+构建选项启用了stack protector会先更新guard；第一个无条件机器初始化入口随后是：
 
 .. code-block:: c
 
    grub_machine_init();
 
-这一章只追踪 ``grub_machine_init()``。它会建立早期控制台，从 SeaBIOS 重新取得 E820 内存地图，
-排除低端保留区和 GRUB 自身模块，然后把剩余 RAM 注册成 GRUB 的堆。
+本章只追踪这次调用，停在它返回、尚未记录 ``After machine init`` 时间点之前。它必须在没有
+heap的条件下完成早期console注册，借BIOS桥重新枚举E820，排除仍被GRUB自身占用的高端对象，
+再把剩余RAM交给allocator。
 
-当前代码与数据在哪里
---------------------
+为什么先处理VIA C3兼容分支
+--------------------------
 
-进入 ``grub_machine_init()`` 时，关键内存可以先画成：
+``grub_machine_init`` 的第一步是 ``grub_via_workaround_init()``。它先检查CPUID是否存在，
+再比较vendor string ``CentaurHauls``，只对VIA C3及更早model把BIOS bridge里的两组NOP改成
+``wbinvd`` 并立即执行一次 ``wbinvd``。
 
-::
+当前固定条件没有唯一指定QEMU ``-cpu`` 参数或CPU model，因此不能把vendor固定成AMD，也不能
+把这条分支直接删掉。非Centaur或较新model会原样返回，bridge代码保持NOP；只有满足源码门槛的
+VIA CPU才会改写并flush。两条正常路径都汇合到下一条 ``grub_modbase`` 赋值；差别只在后续
+BIOS桥是否带这个旧CPU cache workaround。
 
-   0x00000..0x003ff   IVT
-   0x00400..          BDA 等传统低端结构
-   0x01ff0            GRUB 早期实模式栈顶
-   0x09000...         已搬回链接地址的正式 GRUB core
-   0x68000..0x70fff   GRUB BIOS 调用 scratch 区
-   0x7fff0             GRUB 保护模式栈顶附近
-   0xa0000..0xfffff   VGA、Option ROM、BIOS 区域
-   0x100000...         解压输出留下的预装模块和模块元数据
+grub_modbase为什么必须在heap之前确定
+------------------------------------
 
-分页仍然关闭，GRUB 使用平坦段，所以当前 C 指针的数值就是对应的物理地址。
-
-先检查一个只针对旧 VIA CPU 的兼容分支
--------------------------------------
-
-``grub_machine_init()`` 首先调用：
+下一条写入全局变量：
 
 .. code-block:: c
 
-   grub_via_workaround_init();
+   grub_modbase = 0x100000 + (_edata - _start);
 
-它通过 CPUID 检查 CPU 厂商字符串是否为 ``CentaurHauls``，并且只对较旧的 VIA C3 及更早模型设置
-额外的 ``wbinvd`` 兼容补丁。
+第025章只把解压输出中的 ``_start.._edata`` 复制回 ``0x9000``。所以高端
+``0x100000..0x100000+(_edata-_start)`` 是已经不再取指的临时initialized kernel副本，
+紧随其后的 ``grub_modbase`` 才是 ``struct grub_module_info32``。
 
-当前 QEMU q35 主线不会命中这个分支。这里仍要在时间线上交代，因为它发生在任何 BIOS 调用之前；
-源码明确要求某些 VIA 处理器必须先修正缓存一致性问题，后面通过 BIOS 中断取得内存地图才安全。
-
-定位留在 1 MiB 区域中的预装模块
--------------------------------
-
-接下来执行：
-
-.. code-block:: c
-
-   grub_modbase = GRUB_MEMORY_MACHINE_DECOMPRESSION_ADDR
-                  + (_edata - _start);
-
-其中：
+固定i386-pc镜像由 ``grub-mkimage`` 写入magic ``0x676d696d``（字节为 ``gmim``）、对象
+起始offset和总size。 ``grub_modules_get_end()`` 因而返回：
 
 ::
 
-   GRUB_MEMORY_MACHINE_DECOMPRESSION_ADDR = 0x100000
+   modend = grub_modbase + module_info.size
 
-``_start.._edata`` 是正式 GRUB core 中已经初始化的代码和数据范围。上一章中，``startup.S`` 只把
-这部分从 1 MiB 解压区复制回链接地址 ``0x9000``；紧随其后的预装模块没有一起搬回低端内存。
+这个end同时覆盖module-info、原始ELF模块、embedded prefix以及可能存在的config/key等对象。
+具体 ``_edata``、对象总size与 ``modend`` 取决于实际构建artifact，本章只保留符号边界。
 
-因此 ``grub_modbase`` 指向：
+console初始化还没有输出字符
+---------------------------
 
-::
+``grub_console_init()`` 接着把名为 ``console`` 的input/output终端结构注册到GRUB term链表。
+output函数以后用INT 10h，input函数以后用INT 16h；但init本身只登记两个静态对象，不调用BIOS，
+也没有分配堆内存。
 
-   0x100000 + 正式 core 的已初始化映像大小
+因此本章此处并未显示 ``Welcome to GRUB!``。欢迎文本在 ``grub_machine_init`` 返回后才由
+``grub_main`` 输出，属于第027章的入口。
 
-这里首先是 ``struct grub_module_info``，其 magic 为 ``0x676d696d``，也就是字节形式的 ``gmim``；
-后面依次排列 ELF 模块、嵌入配置、prefix 字符串等对象。
+保护模式C代码怎样调用E820
+-------------------------
 
-这个地址马上会参与堆边界计算。GRUB 不能把仍保存 ``biosdisk``、分区模块、文件系统模块和
-``normal`` 等对象的区域当成空闲 RAM。
-
-为什么控制台要在堆完全建立前初始化
-----------------------------------
-
-随后执行：
-
-.. code-block:: c
-
-   grub_console_init();
-
-PC BIOS 目标的早期 console 把 GRUB 的终端输入、输出连接到传统 BIOS 服务。后面的
-``Welcome to GRUB!``、错误信息和 rescue shell 都依赖它。
-
-此时尚未建立图形菜单，也没有加载字体或主题。当前只是让 GRUB 拥有最基本的字符输入输出能力，
-并继续借用 SeaBIOS 已经建立的键盘和显示服务。
-
-GRUB 在保护模式中不能直接执行 int 15h
----------------------------------------
-
-内存地图入口是：
+内存枚举入口是：
 
 .. code-block:: c
 
    grub_machine_mmap_iterate(mmap_iterate_hook, NULL);
 
-源码最终需要调用 BIOS：
+PC BIOS实现把临时结构固定在物理 ``0x68000``：
 
 ::
 
-   INT 15h
-   EAX = 0xe820
-   EDX = 0x534d4150   "SMAP"
+   0x68000  entry.size   # GRUB自己记录BIOS返回长度
+   0x68004  entry.addr
+   0x6800c  entry.len
+   0x68014  entry.type
 
-CPU 当前处于 32 位保护模式。传统 BIOS 中断处理程序仍是 16 位实模式代码，所以 GRUB 使用上一章
-已经保留下来的 ``prot_to_real`` / ``real_to_prot`` 桥：
-
-::
-
-   32 位 GRUB C 代码
-   → 保存保护模式现场
-   → 切到实模式和实模式栈
-   → 执行 INT 15h
-   → 恢复 GDT、保护模式栈和寄存器
-   → 返回 32 位 C 代码
-
-所以“GRUB 调用 BIOS”不是保护模式下直接执行一条 ``int`` 就结束。中间实际发生了一次 CPU 模式
-往返。
-
-E820 返回缓冲区为什么放在 0x68000
---------------------------------
-
-PC BIOS 的 mmap 代码把临时结构放到：
+每次调用前先把这24字节结构清零；传给BIOS的缓冲区从 ``entry.addr`` 开始，所以实际
+``ES:DI=6800:0004``，请求长度 ``ECX=20``，而不是把私有的 ``entry.size`` 也交给固件。
+寄存器还包括：
 
 ::
 
-   GRUB_MEMORY_MACHINE_SCRATCH_ADDR = 0x68000
+   EAX = 0x0000e820
+   EDX = 0x534d4150       # "SMAP"
+   EBX = continuation     # first call is 0
 
-这个区域位于 1 MiB 以下，实模式可以使用 ``ES:DI`` 表示它，同时又避开 ``0x7c00``、GRUB core、
-保护模式栈以及 BIOS 区域。
+``grub_bios_interrupt`` 先保存32位保护模式现场，经 ``prot_to_real`` 恢复real-mode IDT、0段
+和实模式栈，再按PC BIOS默认flags令IF=1后执行INT 15h。返回后
+``real_to_prot`` 重新装GDT、保护模式栈与limit-0 IDT，所以每一项都产生一次完整
+protected→real→protected往返；主执行路径回到C时仍是IF=0。
 
-GRUB 为每次 E820 调用准备：
+SeaBIOS怎样交出每一项
+---------------------
 
-::
-
-   EAX = 0xe820
-   EDX = "SMAP"
-   ECX = 20 字节以上的返回缓冲长度
-   EBX = continuation value
-   ES:DI = scratch 区中 entry.addr 的实模式地址
-
-第一次调用 ``EBX=0``。SeaBIOS 返回一项后，把新的 continuation value 放回 ``EBX``；GRUB 用它继续
-请求下一项，直到 ``EBX=0`` 或调用失败。
-
-每项至少包含：
+固定SeaBIOS的 ``handle_15e820`` 检查SMAP、continuation index和20字节buffer，随后把
+``e820_list[EBX]`` 的20字节 ``addr/size/type`` 复制到 ``ES:DI``。成功返回：
 
 ::
 
-   addr   64 位物理起点
-   len    64 位长度
-   type   32 位类型
+   EAX = 0x534d4150
+   ECX = 20
+   CF  = 0
+   EBX = next index, or 0 after the last entry
 
-GRUB 同时检查：
+GRUB接受的长度范围是20到 ``0x400``；若CF置位、EAX不是SMAP或长度越界，就把
+``entry.size`` 留为0并结束主枚举。当前q35 SeaBIOS已经建立了含非零长度项的E820 list，
+所以循环沿continuation读到最后一项， ``e820_works`` 置1。
 
-* Carry Flag 必须清零；
-* 返回 ``EAX`` 仍然是 ``SMAP``；
-* 返回长度不能小于 20 字节；
-* 长度不能超过本地允许的上限。
+只有一项非零长度E820都没有得到时，GRUB才依次组合INT 12h、INT 15h E801h或AH=88h的旧式
+结果。固定成功路径不执行这些fallback。SeaBIOS在第021章末的 ``e820_prepboot()`` 只是
+dump map，没有把它freeze；本章读的是同一固件列表的BIOS接口视图。
 
-当前 SeaBIOS 路径能够正常返回 E820，所以 ``INT 15h E801h``、``AH=88h`` 和 ``INT 12h`` 等旧式
-回退路径不会执行。它们只用于兼容不提供 E820 的老固件。
+哪些E820范围能进入候选region
+----------------------------
 
-为什么 GRUB 不把 E820 中所有 RAM 都加入堆
------------------------------------------
+每个非零条目交给机器初始化自己的 ``mmap_iterate_hook``，按以下顺序筛选：
 
-SeaBIOS 返回的 E820 是平台物理内存地图。GRUB 的 ``mmap_iterate_hook()`` 还要做自己的筛选。
+#. 若范围完全位于1 MiB以下，丢弃；若跨过1 MiB，把起点裁到
+   ``GRUB_MEMORY_MACHINE_UPPER_START=0x100000``；
+#. 只接受 ``type == GRUB_MEMORY_AVAILABLE``；
+#. 起点必须不高于 ``0xffffffff``，跨过4 GiB的尾部裁掉；
+#. 把结果放入固定的 ``mem_regions[32]``；32项之后的候选被静默忽略。
 
-第一条规则是跳过 1 MiB 以下区域：
+所以这里建立的不是E820原样副本。IVT、BDA、低端GRUB core、 ``0x68000`` scratch、保护模式
+栈、VGA/ROM区、ACPI/NVS/reserved/bad RAM以及4 GiB以上RAM都不会成为当前普通heap。
+固定q35内存容量没有在项目条件中给出，本章也不写具体E820端点或总可用字节数。
+
+compact_mem_regions做了什么
+---------------------------
+
+``compact_mem_regions()`` 先按物理起点升序排列候选，再合并相互重叠或首尾相接的区间。
+这里只有经过available/type/address筛选后的range，reserved gap不会被凭空跨越。合并完成后，
+每一项都是可独立注册的半开物理范围：
 
 ::
 
-   GRUB_MEMORY_MACHINE_UPPER_START = 0x100000
+   [region.addr, region.addr + region.size)
 
-当前实现没有把低端常规内存加入通用堆。低端内存中仍存在 IVT、BDA、EBDA、BIOS scratch、实模式
-栈、保护模式栈和其他兼容结构；让普通 ``grub_malloc()`` 从这里分配会让后续 BIOS 调用变得危险。
+排序和合并都在静态32项数组内完成，不依赖尚未存在的heap。
 
-第二条规则是只接收：
+为什么初始heap必须越过modend
+----------------------------
 
-::
-
-   type == GRUB_MEMORY_AVAILABLE
-
-ACPI reclaim、ACPI NVS、reserved 和 bad RAM 都不会进入堆。
-
-第三条规则是当前 i386-pc core 只接收 4 GiB 以下的可寻址部分。GRUB 此时使用 32 位指针且没有
-分页映射机制，不能把 4 GiB 以上物理 RAM 直接变成普通 C 指针。
-
-因此这里建立的是“GRUB 当前能安全分配的内存集合”，不是对 E820 的原样复制。
-
-先排序、再合并内存区间
-----------------------
-
-筛选后的区间先暂存在最多 32 项的 ``mem_regions[]`` 中。``compact_mem_regions()`` 会：
-
-#. 按起始物理地址升序排列；
-#. 合并重叠区间；
-#. 合并首尾相接的区间。
-
-这样可以避免同一片 RAM 被注册成多个相互覆盖的 allocator region。
-
-为什么堆起点必须越过 grub_modules_get_end()
---------------------------------------------
-
-接下来：
-
-.. code-block:: c
-
-   modend = grub_modules_get_end();
-
-``grub_modules_get_end()`` 读取 ``gmim`` 头中的总大小，计算预装模块区末端。对于每个可用 E820
-区域，GRUB 使用：
+随后先调用 ``grub_modules_get_end()``。对每个候选range：
 
 .. code-block:: c
 
    beg = region.addr;
    fin = region.addr + region.size;
-
    if (modend && beg < modend)
        beg = modend;
+   if (beg < fin)
+       grub_mm_init_region((void *) beg, fin - beg);
 
-如果整个区间都位于 ``modend`` 以下，它会被跳过；如果同一 E820 RAM 区从 1 MiB 延伸到高地址，
-堆只从模块区末端之后开始。
+当前包含1 MiB的available range会把 ``beg`` 提升到 ``modend``，从而同时保护高端临时kernel
+副本和所有原始预装对象。完全落在 ``modend`` 以下的range被跳过；从更高地址开始的独立
+available range保持原起点。
 
-这一步保护的内容包括：
+这也解释了为什么不能凭“E820说available”就覆盖1 MiB解压区。E820描述平台RAM属性，不知道
+GRUB刚把自己的对象放在哪里； ``modend`` 是bootloader在固件map之上增加的所有权边界。
 
-* ``struct grub_module_info``；
-* 已嵌入 core.img 的 ELF 模块；
-* embedded prefix；
-* 可选 embedded config、密钥和其他对象。
+grub_mm_init_region怎样建立正式allocator
+----------------------------------------
 
-这些对象稍后还要被 ``grub_main()`` 遍历和加载，不能提前被内存分配覆盖。
+i386的GRUB allocator以16字节cell为单位。首次注册一个range时，它：
 
-GRUB 的堆不是一段连续大数组
---------------------------
+* 把 ``struct grub_mm_region`` 对齐放在range开头；
+* 紧随其后建立一个带free magic的block header；
+* 让该free block的 ``next`` 指回自身，形成单向环；
+* 记录前后因16字节对齐无法使用的碎片；
+* 若range触及32位地址空间顶端，截掉最后的溢出保护区。
 
-每个通过筛选的区间都会调用：
+后续注册的相邻range可以与已有region从上方或下方合并；不相邻的range则进入region链表。于是
+``grub_malloc/free/memalign`` 得到的是多region allocator，不是一个假定物理连续的
+``heap_start/heap_end`` 数对。
 
-.. code-block:: c
+在本章出口，原始module区仍未加载，因而 ``[0x100000,modend)`` 还不在heap。第027章只有在
+模块代码已搬到allocator、prefix/config已复制后，才有权回收这个范围。
 
-   grub_mm_init_region((void *) beg, fin - beg);
+时间源怎样在最后安装
+--------------------
 
-GRUB allocator 支持多个互不连续的 region。每个 region 的开头直接存放 ``struct grub_mm_region``，
-后面的空间被切成 allocator cell。
+``grub_machine_init`` 最后调用 ``grub_tsc_init()``。它先检查CPUID TSC位；当前固定条件
+没有唯一指定CPU model，所以这里保留两条正常结果。
 
-在当前 32 位目标中，一个 cell 是 16 字节。已分配块和空闲块都在数据前保存 header：
+CPU公布TSC时，固定q35提供的i8254 PIT可用于校准：
 
-::
+#. 记录当前 ``RDTSC`` 为 ``tsc_boot_time``；
+#. 把PIT channel 2装成 ``0xffff`` ticks，等待约55 ms；
+#. 读取前后TSC差，求得每 ``2^32`` TSC ticks对应的毫秒数；
+#. 把 ``grub_tsc_get_time_ms`` 安装成GRUB时间函数。
 
-   region metadata
-   → free/allocated block header
-   → returned payload
-   → next block ...
+PIT没有开始计数、TSC没有前进或计算结果为0时，源码会使用代表800 MHz的hardcoded rate；
+如果CPU没有TSC，PC BIOS目标改装以INT 1Ah读取约55 ms BIOS tick的RTC时间函数。两条分支都会
+在返回前提供 ``grub_get_time_ms``，而具体选择取决于运行时CPUID，不能由“QEMU x86-64”代替
+固定CPU model。
 
-空闲块组成单向环形链表。分配器可以在多个 E820 可用区间之间寻找空间，而不要求整台机器的 RAM
-物理连续。
+本章结束状态
+------------
 
-``grub_mm_init_region()`` 还会处理：
-
-* 起止地址对齐；
-* region metadata 自身占用；
-* 邻接 region 合并；
-* block magic 校验；
-* 尾部溢出保护。
-
-所以这里不是简单保存一个 ``heap_start`` 和 ``heap_end``。GRUB 已经建立了能够支持
-``malloc/free/memalign`` 的正式内存管理器。
-
-最后把 TSC 校准成毫秒时间源
---------------------------
-
-堆建立后，``grub_machine_init()`` 最后调用：
-
-.. code-block:: c
-
-   grub_tsc_init();
-
-如果 CPU 支持 ``RDTSC``，PC BIOS 路径优先使用 PIT 校准 TSC。校准结果保存为每 ``2^32`` 个 TSC
- tick 对应的毫秒数，此后 GRUB 可以把：
+控制流已经走过：
 
 ::
 
-   current_tsc - tsc_boot_time
+   grub_main
+   → grub_machine_init
+   → apply or skip VIA workaround according to runtime CPU model
+   → grub_modbase = 0x100000 + (_edata - _start)
+   → register BIOS console input/output objects
+   → iterate SeaBIOS E820 through protected/real bridge
+   → retain available [1 MiB, 4 GiB) fragments, at most 32
+   → sort and merge candidate regions
+   → raise overlapping heap start to modend
+   → grub_mm_init_region for each surviving range
+   → install TSC/PIT or BIOS RTC millisecond source according to CPUID
+   → return to grub_main
 
-转换为毫秒。
+此刻：
 
-若 CPU 不支持 TSC，PC BIOS 目标回退到 ``INT 1Ah`` 提供的约 18.2 Hz BIOS tick。当前 QEMU 的
-x86 CPU 支持 TSC，因此走 TSC 校准路径。
+* 当前执行者：BSP上的 ``grub_main()``， ``grub_machine_init()`` 刚返回；
+* CPU mode：32位flat保护模式，分页关闭，A20开启，IF=0、DF=0，limit-0保护模式IDT仍有效；
+* BIOS bridge：可用；每次BIOS调用后都回到当前保护模式环境；
+* ``grub_modbase``：指向高端有效module-info； ``modend`` 可由其size计算；
+* console：名为 ``console`` 的BIOS input/output后端已注册，但欢迎文本尚未输出；
+* E820：已经通过SeaBIOS重新枚举；旧式memory-size fallback未执行；
+* heap：由1 MiB以上、4 GiB以下的available范围组成，重叠高端对象的起点已抬到 ``modend``；
+* ``[0x100000,modend)``：仍由临时kernel副本和原始预装对象占有，尚未回收；
+* time source：毫秒函数已安装；有TSC时由q35 PIT校准（失败可用hardcoded rate），无TSC时
+  使用BIOS RTC tick；
+* embedded ELF模块：尚未重定位、init或注册； ``biosdisk/part_msdos/ext2`` 后端均未生效；
+* ``cmdpath/root/prefix``、normal command、menu与 ``grub.cfg``：均尚未建立或打开；
+* Linux：尚未读取，也没有执行。
 
-这一时间源会用于超时、菜单倒计时、性能时间戳和设备等待，但它还不是 Linux 内核以后建立的
-clocksource。
+关键边界
+--------
 
-本章结束时的状态
-----------------
+* ``grub_modbase`` 在heap初始化前由固定地址算出，不需要也不能依赖 ``grub_malloc``。
+* console init只注册静态term对象；第一次欢迎输出发生在machine init返回之后。
+* E820的 ``ES:DI`` 指向 ``0x68004`` 的 ``entry.addr``，20字节固件payload不包含私有size字段。
+* 低端RAM、非available类型、4 GiB以上RAM和第33个以后候选不会进入本章heap。
+* E820 available是物理属性， ``modend`` 才是防止allocator覆盖GRUB自身对象的所有权边界。
+* 本章不回收高端module输入区；先加载对象、后回收的顺序不能交换。
+* 固定条件未唯一指定CPU model；VIA workaround和TSC/RTC选择必须保留为运行时条件分支。
 
-``grub_machine_init()`` 返回时：
+下一入口
+--------
 
-::
-
-   当前执行者      GNU GRUB 2.14 grub_main()
-   CPU 模式         32 位保护模式
-   paging           off
-   console          早期 BIOS 字符终端已注册
-   BIOS bridge      仍可往返实模式
-   E820             已重新通过 SeaBIOS INT 15h 取得
-   heap source      1 MiB 以上、4 GiB 以下的 E820 available RAM
-   low memory       未加入普通 GRUB heap
-   module area      已由 grub_modbase/modend 排除
-   allocator        多 region 堆已经建立
-   time source      TSC 已用 PIT 校准
-   embedded modules 尚未加载执行
-   root/prefix      尚未建立
-   hd0              尚未作为 GRUB disk backend 打开
-   grub.cfg         尚未读取
-   Linux bzImage    尚未读取
-
-``grub_main()`` 接下来会输出欢迎信息，初始化 verifier，遍历 core.img 中的预装对象并加载 ELF 模块。
+下一章从machine init返回后的 ``grub_boot_time("After machine init.")`` 和
+``Welcome to GRUB!`` 开始；随后进入 ``grub_verifiers_init()``、
+``grub_load_config()``、core导出符号注册与embedded ELF装载。开始前heap可用，但所有原始
+module对象仍只由 ``grub_modbase..modend`` 持有。
 
 资料
 ----
 
-* `GNU GRUB 2.14 grub-core/kern/main.c <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/main.c>`_
-* `GNU GRUB 2.14 grub-core/kern/i386/pc/init.c <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/i386/pc/init.c>`_
-* `GNU GRUB 2.14 grub-core/kern/i386/pc/mmap.c <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/i386/pc/mmap.c>`_
-* `GNU GRUB 2.14 grub-core/kern/mm.c <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/mm.c>`_
-* `GNU GRUB 2.14 grub-core/kern/i386/tsc.c <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/i386/tsc.c>`_
-* `GNU GRUB 2.14 include/grub/i386/memory.h <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/include/grub/i386/memory.h>`_
-* `GNU GRUB 2.14 include/grub/kernel.h <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/include/grub/kernel.h>`_
+* `GRUB固定提交：PC machine init与heap候选 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/i386/pc/init.c#L108-L272>`_；
+* `GRUB固定提交：PC E820调用与fallback <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/i386/pc/mmap.c#L25-L193>`_；
+* `GRUB固定提交：protected/real BIOS interrupt桥 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/i386/int.S#L19-L134>`_；
+* `GRUB固定提交：console注册与BIOS终端对象 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/term/i386/pc/console.c#L250-L309>`_；
+* `GRUB固定提交：module-info结构与遍历边界 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/include/grub/kernel.h#L25-L113>`_；
+* `GRUB固定提交：allocator region建立与相邻合并 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/mm.c#L157-L308>`_；
+* `GRUB固定提交：i386 16字节allocator cell <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/include/grub/mm_private.h#L27-L113>`_；
+* `GRUB固定提交：TSC选择与fallback <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/i386/tsc.c#L28-L78>`_；
+* `GRUB固定提交：PIT channel 2校准 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/i386/tsc_pit.c#L30-L84>`_；
+* `SeaBIOS固定提交：INT 15h E820返回 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/system.c#L259-L325>`_；
+* `QEMU固定提交：q35通用PC设备建立PIT <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/pc.c#L1039-L1131>`_。

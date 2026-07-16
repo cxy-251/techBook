@@ -10,9 +10,9 @@ Linux Kernel回溯审查账本
 
    mode             = retrospective-audit
    production       = paused
-   verified_through = 024
+   verified_through = 027
    current_batch    = none
-   next_batch       = 025-027
+   next_batch       = 028-030
    current_status   = ready
 
 状态语义遵守 ``project/LINUX_KERNEL_CONTRACT.rst``。
@@ -28,6 +28,7 @@ Linux Kernel回溯审查账本
 * `016-018 <016-018.rst>`_：``repaired``；timer/clock/TPM、VGA Option ROM与USB/PS2条件边界核验完成，无阻塞。
 * `019-021 <019-021.rst>`_：``repaired``；AHCI磁盘、默认iPXE ROM与drive map/prepareboot边界核验完成，无阻塞。
 * `022-024 <022-024.rst>`_：``repaired``；SeaBIOS INT 19h/MBR交接、GRUB boot.img与diskboot blocklist边界核验完成，无阻塞。
+* `025-027 <025-027.rst>`_：``repaired``；GRUB模式切换/E820 heap、embedded module与动态normal入口核验完成，无阻塞。
 
 已知但尚未轮到的结构债务
 ------------------------

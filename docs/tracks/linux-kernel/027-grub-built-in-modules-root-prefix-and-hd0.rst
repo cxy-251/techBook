@@ -1,282 +1,173 @@
-第二十七章：GRUB 怎样加载内建模块并建立 hd0、root 和 prefix？
-============================================================
+第二十七章：GRUB怎样加载内建模块并建立hd0、root和prefix？
+==========================================================
 
-上一章结束时，``grub_machine_init()`` 已经返回。GRUB 现在拥有可用堆、早期字符控制台和毫秒时间源，
-终于能够把 ``core.img`` 中预装的对象变成真正可调用的模块和设备接口。
+第026章在 ``grub_machine_init()`` 返回处停下。BSP仍运行32位flat保护模式、分页关闭、
+A20开启、IF=0、DF=0；console与运行时CPU能力对应的时间源已经注册，initial heap已经避开
+``[0x100000,modend)``，但embedded ELF还只是该范围内的原始输入，任何disk、partition或
+filesystem后端都尚未注册。
 
-``grub_main()`` 接下来的主流程是：
+固定平台只规定MBR、第一分区从LBA 2048开始且为ext4，并没有提供可解析的 ``core.img`` 或
+完整安装命令。为使本章和后续文件路径可复现，以下数值路径采用明确的simple-install叙事约定：
 
-.. code-block:: c
+* 使用默认i386-pc ``grub-install`` 和默认 ``biosdisk``；
+* 安装目标是第一块BIOS硬盘整盘，GRUB目录在同一盘
+  ``msdos1:/boot/grub``；
+* 无LVM、RAID、加密、debug和额外 ``--modules``；
+* 第023—024章的clean-gap embedding约定继续有效。
 
-   grub_verifiers_init();
-   grub_load_config();
-   grub_register_exported_symbols();
-   grub_load_modules();
-   grub_set_prefix_and_root();
-   reclaim_module_space();
-   grub_register_core_commands();
+这组条件让安装器把 ``biosdisk``、 ``part_msdos``、 ``ext2`` 及其dependency closure放入
+``core.img``，embedded prefix为 ``(,msdos1)/boot/grub``，且不生成embedded
+``load.cfg``。重要的是：默认列表不加入 ``normal``；下一章必须从磁盘动态加载
+``normal.mod``。这些是上述安装约定与固定源码共同得到的结果，不冒充仅由分区表就能推出的
+事实。
 
-这一章停在 embedded config 执行之前。它要回答三个容易混在一起的问题：
+Welcome为什么在machine init之后才出现
+------------------------------------
 
-#. ``core.img`` 中的 ``.mod`` 文件什么时候真正执行初始化函数；
-#. BIOS 驱动号 ``0x80`` 怎样变成 GRUB 设备名 ``hd0``；
-#. 启动盘信息和 embedded prefix 怎样合并成 ``root=hd0,msdos1`` 与
-   ``prefix=(hd0,msdos1)/boot/grub``。
-
-本书固定 core.img 中的最小模块集合
----------------------------------
-
-当前固定磁盘布局继续补充为：
-
-::
-
-   MBR partition table
-   first partition = msdos1, starts at LBA 2048
-   filesystem      = ext4
-   GRUB directory  = /boot/grub
-
-为了让后续路径唯一，本书固定 ``core.img`` 至少嵌入以下模块及其自动依赖：
-
-::
-
-   biosdisk
-   part_msdos
-   ext2
-   normal
-
-模块名 ``ext2`` 并不表示只能读取 ext2。GRUB 的 ``ext2`` 文件系统模块同时实现 ext2、ext3 和
-ext4 家族所需的读取能力。
-
-``grub-mkimage`` 会先解析 ``moddep.lst``，把显式模块和依赖都作为 ``OBJ_TYPE_ELF`` 对象附加到
-core 映像；它还附加一个 ``OBJ_TYPE_PREFIX`` 对象。当前 prefix 固定为：
-
-::
-
-   (,msdos1)/boot/grub
-
-这里故意没有写驱动名。``grub-install`` 已经知道 GRUB 文件位于第一块启动盘的第一个 MBR 分区，
-但运行时的 BIOS 驱动号应由固件传入，所以它只把分区部分 ``,msdos1`` 硬编码进 prefix。
-
-先建立 verifier API，不等于已经验证了所有文件
----------------------------------------------
-
-``grub_main()`` 在欢迎信息之后调用：
+返回 ``grub_main`` 后，第一步用新安装的time source记录：
 
 .. code-block:: c
 
-   grub_verifiers_init();
+   grub_boot_time("After machine init.");
 
-这一步建立 GRUB 文件验证器框架。以后加载模块、内核或配置时，签名验证模块可以挂接到该框架。
-
-当前普通 SeaBIOS 主线没有 Secure Boot，也没有因此自动拒绝未签名文件。这里发生的是 API 和验证器
-链表初始化，不应写成“GRUB 已完成安全启动验证”。
-
-embedded config 与磁盘上的 grub.cfg 不是同一个对象
-----------------------------------------------------
-
-随后 ``grub_load_config()`` 遍历预装对象，寻找：
+随后非EFI的PC BIOS路径设置highlight color，经已注册console输出：
 
 ::
 
-   header->type == OBJ_TYPE_CONFIG
+   Welcome to GRUB!
 
-若存在，它会把文本复制到堆上并保存到 ``load_config``，稍后在加载 ``normal`` 之前执行。
+每个实际的INT 10h输出或光标操作都通过第025章保存的
+``prot_to_real → BIOS → real_to_prot`` 桥完成。字符输出期间BIOS按实模式ABI运行；每次返回
+``grub_main`` 时仍恢复flat segments、limit-0保护模式IDT和IF=0。欢迎信息不读磁盘，也没有
+建立menu。
 
-当前固定的简单路径满足：
+verifier初始化不等于验证了文件
+------------------------------
 
-* BIOS ``biosdisk`` 访问；
-* GRUB 目录与安装目标位于同一块磁盘；
-* 没有 LVM、RAID、加密磁盘或跨盘启动；
-* 分区号可以写进 embedded prefix。
+下一条 ``grub_verifiers_init()`` 只把 ``grub_verifiers_open`` 注册为
+``GRUB_FILE_FILTER_VERIFY``。它建立以后打开文件时遍历verifier链的入口；当前普通SeaBIOS路径
+没有Secure Boot条件，也没有因为调用了这个函数就产生某个已验证文件、签名结果或信任状态。
 
-因此不需要安装器额外生成 ``load.cfg`` 搜索脚本，本书固定：
+embedded config为什么在当前不存在
+----------------------------------
 
-::
+``grub_load_config()`` 遍历 ``grub_modbase`` 指向的module-info对象，只接受
+``OBJ_TYPE_CONFIG``。若找到，它会先用已经可用的heap复制文本到NUL结尾的 ``load_config``，
+稍后再执行；它不会在原始对象区被回收后继续悬挂一个指针。
 
-   embedded OBJ_TYPE_CONFIG = absent
-   load_config              = NULL
-
-这不代表磁盘上没有 ``grub.cfg``。真正的
-``(hd0,msdos1)/boot/grub/grub.cfg`` 仍将在下一章由 normal mode 打开。
-
-为什么必须先注册 core 导出符号
------------------------------
-
-动态模块会引用 GRUB core 提供的函数，例如：
+当前simple-install约定满足：
 
 ::
 
-   grub_malloc
-   grub_free
-   grub_disk_dev_register
-   grub_fs_register
-   grub_register_command
-   grub_bios_interrupt
+   disk module       = biosdisk
+   one GRUB drive    = boot filesystem drive
+   install drive     = same physical disk
+   platform bootdev  = available on i386-pc
+   abstractions      = none
+   debug image       = none
 
-所以 ``grub_load_modules()`` 前先执行：
+固定 ``grub-install.c`` 因而走“hardcode partition in prefix”分支，不创建 ``load.cfg``；
+``grub-mkimage`` 没有收到config path，所以module-info中没有 ``OBJ_TYPE_CONFIG``。
+本次扫描结束后 ``load_config`` 仍是BSS初值NULL，后面embedded-config parser将被跳过。磁盘
+``/boot/grub/grub.cfg`` 是另一个对象，本章尚未打开它。
+
+为什么先注册core导出符号
+------------------------
+
+embedded ELF是ET_REL模块，会引用 ``grub_malloc``、disk/fs注册函数、BIOS bridge等core符号。
+所以 ``grub_main`` 在装载前先执行生成的：
 
 .. code-block:: c
 
    grub_register_exported_symbols();
 
-该函数由构建过程生成，把可供模块使用的 core 符号加入 GRUB 自己的符号表。没有这一步，模块 ELF
-重定位时只能看到未解析的外部符号，无法得到正确函数地址。
+它把允许模块解析的core符号放入GRUB自己的符号表；这一步没有复制ELF section，也没有执行
+任何模块init。若构建器支持额外linker init，条件调用也发生在导出符号注册之后、模块遍历之前。
 
-core.img 里的模块还不是可直接执行的代码
---------------------------------------
+每个embedded ELF怎样取得新所有权
+--------------------------------
 
-``grub_load_modules()`` 使用 ``FOR_MODULES`` 遍历 ``grub_modbase`` 指向的 ``gmim`` 区域。每个对象
-都有：
+``grub_load_modules()`` 按module-info中的对象顺序遍历，只把
+``header->type == OBJ_TYPE_ELF`` 的payload交给 ``grub_dl_load_core``。每个对象先经
+``grub_dl_load_core_noinit``：
 
-::
+#. 校验ELF header和section table没有越过对象size；
+#. 要求 ``e_type == ET_REL``；
+#. 分配并初始化 ``struct grub_dl``，初始 ``ref_count=1``；
+#. 解析module name、license与dependency；
+#. 从initial heap为alloc sections及loader metadata取得新内存；
+#. 复制section，解析core/已加载模块符号并应用i386 relocation；
+#. 同步指令cache接口，再把模块链接到 ``grub_dl_head``；
+#. 调用 ``grub_dl_init`` 执行该模块的init。
 
-   type
-   size
-   payload
+任一embedded ELF无法装载时， ``grub_load_modules`` 调用 ``grub_fatal``，不存在“忽略坏模块
+仍把本章标为成功”的分支。当前成功路径结束后，真正执行的section、module name、dependency和
+loader对象都由heap持有；1 MiB附近的原始ELF只剩可回收输入身份。
 
-只有 ``OBJ_TYPE_ELF`` 会送入：
+standard install实际内建哪些后端
+--------------------------------
 
-.. code-block:: c
+默认 ``grub-install`` 先probe GRUB目录所在filesystem并把其driver name加入module list。
+固定分区是ext4，而实现它的GRUB driver名仍是 ``ext2``；沿partition parent链又加入
+``part_msdos``，i386-pc默认disk module加入 ``biosdisk``。 ``grub-mkimage`` 再根据
+``moddep.lst`` 补齐它们的依赖。
 
-   grub_dl_load_core(payload, payload_size);
+默认module list没有一条加入 ``normal`` 的路径；normal也不是上述三个后端的依赖。因此当前
+embedded ELF完成时：
 
-嵌入 core.img 的模块是可重定位 ELF，也就是 ``ET_REL``，并没有一个安装时已经固定好的运行地址。
-``grub_dl_load_core_noinit()`` 逐步完成：
+* ``biosdisk`` 已init；
+* ``part_msdos`` 已init；
+* ``ext2`` 已init；
+* ``normal`` 不在 ``grub_dl_head``， ``normal`` command尚未注册。
 
-#. 验证 ELF header 和 section table 都位于对象边界内；
-#. 确认 ``e_type == ET_REL``；
-#. 读取模块名和许可证信息；
-#. 解析模块依赖；
-#. 从刚建立的 GRUB heap 为 alloc section 分配运行内存；
-#. 把代码、只读数据和可写数据复制到新位置；
-#. 解析对 core 和其他模块导出符号的引用；
-#. 应用 i386 ELF relocation；
-#. 刷新指令缓存接口；
-#. 把模块加入已加载模块链表。
+用户显式给 ``grub-install --modules=normal`` 会产生另一条合法路径，但不属于当前
+simple-install约定。
 
-所以 ``core.img`` 中的原始模块区域只是输入材料。真正运行的模块代码和数据已经被重新分配到 heap。
+biosdisk init为何还不等于打开hd0
+--------------------------------
 
-GRUB_MOD_INIT 什么时候执行
--------------------------
-
-完成装载和重定位后，``grub_dl_load_core()`` 调用：
-
-.. code-block:: c
-
-   grub_dl_init(mod);
-
-这会执行模块通过 ``GRUB_MOD_INIT(name)`` 声明的初始化函数。
-
-动态装载的意义就在这里。一个模块不是“代码存在内存中”就自动生效；它必须执行 init，把自己注册到
-GRUB 的全局框架中。例如：
-
-* disk module 注册 ``struct grub_disk_dev``；
-* partition module 注册 ``struct grub_partition_map``；
-* filesystem module 注册 ``struct grub_fs``；
-* command module 注册命令名与处理函数；
-* terminal module 注册输入输出终端。
-
-biosdisk 模块注册的是后端，不是一张预先生成的磁盘对象表
--------------------------------------------------------
-
-``biosdisk`` 的初始化函数最终执行：
+``GRUB_MOD_INIT(biosdisk)`` 先在 ``0x68000`` scratch准备El Torito参数，通过BIOS bridge对
+``grub_boot_device`` 高字节所示drive做一次INT 13h AH=4b01探测。当前从普通hard disk
+``0x80`` 启动，不建立一个有效no-emulation CD身份。随后它调用：
 
 .. code-block:: c
 
    grub_disk_dev_register(&grub_biosdisk_dev);
 
-``grub_biosdisk_dev`` 提供：
+注册对象只是一组 ``disk_iterate/open/close/read/write`` 方法。它没有分配持久
+``struct grub_disk``，没有打开 ``hd0``，也没有读取MBR。以后通用disk层传入字符串时，
+``grub_biosdisk_get_drive`` 才执行：
 
 ::
 
-   disk_iterate
-   disk_open
-   disk_close
-   disk_read
-   disk_write
+   hd0 → numeric suffix 0 → 0 + 0x80 → BIOS drive 0x80
 
-它把 GRUB 通用磁盘层连接到 BIOS ``INT 13h``。此时并没有为每块磁盘永久创建一个 ``hd0`` 结构体；
-GRUB 注册的是一套能够按名称打开 BIOS 磁盘的操作表。
+所以 ``hd0`` 是GRUB的命名规则，不是SeaBIOS传入的字符串。此刻应说“后端已经能够解析
+``hd0``”，不能说“一个hd0磁盘对象已经存在”。
 
-当通用磁盘层之后要求打开 ``hd0`` 时，``grub_biosdisk_get_drive()`` 解析：
+part_msdos和ext2此刻只注册解析器
+-------------------------------
 
-::
+``GRUB_MOD_INIT(part_msdos)`` 把名为 ``msdos`` 的partition map及其iterate方法登记到全局
+partition-map链； ``GRUB_MOD_INIT(ext2)`` 把名为 ``ext2`` 的
+``dir/open/read/close/label/uuid/mtime`` 方法登记到filesystem链。
 
-   hd0
-   → name starts with "hd"
-   → numeric suffix = 0
-   → BIOS hard-disk flag 0x80
-   → BIOS drive = 0x80
+两者都没有在init中主动打开固定磁盘。LBA 0的四个partition entries、第一项LBA 2048以及ext4
+superblock只有下一章真正打开带设备的module路径时才会读取。模块注册是“具备解释能力”，不是
+“已经产生分区或inode对象”。
 
-同理：
+boot_device怎样先得到cmdpath
+----------------------------
 
-::
-
-   hd1 → BIOS 0x81
-   fd0 → BIOS 0x00
-
-所以 ``hd0`` 不是 SeaBIOS 传给 GRUB 的字符串。SeaBIOS 传入的是 ``DL=0x80``，GRUB 的 biosdisk
-命名规则把它表示成 ``hd0``。
-
-为什么 biosdisk 还会再次调用 INT 13h
------------------------------------
-
-以后打开或枚举 ``hd0`` 时，biosdisk 会通过保护模式/实模式桥调用 SeaBIOS：
-
-* ``AH=41h`` 检查 EDD；
-* ``AH=48h`` 取得扩展驱动参数；
-* ``AH=08h`` 取得 CHS 回退几何；
-* ``AH=42h`` 按 LBA 读取；
-* ``AH=02h`` 作为旧式 CHS 回退。
-
-读写数据仍使用物理 ``0x68000`` 的 scratch/bounce buffer，然后复制到 GRUB 调用者的目标缓冲区。
-
-前面 ``boot.img`` 和 ``diskboot.img`` 直接手写 BIOS 调用，是因为模块系统尚不存在；现在 core 已经
-运行，所有后续磁盘访问都可以经由 ``grub_disk`` 抽象和 ``biosdisk`` 后端完成。
-
-part_msdos 与 ext2 分别解决哪一层
---------------------------------
-
-``part_msdos`` 模块负责解释磁盘 LBA 0 中从偏移 ``0x1be`` 开始的四项 MBR partition entry，把第一项
-表示成：
-
-::
-
-   msdos1
-
-它只解决“分区从哪里开始、长度是多少”。
-
-``ext2`` 模块负责在该分区范围内读取 ext4 superblock、inode、目录和文件数据。它解决的是：
-
-::
-
-   /boot/grub/grub.cfg 在分区文件系统中的位置
-
-两者不能互相替代：
-
-::
-
-   biosdisk    物理/固件磁盘扇区访问
-   part_msdos  MBR 分区切片
-   ext2        ext4 文件系统解释
-   normal      配置语言和菜单环境
-
-从 grub_boot_device 得到 fwdevice=hd0
-------------------------------------
-
-模块加载完成后，``grub_set_prefix_and_root()`` 先调用：
+模块全部成功后， ``grub_main`` 检查可能的disable-CLI object；当前约定没有该对象。随后
+``grub_set_prefix_and_root()`` 先扫描出embedded prefix，再注册 ``root`` write hook，接着
+调用：
 
 .. code-block:: c
 
    grub_machine_get_bootlocation(&fwdevice, &fwpath);
 
-当前：
-
-::
-
-   grub_boot_device = 0x80ffffff
-
-字段被拆为：
+第025章交出的 ``grub_boot_device=0x80ffffff`` 被拆为：
 
 ::
 
@@ -284,44 +175,32 @@ part_msdos 与 ext2 分别解决哪一层
    dos_part   = 0xff
    bsd_part   = 0xff
 
-``0xff`` 表示该字段没有在早期 boot device 编码中指定。函数先根据 ``0x80`` 生成：
+PC实现从heap分配字符串，按high bit规则生成 ``fwdevice="hd0"``；两个partition字段为
+``0xff``，所以不会在这里附加partition， ``fwpath`` 仍为NULL。接着先建立并export：
 
 ::
 
-   fwdevice = "hd0"
-   fwpath   = NULL
+   cmdpath = (hd0)
 
-这里仍然只有启动磁盘，没有分区。
+``cmdpath`` 记录固件把core带入系统的位置；它的建立同样不触发disk open。
 
-embedded prefix 怎样补上 msdos1
--------------------------------
+embedded prefix怎样补全启动盘
+-----------------------------
 
-``grub_set_prefix_and_root()`` 接着扫描 ``OBJ_TYPE_PREFIX``，取得：
+当前原始prefix对象是：
 
 ::
 
    (,msdos1)/boot/grub
 
-它把右括号前解析成 device 部分：
-
-::
-
-   ,msdos1
-
-把右括号后的内容解析成 path：
-
-::
-
-   /boot/grub
-
-device 以逗号开头，表示“分区已经确定，驱动名仍需由固件启动位置补充”。函数于是从 ``fwdevice``
-中取驱动部分 ``hd0``，拼接得到：
+解析结果是device ``,msdos1`` 和path ``/boot/grub``。device以逗号开头，表示安装器固定了
+partition但故意留空drive；源码于是从 ``fwdevice=hd0`` 取drive部分并拼接：
 
 ::
 
    hd0 + ,msdos1 = hd0,msdos1
 
-最终设置：
+随后 ``grub_env_set`` 在heap中复制name/value，最终得到：
 
 ::
 
@@ -329,111 +208,132 @@ device 以逗号开头，表示“分区已经确定，驱动名仍需由固件�
    root    = hd0,msdos1
    prefix  = (hd0,msdos1)/boot/grub
 
-``root`` 不带括号保存；在命令或文件名中引用设备时才写成 ``(hd0,msdos1)``。
+``root`` write hook会去掉调用者可能给出的外围括号，所以环境变量本身不带括号；
+``prefix`` 是完整GRUB资源路径。两者随后被export为global context变量。此过程只做字符串和
+环境表操作，没有验证磁盘上该目录已经可读。
 
-为什么 root 和 prefix 都要存在
------------------------------
+为什么现在才能回收1 MiB输入区
+------------------------------
 
-``root`` 是未显式写设备名的文件路径所使用的默认设备。例如：
+到这里，embedded ELF的运行section与metadata已经迁到heap；config若存在会先复制，当前为NULL；
+prefix、root和cmdpath也已经由env层复制。原始module-info对象不再是任何后续状态的唯一副本。
 
-::
+PC BIOS目标的 ``reclaim_module_space()`` 执行：
 
-   /vmlinuz
+.. code-block:: c
 
-可被解释为当前 root 设备上的文件。
+   modstart = 0x100000;
+   modend   = grub_modules_get_end();
+   grub_modbase = 0;
+   grub_mm_init_region((void *) modstart, modend - modstart);
 
-``prefix`` 是 GRUB 自身资源目录。它用于寻找：
+回收范围不只包含“原始模块”：它还包含第025章留在1 MiB的临时initialized kernel副本、module-info
+和全部原始对象。正式kernel仍在0x9000，模块运行副本已在heap，所以PC BIOS的
+``GRUB_KERNEL_PRELOAD_SPACE_REUSABLE=1`` 允许把整个半开区间加入allocator。若它紧邻第026章
+已有heap， ``grub_mm_init_region`` 会合并region；具体合并形态依赖未知的 ``modend``。
 
-::
+把 ``grub_modbase`` 清零发生在调用allocator之前，之后不能再用 ``FOR_MODULES`` 扫原始列表。
+因此load config、load ELF、set prefix三个动作必须全部先于reclaim。
 
-   (hd0,msdos1)/boot/grub/i386-pc/*.mod
-   (hd0,msdos1)/boot/grub/*.lst
-   (hd0,msdos1)/boot/grub/grub.cfg
-   (hd0,msdos1)/boot/grub/fonts/...
+core commands与embedded config出口
+---------------------------------
 
-两者当前指向同一分区，但语义不同。以后 ``grub.cfg`` 可以修改 ``root``，而 ``prefix`` 仍描述 GRUB
-自己的模块和配置目录。
+回收后， ``grub_register_core_commands()`` 注册core自身的 ``set``、 ``unset``、 ``ls`` 和
+``insmod``。这组命令不等于normal mode；当前仍没有 ``normal`` command。
 
-原始预装模块区什么时候可以归还堆
---------------------------------
+``load_config==NULL`` 使：
 
-模块已被重定位到 heap，embedded prefix 已复制到环境变量，embedded config 当前不存在，所以原来
-1 MiB 附近的输入对象区不再需要长期保留。
+.. code-block:: c
 
-``reclaim_module_space()`` 在 PC BIOS 目标中使用：
+   if (load_config)
+       grub_parser_execute(load_config);
 
-::
+直接跳过。第027章停在下一条 ``grub_load_normal_mode()`` 尚未调用的边界。此时第一次普通
+filesystem访问、 ``normal.mod`` 加载、配置文件打开和menu构造都尚未发生。
 
-   modstart = 0x100000
-   modend   = grub_modules_get_end()
+本章结束状态
+------------
 
-然后把：
-
-::
-
-   [modstart, modend)
-
-再次交给 ``grub_mm_init_region()``。
-
-``GRUB_KERNEL_PRELOAD_SPACE_REUSABLE`` 对 PC BIOS 明确为 1。由于 allocator 支持合并相邻 region，
-这块空间可能与上一章已经建立的高端堆合并。
-
-这解释了为什么上一章必须先保护模块区，而这一章又会把它回收：
+控制流已经走过：
 
 ::
 
-   加载前  原始 ELF/prefix 仍是唯一副本，不能覆盖
-   加载后  模块已重定位，字符串已复制，原始输入可以复用
+   grub_machine_init returns
+   → grub_boot_time("After machine init.")
+   → print Welcome through BIOS console bridge
+   → register verifier file filter
+   → scan embedded config; none under simple-install convention
+   → register core exported symbols
+   → load/init embedded ELF modules
+      → biosdisk backend registered
+      → msdos partition map registered
+      → ext2/ext3/ext4 filesystem reader registered as ext2
+   → derive fwdevice=hd0 from grub_boot_device
+   → cmdpath=(hd0)
+   → combine embedded (,msdos1)/boot/grub with hd0
+   → root=hd0,msdos1; prefix=(hd0,msdos1)/boot/grub
+   → reclaim [0x100000,modend); grub_modbase=0
+   → register set/unset/ls/insmod
+   → skip absent embedded config
 
-最后注册 core 自带命令
----------------------
+此刻：
 
-``grub_register_core_commands()`` 注册不依赖额外模块即可使用的基础命令。到这里，GRUB 已经拥有：
+* 当前执行者：BSP上的GNU GRUB 2.14 ``grub_main()``，即将调用
+  ``grub_load_normal_mode()``；
+* CPU mode：32位flat保护模式，分页关闭，A20开启，主路径IF=0、DF=0；
+* heap：initial regions仍有效， ``[0x100000,modend)`` 已加入并可能与相邻region合并；
+* ``grub_modbase=0``；高端临时kernel/module-info/raw objects不再具有对象身份；
+* loaded modules： ``biosdisk``、 ``part_msdos``、 ``ext2`` 及依赖的运行副本由heap持有；
+* disk backend：可把名字 ``hd0`` 映射到BIOS drive0x80，但当前没有打开的
+  ``grub_disk``、partition、filesystem或file对象；
+* environments： ``cmdpath=(hd0)``、 ``root=hd0,msdos1``、
+  ``prefix=(hd0,msdos1)/boot/grub``，三者值均由env层拥有；
+* embedded config：不存在， ``load_config=NULL``；
+* ``normal``：不在默认embedded module集合中，command尚未注册；
+* ``normal.mod``、 ``grub.cfg``、menu与Linux bzImage：均尚未读取或建立。
 
-* 可用 heap；
-* BIOS console；
-* 模块和符号系统；
-* BIOS disk backend；
-* MBR partition map；
-* ext4 文件读取能力；
-* normal mode 命令；
-* 正确的 ``root`` 与 ``prefix``。
+关键边界
+--------
 
-本章结束时的状态
-----------------
+* simple-install的modules/prefix/config是明确约定下的安装器结果，不是只凭MBR和ext4推出的事实。
+* 当前default core包含disk/partition/filesystem后端及依赖，但不包含 ``normal``。
+* module init注册方法表；直到下一章请求具体路径， ``hd0``、msdos1与ext4对象才会被打开和读取。
+* ``cmdpath`` 先只用firmware drive生成；embedded prefix随后补上partition与path。
+* reclaim覆盖 ``[0x100000,modend)`` 整个临时解压/原始对象区，并把 ``grub_modbase`` 清零；
+  它必须晚于ELF装载和环境字符串复制。
+* verifier filter注册不产生“文件已验证”结论；当前也没有Secure Boot信任链。
+* embedded config与磁盘 ``grub.cfg`` 是不同对象；当前前者缺席，后者尚未打开。
+
+下一入口
+--------
+
+下一章从 ``grub_load_normal_mode() → grub_dl_load("normal")`` 开始。因为
+``grub_dl_get("normal")`` 当前miss，固定下一路径会构造：
 
 ::
 
-   当前执行者       GNU GRUB 2.14 grub_main()
-   CPU 模式          32 位保护模式
-   paging            off
-   heap              已建立，并回收原预装模块输入区
-   exported symbols  已注册
-   built-in ELF      已验证、重定位并执行 GRUB_MOD_INIT
-   biosdisk          已注册到通用 disk 层
-   BIOS drive 0x80   可按名称 hd0 打开
-   partition map     part_msdos 已注册
-   filesystem        ext2 模块已注册，可读取固定 ext4 分区
-   normal            normal 命令和 normal 环境已注册
-   cmdpath           (hd0)
-   root              hd0,msdos1
-   prefix            (hd0,msdos1)/boot/grub
-   embedded config   absent
-   disk grub.cfg     尚未打开
-   menu              尚未建立
-   Linux bzImage     尚未读取
+   (hd0,msdos1)/boot/grub/i386-pc/normal.mod
 
-``grub_main()`` 接下来会尝试进入 normal mode。normal 命令将根据 ``prefix`` 构造完整配置文件名，并
-第一次通过 ``biosdisk → part_msdos → ext2`` 打开磁盘上的 ``grub.cfg``。
+并首次进入 ``grub_file_open → grub_device_open``，由
+``biosdisk → part_msdos → ext2`` 真正打开drive0x80、MBR第一分区和ext4文件。现有第028章把
+这一步写成“normal已经内建、直接返回”，下一顺序批次必须首先修正。
 
 资料
 ----
 
-* `GNU GRUB 2.14 grub-core/kern/main.c <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/main.c>`_
-* `GNU GRUB 2.14 grub-core/kern/dl.c <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/dl.c>`_
-* `GNU GRUB 2.14 grub-core/kern/i386/pc/init.c <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/i386/pc/init.c>`_
-* `GNU GRUB 2.14 grub-core/disk/i386/pc/biosdisk.c <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/disk/i386/pc/biosdisk.c>`_
-* `GNU GRUB 2.14 util/grub-install.c <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/util/grub-install.c>`_
-* `GNU GRUB 2.14 util/grub-install-common.c <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/util/grub-install-common.c>`_
-* `GNU GRUB 2.14 util/mkimage.c <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/util/mkimage.c>`_
-* `GNU GRUB 2.14 include/grub/kernel.h <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/include/grub/kernel.h>`_
+* `GRUB固定提交：grub_main完整顺序 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/main.c#L302-L370>`_；
+* `GRUB固定提交：embedded config与ELF遍历 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/main.c#L57-L101>`_；
+* `GRUB固定提交：prefix/root/cmdpath合成 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/main.c#L103-L229>`_；
+* `GRUB固定提交：module区回收 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/main.c#L278-L300>`_；
+* `GRUB固定提交：ELF重定位、登记与init <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/dl.c#L736-L821>`_；
+* `GRUB固定提交：normal miss时按prefix动态加载 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/dl.c#L867-L902>`_；
+* `GRUB固定提交：grub-install探测fs、partmap与disk module <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/util/grub-install.c#L1320-L1361>`_；
+* `GRUB固定提交：simple-install prefix与config分支 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/util/grub-install.c#L1411-L1583>`_；
+* `GRUB固定提交：prefix/config/modules传给mkimage <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/util/grub-install.c#L1672-L1684>`_；
+* `GRUB固定提交：boot drive转换为hd0 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/i386/pc/init.c#L68-L106>`_；
+* `GRUB固定提交：biosdisk命名、open与模块init <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/disk/i386/pc/biosdisk.c#L249-L440>`_；
+* `GRUB固定提交：biosdisk注册 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/disk/i386/pc/biosdisk.c#L635-L686>`_；
+* `GRUB固定提交：part_msdos注册 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/partmap/msdos.c#L419-L438>`_；
+* `GRUB固定提交：ext2/ext3/ext4 reader注册 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/fs/ext2.c#L1127-L1155>`_；
+* `GRUB固定提交：verifier filter注册 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/verifiers.c#L207-L228>`_；
+* `GRUB固定提交：core command注册 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/kern/corecmd.c#L176-L192>`_。
