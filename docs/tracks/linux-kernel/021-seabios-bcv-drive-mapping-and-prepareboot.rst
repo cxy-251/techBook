@@ -1,26 +1,17 @@
-第二十一章：SeaBIOS 怎样执行 BCV 并把启动盘映射成 BIOS 0x80？
-================================================================
+第二十一章：SeaBIOS怎样处理BCV并把固定启动盘映射成BIOS 0x80？
+=================================================================
 
-上一章结束时，普通 Option ROM 已经完成部署和解析：
+第020章结束时，BSP上的SeaBIOS ``MainThread`` 已从 ``optionrom_setup()`` 返回。它仍在
+32位保护模式、分页关闭且自身IF=0的POST主流程中， ``have_threads=false``。固定
+``BootList`` 已按priority排成：
 
 ::
 
-   internal AHCI/USB/CD entries ─┐
-   legacy ROM BCV entries ───────┤
-   PnP BCV/BEV entries ──────────┤→ BootList
-   CBFS payload entries ─────────┘
+   AHCI port 0 hard disk  priority 101
+   iPXE BEV               priority 9999
 
-``BootList`` 已经按 priority 排序，但它仍是 SeaBIOS POST 阶段的内部候选表。
-
-此时还没有：
-
-* 执行 legacy 或 PnP BCV；
-* 把 ``drive_s`` 放进 BIOS ``IDMap``；
-* 把第一块硬盘变成 ``DL=0x80``；
-* 建立最终 ``BEV[]`` 启动尝试数组；
-* 读取 MBR。
-
-``maininit()`` 接下来执行：
+当前没有BCV。BDA ``hdcount=0``， ``IDMap[EXTTYPE_HD]`` 为空；iPXE BEV只登记了vector，
+也尚未执行。 ``maininit()`` 接下来连续调用：
 
 .. code-block:: c
 
@@ -28,37 +19,37 @@
    wait_threads();
    prepareboot();
 
-本章追踪到 ``prepareboot()`` 返回。下一章才会锁定 BIOS shadow RAM 并进入 ``INT 19h``。
+本章沿固定“没有按键输入”的启动主线追到 ``prepareboot()`` 返回。用户选择、附加BCV、
+CD和HALT仍保留为明确条件分支，不混入固定出口。
 
-启动菜单并不直接启动设备
-----------------------
+默认菜单等待不会直接启动任何设备
+------------------------------
 
-``interactive_bootmenu()`` 首先读取：
+``interactive_bootmenu()`` 先确认 ``CONFIG_BOOTMENU``，再读取
+``etc/show-boot-menu``。固定没有override，默认值1使菜单提示启用；值2才有“只有一个启动
+项且无TPM时跳过提示”的特殊分支，而固定BootList已有硬盘与iPXE两个条目，也不满足
+单项条件。
 
-::
-
-   etc/show-boot-menu
-   etc/boot-menu-wait
-   etc/boot-menu-key
-   etc/boot-menu-message
-
-默认提示类似：
+SeaBIOS继续读取：
 
 ::
 
-   Press ESC for boot menu.
+   etc/boot-menu-wait = 2500 ms
+   etc/boot-menu-key  = scan code 1 (ESC)
 
-SeaBIOS 使用前面已经建立的 ``INT 16h`` 键盘服务等待按键。按键来源可能是：
+MainThread先用INT 16h清空已有按键，再显示默认 ``Press ESC for boot menu``，等待最多
+2500 ms。INT 16h调用使用16位寄存器帧与IF=1；当BDA keyboard ring为空时，等待路径可经
+``yield_toirq`` 短暂 ``sti; hlt; cli``，让PIT/keyboard等硬件IRQ唤醒BSP。控制返回
+32位MainThread后，IF仍为0。
 
-* PS/2 IRQ1；
-* USB HID boot keyboard；
-* 条件 serial console input。
+固定主线没有按键， ``get_keystroke`` 返回-1，与ESC scan code不等，菜单函数立即返回。
+它没有读磁盘、调用iPXE、执行BCV或修改BootList。
 
-这些来源都已经汇入 BDA keyboard ring，所以启动菜单不需要区分具体输入控制器。
+用户分支只改变BootList头部
+-------------------------
 
-如果等待时间内没有按下 menu key，函数直接返回，``BootList`` 保持原顺序。
-
-如果用户进入菜单并选择某项，SeaBIOS 做的核心动作只是：
+如果用户按ESC，函数会先在菜单内调用一次 ``wait_threads()``，再按当前BootList打印
+AHCI硬盘与iPXE。选中某项后只做：
 
 .. code-block:: c
 
@@ -66,29 +57,25 @@ SeaBIOS 使用前面已经建立的 ``INT 16h`` 键盘服务等待按键。按�
    boot->priority = 0;
    hlist_add_head(&boot->node, &BootList);
 
-也就是把选中的 ``bootentry_s`` 移到链表头部。它不会在菜单函数里读取磁盘、执行 PXE 或跳进 Option ROM。
+所以显式选择iPXE会让它成为后面最终启动序列的第一项，但仍不在菜单函数内执行。按ESC
+退出二级菜单则保持原顺序。本章固定无输入路径不进入这些分支。
 
-为什么菜单后还要再次 wait_threads
--------------------------------
+maininit的第二次wait在固定路径不迭代
+----------------------------------
 
-``maininit()`` 在菜单返回后执行：
+菜单返回后 ``maininit()`` 无条件调用 ``wait_threads()``。第019章的第一次barrier已使
+PS/2和六个AHCI worker全部退出，第020章的Option ROM调用也没有创建SeaBIOS
+``run_thread`` worker；因此固定 ``have_threads=false``，while循环一次都不执行。
 
-.. code-block:: c
+这条barrier仍有配置意义：若 ``threads_during_optionroms()=true``，设备初始化会在VGA
+之前启动而不经过第019章那个同步barrier，线程可在Option ROM阶段通过preemption/yield
+继续推进，最终必须在这里收口。固定配置为false时，不能把第二次wait虚构成又完成一轮
+AHCI探测。
 
-   wait_threads();
+prepareboot先经过固定无TPM路径
+-----------------------------
 
-固定默认路径在 Option ROM 前已经同步等待过设备线程。这里仍然保留第二道 barrier，因为 SeaBIOS 还支持：
-
-* ``threads_during_optionroms()`` 为真的配置；
-* Option ROM 执行期间继续推进的硬件线程；
-* 菜单显示前仍未结束的条件设备探测。
-
-因此 ``prepareboot()`` 开始时，BootList 不会再被迟到的设备线程修改。
-
-prepareboot 的固定执行顺序
--------------------------
-
-``src/post.c`` 定义：
+MainThread进入：
 
 .. code-block:: c
 
@@ -105,445 +92,303 @@ prepareboot 的固定执行顺序
                                 BUILD_BIOS_SIZE);
    }
 
-这里不是一个单纯的“准备启动”标记。它依次关闭或冻结 POST 阶段仍可变化的状态。
+第016章已证明固定机器没有TPM2/TCPA table， ``TPM_version`` 没有进入1.2或2.0分支，
+``TPM_working=0``。因此 ``tpm_prepboot`` 不发physical-presence或TPM2 command；
+末尾action/separator helpers也因TPM不工作而不建log、不扩PCR。下一条真实有状态变化的
+调用是 ``bcv_prepboot()``。
 
-``tpm_prepboot()``
-   在离开 BIOS POST 前完成条件 TPM physical-presence 与 measured-boot 状态处理。
-
-``bcv_prepboot()``
-   执行 BCV、建立 BIOS drive map，并把 BootList 转成最终启动尝试序列。
-
-``cdrom_prepboot()``
-   完成 El Torito/CD emulation 相关准备。
-
-``pmm_prepboot()``
-   关闭 POST Memory Manager 对 Option ROM 的分配入口。
-
-``malloc_prepboot()``
-   清理临时分配、归还可归还的高端内存，并把最终低端占用写入 E820。
-
-``e820_prepboot()``
-   输出并确认最终 E820 map。
-
-最后设置 ``HaveRunPost=2`` 并计算 BIOS checksum。
-
-本章重点是中间的 ``bcv_prepboot()``。
-
-BootList 和 BEV 数组不是同一个结构
+bcv_prepboot不会销毁或转换BootList
 --------------------------------
 
-``BootList`` 是 POST 期间的完整候选表，每个条目包含：
+``BootList`` 是POST期排序链表； ``BEV[20]`` 是之后 ``do_boot()`` 消费的固定数组。
+``bcv_prepboot`` 遍历前者、填充后者，并映射SeaBIOS内建drive，但不会删除链表条目。
+所以“把BootList转换成BEV数组”若暗示源链表消失，就不符合源码；准确关系是：
 
 ::
 
-   type
-   priority
-   drive pointer 或 vector
-   description
+   BootList remains allocated
+   + map selected drive_s objects into IDMap
+   + append boot actions into separate BEV[]
 
-最终启动代码 ``do_boot()`` 不直接遍历 BootList。``bcv_prepboot()`` 会把它转换为固定大小的：
+``BEV[]`` 这个变量名也不表示数组只装PnP BEV。它还容纳generic floppy、hard disk、
+CD、CBFS、HALT等类型。
 
-.. code-block:: c
+固定bootorder没有HALT
+---------------------
 
-   struct bev_s {
-       int type;
-       u32 vector;
-   };
+函数先用 ``find_prio("HALT")`` 查fw_cfg bootorder。固定QEMU使用old-style CMOS ``cad``，
+没有HALT path，返回-1，不增加 ``IPL_TYPE_HALT``。显式per-device bootorder含HALT时，
+SeaBIOS才按该priority插入一个策略项；它不是硬件设备。
 
-   static struct bev_s BEV[20];
+固定第一项直接映射AHCI drive_s
+-----------------------------
 
-这里的 ``BEV[]`` 名称容易造成误解。数组中不只放 PnP BEV，还可能放：
-
-* floppy 类启动项；
-* hard-disk 类启动项；
-* CD-ROM；
-* CBFS payload；
-* 真正的 Option ROM BEV；
-* HALT。
-
-它代表 SeaBIOS 最终的启动尝试序列，而不是只代表 PnP header 中的 ``bev`` 字段。
-
-bcv_prepboot 先处理 HALT priority
--------------------------------
-
-函数开始时查找 bootorder 中的特殊路径：
-
-.. code-block:: c
-
-   int haltprio = find_prio("HALT");
-   if (haltprio >= 0)
-       bootentry_add(IPL_TYPE_HALT, haltprio, 0, "HALT");
-
-QEMU 可以在 ``bootorder`` 中插入 ``HALT``。它的作用是在指定优先级位置停止继续尝试，而不是一种硬件设备。
-
-固定磁盘启动路径通常不依赖它，但它说明 BootList 也能表达启动策略控制项。
-
-BCV 为什么要在最终驱动映射前执行
--------------------------------
-
-``bcv_prepboot()`` 按 BootList 顺序遍历：
-
-.. code-block:: c
-
-   hlist_for_each_entry(pos, &BootList, node) {
-       switch (pos->type) {
-       case IPL_TYPE_BCV:
-           call_bcv(...);
-           add_bev(IPL_TYPE_HARDDISK, 0);
-           break;
-       ...
-       }
-   }
-
-BCV 的职责是把某个 Option ROM 控制的设备接入传统 BIOS 磁盘体系。典型 storage ROM 可能在 BCV 中：
-
-* 安装或链式接管 ``INT 13h``；
-* 构造自己的 drive table；
-* 声明可供传统硬盘启动路径访问的设备。
-
-所以 BCV 不能等到 ``INT 19h`` 已经开始读取 ``DL=0x80`` 后才执行。
-
-SeaBIOS 调用：
-
-.. code-block:: c
-
-   call_bcv(pos->vector.seg, pos->vector.offset);
-
-最终进入与 ROM init 类似的 ``__callrom()``，在 16 位 big-real 环境执行 ROM 提供的 BCV，然后返回 SeaBIOS 32 位主流程。
-
-执行 BCV 后，SeaBIOS向最终序列加入一个 generic hard-disk boot entry。它不假设 ROM 的设备一定使用 SeaBIOS 自己的 ``drive_s``；ROM 可以通过它安装的 ``INT 13h`` 路径提供磁盘服务。
-
-内建 AHCI 硬盘不需要 BCV
-----------------------
-
-固定 q35 AHCI port 0 磁盘的 BootList 类型是：
-
-::
-
-   IPL_TYPE_HARDDISK
-
-它来自：
-
-.. code-block:: c
-
-   ahci_port_detect()
-   → boot_add_hd(&port->drive, ...)
-
-它不依赖 Option ROM，因此 ``bcv_prepboot()`` 对它执行：
+遍历的第一项是 ``IPL_TYPE_HARDDISK``，因此：
 
 .. code-block:: c
 
    map_hd_drive(pos->drive);
    add_bev(IPL_TYPE_HARDDISK, 0);
 
-这里 ``map_hd_drive()`` 才真正把抽象 ``drive_s`` 接入 BIOS ``INT 13h`` 驱动号空间。
+``bda_init()`` 在POST开始已清零整个BDA，所以进入本章时 ``hdcount=0``。固定也没有较早的
+hard-disk条目或BCV改变它。 ``map_hd_drive()`` 先保存：
 
-第一块硬盘怎样成为 0x80
----------------------
+::
 
-``map_hd_drive()`` 读取 BDA：
+   hdid = bda->hdcount = 0
 
-.. code-block:: c
-
-   struct bios_data_area_s *bda =
-       MAKE_FLATPTR(SEG_BDA, 0);
-   int hdid = bda->hdcount;
-
-启动前 ``hdcount`` 通常为 0。第一块硬盘执行：
-
-.. code-block:: c
-
-   add_drive(IDMap[EXTTYPE_HD],
-             &bda->hdcount,
-             drive);
-
-结果是：
+``add_drive`` 检查 ``BUILD_MAX_EXTDRIVE`` 上限后执行：
 
 ::
 
    IDMap[EXTTYPE_HD][0] = AHCI port 0 drive_s
-   BDA hdcount          = 1
+   bda->hdcount          = 1
 
-``INT 13h`` 收到 ``DL=0x80`` 时，SeaBIOS 计算：
+固定映射表有空位，因而成功。以后INT 13h看到 ``DL=0x80`` 时，用
+``0x80 - EXTSTART_HD = 0`` 取得这一个指针； ``0x80`` 不是第019章写入 ``drive_s`` 的
+固有字段，而是本章的映射顺序产生的外部编号。
 
-.. code-block:: c
+逻辑CHS不等于磁盘物理布局
+------------------------
 
-   extdrive - EXTSTART_HD
-   = 0x80 - 0x80
-   = 0
+映射后 ``setup_translation(drive)`` 才最终填写 ``drive->translation`` 与 ``lchs``。
+若QEMU通过fw_cfg ``bios-geometry`` 为相同PCI/port路径提供了有效LCHS，SeaBIOS选择
+``TRANSLATION_HOST``；没有覆盖时进入heuristic。
 
-然后取得：
+QEMU CMOS translation的特殊读取只适用于 ``DTYPE_ATA``，固定盘是 ``DTYPE_AHCI``，
+所以不能把legacy ATA的CMOS分支直接套到本章。AHCI heuristic依据IDENTIFY得到的PCHS与
+sector count选择none、large或LBA，并把公开cylinder最多裁到1024。磁盘总容量没有固定，
+本书也就不制造唯一的head/cylinder数。
 
-.. code-block:: c
+这套LCHS服务于旧式INT 13h CHS编码，不改变backend的LBA扇区布局。第022章读第一个扇区
+使用CHS 0/0/1；更后的GRUB可以使用EDD/LBA接口。
 
-   getDrive(EXTTYPE_HD, 0)
+第一份FDPT进入EBDA并发布IVT 41h
+------------------------------
+
+``fill_fdpt(drive, hdid=0)`` 在EBDA ``fdpt[0]`` 写logical cylinders/heads/sectors、
+precompensation、drive-control byte和landing zone。若LCHS与PCHS不同，它还填physical
+字段、 ``0xa0`` translation signature和checksum；相同则不制造extended translation
+字段。
+
+不论是否翻译，第一块硬盘的IVT 41h都被改成指向EBDA ``fdpt[0]``。只有第二块硬盘才使用
+IVT 46h，第三块及以后不再写FDPT。固定单盘路径到此形成：
+
+::
+
+   DL 0x80
    → IDMap[EXTTYPE_HD][0]
-   → AHCI port 0 drive_s
+   → persistent AHCI port 0 drive_s
 
-因此“第一块硬盘是 0x80”不是 AHCI 探测时直接写进设备结构的属性。它由 BootList 排序和 ``map_hd_drive()`` 的映射顺序决定。
+但还没有发出任何AHCI READ command。
 
-用户在启动菜单中把另一块硬盘条目移到链表头部时，那块盘可能先进入 ``IDMap[...][0]``，从而成为 ``0x80``。
+generic hard-disk动作成为BEV[0]
+------------------------------
 
-为什么还要建立逻辑 CHS
---------------------
-
-``map_hd_drive()`` 随后调用：
-
-.. code-block:: c
-
-   setup_translation(drive);
-
-真实现代磁盘按 LBA 访问，传统 ``INT 13h AH=02h`` 仍使用 cylinder/head/sector 参数。
-
-SeaBIOS 因而保存两套信息：
-
-``pchs``
-   设备 IDENTIFY 或控制器提供的物理/传统几何提示。
-
-``lchs``
-   BIOS 对调用者呈现的逻辑 CHS 几何。
-
-QEMU 可以通过 CMOS 提供 translation mode；否则 SeaBIOS 根据容量和几何选择 none、large 或 LBA translation。
-
-这一步不改变磁盘实际扇区布局。它只决定传统 CHS 请求怎样翻译成 LBA：
-
-.. code-block:: c
-
-   lba = ((cylinder * heads) + head) * sectors_per_track
-         + sector - 1
-
-下一章 SeaBIOS 读取 MBR 时使用的正是旧式 ``AH=02h`` CHS 调用，因此这里的逻辑几何必须先完成。
-
-FDPT 为什么写进 EBDA
-------------------
-
-对前两块硬盘，``fill_fdpt()`` 在 EBDA 填写 Fixed Disk Parameter Table：
+``map_hd_drive`` 返回后，第一次 ``add_bev(IPL_TYPE_HARDDISK, 0)`` 看到
+``HaveHDBoot=0``，将其后增为1并写：
 
 ::
 
-   logical cylinders
-   logical heads
-   sectors per track
-   physical geometry hints
-   translation signature/checksum
+   BEV[0].type   = IPL_TYPE_HARDDISK
+   BEV[0].vector = 0
 
-第一块硬盘的 FDPT 地址写入 IVT vector ``0x41``，第二块写入 ``0x46``。
+vector为0是因为generic hard-disk动作由SeaBIOS按type分派到 ``boot_disk(0x80, 1)``，
+并非far call vector。多块SeaBIOS硬盘仍会各自按BootList顺序进入 ``IDMap[0x80...]``，
+但后续hard-disk ``add_bev`` 会被 ``HaveHDBoot`` 去重，只留下一个从当前0x80开始的启动
+动作。
 
-这是 legacy BIOS 软件查询固定磁盘参数时使用的兼容结构。现代 GRUB 通常更偏向 EDD/LBA 扩展，但 SeaBIOS 仍需维持完整传统接口。
+固定iPXE只是复制进BEV[1]
+-----------------------
 
-为什么多块硬盘只产生一个 generic hard-disk BEV
--------------------------------------------
-
-``add_bev()`` 对 hard disk 和 floppy 做去重：
-
-.. code-block:: c
-
-   if (type == IPL_TYPE_HARDDISK && HaveHDBoot++)
-       return;
-
-所以多个 ``IPL_TYPE_HARDDISK`` BootList 条目会依次映射进：
-
-::
-
-   0x80
-   0x81
-   0x82
-   ...
-
-最终 ``BEV[]`` 中只需要一个 generic hard-disk 启动动作：
-
-::
-
-   boot_disk(0x80, ...)
-
-这不是忽略后续硬盘。它表示传统 BIOS 的默认硬盘启动总是从当前映射的第一块硬盘 ``0x80`` 开始。
-
-如果启动失败，固件可以继续尝试下一个启动类型；硬盘内部的分区选择和后续读取由该硬盘上的 boot code 负责。
-
-CD-ROM 条目怎样进入最终序列
--------------------------
-
-对 ``IPL_TYPE_CDROM``：
-
-.. code-block:: c
-
-   map_cd_drive(pos->drive);
-   add_bev(IPL_TYPE_CDROM, pos->data);
-
-``map_cd_drive()`` 把 ``drive_s`` 放进 CD IDMap。随后 ``do_boot()`` 可以进入 El Torito 路径，而不是把它伪装成普通 ``0x80`` 磁盘。
-
-代码中的 ``NO BREAK`` 让 CD 条目在完成 map 后继续走通用 ``add_bev()``。
-
-真正的 Option ROM BEV 不在这里执行
---------------------------------
-
-``IPL_TYPE_BEV``、``IPL_TYPE_CBFS`` 和其他直接启动类型在当前遍历中只执行：
+第二个BootList条目是 ``IPL_TYPE_BEV``。它走switch的default分支：
 
 .. code-block:: c
 
    add_bev(pos->type, pos->data);
 
-它们被复制到最终 ``BEV[]``，等待 ``INT 19h`` 后的 ``do_boot()`` 按顺序尝试。
+于是：
 
-因此：
+::
 
-* BCV 在 ``prepareboot()`` 中执行；
-* BEV 在真正启动尝试时执行。
+   BEV[1].type   = IPL_TYPE_BEV
+   BEV[1].vector = iPXE ROM segment:0385
 
-这一区分保持了“先建立设备连接，再选择启动入口”的顺序。
+iPXE仍未执行。第022章以后只有generic hard-disk启动失败并进入INT 18h/下一项，或用户
+此前把iPXE移到链表头时， ``do_boot`` 才会选择该vector。
 
-为什么最后还强制加入 floppy 和 hard disk
-------------------------------------
+固定路径没有call_bcv
+--------------------
 
-遍历结束后执行：
+如果BootList含 ``IPL_TYPE_BCV``，遍历会：
+
+.. code-block:: c
+
+   call_bcv(pos->vector.seg, pos->vector.offset);
+   add_bev(IPL_TYPE_HARDDISK, 0);
+
+``call_bcv`` 通过与Option ROM init相同的16位big-real调用边界执行连接代码，传入的BDF
+参数为0。BCV可以安装/链式接管INT 13h或建立ROM自己的drive服务；SeaBIOS没有与该条目
+关联的 ``drive_s`` 可写入IDMap，所以只增加generic hard-disk启动动作。
+
+第020章已经核定固定e1000e ``BCV=0``，也没有legacy/storage ROM；固定BootList因而不含
+``IPL_TYPE_BCV``，本次遍历没有调用 ``call_bcv``。标题中的“处理BCV”是解释该类型的真实
+分支，不把条件能力伪装成本次事件。
+
+末尾fallback形成固定BEV[2]
+-------------------------
+
+遍历结束后，源码无条件尝试：
 
 .. code-block:: c
 
    add_bev(IPL_TYPE_FLOPPY, 0);
    add_bev(IPL_TYPE_HARDDISK, 0);
 
-如果前面已经加入同类型，去重计数器会阻止重复。
+固定此前没有floppy BootList条目， ``HaveFDBoot=0``，所以generic floppy被写成
+``BEV[2]``；它没有对应 ``IDMap[EXTTYPE_FLOPPY][0]``，真正尝试时会由INT 13h失败。末尾
+hard-disk调用因 ``HaveHDBoot`` 已非0而被去重。
 
-如果没有发现对应 BootList 条目，仍保留传统 floppy/hard-disk 尝试入口。真正访问时若 ``IDMap`` 中没有设备，``INT 13h`` 会返回错误，然后 ``INT 18h`` 进入下一个启动项。
-
-这保持了经典 BIOS 的恢复语义，也允许某些通过外部方式挂接 ``INT 13h`` 的环境继续工作。
-
-PMM 为什么在 BCV 之后失效
------------------------
-
-Option ROM init 和 BCV 执行期间，ROM 可能通过 Post Memory Manager 请求临时或永久内存。
-
-所有 BCV 执行完成后：
-
-.. code-block:: c
-
-   pmm_prepboot();
-
-会清除：
+因此固定最终序列精确为：
 
 ::
 
-   PMMHEADER.signature
-   PMMHEADER.entry
+   BEV[0] = generic hard disk → boot_disk(0x80, checksig=1)
+   BEV[1] = iPXE BEV          → far call ROM vector
+   BEV[2] = generic floppy    → boot_disk(0x00, conditional fallback)
 
-这表示 POST 内存分配服务已经关闭。启动代码不能继续把 PMM 当成运行期 BIOS API。
+它不是“只有一个硬盘项”，也不包含当前未发现的CD。
 
-关闭时机必须在 BCV 之后，否则需要内存的 storage ROM 连接代码会失去服务；也必须在跳转 boot sector 前，否则启动软件可能误用只在 POST 有效的分配器。
+cdrom_prepboot在CDCount为0时返回
+------------------------------
 
-malloc_prepboot 怎样冻结固件内存布局
---------------------------------
+固定没有ATAPI/USB CD， ``CDCount=0``。 ``cdrom_prepboot()`` 在检查到0后返回，不分配
+``DTYPE_CDEMU`` drive，也不改变BDA ``hdcount``。条件CD路径才会为之后的El Torito
+emulation预留F-segment drive。
 
-``malloc_prepboot()`` 完成几项关键动作：
+pmm_prepboot撤销可发现的PMM入口
+------------------------------
 
-#. 清零最后一个已确认 ROM 到 ROM allocation 上界之间的未使用区域；
-#. 条件放置 dummy Option ROM header，描述 upper-memory 使用范围；
-#. 把低端保留区加入 E820 ``RESERVED``；
-#. 清理未使用的 F-segment RAM；
-#. 把未使用的 ``ZoneHigh`` 页面归还为 E820 ``RAM``；
-#. 重新计算传统可用内存大小。
-
-在此之前，SeaBIOS 仍可能为了设备线程、ROM 和表结构调整分配。此后，交给 bootloader 的内存地图必须稳定。
-
-e820_prepboot 本身为什么只 dump map
---------------------------------
-
-当前实现中：
+``pmm_init()`` 在早期POST已给 ``PMMHEADER`` 写signature、entry和checksum，供Option ROM
+init/BCV阶段请求内存。现在所有固定ROM init完成且没有BCV，MainThread调用
+``pmm_prepboot()``：
 
 .. code-block:: c
 
-   void e820_prepboot(void)
-   {
-       dump_map();
-   }
+   PMMHEADER.signature = 0;
+   PMMHEADER.entry.segoff = 0;
 
-真正的 E820 增删已经在前面的平台初始化、ACPI/SMBIOS 表分配、PMM 和 ``malloc_prepboot()`` 中完成。
+这撤销了可发现的POST Memory Manager入口。顺序不能提前到条件BCV之前，也不应延后到
+boot sector已经运行以后。
 
-这里输出最终列表，意味着后续 ``INT 15h E820`` 查询将看到已经冻结的结果。
+malloc_prepboot收尾内存，但不产生“冻结开关”
+-----------------------------------------
 
-HaveRunPost 和 BIOS checksum
---------------------------
+仍在MainThread上， ``malloc_prepboot()`` 精确执行：
 
-``prepareboot()`` 最后设置：
+* 从最后确认的 ``RomEnd`` 到 ``rom_get_max()`` 清零未用ROM区；
+* 开启upper-memory配置时在上界放置dummy Option ROM header；
+* 把 ``BDA.mem_size_kb`` 以上到低RAM末端的范围加入E820 ``RESERVED``；
+* 清零 ``ZoneFSeg`` 最低未用区；
+* 将 ``ZoneHigh`` 最低空闲范围中按页对齐的部分通过 ``e820_add(..., E820_RAM)`` 归还；
+* 重新计算 ``LegacyRamSize``。
+
+这些步骤形成交给bootloader的最终内存占用结果，但源码没有设置一个“allocator/E820永久
+锁定”bit。随后 ``e820_prepboot()`` 的实现只调用 ``dump_map()``；它输出当前最终map，
+不再增删entry。当前控制流后面也没有新的E820修改，所以可以说本次handoff map已经确定，
+不能把 ``dump_map`` 本身解释成锁。
+
+HaveRunPost与BIOS checksum是prepareboot最后两次写
+----------------------------------------------
+
+SeaBIOS在 ``code_mutable_preinit()`` 已把 ``HaveRunPost`` 从0设为1，表示POST进行中。
+MainThread现在写：
 
 .. code-block:: c
 
    HaveRunPost = 2;
 
-该状态用于区分：
+``in_post()`` 因而不再返回true；QEMU shadow/reboot逻辑也能区分完成状态。值3属于恢复原始
+shadow失败后的reboot-loop防护，不是本章正常出口。
 
-* 尚未完成 POST；
-* POST 正常完成并准备启动；
-* reboot 恢复 shadow BIOS 时的异常循环状态。
+最后：
 
-随后对 ``0xf0000`` 开始的 64 KiB BIOS segment 计算 checksum，并调整 ``BiosChecksum`` 使整体校验符合预期。
+.. code-block:: c
 
-这一步发生在 shadow RAM 写保护之前，因为 checksum 字节仍需写入。
+   BiosChecksum -= checksum((u8*)0xf0000, 64 * 1024);
 
-第二十一章结束时的机器状态
------------------------
+``BiosChecksum`` 自身位于该64 KiB BIOS segment内。减去当前8-bit和后，新segment总和
+成为0 modulo 256。这个字节仍可写，因为 ``make_bios_readonly()`` 尚未调用。
 
-控制流已经走过：
+``prepareboot()`` 随即返回 ``maininit()``。本章严格停在下一条
+``make_bios_readonly()`` 之前，不提前清0x7000..EBDA、不触发INT 19h，也不读取MBR。
 
-::
+本章结束状态
+------------
 
-   maininit()
-   → interactive_bootmenu()
-   → 条件把用户选择的 BootList entry 移到链表头
-   → wait_threads()
-   → prepareboot()
-   → tpm_prepboot()
-   → bcv_prepboot()
-   → 执行所有 BCV
-   → map_floppy_drive() / map_hd_drive() / map_cd_drive()
-   → AHCI port 0 drive_s 写入 IDMap[HD][0]
-   → BDA hdcount = 1
-   → 逻辑 CHS translation
-   → EBDA FDPT 与 IVT 0x41
-   → 构造最终 BEV[] 启动尝试序列
-   → cdrom_prepboot()
-   → 关闭 PMM
-   → 冻结 malloc 与 E820 布局
-   → HaveRunPost = 2
-   → 计算 BIOS checksum
-   → prepareboot() 返回
+* current executor：BSP上的SeaBIOS ``MainThread``， ``prepareboot()`` 刚返回；
+* CPU/mode：32位保护模式，分页关闭，A20开启，MainThread IF=0；
+* threads： ``have_threads=false``；菜单后的第二次 ``wait_threads`` 固定没有迭代；
+* menu：默认提示已等待2500 ms，固定无输入，BootList顺序未改；
+* BCV：固定BootList没有BCV， ``call_bcv`` 调用次数为0；条件分支已在正文固定；
+* hard-disk map： ``IDMap[EXTTYPE_HD][0]`` 指向AHCI port 0，BDA ``hdcount=1``，
+  ``DL=0x80`` 将解析到该drive；
+* geometry：translation/LCHS已按host override或AHCI heuristic确定；精确数值随固定磁盘
+  容量/几何输入而变，不在正文伪造；
+* FDPT：EBDA ``fdpt[0]`` 已填写，IVT 41h已发布；IVT 46h未用于第二盘；
+* final boot actions： ``BEV[0]=hard disk``、 ``BEV[1]=iPXE``、
+  ``BEV[2]=floppy fallback``；BootList本身仍存在；
+* CD emulation： ``CDCount=0``，未建立 ``DTYPE_CDEMU``；
+* TPM/PMM：TPM仍不存在；PMM header signature与entry已清零；
+* memory handoff： ``malloc_prepboot`` 已完成，当前最终E820 map已dump；没有E820锁位；
+* POST/checksum： ``HaveRunPost=2``，0xf0000..0xfffff的8-bit checksum已调为0；
+* BIOS shadow：尚未重新写保护；
+* MBR、0x7c00、GRUB、Linux：均未读取或执行；
+* next entry： ``make_bios_readonly()``。
 
-此刻：
+关键边界
+--------
 
-* 当前执行者：SeaBIOS ``maininit()``；
-* 当前主流程 CPU：BSP；
-* 模式：32 位保护模式；
-* 分页：关闭；
-* BCV：已经按 BootList 顺序执行；
-* 固定 AHCI port 0 硬盘：已映射为第一块 BIOS 硬盘；
-* ``DL=0x80``：将解析到 ``IDMap[EXTTYPE_HD][0]``；
-* BDA ``hdcount``：固定单盘路径为 1；
-* FDPT/逻辑 CHS：已经建立；
-* 最终 ``BEV[]``：已经形成；
-* PMM：已经关闭；
-* E820：已经冻结；
-* BIOS checksum：已经更新；
-* MBR sector 0：尚未读取；
-* ``0x7c00``：尚未写入启动扇区；
-* GRUB：尚未执行；
-* Linux：尚未装入内存。
+#. 固定无输入菜单只等待并返回；用户选择只移动BootList条目，不直接启动它。
+#. 第二次 ``wait_threads`` 在固定同步路径是空barrier，但为
+   ``threads_during_optionroms=true`` 配置保留。
+#. fixed e1000e提供BEV而非BCV；本次 ``call_bcv=0``。
+#. ``bcv_prepboot`` 遍历BootList并另行填BEV数组，不销毁BootList。
+#. ``0x80`` 来自空IDMap/BDA上的第一次 ``map_hd_drive``，不是AHCI探测期属性。
+#. AHCI translation不走只针对 ``DTYPE_ATA`` 的QEMU CMOS特殊分支。
+#. 多块硬盘可映射多个IDMap slot，但generic hard-disk启动动作只保留一个。
+#. fixed final ``BEV[]`` 还含无mapped floppy的fallback，不能简写为只有硬盘与iPXE。
+#. ``e820_prepboot`` 只dump当前map；本章结果稳定来自后续路径不再修改，不来自锁。
+#. checksum更新发生在shadow重新写保护之前。
 
-``maininit()`` 下一步执行：
+下一入口
+--------
+
+``maininit()`` 下一条语句是：
 
 .. code-block:: c
 
    make_bios_readonly();
-   startBoot();
 
-下一章将锁定 q35 shadow BIOS，通过 ``INT 19h`` 选择 generic hard-disk 启动项，再沿 ``INT 13h AH=02h`` 把 LBA 0 的 512 字节读到物理地址 ``0x7c00``。
+第022章将从q35 PAM shadow写保护开始，再由 ``startBoot()`` 清POST临时低内存并调用
+INT 19h。固定 ``BEV[0]`` 选择generic hard disk，INT 13h才会沿
+``DL=0x80 → IDMap[EXTTYPE_HD][0] → AHCI port 0`` 读取LBA 0到0x7c00。
 
 资料
 ----
 
-* `SeaBIOS src/post.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/post.c>`_；
-* `SeaBIOS src/boot.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/boot.c>`_；
-* `SeaBIOS src/block.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/block.c>`_；
-* `SeaBIOS src/disk.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/disk.c>`_；
-* `SeaBIOS src/pmm.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/pmm.c>`_；
-* `SeaBIOS src/malloc.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/malloc.c>`_；
-* `SeaBIOS src/e820map.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/e820map.c>`_；
+* `SeaBIOS：maininit菜单、barrier与prepareboot顺序 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/post.c#L195-L234>`_；
+* `SeaBIOS：prepareboot精确收尾顺序 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/post.c#L160-L179>`_；
+* `SeaBIOS：启动菜单的默认等待与选择动作 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/boot.c#L625-L794>`_；
+* `SeaBIOS：BEV数组、BCV处理、drive map与fallback <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/boot.c#L796-L858>`_；
+* `SeaBIOS：BDA/EBDA在POST开始清零 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/post.c#L73-L99>`_；
+* `SeaBIOS：IDMap、translation、FDPT与map_hd_drive <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/block.c#L31-L299>`_；
+* `SeaBIOS：INT 13h按DL解析IDMap <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/disk.c#L699-L726>`_；
+* `SeaBIOS：无CD时cdrom_prepboot返回 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/cdrom.c#L105-L125>`_；
+* `SeaBIOS：PMM入口初始化与撤销 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/pmm.c#L154-L176>`_；
+* `SeaBIOS：malloc_prepboot的实际内存修改 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/malloc.c#L530-L566>`_；
+* `SeaBIOS：e820_prepboot只dump map <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/e820map.c#L140-L152>`_；
+* `SeaBIOS：HaveRunPost的进行中/完成状态 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/post.c#L288-L300>`_；
+* `SeaBIOS：无TPM时prepboot helper的出口 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/tcgbios.c#L1240-L1283>`_；
+* `QEMU：PC默认boot order cad及CMOS编码 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/pc.c#L251-L290>`_；
 * `BIOS Enhanced Disk Drive Specification <https://www.t13.org>`_。

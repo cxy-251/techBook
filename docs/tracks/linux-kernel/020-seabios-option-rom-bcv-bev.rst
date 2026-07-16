@@ -1,560 +1,292 @@
-第二十章：SeaBIOS 怎样扫描普通 Option ROM 并把 BCV、BEV 加入启动列表？
-=====================================================================
+第二十章：SeaBIOS怎样扫描普通Option ROM并登记BCV、BEV？
+=========================================================
 
-上一章结束时，SeaBIOS 已经完成内建设备驱动探测：
-
-::
-
-   AHCI port 0 disk
-   → IDENTIFY DEVICE
-   → boot_add_hd()
-   → wait_threads()
-   → 所有 USB、PS/2、AHCI 和其他设备线程结束
-
-控制流仍在 ``maininit()`` 的 32 位平坦地址环境中，下一条调用是：
+第019章结束时，BSP上的SeaBIOS ``MainThread`` 已从同步设备初始化路径的第一次
+``wait_threads()`` 返回。它仍在32位保护模式、分页关闭且自身IF=0的环境；固定PS/2和
+AHCI worker都已退出。 ``BootList`` 只有priority 101的ICH9 AHCI port 0硬盘，
+``IDMap`` 尚空。 ``maininit()`` 现在调用：
 
 .. code-block:: c
 
    optionrom_setup();
 
-这里处理的不是前面已经执行过的 VGA Option ROM，而是普通非显示设备的 Expansion ROM。常见用途包括：
+本章处理的是VGA阶段之后的普通Option ROM。与第017—019章采用的QEMU默认设备基线一致，
+当前没有 ``-nodefaults``、 ``-net none`` 或自定义NIC override：q35默认e1000e及其组合
+ROM因此是确定命中，不再只写成“可能存在PXE”。显式增加其他PCI设备或standalone ROM仍
+属于条件分支。
 
-* 网络控制器的 PXE ROM；
-* 自带 BIOS 驱动的存储控制器 ROM；
-* 兼容 PnP BIOS 的其他启动 ROM；
-* QEMU 或 coreboot 通过固件文件系统提供的 ``genroms/`` payload。
-
-本章结束时，这些 ROM 只会被转换成 ``BootList`` 中的 BCV 或 BEV 条目。BCV 还没有执行，硬盘也还没有取得 BIOS 驱动号 ``0x80``。
-
-为什么 VGA ROM 必须单独提前执行
------------------------------
-
-VGA ROM 已在第十七章由 ``vgarom_setup()`` 执行。它需要在设备扫描阶段前建立 ``INT 10h`` 和文字控制台，使后续 POST 信息、错误提示和启动菜单可以显示。
-
-普通 Option ROM 不承担这个基础控制台职责，因此放在内建设备驱动探测完成以后：
-
-::
-
-   vgarom_setup()
-   → enable_vga_console()
-   → device_hardware_setup()
-   → wait_threads()
-   → optionrom_setup()
-
-这样还带来一个重要结果：SeaBIOS 已经成功接管的 PCI 设备，可以在普通 ROM 扫描时被排除，避免同一控制器同时由 SeaBIOS 内建驱动和设备 ROM 初始化。
-
-optionrom_setup 先记住 VGA ROM 之后的边界
--------------------------------------
-
-``src/optionroms.c`` 进入：
-
-.. code-block:: c
-
-   void optionrom_setup(void)
-   {
-       u64 sources[(BUILD_BIOS_ADDR - BUILD_ROM_START)
-                   / OPTION_ROM_ALIGN];
-       memset(sources, 0, sizeof(sources));
-       u32 post_vga = rom_get_last();
-       ...
-   }
-
-Option ROM 的传统驻留区位于低于 1 MiB 的 ``0xc0000`` 到 ``0xf0000`` 之间。SeaBIOS 常量为：
-
-::
-
-   BUILD_ROM_START = 0x000c0000
-   BUILD_BIOS_ADDR = 0x000f0000
-   OPTION_ROM_ALIGN = 2048
-
-VGA ROM 已经占据这段区域的前部。``rom_get_last()`` 返回当前已确认 ROM 的末尾，``post_vga`` 因而成为本轮普通 ROM 扫描的起点。
-
-后面的第二遍扫描只从 ``post_vga`` 开始，不会再次把 VGA ROM 当成普通 BCV 或 BEV 处理。
-
-sources 数组为什么要记录 ROM 的来源
+post_vga把本轮扫描与VGA驻留区分开
 --------------------------------
 
-``sources`` 按 2 KiB ROM 对齐槽位记录每个已部署 ROM 来自哪里：
+``CONFIG_OPTIONROMS`` 开启时，MainThread先在当前32位栈上建立 ``sources[]`` 并清零。
+数组以2 KiB ``OPTION_ROM_ALIGN`` 为槽，覆盖 ``0xc0000`` 到 ``0xeffff`` 的传统ROM
+驻留范围；每个非零元素稍后保存该低端ROM来自哪个 ``pci_device`` 或 ``romfile_s``。
 
-* 某个 ``struct pci_device``；
-* 某个 ``romfile_s`` 固件文件。
-
-它不参与执行 ROM 代码。它用于稍后计算启动优先级。
-
-QEMU 的 ``bootorder`` 使用设备路径，例如 PCI BDF、USB 端口、ATA port 或 ROM 名称表达启动顺序。ROM 被复制到 ``0xc0000`` 区域以后，单看目标地址已经无法知道它原来属于哪个 PCI function。``sources`` 保留这种关联，使 SeaBIOS 可以调用：
-
-::
-
-   bootprio_find_pci_rom(pci, instance)
-
-或：
-
-::
-
-   bootprio_find_named_rom(file->name, instance)
-
-因此 ROM 的低端内存地址和启动优先级不是一回事。
-
-哪些 PCI 设备不会再扫描 Option ROM
---------------------------------
-
-第一遍循环是：
+接着：
 
 .. code-block:: c
 
-   foreachpci(pci) {
-       if (pci->class == PCI_CLASS_DISPLAY_VGA ||
-           pci->class == PCI_CLASS_DISPLAY_OTHER ||
-           pci->have_driver)
-           continue;
-       init_pcirom(pci, 0, sources);
-   }
+   u32 post_vga = rom_get_last();
 
-三类设备被跳过。
+第017章已把standard VGA image部署在 ``BUILD_ROM_START=0xc0000`` 一侧，并由
+``rom_confirm`` 推进 ``RomEnd``。 ``post_vga`` 记住VGA之后的第一个空闲边界；本章第二遍
+只从这里扫描，既不再次初始化VGA，也不把它登记为普通BCV/BEV。
 
-VGA 和其他显示设备
-   它们已经在专门的 VGA 阶段处理，不能再次执行。
+第一遍先按PCI身份排除两类设备
+----------------------------
 
-``have_driver`` 为真的设备
-   SeaBIOS 内建驱动已经认领并启用了该 PCI function。
-
-``have_driver`` 不是抽象的“操作系统驱动已加载”标志。它是 SeaBIOS 在自己的 PCI cache 中维护的一位状态。
-
-以下 helper 成功启用设备资源时会把它设为 1：
+MainThread遍历第007章建立的 ``PCIDevices``：
 
 .. code-block:: c
 
-   pci_enable_busmaster(pci);
-   pci_enable_iobar(pci, bar);
-   pci_enable_membar(pci, bar);
+   if (pci->class == PCI_CLASS_DISPLAY_VGA ||
+       pci->class == PCI_CLASS_DISPLAY_OTHER ||
+       pci->have_driver)
+       continue;
 
-例如上一章的 AHCI 路径已经执行：
+固定standard VGA按display class跳过。固定ICH9 AHCI则按第019章在
+``pci_enable_membar(BAR5)`` 已同步置位的 ``have_driver=1`` 跳过；即使某个port后来探测
+失败，这个C侧标志也不会由 ``wait_threads`` 才生成或自动回滚。
+
+``have_driver`` 只属于SeaBIOS的 ``pci_device`` cache，不是PCI config bit，更不是“操作
+系统驱动已加载”。Option ROM在16位环境里修改真实PCI寄存器，也不会直接改这一个C字段。
+
+固定e1000e为什么进入扫描
+------------------------
+
+QEMU PC通用默认网络开关在没有 ``-net/-netdev/-nic`` override时创建一组 ``nic,user``；
+q35 machine class把默认NIC类型定为 ``e1000e``。其PCI class是Ethernet，SeaBIOS没有内建
+e1000e网络驱动，所以对应 ``pci_device.have_driver`` 仍为0。
+
+固定QEMU e1000e class还指定：
+
+.. code-block:: c
+
+   c->romfile = "efi-e1000e.rom";
+
+名字容易让人误以为文件只有UEFI image。固定QEMU blob实际是multi-image PCI Expansion
+ROM：
 
 ::
 
-   pci_enable_membar(AHCI, BAR5)
-   pci_enable_busmaster(AHCI)
-   → pci->have_driver = 1
+   first image
+     ROM signature = 0xaa55
+     vendor/device = 8086:10d3
+     PCIR code type = 0 (x86)
+     $PnP header    = present
+     BCV            = 0
+     BEV            = 0x0385
 
-所以 q35 内置 ICH9 AHCI function 不会再被 ``optionrom_setup()`` 当作“等待 Option ROM 提供驱动”的设备。
+   following image
+     PCIR code type = 3 (EFI)
+     last-image bit = 1
 
-这正是 ``wait_threads()`` 必须先完成的原因之一。只有内建设备线程已经结束，``have_driver`` 状态才稳定。
+因此legacy SeaBIOS能选择首幅x86/iPXE image；它不会试图执行后面的EFI image。该blob在
+固定QEMU commit中的git object与SHA-256均记录在本批审计报告，避免只凭文件名推断格式。
 
-SeaBIOS 优先寻找 QEMU 提供的同名 ROM 文件
-------------------------------------
+init_pcirom先查SeaBIOS romfile，再退到PCI ROM BAR
+-----------------------------------------------
 
-``init_pcirom()`` 根据 PCI vendor ID 和 device ID 构造：
-
-.. code-block:: c
-
-   pciVVVV,DDDD.rom
-
-例如某个设备可能对应：
+对e1000e， ``init_pcirom()`` 用vendor/device拼出：
 
 ::
 
    pci8086,10d3.rom
 
-它先调用 ``romfile_find()``。在 QEMU 路径中，这类 ROM 可以通过 fw_cfg 暴露给 SeaBIOS。
+这是SeaBIOS在自己的romfile目录里查找的替代文件名，并不是QEMU设备class的
+``efi-e1000e.rom`` 名称。固定基线没有同名fw_cfg替代文件，于是 ``file=NULL``。
 
-找到文件时，SeaBIOS 使用 ``deploy_romfile()``：
-
-::
-
-   rom_reserve(file->size)
-   → 在低端 Option ROM 区预留空间
-   → file->copy()
-   → 把 ROM 内容复制进去
-
-这样 SeaBIOS 不必直接映射设备的 PCI Expansion ROM BAR。
-
-找不到固件文件时，才根据 ``RunPCIroms`` 决定是否读取设备自身的 ROM BAR：
-
-.. code-block:: c
-
-   if (file)
-       rom = deploy_romfile(file);
-   else if (RunPCIroms > 1 || (RunPCIroms == 1 && isvga))
-       rom = map_pcirom(pci);
-
-第十七章的 ``vgarom_setup()`` 已读取：
+第017章已读取：
 
 ::
 
-   etc/pci-optionrom-exec
+   RunPCIroms = romfile_loadint("etc/pci-optionrom-exec", 2)
 
-默认值为 2，表示允许普通 PCI Option ROM 扫描。平台可以通过 romfile 配置关闭或限制执行。
+默认值2允许普通PCI ROM BAR，所以控制流进入 ``map_pcirom(pci)``。如果显式把该设置改为
+0或1，非VGA e1000e ROM不会从BAR映射，本章固定iPXE BEV也不会出现。
 
-PCI Expansion ROM BAR 怎样被探测
--------------------------------
+ROM BAR只在复制期间临时打开
+--------------------------
 
-``map_pcirom()`` 只处理普通 PCI header type。它首先保存 ``PCI_ROM_ADDRESS`` 原值，然后写入掩码形式读取 ROM BAR 大小。
+``map_pcirom`` 先要求normal PCI header，保存 ``PCI_ROM_ADDRESS`` 原值，再写sizing值并
+读回实现的mask。它拒绝未实现/全1、与原值相同或落入源码禁止地址范围的结果；失败都会
+恢复原值并返回NULL。
 
-概念上与普通 BAR sizing 类似：
-
-::
-
-   保存原值
-   → 向 ROM BAR 写 sizing mask
-   → 读回设备实现的地址位
-   → 判断 ROM 是否存在以及大小是否合法
-   → 恢复或临时启用 ROM decode
-
-SeaBIOS 还拒绝明显危险的地址：
-
-* 未实现或全 1；
-* 落在低 16 MiB；
-* 落在 RAM 顶部最后 4 MiB 附近；
-* 与 sizing 返回值表现得不合理。
-
-通过检查后，它设置 ``PCI_ROM_ADDRESS_ENABLE``，让设备 ROM 暂时出现在 PCI 地址空间中。
-
-一个 ROM BAR 里可能有多个 image
------------------------------
-
-PCI Expansion ROM 可以串联多个 image。SeaBIOS 从第一个 image 开始检查：
+固定e1000e ROM BAR有效。SeaBIOS把原地址与 ``PCI_ROM_ADDRESS_ENABLE`` 一起写回，使
+QEMU ROM memory region暂时可读，然后从第一幅image开始检查：
 
 ::
 
-   0xaa55 ROM header
-   → rom->pcioffset
-   → "PCIR" data structure
-   → vendor/device
-   → code type
-   → image length
-   → indicator: 是否最后一个 image
+   0xaa55 header
+   → PCIR signature
+   → vendor/device match
+   → code type 0
 
-固定结构定义中：
+若一幅image不匹配且PCIR last-image bit未置位，指针按 ``ilen * 512`` 前进；固定首幅
+已经匹配。 ``copy_rom()`` 按首幅ROM header的 ``size * 512`` 在低端ROM区预留空间并
+复制它，随后立即把PCI ROM BAR恢复到原值。后续init、PnP解析和BEV调用都使用低端副本，
+不要求BAR继续decode。
 
-.. code-block:: c
+checksum一直计算，EnforceChecksum才决定是否拒绝
+----------------------------------------------
 
-   #define OPTION_ROM_SIGNATURE 0xaa55
-   #define PCI_ROM_SIGNATURE    0x52494350  /* "PCIR" */
-   #define PCIROM_CODETYPE_X86  0
+``init_optionrom()`` 对低端副本调用 ``is_valid_rom()``。它总是检查signature和非零
+size，也总是对 ``size * 512`` bytes计算8-bit checksum。checksum非零一定打印诊断；
+只有第017章默认读取的 ``EnforceChecksum=1`` 才把它变成拒绝条件。
 
-SeaBIOS 要求：
+固定首幅image通过校验。MainThread再调用 ``rom_reserve`` 确认驻留空间，并执行
+``tpm_option_rom``。第016章已证明固定机器没有TPM2/TCPA table、 ``TPM_working=0``，
+所以measurement helper不创建event log或PCR变化。
 
-* ``PCIR`` vendor/device 与当前 PCI function 匹配；
-* code type 为传统 x86 image。
-
-如果当前 image 不匹配且 ``indicator`` 说明后面还有 image，它按 ``ilen * 512`` 前进到下一幅 image。
-
-找到合适的 x86 image 后，``copy_rom()`` 将其复制到 ``0xc0000`` 以下的传统 ROM 驻留区，并恢复 PCI ROM BAR 原值。后续执行不再依赖设备 ROM BAR 继续保持映射。
-
-ROM header 中的 size 为什么以 512 字节为单位
------------------------------------------
-
-SeaBIOS 的结构为：
-
-.. code-block:: c
-
-   struct rom_header {
-       u16 signature;
-       u8  size;
-       u8  initVector[4];
-       ...
-       u16 pcioffset;
-       u16 pnpoffset;
-   };
-
-``size`` 表示 512-byte blocks，因此 ROM 总长度是：
-
-.. code-block:: c
-
-   len = rom->size * 512;
-
-``is_valid_rom()`` 检查：
-
-#. signature 必须是 ``0xaa55``；
-#. size 不能为 0；
-#. 整个 image 的 8 位 checksum 应为 0。
-
-当 ``etc/optionroms-checksum`` 开启时，checksum 错误会直接拒绝该 ROM。
-
-ROM 为什么还要复制到 1 MiB 以下
-------------------------------
-
-Option ROM 的初始化入口、PnP expansion header 和 BCV/BEV 都使用 16 位 segment:offset 表达。
-
-SeaBIOS 随后会通过 ``farcall16big()`` 执行这些入口。把 ROM 保存在 ``0xc0000`` 到 ``0xeffff`` 的传统区域，满足旧 BIOS 软件对地址和段式调用的预期。
-
-``rom_reserve()`` 以 ``OPTION_ROM_ALIGN`` 对齐分配；``rom_confirm()`` 按 ROM 实际报告的 size 确认占用。这样 ROM 返回后修改自己的 size 字段时，SeaBIOS仍以最后确认值推进下一槽位。
-
-为什么不是所有 ROM 都立即调用 offset 3
------------------------------------
-
-标准初始化入口位于 ROM header 内的 ``initVector``，即相对 ROM 起点 offset 3。
-
-SeaBIOS 的 ``init_optionrom()`` 执行：
-
-.. code-block:: c
-
-   tpm_option_rom(newrom, size);
-
-   if (isvga || get_pnp_rom(newrom))
-       callrom(newrom, bdf);
-
-这意味着当前普通扫描阶段：
-
-* PnP ROM 会立即执行初始化入口；
-* VGA ROM 已在前一阶段立即执行；
-* 没有 PnP expansion header 的 legacy ROM 暂不执行。
-
-legacy ROM 后面会被注册为 BCV，并在 ``bcv_prepboot()`` 中按启动顺序执行 offset 3。
-
-这样可以先完成所有 ROM 的部署和优先级排序，再决定 legacy storage ROM 的执行顺序。
-
-调用 ROM 前 SeaBIOS 准备哪些寄存器
+PnP header让init vector现在就执行
 --------------------------------
 
-``__callrom()`` 构造 16 位调用上下文：
+固定首幅image的 ``rom_header.pnpoffset`` 指向有效 ``$PnP`` header，因此
+``init_optionrom`` 立即调用标准offset 3。 ``__callrom()`` 构造16位寄存器帧：
 
 ::
 
-   AX = PCI BDF
+   AX = e1000e PCI BDF
    BX = 0xffff
    DX = 0xffff
    ES = 0xf000
    DI = PnP installation structure offset
    FLAGS.IF = 1
-   CS:IP = ROM segment:entry offset
+   CS:IP = ROM segment:0003
+
+``start_preempt → farcall16big`` 把执行者交给低端iPXE x86 image。该二进制的内部实现不在
+固定SeaBIOS源码里，本章不猜测它留下的私有NIC数据结构；当前成功主线只使用可观察边界：
+init调用返回， ``finish_preempt()`` 恢复SeaBIOS MainThread，且本章最后从PnP header
+取得固定BEV。
+
+调用前后， ``init_pcirom`` 比较IVT 19h。只有同时满足“本次调用新捕获INT 19h、ROM来自
+PCI ROM BAR而非SeaBIOS替代file、非VGA、并有PnP header”时，它才把vector恢复为
+``entry_19_official``。这条保护不等于禁止所有ROM改IVT，也不删除ROM声明的BEV。
+
+无PnP legacy ROM此刻反而不会执行
+------------------------------
+
+``init_optionrom`` 的调用条件是：
+
+.. code-block:: c
+
+   if (isvga || get_pnp_rom(newrom))
+       callrom(newrom, bdf);
+
+因此显式附加的无PnP legacy ROM在第一遍只会部署，不会在这里调用offset 3。稍后第二遍
+会把offset 3登记成BCV，到第021章的 ``bcv_prepboot`` 才执行。PnP init、BCV和BEV是三个
+不同时间边界：
+
+::
+
+   PnP init vector → deployment phase now
+   BCV             → prepareboot phase
+   BEV             → INT 19h boot-attempt phase
+
+固定e1000e有PnP init和BEV，没有BCV。
+
+其他PCI function与genroms分支
+-----------------------------
+
+第一遍继续遍历其余未认领、非display PCI functions。没有ROM BAR或匹配x86 image的设备
+在 ``init_pcirom`` 内恢复BAR并返回，不留下source或BootList条目。
 
 随后：
 
 .. code-block:: c
 
-   start_preempt();
-   farcall16big(&br);
-   finish_preempt();
-
-``farcall16big()`` 让 ROM 在 16 位 big-real 环境中执行，同时保持对扩展地址的访问能力。ROM 返回后，SeaBIOS恢复自己的 32 位主流程。
-
-PnP ROM 不应偷偷夺走 INT 19h
---------------------------
-
-某些旧 ROM 会在初始化阶段改写 ``INT 19h``，试图直接控制系统启动。SeaBIOS 对 PnP ROM 做额外防护：
-
-::
-
-   调用前记录 INT 19h 是否已经被捕获
-   → 执行 ROM init
-   → 检查 INT 19h 是否出现新的修改
-   → 对不符合当前规则的普通 PnP PCI ROM恢复 SeaBIOS entry_19_official
-
-检测依据是 IVT 中 ``INT 19h`` vector 是否仍指向 SeaBIOS 官方入口。
-
-这不是禁止 ROM 提供启动能力。正确路径是通过 PnP header 的 BCV 或 BEV 声明启动入口，由 SeaBIOS纳入统一 BootList，而不是在初始化时直接覆盖整个启动流程。
-
-CBFS genroms 与 PCI ROM 的区别
-----------------------------
-
-PCI 扫描结束后执行：
-
-.. code-block:: c
-
    run_file_roms("genroms/", 0, sources);
 
-它遍历固件文件系统中名字以 ``genroms/`` 开头的文件，将其部署到相同的低端 Option ROM 区。
+它处理QEMU ``-option-rom``、direct-kernel辅助ROM或其他显式standalone image经fw_cfg
+形成的 ``genroms/`` 文件。固定主线没有这些输入，目录遍历为空。这里不能把PCI
+e1000e ROM BAR副本再算作一个 ``genroms`` 文件。
 
-这类 ROM 不一定关联某个 PCI function。它们的启动优先级通过文件名路径计算：
+所有来源部署完后， ``rom_reserve(0)`` 结束当前reservation。低端地址已稳定，
+``sources[]`` 仍只在本次 ``optionrom_setup`` 栈帧内保存“驻留槽→来源”的对应关系。
 
-::
+第二遍只登记启动能力
+--------------------
 
-   /rom@genroms/<name>
+MainThread从 ``post_vga`` 走到新的 ``rom_get_last()``。每个2 KiB槽先再次做
+``is_valid_rom``；无效槽前进2 KiB，有效ROM按其 ``size * 512`` 向上对齐后跨过整个
+image。固定e1000e低端副本有效且有PnP header，于是进入header链。
 
-因此 ``sources`` 必须同时支持 PCI device pointer 和 romfile pointer 两种来源。
-
-为什么要在部署后再进行第二遍扫描
-------------------------------
-
-所有 PCI 和 CBFS ROM 部署完成后，SeaBIOS 调用：
-
-.. code-block:: c
-
-   rom_reserve(0);
-
-随后从 ``post_vga`` 扫描到 ``rom_get_last()``。
-
-第一遍工作的重点是：
-
-* 找到 ROM 来源；
-* 选择匹配的 x86 image；
-* 验证并复制到低端内存；
-* 条件执行 PnP init；
-* 保留来源到优先级的映射。
-
-第二遍工作的重点是：
-
-* 按最终驻留布局重新验证每个 ROM；
-* 读取 PnP expansion header；
-* 生成 BCV 或 BEV ``BootList`` 条目。
-
-分成两遍后，BootList 构造面对的是稳定的最终 ROM 地址，而不是仍可能移动的临时来源地址。
-
-没有 PnP header 的 ROM怎样处理
------------------------------
-
-如果 ``get_pnp_rom()`` 返回空，SeaBIOS 把它视为 legacy ROM：
+首个header的 ``bev=0x0385`` 非零，优先于 ``bcv`` 分支：
 
 .. code-block:: c
 
-   boot_add_bcv(rom_segment,
-                OPTION_ROM_INITVECTOR,
-                0,
-                priority);
+   boot_add_bev(rom_segment, 0x0385, productname, priority);
 
-这里把标准 offset 3 当成 BCV。
-
-它此时仍没有执行 ROM。``boot_add_bcv()`` 只是向 BootList 插入：
+``getRomPriority`` 通过 ``sources[]`` 找回e1000e ``pci_device``，调用
+``bootprio_find_pci_rom(pci, instance=0)``。固定没有NIC bootindex，查找返回-1；
+``boot_add_bev`` 使用QEMU CMOS old-style boot order留下的
+``DefaultBEVPrio=9999``。PnP product name指向 ``iPXE``，所以新增条目是：
 
 ::
 
-   type = IPL_TYPE_BCV
-   vector = ROM segment:0003
-   priority = ROM 对应的启动优先级
-   description = "Legacy option rom"
+   type        = IPL_TYPE_BEV
+   vector      = ROM segment:0385
+   priority    = 9999
+   description = iPXE
 
-执行要等到 ``prepareboot():bcv_prepboot()``。
+``nextoffset=0`` 结束该ROM的PnP链。固定AHCI hard disk原有priority 101，因此排序后的
+BootList仍以磁盘开头，iPXE BEV在后；PCI扫描先后没有覆盖这个priority比较。
 
-PnP expansion header 怎样声明 BCV 和 BEV
--------------------------------------
+条件BCV怎样被登记
+----------------
 
-``rom_header.pnpoffset`` 指向 ``struct pnp_data``。当前 SeaBIOS 使用的关键字段是：
+第二遍对其他可能的ROM遵守两条互斥规则：
 
-::
+* 没有PnP header：把standard offset 3登记为 ``IPL_TYPE_BCV``，描述为
+  ``Legacy option rom``；
+* 有PnP header：每个header先看 ``bev``，只有它为0才看 ``bcv``；两者都为0就停止该链。
 
-   "$PnP" signature
-   nextoffset
-   productname
-   bcv
-   bev
+``boot_add_bcv`` 和 ``boot_add_bev`` 都只分配 ``bootentry_s`` 并按priority插入
+BootList。它们不在本章执行BCV/BEV，不创建 ``drive_s``，也不改BDA ``hdcount``。固定
+默认ROM集合没有BCV，只有e1000e的iPXE BEV。
 
-一个 ROM 可以通过 ``nextoffset`` 串联多个 PnP header，因而可以声明多个启动实例。
+optionrom_setup返回时仍是POST主控制流
+-----------------------------------
 
-第二遍扫描按每个 PnP header 判断：
+第二遍结束后 ``sources[]`` 随函数栈退出；低端ROM副本和BootList条目继续存在。
+MainThread没有从 ``optionrom_setup`` 创建新的SeaBIOS协作worker；第019章的
+``have_threads=false`` 仍成立。控制流回到 ``maininit()``，下一条调用是
+``interactive_bootmenu()``。
 
-.. code-block:: c
+本章结束状态
+------------
 
-   if (pnp->bev)
-       boot_add_bev(...);
-   else if (pnp->bcv)
-       boot_add_bcv(...);
+* current executor：BSP上的SeaBIOS ``MainThread``，已从 ``optionrom_setup()`` 返回；
+* CPU/mode：32位保护模式，分页关闭，A20开启，MainThread IF=0；
+* threads：固定没有协作worker， ``have_threads=false``；
+* VGA ROM：保持第017章低端驻留状态，本章按class和 ``post_vga`` 边界跳过；
+* fixed AHCI： ``have_driver=1``，本章未映射或执行其PCI ROM；
+* fixed default NIC：QEMU e1000e存在，SeaBIOS无内建driver；首幅x86/iPXE image已从ROM
+  BAR复制到低端ROM区并调用PnP init，PCI ROM BAR已恢复；
+* TPM：仍不存在；Option ROM measurement无状态变化；
+* fixed ordinary ROM capabilities：e1000e PnP header提供BEV 0x0385、BCV 0；
+  ``genroms/`` 为空，没有legacy/PnP BCV；
+* ``BootList``：依次包含AHCI hard disk(priority 101)与iPXE BEV(priority 9999)；
+* ``IDMap``、BDA ``hdcount``、FDPT与最终 ``BEV[]``：尚未建立， ``hdcount=0``；
+* MBR、GRUB、Linux：均未读取或执行；
+* next entry： ``interactive_bootmenu()``。
 
-``BCV``——Boot Connection Vector
-   用于把设备接入传统 BIOS 磁盘启动路径。执行 BCV 后，ROM 通常安装或扩展自己的磁盘服务，使设备能作为硬盘类启动来源。
+关键边界
+--------
 
-``BEV``——Boot Execution Vector
-   是可以直接尝试启动的入口。PXE ROM 常通过 BEV 进入网络启动环境。
+#. ``post_vga`` 是第二遍普通ROM扫描起点，不是整个ROM区起点。
+#. fixed AHCI由 ``have_driver`` 跳过；该标志早在BAR5 helper成功时置位。
+#. 固定默认e1000e的 ``efi-e1000e.rom`` 是包含x86首幅image的组合ROM，文件名不能替代
+   PCIR/header检查。
+#. SeaBIOS先查 ``pciVVVV,DDDD.rom`` 替代file；固定e1000e实际走PCI ROM BAR。
+#. checksum总会计算； ``EnforceChecksum`` 只控制坏checksum是否拒绝。
+#. PnP ROM的offset 3 init现在执行；无PnP legacy offset 3作为BCV留到第021章。
+#. INT 19h恢复只覆盖来自PCI BAR的非VGA PnP ROM在本次新捕获的窄条件。
+#. ``boot_add_bev`` 只登记vector；固定iPXE尚未执行，固定硬盘也尚未映射成0x80。
+#. fixed BootList没有BCV；“SeaBIOS支持BCV”不能改写成“本次已经执行BCV”。
 
-两者不会在 ``optionrom_setup()`` 中直接开始最终启动。它们先成为 BootList 的不同类型条目。
-
-为什么 BEV 与 BCV 不能混为一种入口
--------------------------------
-
-BCV 的职责偏向“建立传统设备连接”：
-
-::
-
-   执行 ROM 连接代码
-   → 安装设备服务或扩展 INT 13h
-   → 把该类设备加入硬盘启动路径
-
-BEV 的职责偏向“直接尝试从该 ROM 启动”：
-
-::
-
-   选择该启动项
-   → 直接 far call 到 BEV
-   → ROM 自己完成网络或其他启动协议
-
-所以后续 ``bcv_prepboot()`` 会先执行 BCV；BEV 则保留在最终启动尝试序列中。
-
-BootList 怎样保持确定顺序
------------------------
-
-``boot_add_bcv()`` 与 ``boot_add_bev()`` 最终都调用 ``bootentry_add()``。
-
-BootList 按以下条件排序：
-
-#. priority 较小者靠前；
-#. priority 相同按启动类型；
-#. 磁盘类条目还按 drive type 和 controller id 排序。
-
-因此：
-
-* ROM 在 PCI bus 上的扫描先后不直接决定启动先后；
-* ROM 初始化线程完成先后不决定启动先后；
-* QEMU ``bootorder`` 和默认类别优先级决定主要顺序。
-
-如果 PnP ROM 有多个 header，``instance`` 会参与 ``bootprio_find_pci_rom()`` 或 ``bootprio_find_named_rom()``，使同一 ROM 的多个启动入口也可分别排序。
-
-固定 q35 AHCI 磁盘在本章中发生什么
---------------------------------
-
-固定启动盘已经由 SeaBIOS AHCI 驱动认领：
-
-::
-
-   ICH9 AHCI
-   → pci_enable_membar(BAR5)
-   → pci_enable_busmaster()
-   → have_driver = 1
-   → optionrom_setup() 跳过
-
-因此这块盘不会依靠存储 Option ROM 重新出现。它原有的 ``IPL_TYPE_HARDDISK`` 条目继续保留在 BootList 中。
-
-普通 ROM 扫描可能额外加入：
-
-* 条件网络 PXE BEV；
-* 条件第三方存储 BCV；
-* 条件 CBFS ROM；
-* 其他 PnP 启动入口。
-
-具体是否存在取决于 QEMU 命令行、固件 ROM 文件和已配置设备。固定主线只要求 AHCI port 0 硬盘存在，不把条件 ROM 当作必然设备。
-
-第二十章结束时的机器状态
-----------------------
-
-控制流已经走过：
-
-::
-
-   maininit()
-   → optionrom_setup()
-   → 记录 post_vga 边界
-   → 遍历非显示、未被 have_driver 认领的 PCI function
-   → 优先查找 pciVVVV,DDDD.rom
-   → 条件映射 PCI Expansion ROM BAR
-   → 选择匹配 vendor/device 的 x86 image
-   → 复制到 0xc0000..0xeffff
-   → 验证 0xaa55 / size / checksum
-   → TPM 条件测量
-   → 条件执行 PnP ROM init vector
-   → 条件恢复被错误捕获的 INT 19h
-   → 部署 genroms/
-   → 第二遍扫描最终 ROM 驻留区
-   → legacy ROM 转成 BCV
-   → PnP header 转成 BCV 或 BEV
-   → 插入按优先级排序的 BootList
-   → optionrom_setup() 返回
-
-此刻：
-
-* 当前执行者：SeaBIOS ``maininit()``；
-* 当前主流程 CPU：BSP；
-* 模式：32 位保护模式；
-* 分页：关闭；
-* VGA ROM：已经在更早阶段执行；
-* 普通 PCI/CBFS ROM：已经部署和解析；
-* PnP ROM init vector：已经条件执行；
-* legacy BCV：尚未执行；
-* PnP BCV：尚未执行；
-* BEV：已经登记，尚未作为启动入口调用；
-* ``BootList``：已包含内建设备条目及条件 BCV/BEV/CBFS 条目；
-* BIOS drive ``0x80`` mapping：尚未建立；
-* MBR sector 0：尚未读取；
-* GRUB：尚未执行；
-* Linux：尚未装入内存。
+下一入口
+--------
 
 ``maininit()`` 的下一条调用是：
 
@@ -562,15 +294,25 @@ BootList 按以下条件排序：
 
    interactive_bootmenu();
 
-启动菜单可以临时把用户选择的 BootList 条目移到链表头部。随后 ``prepareboot():bcv_prepboot()`` 才会执行 BCV、建立 BIOS 驱动映射并生成最终启动尝试序列。
+第021章固定沿默认无按键输入路径等待2500 ms后保持BootList顺序，再经过第二次
+``wait_threads()`` 进入 ``prepareboot()``。只有在那里才处理条件BCV类型、把固定AHCI
+``drive_s`` 写入 ``IDMap[EXTTYPE_HD][0]``，并另行构造最终启动尝试 ``BEV[]``。
 
 资料
 ----
 
-* `SeaBIOS src/post.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/post.c>`_；
-* `SeaBIOS src/optionroms.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/optionroms.c>`_；
-* `SeaBIOS src/std/optionrom.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/std/optionrom.h>`_；
-* `SeaBIOS src/hw/pcidevice.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/pcidevice.c>`_；
-* `SeaBIOS src/boot.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/boot.c>`_；
-* `PCI Firmware Specification <https://pcisig.com/specifications>`_；
-* `QEMU fw_cfg specification <https://www.qemu.org/docs/master/specs/fw_cfg.html>`_。
+* `SeaBIOS：普通Option ROM两遍扫描 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/optionroms.c#L359-L419>`_；
+* `SeaBIOS：ROM校验、PnP/PCI header与调用帧 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/optionroms.c#L29-L145>`_；
+* `SeaBIOS：romfile部署与source记录 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/optionroms.c#L147-L203>`_；
+* `SeaBIOS：PCI ROM BAR选择、复制与恢复 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/optionroms.c#L206-L310>`_；
+* `SeaBIOS：init_pcirom与INT 19h窄恢复条件 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/optionroms.c#L312-L356>`_；
+* `SeaBIOS：VGA阶段加载RunPCIroms和checksum策略 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/optionroms.c#L450-L489>`_；
+* `SeaBIOS：Option ROM与PnP结构字段 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/std/optionrom.h#L1-L57>`_；
+* `SeaBIOS：BootList排序、BCV与BEV登记 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/boot.c#L499-L584>`_；
+* `QEMU：q35默认NIC为e1000e <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/pc_q35.c#L355-L370>`_；
+* `QEMU：q35构建默认启用e1000e支持 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/Kconfig#L101-L119>`_；
+* `QEMU：无network override时创建默认nic,user <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/system/vl.c#L1343-L1457>`_；
+* `QEMU：e1000e PCI身份与默认ROM文件 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/net/e1000e.c#L676-L708>`_；
+* `QEMU固定e1000e组合ROM blob <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/pc-bios/efi-e1000e.rom>`_；
+* `QEMU：PCI设备默认ROM装载到ROM BAR <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/pci/pci.c#L2538-L2645>`_；
+* `PCI Firmware Specification <https://pcisig.com/specifications>`_。
