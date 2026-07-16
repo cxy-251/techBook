@@ -1,326 +1,225 @@
+.. SPDX-License-Identifier: GPL-2.0
+
+======================================================================
 第三十八章：Linux common_startup_64 怎样建立 boot CPU 的最早运行上下文？
 ======================================================================
 
-第三十七章结束时，解压后的正式内核已经完成页表物理地址修正，并第一次跳到高半区虚拟地址：
+第037章结束时，BSP已通过修正后的 ``early_top_pgt`` 第一次在正式kernel high mapping上进入
+``common_startup_64``。CPU仍是64-bit long mode，IF/DF为0； ``R15=Z``， ``phys_base=O``；
+页表同时保留无global的temporary identity mapping与正式高半区mapping。当前stack是
+``__top_init_kernel_stack``，GSBASE仍为0，bringup IDT只按build提供早期 ``#VC``。
 
-.. code-block:: text
+``common_startup_64`` 位于 ``secondary_startup_64`` 的公共后半段，BSP和以后启动的AP共用。
+本章只选择当前boot CPU实际分支，建立logical CPU0的stack、GDT与GS/per-CPU环境，再规范化
+EFER、CR0和flags，停在 ``x86_64_start_kernel(Z)`` 第一条C语句之前。
 
-   arch/x86/kernel/head_64.S:common_startup_64
+CR4先丢弃未列入preserve mask的状态
+-------------------------------------
 
-此刻执行的已经不是 ``arch/x86/boot/compressed`` 中的解压器，而是正式内核映像中的汇编入口。CPU 处于 64 位 long mode，``CR3`` 指向修正后的 ``early_top_pgt``，``R15`` 保存 bootloader 传入的 ``boot_params`` 地址。
+入口构造：
 
-不过，这还不足以安全进入通用 C 初始化。当前页表中仍可能残留临时 identity mapping 的全局 TLB 项；CPU 还没有稳定的逻辑编号和 per-CPU 基址；栈、GDT、IDT、``EFER`` 与 ``CR0`` 也需要按照正式内核要求重新整理。
+::
 
-``common_startup_64`` 就是在完成这次收口。
+   preserve = CR4.PAE | CR4.LA57
+   preserve |= CR4.MCE                  if CONFIG_X86_MCE
+   value = current CR4 & preserve
 
-先清理 ``CR4`` 中不应继承的状态
----------------------------------
+PAE必须保留；LA57必须与compressed阶段选择的page-table层级一致；某些强制machine-check环境
+不能安全清MCE，所以只有相应build才保留。其他bootloader/decompressor残留CR4 feature不继续
+进入正式CPU上下文。
 
-入口先构造允许保留的 ``CR4`` 位掩码：
+源码随后先在 ``value`` 中设置PSE并写CR4，再设置PGE并第二次写CR4。第一写刻意不含PGE，通用
+代码借此保证若入口原有global translations，它们不会跨过该边界；第二写重新允许正式kernel
+使用global mappings。当前BSP路径在第035章已经把CR4收窄到PAE/MCE/LA57，第037章切换用的
+identity PMD又明确不带global，所以这里不能夸写成“本次必然刚清掉一批compressed global
+TLB”；它首先是BSP/AP共享的状态规范化序列。
 
-.. code-block:: asm
+PSE在long mode page walk中即使被硬件忽略，源码也统一为所有logical CPU设置；PGE则从此对
+正式kernel page-table entry生效。
 
-   movl $(X86_CR4_PAE | X86_CR4_LA57), %edx
+BSP的logical CPU number来自静态 ``smpboot_control=0``
+-----------------------------------------------------
 
-启用机器检查支持的配置还会保留 ``CR4.MCE``。随后：
+在 ``CONFIG_SMP`` build中，共享代码读取 ``smpboot_control``。并行AP路径会带
+``STARTUP_READ_APICID``，再从x2APIC MSR或APIC MMIO取hardware ID并扫描
+``cpuid_to_apicid``。当前是第一次启动的BSP，固定 ``smpboot_control`` 初值为0，没有control
+flag，低24位直接编码logical CPU number：
 
-.. code-block:: asm
-
-   movq %cr4, %rcx
-   andl %edx, %ecx
-
-这一步不是单纯“设置几个位”，而是主动丢弃 bootloader、解压器或前一阶段可能留下的其他 ``CR4`` 状态。
-
-必须保留的主要项目是：
-
-* ``PAE``：64 位分页结构仍然依赖它；
-* ``LA57``：若 compressed 阶段已经切到 5 级分页，此处不能擅自关闭；
-* ``MCE``：某些平台强制保持机器检查能力，贸然清除可能直接异常。
-
-为什么要暂时清掉 ``PGE``
---------------------------
-
-``PGE`` 是 Page Global Enable。页表项带 ``Global`` 位时，普通 ``CR3`` 切换不一定把对应 TLB 项清除。
-
-前面正式 ``startup_64`` 虽然已经换到 ``early_top_pgt``，但 compressed 阶段和 identity mapping 可能留下 global translation。内核不希望这些旧的 1:1 地址翻译继续潜伏在 TLB 中。
-
-因此掩码没有保留 ``PGE``。写回 ``CR4`` 时，若原先 ``PGE=1``，它会变成 0。x86 规定这种变化会清除 global TLB entries。
-
-随后代码重新设置：
-
-.. code-block:: asm
-
-   btsl $X86_CR4_PSE_BIT, %ecx
-   movq %rcx, %cr4
-
-   btsl $X86_CR4_PGE_BIT, %ecx
-   movq %rcx, %cr4
-
-``PSE`` 统一开启大页能力；``PGE`` 在旧 global translation 被冲掉以后重新开启，供正式内核页表使用。
-
-这段顺序可以概括为：
-
-.. code-block:: text
-
-   保存 PAE / LA57 / MCE
-   → 清除其余 CR4 状态
-   → 借 PGE 从 1 到 0 清掉旧 global TLB
-   → 开启 PSE
-   → 重新开启 PGE
-
-确定当前逻辑 CPU 编号
----------------------
-
-同一段 ``common_startup_64`` 以后也会被 AP 使用，因此源码同时包含 boot CPU 和 secondary CPU 两条路径。
-
-对于当前 BSP，``smpboot_control`` 中没有 ``STARTUP_READ_APICID`` 标志，低位直接给出 CPU 编号。boot CPU 的编号是 0：
-
-.. code-block:: asm
-
-   movl smpboot_control(%rip), %ecx
-   testl $STARTUP_READ_APICID, %ecx
-   jnz .Lread_apicid
-
-   andl $(~STARTUP_PARALLEL_MASK), %ecx
-   jmp .Lsetup_cpu
-
-因此当前主线中：
-
-.. code-block:: text
+::
 
    ECX = 0
+   RDX = __per_cpu_offset[0]
 
-AP 路径复杂得多。它可能：
+若build没有SMP，汇编直接令 ``RDX=0``。两种build都进入boot CPU的initial per-CPU区；不能因
+缺少 ``.config`` 编造NR_CPUS或APIC ID，也没有AP在本章参与。
 
-* 从 x2APIC ID MSR 读取 APIC ID；
-* 或从 local APIC MMIO 的 ``APIC_ID`` 寄存器读取；
-* 再扫描 ``cpuid_to_apicid[]``，把硬件 APIC ID 映射成 Linux 逻辑 CPU 编号。
+``current_task[CPU0]`` 把stack落实到 ``init_task``
+--------------------------------------------------
 
-这两条路径共用后面的 ``.Lsetup_cpu``，但当前 BSP 不需要读取 APIC ID。
-
-从 CPU 编号得到 per-CPU offset
------------------------------
-
-Linux 的很多变量在源码中看起来只有一份，运行时每个 CPU 实际拥有自己的副本。访问某个 CPU 的副本时，需要把该 CPU 的 per-CPU offset 加到变量基址上。
-
-汇编执行：
-
-.. code-block:: asm
-
-   movq __per_cpu_offset(,%rcx,8), %rdx
-
-当前 ``RCX=0``，所以 ``RDX`` 得到 CPU 0 的 per-CPU offset。
-
-在完整 per-CPU allocator 尚未运行的阶段，boot CPU 仍主要使用内核映像中的初始 per-CPU 区域。这里先把统一的寻址规则建立起来，使后面的汇编和 C 代码可以通过 CPU-local 数据结构工作。
-
-切到 ``init_task`` 的正式内核栈
-------------------------------
-
-上一章正式 ``startup_64`` 临时把 ``RSP`` 指向 ``__top_init_kernel_stack``。进入公共路径后，内核通过 per-CPU ``current_task`` 找到当前任务，再读取它保存的栈顶：
+有了per-CPU offset，汇编读取：
 
 .. code-block:: asm
 
    movq current_task(%rdx), %rax
    movq TASK_threadsp(%rax), %rsp
 
-boot CPU 当前任务是静态建立的 ``init_task``，因此这一步把：
+CPU0的 ``current_task`` 初值指向静态 ``init_task``， ``thread.sp`` 给出它的boot stack top。
+这一步把第037章仅供最早入口/verify使用的RIP-relative ``__top_init_kernel_stack``，收口为
+“当前task所拥有的stack”。两者可能落在同一initial stack对象，但所有权表达已经从固定symbol
+转成per-CPU current task。
 
-.. code-block:: text
+AP从real-mode trampoline进入时会在拥有自己的stack后释放 ``trampoline_lock``。当前BSP的
+``trampoline_lock`` pointer初值为NULL，test后直接跳到GDT设置，不写任何low trampoline lock。
 
-   current_task[CPU0]
-   → init_task
-   → init_task.thread.sp
-   → RSP
+GDTR改指向CPU0的per-CPU ``gdt_page``
+-------------------------------------
 
-连接起来。
+代码在当前stack临时放16-byte ``desc_ptr``：limit为 ``GDT_SIZE-1``，base为
+``gdt_page+RDX``，执行 ``lgdt`` 后立即回收这16 bytes。随后把 ``DS/SS/ES/FS/GS`` visible
+selectors全部清0。
 
-从这里开始，主流程使用的是 task 语义下的正式启动栈，而不是解压器栈或仅用于入口过渡的临时栈。
+这与第037章startup GDT不是重复的同一所有权边界：startup helper先提供物理入口可用的
+正式kernel descriptor；这里根据logical CPU/per-CPU offset切到CPU0自己的GDT page，为以后每
+颗CPU独立descriptor state建立规则。当前没有加载最终TSS或完整runtime GDT内容，那些属于后续
+CPU初始化。
 
-``trampoline_lock`` 为什么对 BSP 为空
-------------------------------------
+GSBASE此时才获得正式per-CPU语义
+--------------------------------
 
-AP 从 real-mode trampoline 启动时，需要一个锁保护共享的启动跳板。切到自己的栈后，AP 会把锁清零，让下一颗 CPU 可以使用 trampoline。
+汇编把64-bit ``RDX`` 拆成 ``EDX:EAX``，写入 ``MSR_GS_BASE``：
 
-代码是：
+::
 
-.. code-block:: asm
+   GSBASE = __per_cpu_offset[0]          CONFIG_SMP
+   GSBASE = 0                            !CONFIG_SMP
 
-   movq trampoline_lock(%rip), %rax
-   testq %rax, %rax
-   jz .Lsetup_gdt
-   movl $0, (%rax)
+第037章正式startup曾明确把GSBASE清0；从当前写MSR之后， ``%gs:percpu_symbol`` 才按CPU0
+initial per-CPU区解释。boot CPU在完整per-CPU areas建立前继续使用init data section，这不是
+percpu allocator已经运行。
 
-boot CPU 并不是从 AP trampoline 进入，``trampoline_lock`` 指针为 0，所以直接跳到 ``.Lsetup_gdt``。
+``early_setup_idt`` 仍只管理bringup IDT
+---------------------------------------
 
-装入 per-CPU GDT
-----------------
+接着调用 ``early_setup_idt()``。如果build含 ``CONFIG_AMD_MEM_ENCRYPT``，它先
+``setup_ghcb()``，再让bringup IDT的 ``#VC`` entry指向能够使用GHCB的 ``vc_boot_ghcb``；否则
+handler为NULL。最后复用 ``startup_64_load_idt`` 加载同一类bringup table。
 
-正式内核不能长期使用 compressed 阶段或物理入口阶段的 GDT。它在当前栈上临时构造一个 ``desc_ptr``：
+这里仍没有把32个exception vectors指向 ``early_idt_handler_array``，也没有建立
+``do_early_exception`` 的page-fault补图环境。那个动作是第039章KASAN和SME early flags准备完
+以后由 ``idt_setup_early_handler()`` 完成。旧稿把本次bringup IDT提前描述成通用early
+``#PF`` handler，已修正。
 
-.. code-block:: asm
+EFER先保证SYSCALL，再按CPUID决定NXE
+-----------------------------------
 
-   subq $16, %rsp
-   movw $(GDT_SIZE-1), (%rsp)
-   leaq gdt_page(%rdx), %rax
-   movq %rax, 2(%rsp)
-   lgdt (%rsp)
-   addq $16, %rsp
+汇编执行CPUID ``0x80000001``，保存EDX feature bits，再读 ``MSR_EFER``。它无条件设置
+``EFER.SCE``，允许以后配置好的 ``SYSCALL/SYSRET`` 机制；此刻还没有写正式syscall target MSR，
+用户态也不存在。
 
-``gdt_page(%rdx)`` 表示当前 CPU 的 GDT 页。
+若CPUID EDX bit20报告NX，源码同时：
 
-随后把数据段寄存器清零：
+::
 
-.. code-block:: asm
+   EFER.NXE = 1
+   early_pmd_flags.NX = 1
 
-   xor %eax, %eax
-   movl %eax, %ds
-   movl %eax, %ss
-   movl %eax, %es
-   movl %eax, %fs
-   movl %eax, %gs
+前者让hardware解释page-table NX bit，后者令以后early direct-map PMD默认不可执行。源码保留
+原EFER低32位，只有结果发生变化才 ``wrmsr``，避免TDX等环境中的无意义敏感MSR write。
 
-64 位模式下，``DS/ES/SS`` 的传统 base/limit 语义大多被弱化，但清零能消除遗留 selector；``FS`` 和 ``GS`` 也先清掉可见 selector，真正的基址由 MSR 管理。
+这里的CPUID能力由当前CPU runtime决定；固定QEMU commit但未固定 ``-cpu``，正文只固定分支。
+``verify_cpu`` 在前面已尽力清除旧Intel ``XD_DISABLE``，当前代码再按实际NX bit发布结果。
 
-把 ``GSBASE`` 指向当前 CPU 的 per-CPU 区域
+CR0与RFLAGS再次归一
+------------------
+
+源码写完整：
+
+::
+
+   CR0 = CR0_STATE = PE|MP|ET|NE|WP|AM|PG
+
+随后 ``pushq 0/popfq`` 清可写RFLAGS。IF与DF保持0，frame pointer稍后清0。当前仍没有开启任何
+maskable interrupt，也没有scheduler或interrupt controller dispatch。
+
+``initial_code`` 为BSP选择第一个正式C入口
 -----------------------------------------
 
-内核通过 ``MSR_GS_BASE`` 建立当前 CPU 的 per-CPU 基址：
-
-.. code-block:: asm
-
-   movl $MSR_GS_BASE, %ecx
-   movl %edx, %eax
-   shrq $32, %rdx
-   wrmsr
-
-原来的 64 位 per-CPU offset 被拆成 ``EDX:EAX`` 写入 MSR。
-
-从此以后，``%gs:offset`` 可以访问 CPU 0 的局部变量，例如 ``current_task``、CPU 状态和后续栈保护数据。这里建立的是正式内核的 GS-relative per-CPU 语义，不再是上一章最早期的 ``fixed_percpu_data`` 过渡环境。
-
-建立 early IDT
----------------
-
-代码调用：
-
-.. code-block:: asm
-
-   call early_setup_idt
-
-``early_setup_idt()`` 最终装入早期 IDT。它不是最终的完整中断系统，而是保证在正式 ``trap_init()`` 和 ``init_IRQ()`` 之前发生的页错误、虚拟化异常或早期故障能进入可识别的处理路径。
-
-早期异常入口会把：
-
-* exception vector；
-* 硬件 error code 或补入的 0；
-* 最少的通用寄存器；
-
-整理成统一现场，再调用 ``do_early_exception()``。
-
-其中早期 page fault 还有特殊用途：当内核访问尚未建立 direct mapping 的地址时，``early_make_pgtable()`` 可以临时补出 PMD 映射，然后返回原指令重试。
-
-正式打开 ``SYSCALL`` 与 NX 能力
--------------------------------
-
-接着内核用 CPUID ``0x80000001`` 检查 NX 支持，再读取 ``MSR_EFER``：
-
-.. code-block:: asm
-
-   btsl $_EFER_SCE, %eax
-
-``EFER.SCE`` 打开 ``SYSCALL/SYSRET`` 指令能力。这里尚未建立最终 syscall entry MSR，但先让处理器具备该机制。
-
-若 CPUID 表明支持 NX：
-
-.. code-block:: asm
-
-   btsl $_EFER_NX, %eax
-   btsq $_PAGE_BIT_NX, early_pmd_flags(%rip)
-
-两件事同时发生：
-
-* ``EFER.NXE`` 允许页表使用 NX bit；
-* ``early_pmd_flags`` 加入 NX，使以后生成的早期数据映射能够标记为不可执行。
-
-源码还会比较修改前后的 ``EFER``。没有变化时不执行 ``wrmsr``，这是对 TDX 等环境的兼容处理，不做没有必要的敏感 MSR 写入。
-
-最后规范化 ``CR0`` 和 ``RFLAGS``
----------------------------------
-
-代码把 ``CR0`` 写成内核定义的 ``CR0_STATE``，统一保护模式、分页、写保护和浮点相关控制状态。
-
-随后：
-
-.. code-block:: asm
-
-   pushq $0
-   popfq
-
-把可写的 ``RFLAGS`` 状态清零。中断保持关闭，方向标志保持清除。
-
-``initial_code`` 把汇编交给第一个正式 C 入口
-------------------------------------------
-
-最后把 ``boot_params`` 作为第一个 C 参数：
+汇编恢复第一个参数：
 
 .. code-block:: asm
 
    movq %r15, %rdi
-
-清空 frame pointer 后，通过函数指针调用：
-
-.. code-block:: asm
-
+   xorl %ebp, %ebp
    callq *initial_code(%rip)
 
-静态初值是：
+``RDI=Z`` 仍是bootloader交付的 ``boot_params`` 物理地址。 ``initial_code`` 的静态初值是
+``x86_64_start_kernel``；AP boot、hotplug或恢复路径可以在以后改这个function pointer，但当前
+BSP没有修改它。
 
-.. code-block:: asm
+``callq`` 压入返回地址后把RIP交给
+``arch/x86/kernel/head64.c:x86_64_start_kernel(real_mode_data)``。该函数声明
+``__noreturn``；汇编在call之后放 ``ud2``，若错误返回就触发invalid opcode，不会顺序落入未知
+代码。本章停在C函数第一条runtime语句之前。
 
-   initial_code:
-       .quad x86_64_start_kernel
-
-因此当前 BSP 的真实控制流是：
-
-.. code-block:: text
-
-   common_startup_64
-   → initial_code
-   → x86_64_start_kernel(boot_params_address)
-
-``initial_code`` 做成变量，是因为 AP 启动、CPU hotplug 或特殊恢复路径以后可以把它改成其他入口。对第一次启动的 BSP，它就是 ``x86_64_start_kernel``。
-
-调用返回后紧跟 ``ud2``。``x86_64_start_kernel()`` 被声明为 ``__noreturn``，正常情况下永远不会返回；若错误返回，``ud2`` 会立即触发 invalid opcode，而不是继续执行未知内存。
-
-当前机器状态
+本章结束状态
 ------------
 
-本章结束时：
+* current executor：Linux 7.2-rc1 ``x86_64_start_kernel(Z)``，第一条runtime语句尚未执行；
+* CPU：BSP / logical CPU0；无AP执行；
+* CPU mode：64-bit long mode，RIP在kernel high mapping；
+* IF=0，DF=0，frame pointer=0；
+* ``CR3``：修正后的 ``early_top_pgt``，high与temporary identity mappings仍共存；
+* ``CR4``：保留PAE/LA57及条件MCE，并统一设置PSE/PGE；
+* current task：CPU0 ``current_task -> init_task``；
+* stack：``init_task.thread.sp`` 指定的initial task stack；
+* GDT：CPU0 ``gdt_page``；visible data/FS/GS selectors为0；
+* ``MSR_GS_BASE``：CPU0 initial per-CPU offset；
+* IDT：bringup IDT；只有AMD-encryption build条件下的 ``#VC`` handler；
+* general early ``#PF`` handler：尚未安装；
+* ``EFER.SCE=1``；NX CPU时 ``EFER.NXE=1`` 且 ``early_pmd_flags.NX=1``；
+* ``CR0=CR0_STATE``；
+* ``RDI=Z``，以物理地址形式传入C函数；
+* 正式kernel BSS/brk：尚未清零；
+* global boot_params/boot_command_line：尚未从Z复制；
+* initramfs：未unpack；generic ``start_kernel``：未调用。
 
-* 当前执行者：即将进入 Linux 6.12.95 ``x86_64_start_kernel()``；
-* CPU：BSP，Linux 逻辑 CPU 0；
-* 模式：64 位 long mode；
-* RIP：正式内核高半区；
-* interrupts：关闭；
-* ``CR3``：``early_top_pgt``；
-* 旧 global identity TLB：已通过 PGE toggle 清理；
-* ``CR4``：保留 PAE/LA57/MCE，已重新开启 PSE/PGE；
-* current task：``init_task``；
-* stack：``init_task`` 的启动栈；
-* GDT：CPU 0 的 ``gdt_page``；
-* GS base：CPU 0 的 per-CPU offset；
-* early IDT：已装入；
-* ``EFER.SCE``：已开启；
-* ``EFER.NXE``：在 CPU 支持时已开启；
-* ``RDI``：bootloader 传入的 ``boot_params`` 物理地址；
-* ``start_kernel()``：尚未调用。
+关键边界
+--------
 
-下一段从 ``arch/x86/kernel/head64.c:x86_64_start_kernel()`` 开始，清除 identity-map trampoline、清 BSS、初始化 KASAN/SME/TDX、复制 boot data、加载 BSP microcode，并进入 ``x86_64_start_reservations()``。
+#. common代码服务BSP/AP，但当前 ``smpboot_control=0`` 精确选择logical CPU0，不读取APIC ID。
+#. !SMP与SMP build的取offset指令不同，但当前都建立boot CPU initial per-CPU上下文。
+#. stack从固定top symbol过渡为 ``current_task[0]->thread.sp`` 的task所有权。
+#. 第037章GSBASE=0；本章写CPU0 offset后才有正式GS-relative per-CPU语义。
+#. ``early_setup_idt`` 只重载bringup IDT/条件 ``#VC``，不是一般early exception table。
+#. current identity PMDs不带global，且PGE此前已清；CR4序列仍按BSP/AP共同契约省略再重开PGE。
+#. EFER.SCE只启用指令机制，不表示syscall entry或用户态已经可用。
+#. NX需要runtime CPUID；build/QEMU source commit alone不能保证该bit。
+#. ``initial_code`` 是可改function pointer，但当前初值精确指向 ``x86_64_start_kernel``。
+#. C入口是 ``call`` 且noreturn；若返回，唯一后继是 ``ud2``。
+
+下一入口
+--------
+
+第039章从fixed ``head64.c`` 开始：
+
+.. code-block:: c
+
+   x86_64_start_kernel(char *real_mode_data)
+   {
+       /* BUILD_BUG_ON checks produce no runtime code */
+       cr4_init_shadow();
+       reset_early_page_tables();
+       ...
+
+它将撤销temporary identity root entries、清正式BSS/brk、建立KASAN/SME与通用early IDT，使用
+``__va(Z)`` 复制boot params和完整command line，再进入 ``x86_64_start_reservations(Z)``。
 
 资料
 ----
 
-* `Linux 6.12.95 head_64.S：common_startup_64、CPU 编号、per-CPU、GDT、IDT 与 initial_code <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/head_64.S>`_
-* `Linux 6.12.95 head64.c：early page fault 补页与 early_setup_idt <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/head64.c>`_
-* `Linux 6.12.95 verify_cpu.S：正式内核早期 CPU 能力验证 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/verify_cpu.S>`_
-* `Linux 6.12.95 processor-flags.h：CR0、CR4 位定义 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/include/uapi/asm/processor-flags.h>`_
-* `Linux 6.12.95 msr-index.h：EFER、GSBASE 与 APIC MSR 定义 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/include/asm/msr-index.h>`_
+* `Linux 7.2-rc1固定提交：common_startup_64到initial_code <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/head_64.S#L198-L420>`_；
+* `Linux 7.2-rc1固定提交：smpboot_control、early tables与phys_base data <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/head_64.S#L600-L684>`_；
+* `Linux 7.2-rc1固定提交：bringup GDT/IDT loader <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/startup/gdt_idt.c#L12-L70>`_；
+* `Linux 7.2-rc1固定提交：early_setup_idt只准备条件VC <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/head64.c#L313-L323>`_；
+* `Linux 7.2-rc1固定提交：CPU0 current_task初值 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/cpu/common.c#L2235>`_；
+* `Linux 7.2-rc1固定提交：CR0_STATE <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/include/uapi/asm/processor-flags.h#L179-L181>`_。

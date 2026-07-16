@@ -1,0 +1,137 @@
+Linux Kernel第037—039章回溯审查
+================================
+
+批次状态
+--------
+
+::
+
+   range            = 037-039
+   status           = repaired
+   verified_before  = 036
+   verified_after   = 039
+   mode             = retrospective-audit
+   blocking_issue   = none
+
+审查范围
+--------
+
+* ``037-linux-decompresses-elf-and-enters-kernel-startup64.rst``；
+* ``038-linux-common-startup64-builds-boot-cpu-context.rst``；
+* ``039-linux-x86-64-start-kernel-cleans-early-environment.rst``；
+* 入口为compressed ``extract_kernel`` 即将调用 ``decompress_kernel(O,V,error)``；
+* 出口为正式kernel ``x86_64_start_reservations(Z)`` 第一条语句尚未执行。
+
+固定源码
+--------
+
+Linux release 7.2-rc1、gregkh/linux commit
+``7404ce51637231382873d0b55edabc2f3b841a9d``：
+
+* compressed ``misc.c``、``head_64.S``、``error.c`` 与IDT demand-map边界；
+* formal ``arch/x86/kernel/head_64.S`` 与 ``verify_cpu.S``；
+* ``arch/x86/boot/startup/map_kernel.c``、``gdt_idt.c``；
+* ``arch/x86/kernel/head64.c``、``idt.c``；
+* KASAN、SME bootdata/early flags与BSP microcode条件helper。
+
+``/Volumes/LinuxKernel/linux-7.2-rc1`` 保持fixed HEAD、clean、完整、非shallow、非sparse。
+最终 ``.config``、compression、QEMU ``-cpu`` 与microcode blob仍未提供，相关分支按build/runtime
+条件记录。
+
+整批成功路径
+------------
+
+``第037章``
+   ``decompress_kernel(O,V) → current heap retained → build-selected __decompress writes O with
+   stage2 #PF demand maps → parse_elf copies phdrs then memmoves PT_LOAD.p_filesz → entry-L →
+   conditional handle_relocations locates targets through O and adds V-L → cleanup compressed GHCB/IDT →
+   return O+entry → RSI=Z and jump formal startup_64 → R15=Z, initial stack, GSBASE=0 → startup GDT/
+   bringup IDT, lret CS → conditional SME → verify_cpu return ignored → derive p2v → __startup_64 records
+   phys_base=O, fixes high tables, builds non-global identity map → CR3 early_top_pgt → high virtual jump
+   common_startup_64``。
+
+``第038章``
+   ``common_startup_64 masks CR4 to PAE/LA57/conditional MCE → set PSE then PGE → SMP build reads
+   smpboot_control=0 and __per_cpu_offset[0], non-SMP uses0 → current_task[0]=init_task → task stack →
+   BSP trampoline_lock NULL → CPU0 gdt_page → zero selectors → GSBASE=CPU0 offset → early_setup_idt only
+   reloads bringup/conditional VC → CPUID NX → EFER.SCE and conditional NXE/early PMD NX → CR0_STATE →
+   clear flags/frame → RDI=Z → initial_code=x86_64_start_kernel``。
+
+``第039章``
+   ``runtime begins cr4_init_shadow → reset early root first511 and CR3 → conditional L5 layout → clear
+   formal BSS/brk → clear init_top_pgt → SME early flags → conditional KASAN shadow → global TLB flush →
+   idt_setup_early_handler installs general early exceptions → TDX early → copy_bootdata(__va(Z)) and
+   sanitize → copy full 2048-byte command line → conditional BSP microcode attempt → copy early_top[511]
+   to init_top[511] → call x86_64_start_reservations(Z)``。
+
+关键地址、页表与IDT边界
+----------------------
+
+* decoder首次写未映射高地址O由compressed stage2 ``#PF`` 按2 MiB补图；
+* relocatable ELF destination为 ``O+(p_paddr-L)``，formal BSS不由 ``p_memsz`` 在parse阶段清零；
+* relocation target pointer由物理O构造，写入内容的x86-64 delta为 ``V-L``；
+* fixed relocation tail只有32-bit与64-bit两组，旧稿inverse 32-bit第三组不存在；
+* compressed cleanup把IDTR置空，formal startup另建bringup IDT；
+* formal startup先令GSBASE=0；common取得logical CPU0后才写正式initial per-CPU offset；
+* startup bringup IDT与common ``early_setup_idt`` 只按AMD-encryption build处理 ``#VC``；
+* general ``early_idt_handler_array`` 要到039在SME/KASAN准备后才安装；
+* formal ``__startup_64`` 的 ``phys_base/load_delta=O``，不是O-L；它被加到静态table的
+  ``symbol-__START_KERNEL_map`` 编码上；
+* transition identity PMD明确无global；high PMDs只保留实际 ``[_text,_end]`` 范围；
+* ``reset_early_page_tables`` 清active root前511项后，Z不能再当identity pointer，copy使用
+  ``__va(Z)`` 并由formal early ``#PF`` 建direct-map PMD；
+* compressed ``#PF/kernel_add_identity_map`` 与formal
+  ``#PF/early_make_pgtable`` 使用不同IDT、root、allocator与address semantics。
+
+build/runtime条件
+-----------------
+
+* decoder与boot heap依 ``CONFIG_KERNEL_*``；当前只固定统一接口；
+* ``CONFIG_X86_NEED_RELOCS`` 关闭时handle no-op；开启时V=L也直接返回；
+* formal startup再次调用 ``verify_cpu``，但fixed汇编不测试EAX；failure halt只在034 compressed
+  path；
+* 4/5-level由此前CR4.LA57继承，formal helper只发布变量，不重新CPUID选择；
+* SMP build走 ``smpboot_control=0``，!SMP直接RDX=0；当前结果均为boot CPU0；
+* NX依runtime CPUID；AMD encryption、KASAN、TDX依build/runtime；
+* ``load_ucode_bsp`` 可能为空inline，也可能因hypervisor/vendor/family/disable条件提前返回；
+  helper调用不证明microcode revision更新。
+
+发现并修复
+----------
+
+#. 三章全部改为固定7.2-rc1并补齐章末四节。
+#. 删除旧稿不存在的inverse 32-bit relocation组，固定两组倒序扫描格式。
+#. 区分O用于location/self-map与V用于64-bit relocation content delta。
+#. 补齐高O首次写的compressed stage2 page-fault路径。
+#. 修正 ``PT_LOAD`` 只搬 ``p_filesz``，formal BSS到039统一清零。
+#. 修正formal startup ``GSBASE=0``，删除提前出现的fixed percpu data。
+#. 按新fixed source改用 ``boot/startup/gdt_idt.c`` 与 ``map_kernel.c``，不再沿旧head64实现想象。
+#. 修正formal ``verify_cpu`` 返回值未测试、 ``phys_base=O`` 与p2v推导。
+#. 把bringup IDT/条件VC与039 general early IDT/page-fault helper分开。
+#. 收紧038 CR4/PGE结论：当前identity PMD无global且PGE此前已清，不能宣称本次必然清掉旧项。
+#. 固定CPU0 current_task、task stack、per-CPU GDT/GSBASE与noreturn initial_code边界。
+#. 固定reset root、L5 layout、BSS/brk、SME/KASAN/global flush/IDT的不可交换顺序。
+#. 修复command line遗漏，复制后有效字符串包含
+   ``BOOT_IMAGE=/boot/bzImage root=/dev/sda1 ro console=ttyS0``。
+#. 把“BSP microcode已更新”修为有条件helper attempt。
+
+失败与未发生
+------------
+
+* decoder/ELF magic/alignment/relocation越界调用 ``error`` 永久halt；
+* ``__startup_64`` 发现物理地址过宽或O未按2 MiB对齐时永久循环；
+* formal startup与common期间general early ``#PF`` 尚不可用，必须等039 IDT安装；
+* ``initial_code`` 正常不返回；返回即 ``ud2``；
+* 本批没有AP、scheduler、maskable interrupt或用户态；
+* initramfs仍只由copied global boot_params记录R/N，尚未unpack；
+* ``x86_64_start_reservations``、platform quirks与generic ``start_kernel`` 未执行。
+
+连续性与验证
+------------
+
+* 036出口与037 ``decompress_kernel`` 调用一致；
+* 037出口为high virtual ``common_startup_64`` 第一条前，与038一致；
+* 038出口为 ``x86_64_start_kernel(Z)`` 第一条runtime语句前，与039一致；
+* 039出口为 ``x86_64_start_reservations(Z)`` 第一条前，与pending 040入口一致；
+* ``tools/check-linux-kernel-track.sh 39`` 通过，仅报告既有065/066 duplicate debt；
+* TOML、 ``git diff --check`` 与旧版本正文guard通过；无阻塞；下一批040—042。

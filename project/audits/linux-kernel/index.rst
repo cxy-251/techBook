@@ -10,9 +10,9 @@ Linux Kernel回溯审查账本
 
    mode             = retrospective-audit
    production       = paused
-   verified_through = 036
+   verified_through = 039
    current_batch    = none
-   next_batch       = 037-039
+   next_batch       = 040-042
    current_status   = ready
 
 状态语义遵守 ``project/LINUX_KERNEL_CONTRACT.rst``。
@@ -32,11 +32,12 @@ Linux Kernel回溯审查账本
 * `028-030 <028-030.rst>`_：``repaired``；动态normal、grub.cfg/menu与linux.mod按需装载核验完成，无阻塞。
 * `031-033 <031-033.rst>`_：``repaired``；bzImage/initramfs装载、boot_params与Linux startup_32交接核验完成，无阻塞。
 * `034-036 <034-036.rst>`_：``repaired``；compressed long-mode入口、搬迁、identity map与解压选址核验完成，无阻塞。
+* `037-039 <037-039.rst>`_：``repaired``；解压/ELF/relocation、正式高半区入口与bootdata保存核验完成，无阻塞。
 
 已知但尚未轮到的结构债务
 ------------------------
 
-* 第037章起的历史启动正文仍引用旧版本标签或未经固定源码复核的artifact/数值；
+* 第040章起的历史启动正文仍引用旧版本标签或未经固定源码复核的artifact/数值；
 * 第065章存在两个正文文件；
 * 第066章存在两个正文文件；
 * 既有boot章节没有逐章登记到当前track manifest；

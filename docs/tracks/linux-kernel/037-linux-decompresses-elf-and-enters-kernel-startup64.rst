@@ -4,503 +4,328 @@
 第三十七章：Linux 怎样解压 ELF 内核并进入正式 startup_64？
 ====================================================================
 
-上一章结束时，compressed ``extract_kernel()`` 已经完成：
+第036章结束时，BSP / CPU0仍在relocated compressed副本 ``B`` 的
+``extract_kernel()`` 内，64-bit long mode、IF=0、DF=0。stage2 IDT已能为普通non-present
+supervisor fault补一个2 MiB identity mapping； ``O`` 与 ``V`` 已选定并通过硬检查，但 ``O``
+处尚未写入正式内核。
 
-* ``boot_params`` 清洗；
-* early console 与 RSDP 初始化；
-* compressed boot heap 建立；
-* 解压所需 ``needed_size`` 计算；
-* 物理输出地址 ``output`` 选择；
-* 虚拟运行地址 ``virt_addr`` 选择；
-* 输出区的对齐和范围检查；
-* 必要的 unaccepted memory 接受。
-
-当前停在：
+当前下一条源码是：
 
 .. code-block:: c
 
-   entry_offset = decompress_kernel(output, virt_addr, error);
+   entry_offset = decompress_kernel(O, V, error);
 
-本章从这条调用开始，追踪压缩流解码、ELF program header 搬运、运行时 relocation、compressed 环境清理，以及正式内核 ``arch/x86/kernel/head_64.S:startup_64`` 的第一轮页表修正。章节结束在控制权到达高半区 ``common_startup_64``。
+本章先完成bitstream、ELF与relocation，再撤销compressed异常环境，以 ``RSI=Z`` 跳进解压后
+``arch/x86/kernel/head_64.S:startup_64``。随后追到它切换 ``early_top_pgt`` 并第一次在正式
+内核高半区进入 ``common_startup_64``；该入口第一条指令留给第038章。
 
-``decompress_kernel()`` 是统一入口，不是固定某一种算法
-------------------------------------------------------
+当前heap已经建立，fallback不会重置它
+-------------------------------------
 
-Linux 可以在构建时选择多种 kernel compression format：
+``decompress_kernel()`` 开头保留一个防御分支：若 ``free_mem_ptr`` 仍为0，就把它指向
+``boot_heap``。当前路径在第036章已经按compression build设置 ``free_mem_ptr/free_mem_end_ptr``，
+所以该条件为false，现有linear boot heap原样继续使用。
 
-* gzip；
-* bzip2；
-* LZMA；
-* XZ；
-* LZO；
-* LZ4；
-* Zstd。
-
-``arch/x86/boot/compressed/misc.c`` 根据 ``CONFIG_KERNEL_*`` 包含对应解压器源码，但它们向当前流程暴露统一接口：
+固定源码根据最终 ``CONFIG_KERNEL_*`` 只编入gzip、bzip2、LZMA、XZ、LZO、LZ4或Zstd中的一套
+decoder。缺少build ``.config``，不能选定算法；但所有算法在这里共享同一调用边界：
 
 .. code-block:: c
 
    __decompress(input_data, input_len,
                 NULL, NULL,
-                outbuf, output_len,
+                O, output_len,
                 NULL, error)
 
-仓库固定了 Linux 版本和启动路径，但没有把一个具体 kernel compression config 当作跨机器不变事实。因此正文沿统一控制流解释；真正执行的 bitstream decoder 由该 ``bzImage`` 的构建配置决定。
+``input_data/input_len`` 位于已搬到 ``B`` 的compressed映像，``O/output_len`` 描述解压输出
+buffer。若decoder报告负值，wrapper返回 ``ULONG_MAX``；实际error callback是 ``__noreturn``
+的 ``error()``，它打印诊断后永久 ``hlt``。成功主线不会把sentinel当成入口继续执行。
 
-输入、输出与运行区分别是什么
-----------------------------
+第一次写高地址 ``O`` 可以在这里fault-in
+-----------------------------------------
 
-进入解压器时的主要变量是：
+选址本身没有把所有 ``O`` 映射进页表。若 ``O`` 在第034章低4 GiB mapping之外，decoder的第一
+次store产生non-present ``#PF``；第036章stage2 handler以CR2所在PMD范围调用
+``kernel_add_identity_map``， ``iretq`` 后重试store。后续每跨入未映射的2 MiB范围都可以重复
+这个过程。
 
-``input_data``
-   compressed payload 在已经搬迁后的 compressed image 中的位置。
+因此“decoder写到了高物理输出”和“036主动预建整段输出mapping”不是同一结论。当前IF仍为0，
+同步 ``#PF`` 不受IF屏蔽；保护、user或reserved-bit fault仍是fatal，不能借demand mapping掩盖。
 
-``input_len``
-   压缩字节流长度。
-
-``outbuf`` / ``output``
-   上一章最终选择的物理解压目标。
-
-``output_len``
-   解压后文件数据与 relocation table 的总长度。
-
-``kernel_total_size``
-   正式内核 ``text + data + bss + brk`` 的运行时占用。
-
-``virt_addr``
-   正式内核预期采用的虚拟基址，用于 KASLR relocation 计算。
-
-compressed image 已经被放在 ``output + init_size`` 附近的高端，所以解压结果从 ``output`` 向高地址增长时，不会在读取前覆盖压缩输入。
-
-解压器自己的 malloc 从哪里来
-----------------------------
-
-``decompress_kernel()`` 先确认 compressed boot heap 已经建立：
-
-.. code-block:: c
-
-   if (!free_mem_ptr) {
-       free_mem_ptr     = (unsigned long)boot_heap;
-       free_mem_end_ptr = (unsigned long)boot_heap + sizeof(boot_heap);
-   }
-
-这里的 ``malloc()`` 只是解压算法使用的线性早期分配器。它不支持正式内核内存管理的完整语义，也不会成为后面的 slab allocator。
-
-压缩字节流先被还原成临时 ELF 映像
---------------------------------
-
-``__decompress()`` 把压缩数据写到 ``output``，长度上限为 ``output_len``。
-
-这个输出尚不能直接视为“最终摆放好的运行中内核”。它首先是一份解压后的 ELF image，里面包含：
-
-* ELF header；
-* program header table；
-* 各个 loadable segment 的文件内容；
-* 附加在末尾的 relocation tables。
-
-因此下一步不是立即跳到 ``output``，而是：
-
-.. code-block:: c
-
-   entry = parse_elf(outbuf);
-
-先验证 ELF magic
-----------------
-
-``parse_elf()`` 把 ELF header 复制到局部变量，然后检查：
-
-.. code-block:: text
-
-   0x7f 'E' 'L' 'F'
-
-如果 ``EI_MAG0..3`` 不匹配，compressed kernel 立即报错。一个成功解压但不是有效 ELF 的数据不能继续执行。
-
-读取 program header table
--------------------------
-
-函数根据：
-
-.. code-block:: text
-
-   e_phoff   program header table 在 ELF 中的偏移
-   e_phnum   program header 数量
-
-为 program headers 分配 compressed boot heap 内存，再把整张表复制出来。
-
-这里先复制 header table，而不是直接在 ``output`` 中边遍历边搬 segment，是因为后续 ``memmove`` 可能让源区和目标区重叠，原地读取 program header 可能被自己覆盖。
-
-只搬运 ``PT_LOAD`` segment
---------------------------
-
-循环处理每个 program header：
-
-.. code-block:: c
-
-   switch (phdr->p_type) {
-   case PT_LOAD:
-       ...
-       memmove(dest, output + phdr->p_offset, phdr->p_filesz);
-       break;
-   default:
-       break;
-   }
-
-只有 ``PT_LOAD`` 描述真正需要出现在运行内存中的 segment。其他 ELF metadata 不会原样保留为正式内核运行区的一部分。
-
-x86-64 还要求：
-
-.. code-block:: text
-
-   p_align % 2 MiB == 0
-
-如果 load segment 的 alignment 不是 2 MiB 的整数倍，启动失败。这与早期 PMD 大页映射和内核物理对齐要求一致。
-
-可重定位内核怎样计算每个 segment 目标
-------------------------------------
-
-对于 ``CONFIG_RELOCATABLE``：
-
-.. code-block:: c
-
-   dest = output + (phdr->p_paddr - LOAD_PHYSICAL_ADDR);
-
-``p_paddr`` 是 ELF 链接时描述的物理布局；``LOAD_PHYSICAL_ADDR`` 是链接布局的基准。两者相减得到 segment 在内核物理映像中的 offset，再加本次实际 ``output``。
-
-例如抽象表示：
-
-.. code-block:: text
-
-   linked segment p_paddr = LOAD_PHYSICAL_ADDR + 0x600000
-   actual output          = 0x24000000
-
-   dest = 0x24000000 + 0x600000
-
-这样所有 segment 保持链接时的相对布局，整套映像可以整体移动到 KASLR 选中的物理位置。
-
-``memmove`` 而不是 ``memcpy`` 的原因
------------------------------------
-
-segment 的源数据仍位于刚解压到 ``output`` 的临时 ELF buffer 内；目标也可能位于同一个 buffer 的另一处。两块范围可能重叠，所以必须使用 ``memmove``。
-
-``p_filesz`` 表示文件实际携带的字节数。``p_memsz - p_filesz`` 对应的零初始化区域不会由这里复制文件数据；正式内核后续会按自己的 BSS 初始化路径处理。
-
-ELF entry 先转换为相对 offset
------------------------------
-
-``parse_elf()`` 最终返回：
-
-.. code-block:: c
-
-   ehdr.e_entry - LOAD_PHYSICAL_ADDR
-
-它没有直接返回链接期虚拟地址，也没有直接返回固定物理地址，而是返回入口相对 Linux 物理布局基准的 offset。
-
-外层随后可以计算：
-
-.. code-block:: text
-
-   actual_entry = output + entry_offset
-
-无论 ``output`` 是否经过物理 KASLR，入口都落在本次实际装入的正式内核映像内。
-
-为什么 ELF 搬完还要处理 relocation
-----------------------------------
-
-物理 segment 布局正确并不代表内核中的所有绝对地址都正确。
-
-正式内核代码和数据可能包含：
-
-* 32 位绝对引用；
-* inverse 32-bit relocation；
-* 64 位绝对引用。
-
-当物理基址或虚拟 KASLR offset 改变时，这些位置需要加减 delta。
-
-compressed build 在解压 payload 末尾附加三组倒序 relocation table：
-
-.. code-block:: text
-
-   kernel data
-   0
-   64-bit relocation entries
-   0
-   inverse 32-bit relocation entries
-   0
-   32-bit relocation entries
-
-``handle_relocations()`` 从 ``output + output_len`` 末端向前扫描。
-
-物理 delta 与虚拟 delta
------------------------
-
-函数先计算物理装入变化：
-
-.. code-block:: c
-
-   delta = output - LOAD_PHYSICAL_ADDR;
-
-又计算当前 self-map adjustment：
-
-.. code-block:: c
-
-   map = delta - __START_KERNEL_map;
-
-对于 x86-64，真正应用到 64 位内核地址的 relocation delta 使用：
-
-.. code-block:: c
-
-   delta = virt_addr - LOAD_PHYSICAL_ADDR;
-
-所以：
-
-* ``output`` 决定正式映像放在哪个物理地址；
-* ``virt_addr`` 决定链接期内核地址要偏移到哪个高半区虚拟位置；
-* relocation table 指出哪些内存位置需要修改。
-
-每个 relocation 目标都会检查是否落在正式内核允许的范围内。越界 relocation 被视为损坏映像或构建错误，启动立即停止。
-
-``extract_kernel()`` 得到正式入口
+decoder先在 ``O`` 还原一份ELF容器
 ---------------------------------
 
-``decompress_kernel()`` 完成后返回 ``entry_offset``。``extract_kernel()`` 输出完成提示，然后撤销 compressed 阶段异常处理：
+成功 ``__decompress`` 把压缩流还原到 ``[O,O+output_len)``。这一步得到的不是已经按运行地址
+摆好的连续裸内核，而是带ELF header、program headers、loadable file bytes及末尾relocation
+tables的中间映像。因此wrapper接着调用：
+
+.. code-block:: c
+
+   entry = parse_elf(O);
+
+``parse_elf`` 先把 ``Elf64_Ehdr`` 复制到当前stack上的局部变量并验证四个ELF magic bytes。
+失败调用 ``error`` 永久停止。
+
+program headers先复制到heap，再移动segments
+---------------------------------------------
+
+函数按 ``e_phnum`` 从boot heap分配整张 ``Elf64_Phdr`` 数组，再从 ``O+e_phoff`` 复制进去。
+先复制metadata很重要：后面的segment ``memmove`` 源和目标都可能落在同一个 ``O`` buffer，若
+继续直接遍历原program-header位置，它可能被先移动的segment覆盖。
+
+循环只处理 ``PT_LOAD``。x86-64固定源码还要求每个load segment的 ``p_align`` 是2 MiB的整数
+倍；不满足就停止。其他 ``PT_*`` 被忽略，不因此创建运行对象。
+
+对 ``CONFIG_RELOCATABLE`` build，每个目标是：
+
+::
+
+   dest = O + (phdr.p_paddr - L)
+
+``L=LOAD_PHYSICAL_ADDR`` 是ELF物理布局基准；括号内保留链接时segment相对位置， ``O`` 把整套
+布局平移到本次物理基址。non-relocatable build直接使用 ``dest=phdr.p_paddr``；该build的前置
+路径又保证 ``O=L``。
+
+复制长度只有 ``p_filesz``，使用 ``memmove`` 而非 ``memcpy`` 来处理重叠。``p_memsz-p_filesz``
+对应的BSS不是在这里逐segment清零；第039章正式内核会统一清 ``__bss`` 与early brk。
+
+所有headers处理完后释放临时phdr数组，并返回：
+
+::
+
+   entry_offset = ehdr.e_entry - L
+
+所以最终物理入口可以统一写成 ``O+entry_offset``，不把link-time entry误当成当前可跳地址。
+
+relocation处理发生在ELF segment搬运之后
+--------------------------------------
+
+``parse_elf`` 返回后，wrapper调用：
+
+.. code-block:: c
+
+   handle_relocations(O, output_len, V);
+
+若build不含 ``CONFIG_X86_NEED_RELOCS``，该函数编译为空inline。若包含，fixed 7.2-rc1先计算：
+
+::
+
+   physical_delta = O - L
+   map            = physical_delta - __START_KERNEL_map
+   min_addr       = O
+   max_addr       = O + (VO___bss_start - VO__text)
+
+``map`` 把relocation table中以正式内核虚拟地址表达的location转换成当前 ``O`` self-map里的可写
+指针。对于x86-64，真正加到location内容上的delta随后改成：
+
+::
+
+   relocation_delta = V - L
+
+所以 ``O`` 决定“去哪里写被修正的word”， ``V`` 决定“那个word要加多少虚拟KASLR偏移”。两者
+不能用一个KASLR base代替。若 ``V=L``，delta为0，函数直接返回，不扫描尾表。
+
+固定尾表只有32-bit与64-bit两组
+--------------------------------
+
+当前 ``misc.c`` 的格式是从output末端向前读：
+
+::
+
+   ... 0, 64-bit relocation locations..., 0, 32-bit relocation locations...
+                                                        ^ output末端一侧
+
+每个location自身以signed 32-bit值存放。第一轮从 ``O+output_len-4`` 向低地址扫描32-bit组；
+遇0后再越过terminator，第二轮扫描64-bit组。旧历史稿所写的“inverse 32-bit第三组”不在这份
+固定实现和emit格式中，已删除。
+
+每个location先sign-extend并加 ``map`` 得到当前物理self-map指针；源码检查它没有落到
+``[min_addr,max_addr]`` 之外，然后分别对 ``uint32_t`` 或 ``uint64_t`` 内容加
+``V-L``。越界意味着损坏的relocation metadata，直接 ``error``。
+
+compressed异常环境在得到入口后撤销
+------------------------------------
+
+``decompress_kernel`` 返回 ``entry_offset`` 后，``extract_kernel`` 输出完成信息，再调用：
 
 .. code-block:: c
 
    cleanup_exception_handling();
 
-这是重要的边界。compressed stage1/stage2 IDT 只用于解压环境；正式内核将建立自己的 exception tables。旧 handler 不能继续被误认为正式内核异常基础。
+固定实现先按条件关闭SEV-ES GHCB，再把IDTR descriptor的size与address都写0并 ``lidt``。这会
+撤销第036章stage2 ``#PF/NMI/#VC`` 环境；正式内核必须建立自己的bringup IDT，不能继续依赖
+compressed handler。IF仍为0。
 
-如果 compressed 阶段忽略过 spurious NMI，此时会输出数量。
-
-最后返回：
-
-.. code-block:: c
-
-   return output + entry_offset;
-
-返回值进入 ``RAX``，它是解压后正式内核的真实物理入口地址。
-
-compressed 汇编完成最后一次跳转
--------------------------------
-
-回到 ``.Lrelocated``：
-
-.. code-block:: asm
-
-   movq %r15, %rsi
-   jmp *%rax
-
-跳转前：
-
-.. code-block:: text
-
-   RSI = boot_params physical address
-   RAX = decompressed kernel entry physical address
-
-使用 ``jmp`` 而不是 ``call``，表示 compressed 环境不期待正式内核返回。控制权从 ``arch/x86/boot/compressed`` 永久转移到解压后的 ``arch/x86/kernel``。
-
-同名的正式 ``startup_64`` 取得控制权
-------------------------------------
-
-新的入口是：
-
-.. code-block:: asm
-
-   arch/x86/kernel/head_64.S:startup_64
-
-它与第三十五章的 compressed ``startup_64`` 同名，但位于完全不同的二进制区域：
-
-.. code-block:: text
-
-   compressed startup_64
-       负责搬迁、解压、ELF 与 relocation
-
-   kernel startup_64
-       负责正式内核页表、CPU 基础状态和高半区入口
-
-此时 CPU 已经是 64 位 long mode，解压器提供的页表仍包含 identity mapping，``RSI`` 仍指向 ``boot_params``。
-
-正式入口先保存 ``boot_params`` 并换栈
-------------------------------------
-
-代码执行：
-
-.. code-block:: asm
-
-   mov %rsi, %r15
-   leaq __top_init_kernel_stack(%rip), %rsp
-
-再次把 ``boot_params`` 放到 callee-saved ``R15``，然后切换到正式内核的初始栈。compressed ``boot_stack`` 从这里开始不再承担主流程栈职责。
-
-建立最早期 GS base
-------------------
-
-正式内核 C 代码可能使用 stack canary 和 per-CPU 访问，因此入口写入 ``MSR_GS_BASE``：
-
-.. code-block:: asm
-
-   movl $MSR_GS_BASE, %ecx
-   leaq INIT_PER_CPU_VAR(fixed_percpu_data)(%rip), %rdx
-   movl %edx, %eax
-   shrq $32, %rdx
-   wrmsr
-
-这里还没有完整 percpu allocator。``fixed_percpu_data`` 是 boot CPU 早期使用的固定区域，使最早的 C 调用具备最低限度的 GS-relative 环境。
-
-正式 GDT/IDT 与 ``CS``
----------------------
-
-入口调用：
-
-.. code-block:: asm
-
-   call startup_64_setup_gdt_idt
-
-随后通过 ``lretq`` 重新装载 ``__KERNEL_CS``。原因与 compressed 阶段类似：当前 ``CS`` 的 cached descriptor 可能来自解压器 GDT，正式内核必须切换到自己构造的描述符表，确保后面的 IRET、异常和 privilege transition 基于正式内核定义。
-
-再验证一次 CPU
---------------
-
-正式入口再次调用 ``verify_cpu``。
-
-compressed 阶段的验证确保解压环境可以进入 long mode；正式内核再次 sanitize CPU configuration，尤其确保 NX/SSE 等正式运行所需状态没有在交接或虚拟化环境中出现不一致。
-
-``__startup_64()`` 修正正式内核页表
------------------------------------
-
-汇编准备：
-
-.. code-block:: asm
-
-   leaq _text(%rip), %rdi
-   movq %r15, %rsi
-   call __startup_64
-
-参数是：
-
-.. code-block:: text
-
-   RDI = 正式内核 _text 当前物理/identity-mapped 地址
-   RSI = boot_params
-
-``__startup_64()`` 首先判断当前是否已经启用 5 级分页，并同步：
-
-* ``__pgtable_l5_enabled``；
-* ``pgdir_shift``；
-* ``ptrs_per_p4d``；
-* direct map、vmalloc、vmemmap 基址。
-
-然后计算：
+若compressed期间收到过NMI， ``spurious_nmi_count`` 此时只被打印；源码没有因此回滚已生成的
+内核。最后：
 
 .. code-block:: c
 
-   load_delta = physaddr - (_text - __START_KERNEL_map);
-   phys_base  = load_delta;
+   return O + entry_offset;
 
-``_text - __START_KERNEL_map`` 是内核按链接布局推导的默认物理位置。实际 ``physaddr`` 可能被物理 KASLR 改变，两者之差就是正式内核的 physical relocation delta。
+返回值进入 ``RAX``。回到 ``.Lrelocated`` 后，汇编恢复 ``RSI=R15=Z`` 并 ``jmp *%rax``。
+这是永久离开 ``arch/x86/boot/compressed`` 的near jump，不压返回地址，也不期待正式内核返回。
 
-该 delta 必须 2 MiB 对齐，否则函数进入不可恢复循环。前面所有 ``kernel_alignment`` 和 KASLR slot 规则最终都在这里得到硬验证。
+正式 ``startup_64`` 与compressed同名但不是同一对象
+------------------------------------------------------
 
-修正高半区页表中的物理指针
---------------------------
+``RAX`` 指向解压后 ``arch/x86/kernel/head_64.S:startup_64``。此刻CPU仍在identity mapping下用
+物理地址取指， ``RSI=Z``，IDTR为空；compressed ``B`` 副本及heap不再是主流程对象。
 
-正式内核静态页表在链接时含有默认物理地址。``__startup_64()`` 给以下结构中的物理 table pointer 加上 ``load_delta``：
+正式入口立即保存 ``R15=Z``，把 ``RSP`` 切到RIP-relative
+``__top_init_kernel_stack``。这只是正式内核映像内的最早stack； ``common_startup_64`` 稍后还
+会通过per-CPU ``current_task`` 重新取得task stack。
 
-* ``early_top_pgt``；
-* 5 级分页时的 ``level4_kernel_pgt``；
-* ``level3_kernel_pgt``；
-* ``level2_fixmap_pgt``；
-* ``level2_kernel_pgt`` 中实际覆盖 kernel image 的 PMD entries。
+接着它把 ``MSR_GS_BASE`` 写成0。旧稿声称这里已经指向 ``fixed_percpu_data`` 不符合固定
+7.2-rc1汇编；真正的CPU0 per-CPU GS base要到第038章由 ``__per_cpu_offset[0]`` 建立。此阶段的
+position-independent helper不能假定per-CPU环境已经存在。
 
-同时：
+bringup GDT/IDT先替换compressed描述符环境
+------------------------------------------
 
-* 建立从当前物理地址执行到高虚拟地址切换所需的临时 identity mapping；
-* 清除 kernel image 之前和之后无效的 PMD present bit；
-* 只保留已被 firmware memory map 验证为内核映像占用的范围；
-* 在 SME 条件路径中加入 memory-encryption mask。
+入口调用 ``__pi_startup_64_setup_gdt_idt``。fixed helper以RIP-relative地址加载正式内核
+``gdt_page``，把 ``DS/SS/ES`` 改成 ``__KERNEL_DS``，并加载一张page-aligned
+``bringup_idt_table``。
 
-为什么要清掉映像外的映射
-------------------------
+这张IDT不是第039章的完整early exception table。默认entry为0；只有build含
+``CONFIG_AMD_MEM_ENCRYPT`` 时，helper才安装早期 ``#VC -> vc_no_ghcb``。随后汇编通过
+``lretq`` 重新装入正式GDT中的 ``__KERNEL_CS``，保证IRET所依赖的code descriptor存在。
 
-静态页表布局可能产生覆盖 kernel image 周围区域的宽泛 PMD entries。保留这些 present mapping 会允许 CPU speculative access 到 reserved physical region。
+若build含AMD memory encryption，接下来以 ``RDI=Z`` 调用 ``__pi_sme_enable``，在任何后续
+CPUID前准备SME/SEV/SNP状态。然后调用同一份 ``verify_cpu`` 来sanitize CPU。这里汇编没有
+``test %eax`` 或失败跳转：compressed入口已经为当前boot CPU完成可继续启动的能力检查，本次
+调用主要保留vendor/MSR修正；返回值在fixed正式入口中没有被分支使用。
 
-某些平台把对保留区的 speculative access 也视为硬件错误。因此 ``__startup_64()``：
+``p2v_offset`` 从同一symbol的物理与虚拟地址差得到
+--------------------------------------------------
 
-.. code-block:: text
-
-   映像之前  → clear present
-   映像内部  → add load_delta
-   映像之后  → clear present
-
-这不是单纯“节约页表”，而是在正式内核运行前收紧可访问物理范围。
-
-切换到 ``early_top_pgt``
-------------------------
-
-``__startup_64()`` 返回 SME modifier，汇编把它加入 ``early_top_pgt`` 的实际物理地址：
+当前RIP-relative ``common_startup_64`` 地址是它在identity map中的实际物理地址；
+``.Lcommon_startup_64`` 中的quad则是link-time高半区虚拟地址。汇编相减：
 
 .. code-block:: asm
 
-   leaq early_top_pgt(%rip), %rcx
-   addq %rcx, %rax
+   leaq common_startup_64(%rip), %rdi
+   subq .Lcommon_startup_64(%rip), %rdi
+
+得到：
+
+::
+
+   p2v_offset = current physical address - linked virtual address
+
+再以 ``RSI=Z`` 调用position-independent ``__pi___startup_64(p2v_offset,Z)``。这套公式避免在
+页表修好之前把一个高半区link address误当成当前可解引用C pointer。
+
+``__startup_64`` 把 ``phys_base`` 记成实际 ``O``
+--------------------------------------------------
+
+helper用 ``rip_rel_ptr(_text)`` 得到当前正式内核 ``_text`` 物理地址，并检查它没有超过
+``MAX_PHYSMEM_BITS``。随后固定表达式是：
+
+.. code-block:: c
+
+   phys_base = load_delta = __START_KERNEL_map + p2v_offset;
+
+对当前布局，该值是实际物理内核基址 ``O``，不是 ``O-L``。名称 ``load_delta`` 表示它将被加到
+静态页表内以 ``symbol-__START_KERNEL_map`` 编码的物理pointer上； ``phys_base`` 则供后续
+physical/virtual转换。 ``O`` 若不是2 MiB aligned，helper永久循环，前章对齐约束在此再次被
+硬验证。
+
+helper同时从 ``CR4.LA57`` 读取compressed阶段已经选择的层级，并据此发布
+``__pgtable_l5_enabled/pgdir_shift/ptrs_per_p4d``。它不在这里重新做CPUID随机选择。
+
+修正高半区table并建立无global的切换identity map
+-----------------------------------------------
+
+``O`` 加上条件SME mask后，被用于修正 ``early_top_pgt``、5-level时的
+``level4_kernel_pgt``、 ``level3_kernel_pgt`` 与fixmap下级table的物理pointer。
+
+helper再从 ``early_dynamic_pgts`` 取页，为当前 ``[_text,_end)`` 建立临时identity mapping。
+PMD entry使用2 MiB executable large mapping并明确清除 ``_PAGE_GLOBAL``，使以后撤销1:1 map时
+不会留下不可由普通CR3 reload清掉的global translation。
+
+静态 ``level2_kernel_pgt`` 原本按link layout覆盖整个kernel image window。helper把正式映像
+之前的PMD清present，只给 ``[_text,_end]`` 对应present entries加实际 ``O`` 与条件encryption
+mask，再清除映像之后的present。这样未经firmware可用内存检查的旁邻物理范围不会因宽泛高半区
+mapping而允许speculative access。
+
+最后 ``sme_postprocess_startup`` 按条件加密kernel，并处理 ``.bss..decrypted`` 的mapping，返回
+应加入CR3的SME modifier；非SME路径返回0。
+
+切换 ``early_top_pgt`` 后跳入高半区
+-------------------------------------
+
+汇编用RIP-relative得到当前 ``early_top_pgt`` 物理地址，加helper返回的SME modifier；AMD
+encryption build还调用 ``sev_verify_cbit``。然后：
+
+.. code-block:: asm
+
    movq %rax, %cr3
+   jmp *.Lcommon_startup_64(%rip)
 
-此时 CPU 切换到正式内核修正后的 early page tables。identity mapping 仍暂时存在，以保证当前物理地址上的指令能够完成最后一次跳转。
+新CR3同时保留刚建的identity mapping与修正后的正式高半区mapping。间接jump从quad取得
+link-time ``common_startup_64`` 高地址；CPU第一次以正式内核虚拟RIP取指，而物理后端仍是
+``O`` 中刚装好的segment。
 
-第一次跳入内核高半区虚拟地址
-----------------------------
-
-入口最后执行间接跳转：
-
-.. code-block:: asm
-
-   jmp *0f(%rip)
-
-   0:
-       .quad common_startup_64
-
-``common_startup_64`` 被链接成正式内核高半区虚拟地址。写入新的 ``CR3`` 后，这个虚拟地址已经可解析到刚解压的物理 kernel image。
-
-这个跳转带来的变化是：
-
-.. code-block:: text
-
-   之前：在 identity mapping 下，用物理地址执行正式内核 startup_64
-   之后：在正式 kernel mapping 下，用高半区虚拟地址执行 common_startup_64
-
-这是真正从“解压器提供的临时地址空间”进入“正式内核虚拟地址空间”的控制权交接。
-
-当前机器状态
+本章结束状态
 ------------
 
-本章结束时：
+* current executor：Linux 7.2-rc1 ``arch/x86/kernel/head_64.S:common_startup_64``，第一条
+  CR4 mask指令尚未执行；
+* CPU：BSP / CPU0；64-bit long mode；IF=0，DF=0；
+* current RIP：正式内核高半区虚拟地址；
+* ``R15=Z``，boot params物理地址仍被保留；
+* stack：正式映像中的 ``__top_init_kernel_stack``；
+* ``MSR_GS_BASE=0``；正式per-CPU base尚未建立；
+* GDT：正式内核startup ``gdt_page``； ``CS=__KERNEL_CS``；
+* IDT：bringup IDT，只有build条件下的早期 ``#VC`` entry；
+* ``phys_base=O``；
+* ``CR3``：实际 ``early_top_pgt`` 物理地址加条件SME modifier；
+* mappings：正式kernel high mapping与无global的临时identity mapping同时存在；
+* paging level：沿用compressed阶段4-level或5-level结果，并已发布相应变量；
+* compressed bitstream：已解码；ELF magic/program headers已验证；
+* ``PT_LOAD``：已按 ``p_filesz`` 搬到实际物理布局；正式BSS尚未清零；
+* relocation：依 ``CONFIG_X86_NEED_RELOCS`` 与 ``V-L`` 完成或成为no-op；
+* compressed IDT/GHCB：已清理；compressed控制流不会返回；
+* initramfs：仍是 ``R`` 处原始 ``N`` bytes，未unpack；
+* scheduler、AP与generic ``start_kernel``：均未进入。
 
-* 当前执行者：Linux 6.12.95 ``arch/x86/kernel/head_64.S:common_startup_64``；
-* CPU：BSP；
-* 模式：64 位 long mode；
-* interrupts：关闭；
-* compressed payload：已解压；
-* ELF magic 与 program headers：已验证；
-* ``PT_LOAD`` segments：已搬到正式物理布局；
-* KASLR relocation：已按实际物理/虚拟 delta 处理；
-* compressed stage IDT：已撤销；
-* ``RSI`` / ``R15``：继续携带 ``boot_params``；
-* stack：已切到 ``__top_init_kernel_stack``；
-* GS base：已指向 boot CPU 的 early fixed percpu data；
-* 正式 GDT/IDT：已建立初始版本；
-* ``phys_base``：已记录实际物理 relocation delta；
-* ``CR3``：已切到修正后的 ``early_top_pgt``；
-* 当前 RIP：已经是正式内核高半区虚拟地址；
-* initramfs：仍只是 ``boot_params`` 指向的一段内存，尚未展开；
-* ``start_kernel()``：尚未调用。
+关键边界
+--------
 
-下一段从 ``common_startup_64`` 开始，继续建立 boot CPU 的 early percpu、清理 identity mapping、准备 ``initial_code``，并最终进入 ``x86_64_start_kernel()``。
+#. 当前heap已在036建立， ``decompress_kernel`` 的zero-pointer fallback不执行。
+#. decoder写高地址O依stage2 ``#PF`` demand mapping；选址不等于提前映射。
+#. ``parse_elf`` 先复制phdr table，再 ``memmove`` ``PT_LOAD.p_filesz``；BSS不在此处清零。
+#. relocatable segment destination用O，64-bit relocation content delta用V；两者不可混用。
+#. fixed relocation tail只有32-bit和64-bit两组，没有旧稿的inverse 32-bit第三组。
+#. ``cleanup_exception_handling`` 把IDTR置空；正式startup必须另建bringup IDT。
+#. 正式startup先把GSBASE清0，per-CPU GS到common路径才建立。
+#. 正式startup的 ``verify_cpu`` 返回值没有被测试；能力失败halt属于compressed 034边界。
+#. ``p2v_offset`` 是同一symbol当前物理地址减link-time虚拟地址； ``phys_base=O``，不是O-L。
+#. temporary identity PMDs明确不带global；高半区PMDs只保留实际kernel image范围。
+#. 写CR3后通过绝对高半区quad跳转；这是物理identity RIP到正式kernel virtual RIP的边界。
+
+下一入口
+--------
+
+第038章从：
+
+.. code-block:: asm
+
+   common_startup_64:
+       movl $(X86_CR4_PAE | X86_CR4_LA57), %edx
+       ...
+
+开始。它将规范化CR4，为BSP选出logical CPU0与per-CPU offset，切到 ``init_task`` stack，加载
+CPU0 GDT和GSBASE，准备bringup IDT/EFER/CR0，最后通过 ``initial_code`` 调用
+``x86_64_start_kernel(Z)``。
 
 资料
 ----
 
-* `Linux 6.12.95 misc.c：decompress_kernel、parse_elf、handle_relocations 与 extract_kernel <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/compressed/misc.c>`_
-* `Linux 6.12.95 compressed head_64.S：从 extract_kernel 返回值跳入正式内核 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/compressed/head_64.S>`_
-* `Linux 6.12.95 kernel head_64.S：正式 startup_64 与 common_startup_64 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/head_64.S>`_
-* `Linux 6.12.95 head64.c：__startup_64 页表修正 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/head64.c>`_
-* `Linux/x86 32-bit Boot Protocol：正式内核入口寄存器与分页要求 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/Documentation/arch/x86/boot.rst>`_
+* `Linux 7.2-rc1固定提交：decompress、ELF、relocation与extract返回 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/compressed/misc.c#L197-L362>`_；
+* `Linux 7.2-rc1固定提交：extract cleanup与正式入口jump <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/compressed/misc.c#L514-L536>`_；
+* `Linux 7.2-rc1固定提交：compressed .Lrelocated最终jump <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/compressed/head_64.S#L463-L476>`_；
+* `Linux 7.2-rc1固定提交：正式startup_64与高半区jump <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/head_64.S#L38-L144>`_；
+* `Linux 7.2-rc1固定提交：startup bringup GDT/IDT <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/startup/gdt_idt.c#L12-L70>`_；
+* `Linux 7.2-rc1固定提交：__startup_64页表修正与identity map <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/startup/map_kernel.c#L17-L216>`_；
+* `Linux 7.2-rc1固定提交：compressed error永久halt <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/compressed/error.c#L10-L24>`_。

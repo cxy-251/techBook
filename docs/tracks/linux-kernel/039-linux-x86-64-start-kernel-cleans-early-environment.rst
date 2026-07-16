@@ -1,282 +1,257 @@
+.. SPDX-License-Identifier: GPL-2.0
+
+================================================================
 第三十九章：x86_64_start_kernel 怎样清理临时环境并保存启动数据？
 ================================================================
 
-第三十八章结束时，正式内核汇编已经完成 CPU 0 的栈、GDT、GSBASE、early IDT、``EFER`` 和 ``CR0`` 设置，并通过：
+第038章以 ``callq *initial_code`` 把BSP / logical CPU0交给
+``x86_64_start_kernel(real_mode_data)``。当前 ``real_mode_data=Z`` 仍是bootloader参数的物理
+地址数值；CPU处于kernel high mapping、IF/DF为0，GSBASE已是CPU0 initial per-CPU offset，
+current task是 ``init_task``。 ``early_top_pgt`` 仍同时含kernel high mapping和第037章切换所需
+的temporary identity entries，正式kernel BSS/brk尚未清零，IDT仍是只有条件 ``#VC`` 的
+bringup表。
 
-.. code-block:: asm
+本章按fixed Linux 7.2-rc1 ``head64.c`` 的runtime顺序收掉这些临时状态，把外部boot data复制
+进正式kernel对象，停在 ``x86_64_start_reservations(Z)`` 第一条语句之前。第040章再进入platform
+quirks和generic ``start_kernel()``。
 
-   callq *initial_code(%rip)
+开头的 ``BUILD_BUG_ON`` 不产生runtime阶段
+------------------------------------------
 
-进入第一个正式 C 入口：
-
-.. code-block:: c
-
-   x86_64_start_kernel(real_mode_data)
-
-参数 ``real_mode_data`` 是 bootloader 传入的 ``boot_params`` 物理地址。函数虽然叫 ``start_kernel``，它还不是通用内核入口 ``init/main.c:start_kernel()``。它属于 x86-64 架构专用的最后清理阶段。
-
-先把当前 ``CR4`` 状态记入 shadow
---------------------------------
-
-函数首先调用：
+函数前几项检查kernel image、module area、fixmap与PMD alignment的link-time关系。它们在成功
+build中全部由编译器消去，不是CPU当前逐项执行的if chain。本章第一条有runtime效果的语句是：
 
 .. code-block:: c
 
    cr4_init_shadow();
 
-Linux 后续修改 ``CR4`` 时，不希望每次都把硬件寄存器当作普通变量随意读写。内核维护一份 per-CPU ``CR4`` shadow，统一追踪已经启用的功能位。
+它把第038章已经规范化的hardware CR4同步到CPU0 per-CPU software shadow。后续
+``cr4_set_bits/cr4_clear_bits`` 和TLB helper依赖这份起点；shadow建立不再改变实际CR4位。
 
-当前 CPU 已在汇编中整理过 ``PAE``、``PSE``、``PGE``、``LA57`` 等状态。这里把真实值同步进软件 shadow，使后续 ``cr4_set_bits()``、``cr4_clear_bits()`` 等操作有正确起点。
+``reset_early_page_tables`` 撤销低地址identity entries
+-----------------------------------------------------
 
-销毁早期 identity-map trampoline
---------------------------------
-
-接下来执行：
-
-.. code-block:: c
-
-   reset_early_page_tables();
-
-其核心是：
+下一步：
 
 .. code-block:: c
 
-   memset(early_top_pgt, 0, sizeof(pgd_t) * (PTRS_PER_PGD - 1));
+   memset(early_top_pgt, 0, sizeof(pgd_t) * (PTRS_PER_PGD-1));
    next_early_pgt = 0;
    write_cr3(__sme_pa_nodebug(early_top_pgt));
 
-``early_top_pgt`` 最后一项保存正式内核高半区映射，前面的 entries 曾用于 identity mapping 和早期动态补页。
+函数清 ``early_top_pgt`` 前511项，只保留最后一个kernel high-map entry，再重载同一root。第037章
+为物理到高半区切换建立的identity top-level entries到此不再present； ``early_dynamic_pgts``
+存储虽尚在，但allocator index重置为0，旧下级内容不再由root引用。
 
-函数清零前 ``PTRS_PER_PGD - 1`` 项，只保留最后一个高半区 kernel mapping。随后重新写 ``CR3``，让 CPU 使用收紧后的页表。
+因此当前参数 ``Z`` 不能再被当成可直接解引用的identity virtual pointer。函数只把该数值继续
+保存在 ``real_mode_data`` 中；真正copy时显式使用 ``__va(Z)``，通过direct-map地址访问。
 
-因此这一步的真实含义是：
+若第035章启用了5-level paging，源码此时把动态virtual layout变量改成L5版本：
 
-.. code-block:: text
+::
 
-   保留高半区正式内核映射
-   → 删除低地址临时 identity map
-   → 重置 early page-table 分配计数
-   → 重新加载 CR3
+   page_offset_base = __PAGE_OFFSET_BASE_L5
+   vmalloc_base     = __VMALLOC_BASE_L5
+   vmemmap_base     = __VMEMMAP_BASE_L5
 
-从这一刻开始，内核不能再假设任意物理地址都能用相同数值作为虚拟地址访问。后续物理内存访问必须通过 direct map、fixmap 或专门映射。
+4-level路径保留它们的L4初始化值。这一步必须在后面的 ``__va`` 和early direct-map补图之前
+完成。
 
-同步 5 级分页的动态虚拟布局
----------------------------
+正式kernel BSS与early brk现在才获得zero-init语义
+--------------------------------------------------
 
-若 compressed 阶段已经启用 5-level paging，函数把三个动态基址改成 L5 版本：
+``clear_bss()`` 依次清：
 
-.. code-block:: c
+::
 
-   page_offset_base = __PAGE_OFFSET_BASE_L5;
-   vmalloc_base     = __VMALLOC_BASE_L5;
-   vmemmap_base     = __VMEMMAP_BASE_L5;
+   [__bss_start,__bss_stop)
+   [__brk_base,__brk_limit)
 
-它们分别控制：
+第037章 ``parse_elf`` 只按 ``PT_LOAD.p_filesz`` 搬file bytes，并未用 ``p_memsz`` 逐段清零。
+所以普通静态zero-initialized globals不能在这个边界之前被随意假定为0；本函数在只依赖明确
+initialized data完成CR4、CR3和layout切换后，统一兑现ELF BSS语义。
 
-* 物理内存 direct map 的虚拟基址；
-* ``vmalloc`` 区域基址；
-* ``struct page`` 数组的 ``vmemmap`` 基址。
+``brk`` 是完整memory allocator可用前的early linear reservation区，不是用户态 ``brk``
+syscall对象。把它清零防止 ``O`` 原内存残留被当成allocator metadata。
 
-前面 compressed code 只决定是否启用 ``CR4.LA57``；这里正式内核把自己的地址空间布局变量同步到实际分页级数。
+``init_top_pgt`` 必须在KASAN写入前清空
+-------------------------------------
 
-清除正式内核 BSS 与 brk
------------------------
-
-随后：
-
-.. code-block:: c
-
-   clear_bss();
-
-它清零两个区域：
-
-.. code-block:: c
-
-   memset(__bss_start, 0, __bss_stop - __bss_start);
-   memset(__brk_base, 0, __brk_limit - __brk_base);
-
-``.bss`` 中的静态变量在 ELF 文件里通常不保存成片的零字节，只记录运行时需要的大小。解压器搬运 ``PT_LOAD`` segment 后，内核必须自己保证 BSS 初值为 0。
-
-``brk`` 是最早期内核在完整内存分配器可用前预留的线性空间。把它清零避免使用到压缩目标区中残留的数据。
-
-这也是为什么前面的汇编和解压代码不能随便把尚未清零的 BSS 变量当成 0。必须等到这里以后，正式内核的普通静态零初始化语义才可靠。
-
-为什么还要单独清零 ``init_top_pgt``
------------------------------------
-
-函数继续执行：
+当前执行仍使用 ``early_top_pgt``，所以源码可以安全：
 
 .. code-block:: c
 
    clear_page(init_top_pgt);
 
-``init_top_pgt`` 将用于后续正式 direct map 和内存初始化。它不是当前正在执行的 ``early_top_pgt``，所以可以安全清空。
+``init_top_pgt`` 将承接更长期的kernel/direct-map页表。它必须先清再调用 ``kasan_early_init``；
+反序会擦掉KASAN刚写入的shadow mappings。
 
-源码要求这一步发生在 ``kasan_early_init()`` 之前，因为 KASAN 可能立即向该页表加入 shadow memory 映射。若先让 KASAN 写入，再清页表，刚建立的映射会被抹掉。
+SME先修early PMD flags，KASAN再建最小shadow
+-------------------------------------------
 
-SME 早期初始化必须先于可能的 page fault
----------------------------------------
+``sme_early_init()`` 在build/runtime SME active时把encryption mask加入 ``early_pmd_flags`` 与
+supported PTE mask，并发布memory-encryption callbacks；普通路径是no-op。它必须早于任何可能
+产生direct-map page fault的访问，否则 ``early_make_pgtable`` 可能用错误C-bit建立PMD。
 
-接着调用：
+随后 ``kasan_early_init()`` 依build而成为真实函数或空inline。启用时，它用共享early shadow
+page/table填充最小KASAN层级，并同时把shadow mapping加入 ``early_top_pgt`` 与刚清过的
+``init_top_pgt``。这只让接下来的instrumented early C code安全运行，不代表完整KASAN memory
+layout已经完成。
 
-.. code-block:: c
-
-   sme_early_init();
-
-在启用 AMD Secure Memory Encryption 时，页表项中的物理地址需要携带 encryption mask。``sme_early_init()`` 可能修改 ``early_pmd_flags``，使后续动态建立的 PMD 带上正确 C-bit。
-
-这必须发生在任何可能触发 early page fault 的操作之前。否则 ``do_early_exception()`` 临时补出的页表项可能缺少加密属性，导致同一物理页以不一致方式访问。
-
-没有启用 SME 时，这条路径退化为空操作，但顺序仍然固定。
-
-建立最早期 KASAN shadow
------------------------
-
-随后：
-
-.. code-block:: c
-
-   kasan_early_init();
-
-KASAN 通过 shadow memory 记录普通内存字节的可访问状态。完整 shadow mapping 此时还不可能建立，因为伙伴分配器和完整页表体系尚未初始化。
-
-``kasan_early_init()`` 先创建一个最小可运行环境，使接下来的早期 C 代码即使被 KASAN instrumentation 插桩，也不会因为 shadow 地址完全不存在而立刻 fault。
-
-完成后，函数再刷新 global TLB：
+源码在KASAN之后调用：
 
 .. code-block:: c
 
    __native_tlb_flush_global(this_cpu_read(cpu_tlbstate.cr4));
 
-之所以放在 KASAN 之后，是因为某些 KASAN 配置会插桩 ``native_write_cr4()``；必须先让 shadow 可用，再执行这类被插桩的底层操作。
+它清理由trampoline/早期table可能留下的global TLB entries。顺序不能提前：某些KASAN build会
+instrument ``native_write_cr4``，shadow未就绪就调用global-flush helper反而会fault。第038章的
+CR4 PGE序列和这里的explicit global flush是两个边界，旧稿不能用前者替代后者。
 
-把 early IDT 换成正式早期 handler 表
--------------------------------------
+general early exception table到这里才安装
+-----------------------------------------
 
-函数调用：
+``idt_setup_early_handler()`` 为 ``NUM_EXCEPTION_VECTORS`` 中每个vector把 ``idt_table`` entry
+指向对应 ``early_idt_handler_array[i]``，再加载正式 ``idt_descr``。从这里开始，页错误、VE、
+VC及其他early exception才进入统一frame并调用 ``do_early_exception``。
 
-.. code-block:: c
+其中page fault分支尝试 ``early_make_pgtable(CR2)``：仅当CR2是direct-map范围、当前CR3仍是
+``early_top_pgt`` 且dynamic table可用时，按 ``early_pmd_flags`` 建2 MiB PMD并返回重试。它与
+第036—037章compressed stage2 ``#PF`` 不是同一IDT、同一allocator或同一address-space helper。
 
-   idt_setup_early_handler();
+无法补图的exception继续交给 ``early_fixup_exception``；AMD ``#VC`` 和TDX ``#VE`` 也有各自
+条件handler。安装一般early IDT以后， ``tdx_early_init()`` 才建立供后续
+``cc_platform_has()`` 使用的TDX状态；非TDX build/runtime不改变当前普通路径。
 
-第三十八章建立的 IDT 保证刚进入 C 前不会完全失去异常处理。这里进一步装入架构定义的 early handler 表，覆盖早期 exception vectors，并为后续页错误、调试异常、通用保护异常等建立更稳定的入口。
-
-它仍然不是系统运行后的最终 IDT。完整 trap 和 IRQ 初始化要等 ``start_kernel()`` 后续的 ``trap_init()``、``init_IRQ()`` 等步骤。
-
-TDX 平台识别为什么必须这么早
-----------------------------
-
-随后：
-
-.. code-block:: c
-
-   tdx_early_init();
-
-TDX guest 对 CPUID、I/O、MSR 和部分异常的处理方式与普通裸机不同。后面的代码可能调用 ``cc_platform_has()`` 查询 confidential-computing 属性，因此必须先识别并建立 TDX 早期状态。
-
-固定 QEMU q35 主线若未启用 TDX，这条路径不会改变普通启动流程，但正文保留它，因为它位于真实控制流中，并决定后续抽象接口能否安全使用。
-
-把 bootloader 数据复制进内核自己的静态区
-----------------------------------------
-
-到目前为止，``real_mode_data`` 仍指向 GRUB 分配的低端 ``boot_params`` 页面。内核不能永久依赖这块外部内存。
-
-``copy_bootdata()`` 执行：
-
-.. code-block:: c
-
-   memcpy(&boot_params, real_mode_data, sizeof(boot_params));
-   sanitize_boot_params(&boot_params);
-
-全局 ``boot_params`` 是正式内核自己的静态对象。复制完成后，固件内存图、initramfs 地址、RSDP、screen info、setup header 和其他启动字段都进入内核控制的存储区。
-
-然后拼接命令行的高低地址字段：
-
-.. code-block:: c
-
-   cmd_line_ptr  = boot_params.hdr.cmd_line_ptr;
-   cmd_line_ptr |= (u64)boot_params.ext_cmd_line_ptr << 32;
-
-若地址非零，命令行被复制到：
-
-.. code-block:: c
-
-   boot_command_line[COMMAND_LINE_SIZE]
-
-当前固定命令行因此从 GRUB 缓冲区进入内核静态数组：
-
-.. code-block:: text
-
-   root=/dev/sda1 ro console=ttyS0
-
-SME 条件路径会在复制前为 boot data 建立 decrypted mapping，复制完成后再移除，避免低端启动数据长期以错误的加密属性映射。
-
-提前加载 BSP microcode
-----------------------
-
-接下来：
-
-.. code-block:: c
-
-   load_ucode_bsp();
-
-微码更新可能修复 CPU errata，改变某些 feature bits 的可靠性，或影响后续 mitigation 与拓扑判断。因此 BSP 微码需要在大规模 CPU 特性初始化前尽早加载。
-
-这里仅处理 boot CPU。其他 AP 在后续 bring-up 时走各自的 microcode 路径。
-
-把高半区 kernel mapping 交给 ``init_top_pgt``
+``copy_bootdata`` 用 ``__va(Z)`` 接回外部参数
 --------------------------------------------
 
-函数最后执行：
+主函数调用：
+
+.. code-block:: c
+
+   copy_bootdata(__va(real_mode_data));
+
+此时 ``real_mode_data`` 的数值仍是物理 ``Z``； ``__va`` 按已经选择好的L4/L5
+``page_offset_base`` 形成direct-map virtual address。若相关PMD尚不存在，刚安装的general early
+``#PF`` 可以补图。
+
+``copy_bootdata`` 先按条件让SME host-memory-encryption路径为boot params与command line建立
+decrypted mappings，再执行：
+
+.. code-block:: c
+
+   memcpy(&boot_params, __va(Z), sizeof(boot_params));
+   sanitize_boot_params(&boot_params);
+
+全局 ``boot_params`` 属于正式kernel BSS，刚刚清零并从此获得内核所有权。它接收E820、screen
+info、RSDP、setup header、initramfs ``R/N`` 等协议字段；copy后再次sanitize外部ABI。
+
+命令行地址由低32位 ``hdr.cmd_line_ptr`` 与高32位 ``ext_cmd_line_ptr`` 拼成。非零时转成
+``__va``，固定复制整个 ``COMMAND_LINE_SIZE=2048`` buffer到 ``boot_command_line``，不是只复制
+到NUL。当前字符串精确为：
+
+::
+
+   BOOT_IMAGE=/boot/bzImage root=/dev/sda1 ro console=ttyS0
+
+旧稿遗漏 ``BOOT_IMAGE=/boot/bzImage`` 前缀，已修正。copy完成后SME路径撤销临时decrypted
+boot-data mappings；外部Z/C buffer不再是正式kernel保存参数所必需的所有权对象。
+
+``load_ucode_bsp`` 是一次条件尝试，不保证发生update
+-----------------------------------------------
+
+接着无条件写在C控制流中的调用是 ``load_ucode_bsp()``。若build没有 ``CONFIG_MICROCODE``，
+header把它编译为空inline；若有，helper解析 ``microcode=``/legacy disable参数、检查CPUID与
+hypervisor bit、CPU vendor/family及loader禁用条件，再选择Intel或AMD early loader。
+
+固定command line没有microcode参数，但QEMU CPU model、vendor与build config未固定，仓库也没有
+提供一个可核对的early microcode blob。因此本章只能固定“BSP执行这次helper调用”；不能把它
+写成“微码revision已经更新”。QEMU暴露hypervisor bit时，非debug loader还会主动禁用early
+update。
+
+``init_top_pgt`` 只先继承kernel high top entry
+-----------------------------------------------
+
+源码最后执行：
 
 .. code-block:: c
 
    init_top_pgt[511] = early_top_pgt[511];
 
-前面 ``init_top_pgt`` 已清零。现在把 ``early_top_pgt`` 最后一项，即正式高半区 kernel mapping，复制过去。
+前面整页已清零、KASAN可能加入shadow mappings；这里再把 ``early_top_pgt`` 的第511项，即当前
+正式kernel high-map subtree，复制给长期root。它没有在一条赋值里建立完整physical direct map、
+vmalloc或用户空间页表；那些仍由后续memory setup完成。
 
-这为后续从 early page table 过渡到更完整的 ``init_top_pgt`` 保留最关键的内核映射。此时还没有建立完整物理内存 direct map，只复制了让内核自身代码和数据继续可达的顶层入口。
-
-进入 ``x86_64_start_reservations()``
------------------------------------
-
-最后调用：
+随后：
 
 .. code-block:: c
 
    x86_64_start_reservations(real_mode_data);
 
-该函数同样声明为 ``__noreturn``。``x86_64_start_kernel()`` 不会返回，它把控制权交给下一层 x86 架构入口。
+传入的仍是物理数值 ``Z``。该callee声明 ``__noreturn``；本章停在其第一条语句之前，不越过第
+040章提前展开platform quirks或generic ``start_kernel``。
 
-当前机器状态
+本章结束状态
 ------------
 
-本章结束时：
+* current executor：Linux 7.2-rc1 ``x86_64_start_reservations(Z)``，第一条语句尚未执行；
+* CPU：BSP / logical CPU0；64-bit long mode；IF=0，DF=0；
+* current task/stack： ``init_task`` / initial task stack；
+* GSBASE：CPU0 initial per-CPU offset；CR4 shadow已同步；
+* ``early_top_pgt``：前511项已清，只保留/重建kernel high与条件KASAN shadow mapping；
+* temporary low identity mapping：已从active root撤销；
+* paging layout variables：与实际4-level或5-level一致；
+* formal ``[__bss_start,__bss_stop)`` 与 ``[__brk_base,__brk_limit)``：已清零；
+* ``init_top_pgt``：已清，含条件KASAN shadow及复制来的entry 511 kernel high mapping；
+* SME early flags：按build/runtime完成或no-op；
+* general early IDT：已加载32个early exception entries；
+* early direct-map ``#PF`` helper：现在可用；
+* TDX early state：按build/runtime完成或no-op；
+* global ``boot_params``：已从 ``__va(Z)`` 复制并sanitize；
+* ``boot_command_line``：已复制完整2048-byte buffer，字符串含 ``BOOT_IMAGE`` 前缀；
+* early microcode：helper已调用；是否加载update未由固定条件确定；
+* initramfs：global boot params中仍记录 ``R/N``，内容尚未unpack；
+* generic ``start_kernel``：尚未调用。
 
-* 当前执行者：Linux 6.12.95 ``x86_64_start_reservations()``；
-* CPU：BSP / Linux CPU 0；
-* 模式：64 位 long mode；
-* interrupts：关闭；
-* 临时低地址 identity mapping：已从 ``early_top_pgt`` 清除；
-* BSS 与 early brk：已清零；
-* ``init_top_pgt``：已清空并复制 kernel high mapping；
-* SME early flags：条件初始化完成；
-* KASAN early shadow：条件初始化完成；
-* early IDT：已升级；
-* TDX early state：条件初始化完成；
-* ``boot_params``：已复制到内核全局对象；
-* kernel command line：已复制到 ``boot_command_line``；
-* BSP microcode：已执行早期加载；
-* initramfs：地址仍记录在 ``boot_params``，尚未展开；
-* ``start_kernel()``：尚未调用。
+关键边界
+--------
 
-下一段从 ``x86_64_start_reservations()`` 开始，执行最早的平台 quirks，然后调用通用 ``start_kernel()``。进入 ``start_kernel()`` 后，正文只追它在 ``setup_arch()`` 之前建立的最早通用内核状态。
+#. 开头BUILD_BUG_ON只做build-time验证；第一条runtime动作是 ``cr4_init_shadow``。
+#. reset root后Z不再是identity virtual pointer；copy必须使用 ``__va(Z)``。
+#. L5 layout变量在任何后续 ``__va`` / direct-map fault之前更新。
+#. formal kernel BSS到本章才统一清零；第037章PT_LOAD只复制 ``p_filesz``。
+#. ``init_top_pgt`` 必须在KASAN映射前clear；SME必须在可能生成early PMD之前更新flags。
+#. general early IDT到 ``idt_setup_early_handler`` 才安装；038的bringup IDT不能处理一般 ``#PF``。
+#. formal early ``#PF`` 使用early_top/dynamic pgts；它不是compressed ``kernel_add_identity_map``。
+#. command line固定复制2048 bytes，当前有效字符串包含 ``BOOT_IMAGE=/boot/bzImage``。
+#. ``load_ucode_bsp`` 调用不等于revision更新；config、hypervisor、vendor、family和blob仍是条件。
+#. ``init_top_pgt[511]`` 只继承kernel high subtree，不代表完整direct map已经建成。
+#. reservations参数仍是物理Z；fallback是否再次copy由下一章检查global header version决定。
+
+下一入口
+--------
+
+第040章从：
+
+.. code-block:: c
+
+   x86_64_start_reservations(char *real_mode_data)
+   {
+       if (!boot_params.hdr.version)
+           copy_bootdata(__va(real_mode_data));
+       ...
+
+开始。当前global ``boot_params`` 已有效，所以正常GRUB路径不再次copy；函数将建立ordinary PC
+platform quirks并调用generic ``start_kernel()``。第040章仍为pending历史稿，留给下一批审查。
 
 资料
 ----
 
-* `Linux 6.12.95 head64.c：x86_64_start_kernel、clear_bss、copy_bootdata 与 reservations 入口 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/head64.c>`_
-* `Linux 6.12.95 head_64.S：common_startup_64 到 x86_64_start_kernel 的调用 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/head_64.S>`_
-* `Linux 6.12.95 kasan init：早期 shadow mapping <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/mm/kasan_init_64.c>`_
-* `Linux 6.12.95 microcode core：BSP 早期 microcode 加载 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/cpu/microcode/core.c>`_
-* `Linux 6.12.95 IDT：early handler 安装 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/idt.c>`_
+* `Linux 7.2-rc1固定提交：x86_64_start_kernel与reservations入口 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/head64.c#L222-L310>`_；
+* `Linux 7.2-rc1固定提交：early page tables、BSS与copy_bootdata <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/head64.c#L46-L220>`_；
+* `Linux 7.2-rc1固定提交：general early IDT安装 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/idt.c#L327-L341>`_；
+* `Linux 7.2-rc1固定提交：early exception entry与do_early_exception <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/head_64.S#L488-L542>`_；
+* `Linux 7.2-rc1固定提交：KASAN early shadow <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/mm/kasan_init_64.c#L287-L316>`_；
+* `Linux 7.2-rc1固定提交：SME bootdata mapping与early flags <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/mm/mem_encrypt_amd.c#L156-L215>`_；
+* `Linux 7.2-rc1固定提交：BSP early microcode条件 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/cpu/microcode/core.c#L114-L205>`_。
