@@ -1,76 +1,60 @@
+.. SPDX-License-Identifier: GPL-2.0
+
+================================================================
 第三十四章：Linux startup_32 怎样建立 4 GiB 映射并进入 64 位模式？
 ================================================================
 
-上一章最后，GRUB relocator 使用 far jump 把控制权交给 Linux 6.12.95：
-
-::
-
-   CS:EIP = 0x10:code32_start
-   ESI    = boot_params 物理地址
-
-当前指令已经来自：
-
-::
-
-   arch/x86/boot/compressed/head_64.S:startup_32
-
-这里的 ``startup_32`` 属于 **compressed kernel**。它不是最终解压后的 ``arch/x86/kernel/head_64.S``，也不是 ``start_kernel()``。它的任务是先建立一个能运行 64 位解压器的最小环境。
-
-32 位入口为什么固定在 payload 偏移 0
------------------------------------
-
-源码首先声明：
-
-::
-
-   32bit entry is 0 and it is ABI so immutable
-
-GRUB 把 ``code32_start`` 指向 protected-mode payload 的起始地址，因此进入点正是压缩 payload 偏移 0。
-
-同一个 ``bzImage`` 还提供 64 位 boot protocol 入口，固定在 payload 起点加 ``0x200``。当前 GRUB 是 i386-pc 32 位 bootloader，所以不能直接使用那个入口；Linux 必须先从偏移 0 的 ``startup_32`` 自己开启 long mode。
-
-第一件事仍是固定方向和中断状态
-------------------------------
-
-``startup_32`` 开头再次执行：
+第033章停在GRUB relocator的最后一次far jump之后。BSP / CPU0已经位于32位protected
+mode，paging与PAE关闭，IF与DF均为0；``EIP=K``，``ESI=Z``。这里的 ``K`` 是GRUB最终
+搬好的protected payload物理起点，``Z`` 是最终 ``struct boot_params`` 物理地址。当前即将
+执行的第一条指令来自固定Linux 7.2-rc1：
 
 .. code-block:: asm
 
-   cld
-   cli
+   arch/x86/boot/compressed/head_64.S:
 
-GRUB 已经提供 DF=0 和 IF=0，Linux 仍不依赖 bootloader 的善意，立即重新声明自己的前置条件。
+   startup_32:
+       cld
+       cli
 
-``cld`` 保证后面的 ``rep stos`` 与 ``rep movs`` 按地址递增工作。
+这是compressed kernel的32位入口，不是16位setup，也不是解压后
+``arch/x86/kernel/head_64.S`` 中的正式内核入口。本章沿着 ``startup_32`` 完成runtime基址、
+Linux自有GDT、CPU能力验证、早期页表和long-mode切换，停在当前压缩镜像内
+``startup_64`` 的第一条指令之前。
 
-``cli`` 保证 Linux 尚未建立自己的 IDT 和中断处理路径时，不会被传统 PIC 或其他中断打断。
+先把缺失的artifact量保留为符号
+----------------------------------
 
-ESI 是此刻最重要的输入
-----------------------
-
-Linux/x86 32-bit Boot Protocol 只把少数寄存器定义为正式接口。其中：
+固定commit没有附带最终build ``.config`` 或可读取的 ``bzImage``，因此本章不能把构建期和
+链接期量伪装成源码常数。沿用 ``K``、``Z`` 和第031章的 ``I=hdr.init_size``，再定义：
 
 ::
 
-   ESI = struct boot_params 的物理地址
+   G  = Z中经过GRUB调整后实际交给Linux的hdr.kernel_alignment
+   L  = 固定build产生的LOAD_PHYSICAL_ADDR
+   E  = rva(_end)，即compressed运行映像总跨度
+   O0 = 解压输出的初步物理基址
+   B  = compressed映像准备搬往的安全运行基址
 
-GRUB 已在这块低端内存中写入：
+``G``、``L``、``I`` 和 ``E`` 都依赖最终build/link artifact；``K`` 和 ``Z`` 依赖GRUB运行时
+分配。固定源码能证明它们怎样参与运算，却不能从commit alone补出具体地址或长度。
 
-* setup header 副本；
-* ``cmd_line_ptr``；
-* ``ramdisk_image`` 与 ``ramdisk_size``；
-* E820 memory map；
-* video/console 信息；
-* bootloader ID 等字段。
+``cld`` 与 ``cli`` 重新声明Linux自己的入口条件
+-----------------------------------------------
 
-``startup_32`` 在切换栈、重载 GDT 和开启 paging 的整个过程中都必须保住这个指针。后面的 64 位 startup 会把它扩展并保存到长期使用的寄存器中。
+GRUB已经交付DF=0、IF=0，Linux仍首先执行 ``cld`` 和 ``cli``。这不是多余动作：compressed
+入口是一个可被不同bootloader调用的ABI，不能把字符串方向或maskable interrupt状态继续
+寄托在某个调用者的实现细节上。
 
-为什么先借用 boot_params.scratch 当 4 字节栈
---------------------------------------------
+从这一步到本章结束，CPU一直是BSP / CPU0，没有调度器、task切换或AP参与。``cli`` 只屏蔽
+maskable interrupt；NMI和同步异常不是由IF屏蔽，但此刻Linux还没有建立本阶段自己的完整
+异常环境，所以后续每个模式切换步骤都必须在源码规定的窄路径内成功。
 
-Linux 必须知道 compressed image 实际被 GRUB 放到了哪个物理地址。因为内核支持 relocatable，链接时地址不能直接代表运行时地址。
+借用 ``boot_params.scratch`` 取得当前 ``startup_32`` 地址
+------------------------------------------------------------
 
-32 位 x86 没有 RIP-relative addressing。为了取得当前 ``EIP``，代码使用经典的 ``call``/``pop`` 技巧：
+32位代码没有RIP-relative寻址，而compressed payload可以被GRUB放到构建地址之外。Linux先把
+``boot_params`` 中偏移 ``0x1e4`` 的scratch字段尾部借作一次性4-byte stack：
 
 .. code-block:: asm
 
@@ -79,39 +63,29 @@ Linux 必须知道 compressed image 实际被 GRUB 放到了哪个物理地址�
 1: popl %ebp
    subl $rva(1b), %ebp
 
-``call`` 会把下一条指令的运行时地址压栈，``popl %ebp`` 再把它取出。
+``ESI=Z``，所以 ``call`` 把返回EIP写入 ``[Z+BP_scratch,Z+BP_scratch+4)``；紧接着的
+``popl`` 又取走它。Linux不是在这里建立长期stack，也不把scratch里的旧内容当成输入。
 
-问题是 Linux 此时还没有自己的栈。于是它暂时把 ``boot_params`` 中偏移 ``0x1e4`` 的 ``scratch`` 字段尾部当作 4 字节栈空间。这里只需要容纳 ``call`` 压入的一个返回地址。
-
-减去标签 ``1`` 相对 ``startup_32`` 的链接偏移后：
-
-::
-
-   EBP = startup_32 的实际运行时物理地址
-
-这个 EBP 成为 compressed image 内所有 ``rva(symbol)`` 引用的运行时基址。
-
-``rva()`` 为什么贯穿整个早期汇编
---------------------------------
-
-``head_64.S`` 定义：
+``head_64.S`` 把：
 
 .. code-block:: c
 
    #define rva(X) ((X) - startup_32)
 
-所以：
+定义为符号相对入口的链接期偏移。弹出的运行时标签地址减去 ``rva(1b)`` 后得到：
 
 ::
 
-   rva(X) + EBP = X 的当前运行时地址
+   EBP = K
 
-compressed kernel 被链接为 PIE，且可能被 bootloader 放到不同物理地址。早期 32 位代码还不能依赖完整的动态重定位器；``rva()`` 明确使用符号相对入口的固定偏移，避免产生此时无法处理的运行时重定位。
+从此在32位早期汇编中，``rva(symbol)(%ebp)`` 就是当前compressed副本中 ``symbol`` 的运行
+地址。这个计算只确定当前镜像基址 ``K``，还没有确定最终解压地址，也没有搬动任何字节。
 
-Linux 立即换掉 GRUB 的 GDT
--------------------------
+Linux加载自己的GDT并刷新 ``CS``
+---------------------------------
 
-GRUB 已提供符合 boot protocol 的 flat GDT。Linux 仍建立自己的 descriptor table：
+GRUB的flat GDT满足handoff协议，但不属于Linux compressed环境。Linux用 ``K`` 修正内嵌在
+``gdt`` 开头的32位GDTR descriptor，再加载它：
 
 .. code-block:: asm
 
@@ -119,44 +93,28 @@ GRUB 已提供符合 boot protocol 的 flat GDT。Linux 仍建立自己的 descr
    movl %eax, 2(%eax)
    lgdt (%eax)
 
-``gdt`` 前面带有一个 32 位 GDTR descriptor。descriptor 的 base 字段在链接时不能知道运行地址，所以 Linux 用 ``EBP`` 算出真实地址，再现场写入 descriptor 的 base 部分。
-
-新 GDT 包含：
-
-* ``__KERNEL32_CS``：32 位 code segment；
-* ``__KERNEL_CS``：64 位 code segment，L bit 为 1；
-* ``__KERNEL_DS``：flat data segment；
-* 一个早期 TSS descriptor。
-
-随后数据段寄存器全部改成 Linux 自己的 ``__BOOT_DS``/``__KERNEL_DS`` selector。
-
-为什么还要执行一次 32 位 far return
------------------------------------
-
-仅 ``lgdt`` 不会刷新当前 ``CS`` 的 hidden descriptor cache。Linux 先建立正式 boot stack：
+该GDT包含32位code、64位code、flat data以及早期TSS descriptor。随后Linux把
+``DS/ES/FS/GS/SS`` 全部改为 ``__BOOT_DS``，再把 ``ESP`` 切到当前compressed副本中的：
 
 .. code-block:: asm
 
    leal rva(boot_stack_end)(%ebp), %esp
 
-``BOOT_STACK_SIZE`` 在 x86-64 compressed kernel 中是 ``0x4000``，即 16 KiB。
+x86-64 compressed build的 ``BOOT_STACK_SIZE`` 由固定源码无条件定义为 ``0x4000``，即16 KiB。
+这次切换结束了对 ``boot_params.scratch`` 的临时使用。
 
-然后：
+仅执行 ``lgdt`` 不会更新当前 ``CS`` 的hidden descriptor cache，因此源码压入Linux自己的
+``__KERNEL32_CS`` 与当前副本中的返回地址，再执行 ``lretl``。这次far return仍在paging关闭的
+32位protected mode内；它只把代码段切到Linux GDT中的32位descriptor，尚未进入long mode。
 
-.. code-block:: asm
+``verify_cpu`` 成功是本场景继续运行的必要条件
+------------------------------------------------
 
-   pushl $__KERNEL32_CS
-   pushl $next_address
-   lretl
+若build启用 ``CONFIG_AMD_MEM_ENCRYPT``，源码先调用 ``startup32_load_idt``，为可能的SEV-ES
+``#VC`` 准备32位异常入口；未启用该config时这段代码根本不存在。它不能被写成所有q35启动
+都会执行的动作。
 
-这个 far return 在 **仍然是 32 位模式** 的前提下，把 ``CS`` 切换到 Linux 自己 GDT 的 32 位 code descriptor。
-
-它还不是进入 long mode。此处只是先摆脱 GRUB 的 descriptor cache，确保后续修改 CR4、EFER 和 CR0 时运行在 Linux 自己定义的 32 位段环境中。
-
-``verify_cpu`` 不是只检查一个 long-mode bit
--------------------------------------------
-
-Linux 接着调用：
+随后无条件调用：
 
 .. code-block:: asm
 
@@ -164,266 +122,237 @@ Linux 接着调用：
    testl %eax, %eax
    jnz .Lno_longmode
 
-``verify_cpu`` 成功返回 0，失败返回 1。它检查的链条包括：
+固定 ``verify_cpu.S`` 先保存调用者flags并临时清除危险flags，然后验证CPUID可用、basic leaf 1
+存在、build生成的 ``REQUIRED_MASK0`` 基础能力满足、extended leaf ``0x80000001`` 存在且
+``REQUIRED_MASK1`` 满足，并单独检查SSE/SSE2要求。对特定旧AMD CPU，它可以清除
+``MSR_K7_HWCR`` 的SSE disable bit后重试；对符合family/model条件的Intel CPU，它还可能清除
+``IA32_MISC_ENABLE.XD_DISABLE``。这些vendor修正只有相应CPUID身份和MSR位条件成立才发生。
 
-#. CPU 是否支持 CPUID；
-#. basic CPUID leaf 1 是否存在；
-#. 内核要求的基础 feature bits 是否齐全；
-#. extended CPUID ``0x80000001`` 是否存在；
-#. long mode 等扩展 feature bits 是否齐全；
-#. SSE 是否可用。
+成功返回值是0，并恢复进入函数时的flags；失败返回1，``startup_32`` 跳到
+``.Lno_longmode`` 的永久 ``hlt``/jump循环。固定叙事能够继续到后续章节，本身就约定当前QEMU
+CPU提供这个64位内核build要求的能力；但没有固定CPU model参数，正文不再制造具体CPUID
+leaf数值或宣称某个vendor修正一定执行。
 
-对部分旧 AMD CPU，它还会尝试通过 ``MSR_K7_HWCR`` 清除 SSE disable bit 后重新检查。对符合条件的 Intel CPU，代码会清除 ``IA32_MISC_ENABLE.XD_DISABLE``，让 NX/XD 能力不被固件关闭。
+先算初步输出 ``O0``，再算搬迁基址 ``B``
+------------------------------------------
 
-若验证失败，``.Lno_longmode`` 会进入永久 ``hlt`` 循环。64 位内核无法退回成 32 位内核继续启动。
+CPU验证成功后，``EBP`` 仍是当前compressed基址 ``K``。在 ``CONFIG_RELOCATABLE`` build中，
+源码把 ``K`` 向上按 ``G`` 对齐，并以 ``L`` 为下限：
 
-EBX 不是最终内核入口，而是安全解压布局的关键
---------------------------------------------
+::
 
-验证 CPU 后，Linux计算一个临时 relocation base。
+   O0 = max(ALIGN_UP(K,G), L)
 
-在 ``CONFIG_RELOCATABLE`` 下，它先把当前 load address ``EBP`` 向上按 boot header 中的 ``kernel_alignment`` 对齐；若结果低于 ``LOAD_PHYSICAL_ADDR``，则至少使用 ``LOAD_PHYSICAL_ADDR``。
+若build没有 ``CONFIG_RELOCATABLE``，该对齐分支不编译，``O0=L``。这里读取的是GRUB实际交付
+在 ``boot_params`` 中的 ``kernel_alignment``；它源于build header，但GRUB在第031章的分配
+回退中可以把交付值调整为实际采用的alignment，因此不能简单替换为一个未经artifact验证的
+``CONFIG_PHYSICAL_ALIGN`` 数字。
 
-随后执行：
+源码接着执行：
 
 .. code-block:: asm
 
    addl BP_init_size(%esi), %ebx
    subl $rva(_end), %ebx
 
-可写成：
+所以：
 
 ::
 
-   EBX = aligned_output_base + init_size - compressed_image_memory_size
+   B = O0 + I - E
+   B + E = O0 + I
 
-``init_size`` 是内核告诉 bootloader 和 compressed startup 的完整初始化空间需求。把 compressed image 临时移到这段 buffer 的高端，可以让解压输出从低端增长，而不提前覆盖尚未读取的压缩输入。
+``O0`` 是解压输出的初步基址；``B`` 则是compressed运行映像以后要搬到的位置。把
+compressed副本的 ``_end`` 贴在整个 ``init_size`` 窗口末端，才为从 ``O0`` 向上增长的原地
+解压留下安全空间。本章只完成地址计算，真正的倒序复制在第035章。
 
-第三十二章中 GRUB 也使用同一个 ``init_size`` 为 initramfs 设置下界。两个不同执行者围绕同一字段完成了相互配合的内存布局：
+PAE打开时paging仍然关闭
+------------------------
 
-* GRUB 保证 initramfs 在内核初始化区之外；
-* Linux 把压缩输入安排到初始化 buffer 的安全高端。
-
-开启 PAE 是进入 long mode 的先决条件
-------------------------------------
-
-Linux 读取 CR4，设置：
+源码读取 ``CR4``、只把 ``X86_CR4_PAE`` 置1后写回。此刻：
 
 ::
 
    CR4.PAE = 1
+   CR0.PG  = 0
 
-x86-64 long mode 的 paging 使用扩展页表项和 4 级或 5 级结构。即使物理内存没有超过 4 GiB，开启 long mode 前也必须启用 PAE paging format。
+所以地址翻译尚未开始。PAE只是让随后打开paging时采用long mode需要的64-bit page-table
+entry格式。
 
-此时 paging 仍然关闭。设置 ``CR4.PAE`` 只是规定下一次打开 paging 时使用哪种页表格式。
+六页早期页表建在未来 ``B`` 副本，不在当前 ``K`` 副本
+-----------------------------------------------------------
 
-最初页表为什么恰好需要 6 页
-----------------------------
-
-Linux 定义：
-
-::
-
-   BOOT_INIT_PGT_SIZE = 6 * 4096
-
-用于最初 4 级 paging：
-
-::
-
-   1 页 PML4
-   1 页 PDPT
-   4 页 Page Directory
-
-总计 6 页。
-
-代码先把这 24 KiB 清零：
+这是本章最容易混写的地址边界。固定汇编清零页表时使用：
 
 .. code-block:: asm
 
+   leal rva(pgtable)(%ebx), %edi
+   movl $(BOOT_INIT_PGT_SIZE/4), %ecx
    rep stosl
 
-然后建立三层有效结构；最底层直接使用 2 MiB huge page，不建立 4 KiB Page Table 层。
-
-PML4 只使用第 0 项
-------------------
-
-PML4 第 0 项指向下一页的 PDPT：
+此时 ``EBX=B``，不是 ``EBP=K``。因此24 KiB早期页表位于：
 
 ::
 
-   PML4[0] → PDPT
+   [B + rva(pgtable), B + rva(pgtable) + 6*4096)
 
-当前只需要覆盖低 4 GiB，没有建立内核最终使用的高半区映射。这是一张 compressed startup 的临时 identity map。
+这块 ``.pgtable`` 是NOBITS启动空间；它无需先从 ``K`` 复制过来，``rep stosl`` 直接在未来
+安全运行区中把它创建出来。当前CPU仍从 ``K`` 取指，当前stack也仍在 ``K`` 副本；只有将被
+装入CR3的页表已经落在 ``B`` 地址域。旧文若只说“在compressed image中建页表”，会掩盖这
+两个并存的运行基址。
 
-PDPT 为什么填四项
------------------
-
-每个 PDPT entry 覆盖 1 GiB。代码连续建立四项：
-
-::
-
-   PDPT[0] → PD0 → 0–1 GiB
-   PDPT[1] → PD1 → 1–2 GiB
-   PDPT[2] → PD2 → 2–3 GiB
-   PDPT[3] → PD3 → 3–4 GiB
-
-因此四个 Page Directory 一共覆盖 4 GiB 线性地址空间。
-
-2048 个 2 MiB entry 怎样覆盖 4 GiB
-----------------------------------
-
-四个 Page Directory 各有 512 个 entry：
+``BOOT_INIT_PGT_SIZE=6*4096`` 对应：
 
 ::
 
-   4 × 512 = 2048 entries
+   1页 level-4 table
+   1页 level-3 table
+   4页 level-2 table
 
-每项映射 2 MiB：
+level-4第0项指向level-3页；level-3前4项分别指向4个level-2页。每个level-2页有512项，
+总计 ``4*512=2048`` 个2 MiB mapping。
+
+2048个PDE形成低4 GiB identity map
+-----------------------------------
+
+level-2 entry从 ``0x00000183`` 开始，每项物理地址递增 ``0x00200000``。``0x183`` 给出
+present、read/write、page-size与global等位，因此PDE本身直接映射2 MiB page，不再分配4 KiB
+PTE层：
 
 ::
 
-   2048 × 2 MiB = 4 GiB
+   2048 * 2 MiB = 4 GiB
+   linear address X -> physical address X，0 <= X < 4 GiB
 
-entry 初始值从 ``0x00000183`` 开始，每次物理地址增加 ``0x00200000``。
+这张表没有建立正式内核高半区映射，也不是 ``start_kernel()`` 最终使用的页表。它只保证当前
+32-bit boot-protocol路径中位于4 GiB以下的compressed代码、stack、``boot_params``、命令行和
+搬迁窗口在开启paging后仍能用同一数值访问。
 
-``0x183`` 中包含 present、writable、page-size 和 global 等位。page-size bit 表示这个 PDE 直接描述 2 MiB 页面，不再指向下一级 page table。
+SEV encryption mask只在build与runtime同时满足时进入页表
+------------------------------------------------------------
 
-线性地址和物理地址使用相同数值，所以这是 identity mapping：
+``EDX`` 先被清零。只有build含 ``CONFIG_AMD_MEM_ENCRYPT``，源码才调用
+``get_sev_encryption_bit``；只有运行时报告SEV active，它才把位于bit 31以上的C-bit转换为页表
+高32位mask，并令当前 ``K`` 副本中的 ``sev_status`` 暂记SEV enabled。建立各级entry时，这个
+``EDX`` 被加入entry高半部分。
 
-::
+因此固定源码给出两个合法结果：普通路径的mask为0；SEV路径的early identity entries带C-bit。
+QEMU版本固定不等于guest encryption配置固定，本章保留条件，不能把任一路径写成无条件事实。
 
-   virtual 0x00100000 → physical 0x00100000
-
-这使当前 compressed code、boot_params、命令行、页表和 4 GiB 以下的 initramfs 在开启 paging 前后仍可用同一数值访问。
-
-SEV 的 encryption bit 是条件分支
--------------------------------
-
-若构建和运行环境启用了 AMD memory encryption，``get_sev_encryption_bit`` 会取得 C-bit 位置，并把对应高位加入页表项。
-
-普通未启用 SEV 的 QEMU q35 路径中，encryption mask 为 0，页表项只包含普通物理地址和 flags。这个条件分支不改变主控制流结构。
-
-CR3 指向新建的 PML4
--------------------
+``CR3`` 指向 ``B`` 中的页表，``EFER.LME`` 只先解除入口闩锁
+-----------------------------------------------------------
 
 页表完成后：
 
 .. code-block:: asm
 
-   movl page_table_address, %cr3
+   leal rva(pgtable)(%ebx), %eax
+   movl %eax, %cr3
 
-由于当前代码仍在 32 位模式，页表必须位于 4 GiB 以下，CR3 的目标可以通过 32 位寄存器装入。
+由于 ``CR0.PG`` 仍为0，写CR3只是发布page-walk root，还没有改变当前取指地址。随后Linux通过
+``rdmsr/wrmsr`` 设置 ``EFER.LME=1``。单独设置LME也不会立刻执行64位指令；此刻仍是32位
+protected mode。
 
-写 CR3 此刻还不会启用地址翻译，因为 ``CR0.PG`` 仍是 0。CPU 只是记住下一次开启 paging 时从哪里开始 page walk。
+源码再以selector 0执行 ``lldt``，令LDTR无效；把 ``__BOOT_TSS`` 装入TR。若AMD encryption
+代码存在，还会调用 ``startup32_check_sev_cbit`` 验证active SEV环境中的C-bit位置。任何这些
+必要步骤失败都不会形成可继续叙事的另一条成功路径。
 
-EFER.LME 只表示“允许进入”，还没有激活
--------------------------------------
+写 ``CR0_STATE`` 先进入compatibility submode
+-----------------------------------------------
 
-Linux 读取 ``MSR_EFER``，设置：
-
-::
-
-   EFER.LME = 1
-
-LME 是 Long Mode Enable。单独设置它不会立即让指令变成 64 位。
-
-此时状态是：
-
-::
-
-   CR4.PAE = 1
-   CR3     = early PML4
-   EFER.LME = 1
-   CR0.PG   = 0
-
-CPU 仍执行 32 位指令。
-
-Linux 还清空 LDT 并装入早期 TSS
-------------------------------
-
-代码执行：
+Linux把当前 ``K`` 副本中 ``startup_64`` 的地址与 ``__KERNEL_CS`` 压到当前boot stack：
 
 .. code-block:: asm
 
-   lldt 0
-   ltr __BOOT_TSS
-
-``lldt 0`` 把 LDTR 标记为无效，说明当前不使用 Local Descriptor Table。
-
-``ltr`` 装入新 GDT 中的早期 TSS descriptor。compressed startup 还没有建立最终 per-CPU TSS，但进入 long mode 前先让 task register 处于 Linux 预期的有效状态。
-
-真正激活 long mode 的是 CR0.PG
-------------------------------
-
-Linux 把 64 位入口的地址和 64 位 code selector 压到当前 mini stack：
-
-.. code-block:: asm
-
+   leal rva(startup_64)(%ebp), %eax
    pushl $__KERNEL_CS
-   pushl $startup_64_runtime_address
+   pushl %eax
 
-随后写入预定义 ``CR0_STATE``。其中最关键的变化是：
-
-::
-
-   CR0.PG = 1
-
-因为 ``CR4.PAE`` 与 ``EFER.LME`` 已经就绪，打开 paging 会使 ``EFER.LMA`` 生效，处理器进入 long-mode active 状态。
-
-不过当前 ``CS`` 仍指向 32 位 descriptor，其 L bit 为 0、D bit 为 1。因此 CPU 暂时运行在 **long mode 的 32 位 compatibility submode**，还没有开始执行 64 位指令。
-
-最后一次 lret 才切进 64 位 code segment
---------------------------------------
-
-栈上已经准备好：
+目标是 ``K+rva(startup_64)``，不是未来的 ``B+rva(startup_64)``。源码随后不是简单对CR0执行
+OR，而是写入完整 ``CR0_STATE``：
 
 ::
 
-   new CS  = __KERNEL_CS
-   new RIP = startup_64
+   PE | MP | ET | NE | WP | AM | PG
 
-``lret`` 同时弹出目标 offset 和 code selector。
+关键新增位是 ``CR0.PG``。由于 ``CR4.PAE=1``、CR3已就绪且 ``EFER.LME=1``，打开paging同时
+令long mode active；但当前 ``CS`` 仍是 ``__KERNEL32_CS``，descriptor的L=0、D=1，所以CPU先
+处于long mode的32位compatibility submode。
 
-``__KERNEL_CS`` descriptor 的 L bit 为 1。装入它之后，CPU 从 compatibility mode 切换到真正的 64-bit mode，并从 compressed image 固定偏移 ``0x200`` 的：
+最后的 ``lret`` 弹出 ``startup_64`` offset与 ``__KERNEL_CS``。新code descriptor的L=1，
+这次far control transfer才真正令CPU开始解码64位指令。``startup_64`` 由 ``.org 0x200`` 固定
+在protected payload起点后 ``0x200``，故当前下一RIP是：
 
 ::
 
-   startup_64
+   K + 0x200
 
-开始执行。
+压缩镜像仍未搬走，正式内核也仍未解压。
 
-这个切换不能用普通 near jump 完成。near jump 不改变 ``CS``，也就不能把 code-segment L bit 从 0 改成 1。
-
-当前机器状态
+本章结束状态
 ------------
 
-第三十四章结束在 ``startup_64`` 刚取得控制权：
+* current executor：Linux 7.2-rc1 compressed ``startup_64``，第一条 ``cld`` 尚未执行；
+* CPU：BSP / CPU0，无调度、无AP参与；
+* CPU mode：64-bit long mode；
+* current RIP：``K+rva(startup_64)=K+0x200``；
+* current compressed code/data：仍在 ``K`` 副本；
+* ``RBP`` 的低32位所代表基址：``K``；
+* ``RBX=B=O0+I-E``；
+* ``RSI=Z``，仍指向最终 ``boot_params``；
+* current stack：仍是 ``K`` 副本中的16 KiB ``boot_stack``；
+* ``CR0``：等于 ``CR0_STATE``，其中PE/MP/ET/NE/WP/AM/PG为1；
+* ``CR4.PAE=1``；
+* ``EFER.LME=1`` 且 ``EFER.LMA=1``；
+* paging：active，当前为startup_32建立的4-level page tables；
+* ``CR3=B+rva(pgtable)``；
+* mapping：低4 GiB identity-mapped，主体使用2 MiB pages；
+* SEV C-bit：依build与runtime条件，不能从固定commit单独确定；
+* IF=0，DF=0；
+* Linux compressed BSS：尚未清零；
+* compressed搬迁：尚未执行；
+* KASLR、解压、ELF装载与initramfs解析：均未执行。
 
-* 当前执行者：Linux 6.12.95 compressed ``startup_64``；
-* 当前主流程 CPU：BSP；
-* CPU 模式：64 位 long mode；
-* paging：开启；
-* paging level：当前为 4 级初始页表；
-* mapping：低 4 GiB identity mapped；
-* page size：初始主体映射使用 2 MiB pages；
-* ``CR4.PAE``：开启；
-* ``EFER.LME`` / ``EFER.LMA``：开启；
-* interrupts：关闭；
-* boot_params 指针：仍由从 32 位入口带来的寄存器值保存；
-* compressed image：尚未搬到安全解压位置；
-* BSS：尚未清零；
-* kernel payload：尚未解压；
-* initramfs：尚未解析；
-* 最终内核页表：尚未建立；
-* ``start_kernel()``：距离当前仍很远。
+关键边界
+--------
 
-下一段从 ``startup_64`` 第一条指令继续，追踪它怎样保存 boot_params、计算解压输出地址、处理 5-level paging/KASLR 需要、把 compressed image 向高端倒序复制、清 BSS，随后调用 ``extract_kernel()``。
+#. ``boot_params.scratch`` 只承载一次 ``call`` return address，随后stack立刻切到当前镜像的
+   ``boot_stack``。
+#. ``EBP=K`` 是当前compressed入口基址；``O0`` 是初步解压基址；``B`` 是未来compressed
+   搬迁基址，三者不可互换。
+#. ``G/L/I/E`` 依赖最终build/link artifact；固定commit只固定公式，不固定它们的数字。
+#. ``verify_cpu`` 使用build生成的required masks；当前成功路径不等于QEMU CPU model已被固定。
+#. 24 KiB页表直接创建在 ``B+rva(pgtable)``，此时CPU仍从 ``K`` 取指。
+#. early table只identity-map低4 GiB；它不是正式内核高半区页表。
+#. SEV代码需要 ``CONFIG_AMD_MEM_ENCRYPT``，C-bit还需要runtime SEV active；两层条件不能省略。
+#. ``EFER.LME=1`` 不是64位取指的充分条件；CR0.PG使long mode active，far return换入L=1的
+   ``CS`` 后才开始执行64位指令。
+#. far return进入的是当前 ``K+0x200``，不是尚未复制的 ``B`` 副本。
+
+下一入口
+--------
+
+第035章从当前compressed副本的64位入口开始：
+
+.. code-block:: asm
+
+   startup_64:
+       cld
+       cli
+       xorl %eax, %eax
+       movl %eax, %ds
+       ...
+
+它将独立重算 ``O0`` 与 ``B``，把stack切到 ``B`` 地址域，按运行时CPUID/命令行决定是否从
+4-level切到5-level paging，再把compressed代码和已初始化data倒序复制到 ``B``，最后跳入
+新副本的 ``.Lrelocated``。
 
 资料
 ----
 
-* `Linux 6.12.95：compressed startup_32 与 startup_64 <https://github.com/gregkh/linux/blob/v6.12.95/arch/x86/boot/compressed/head_64.S>`_
-* `Linux 6.12.95：verify_cpu 的 long mode 与 SSE 检查 <https://github.com/gregkh/linux/blob/v6.12.95/arch/x86/kernel/verify_cpu.S>`_
-* `Linux 6.12.95：BOOT_STACK_SIZE、BOOT_INIT_PGT_SIZE 与初始页表布局 <https://github.com/gregkh/linux/blob/v6.12.95/arch/x86/include/asm/boot.h>`_
-* `Linux 6.12.95：Linux/x86 32-bit Boot Protocol <https://github.com/gregkh/linux/blob/v6.12.95/Documentation/arch/x86/boot.rst>`_
-* `Linux 6.12.95：setup header 的 alignment、init_size 与 64 位标志 <https://github.com/gregkh/linux/blob/v6.12.95/arch/x86/boot/header.S>`_
+* `Linux 7.2-rc1固定提交：compressed startup_32与startup_64 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/compressed/head_64.S#L82-L278>`_；
+* `Linux 7.2-rc1固定提交：verify_cpu检查与vendor条件修正 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/verify_cpu.S#L38-L143>`_；
+* `Linux 7.2-rc1固定提交：boot stack与early page-table大小 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/include/asm/boot.h#L9-L71>`_；
+* `Linux 7.2-rc1固定提交：CR0_STATE位集合 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/include/uapi/asm/processor-flags.h#L179-L181>`_；
+* `Linux 7.2-rc1固定提交：compressed linker的BSS、pgtable与_end边界 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/compressed/vmlinux.lds.S#L25-L81>`_；
+* `Linux 7.2-rc1固定提交：x86 boot protocol 32/64-bit入口条件 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/Documentation/arch/x86/boot.rst>`_。

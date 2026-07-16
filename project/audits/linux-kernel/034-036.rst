@@ -1,0 +1,218 @@
+Linux Kernel第034—036章回溯审查
+================================
+
+批次状态
+--------
+
+::
+
+   range            = 034-036
+   status           = repaired
+   verified_before  = 033
+   verified_after   = 036
+   mode             = retrospective-audit
+   blocking_issue   = none
+
+审查范围
+--------
+
+* ``034-linux-startup32-enters-long-mode.rst``；
+* ``035-linux-startup64-relocates-compressed-image.rst``；
+* ``036-linux-builds-identity-maps-and-chooses-output.rst``；
+* 上一边界为GRUB已far jump到 ``K``，Linux compressed ``startup_32`` 第一条 ``cld`` 尚未执行；
+* 下一边界为 ``extract_kernel()`` 即将调用
+  ``decompress_kernel(output,virt_addr,error)``，compressed bitstream尚未写入输出。
+
+固定源码与artifact边界
+----------------------
+
+本批使用Linux release 7.2-rc1、gregkh/linux commit
+``7404ce51637231382873d0b55edabc2f3b841a9d`` 的：
+
+* ``arch/x86/boot/compressed/head_64.S``；
+* ``arch/x86/kernel/verify_cpu.S``；
+* ``arch/x86/boot/compressed/pgtable_64.c``；
+* ``arch/x86/boot/compressed/ident_map_64.c``；
+* ``arch/x86/boot/compressed/idt_64.c`` 与 ``idt_handlers_64.S``；
+* ``arch/x86/boot/compressed/misc.c``、``misc.h``、``kaslr.c``、``acpi.c``、``mem.c``；
+* ``arch/x86/boot/early_serial_console.c``；
+* ``arch/x86/include/asm/boot.h``、control/page/segment常量与compressed linker script。
+
+本地固定工作树：
+
+::
+
+   /Volumes/LinuxKernel/seabios       c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
+   /Volumes/LinuxKernel/qemu          a759542a2c62f0fd3b65f5a66ad9868201014669
+   /Volumes/LinuxKernel/grub          d38d6a1a9b79427848976f53d474392cd29c2a71
+   /Volumes/LinuxKernel/linux-7.2-rc1 7404ce51637231382873d0b55edabc2f3b841a9d
+
+四个工作树均再次确认HEAD正确、干净、非shallow且没有active sparse-checkout。SeaBIOS、QEMU和
+GRUB本批只提供第033章已验证的legacy BIOS / 32-bit GRUB handoff边界，没有用它们制造新的
+CPU model或artifact数值。``/Volumes/LinuxKernel/linux`` 仍不作为固定证据。
+
+仓库没有最终build ``.config``、可读取 ``/boot/bzImage`` 或运行时QEMU ``-cpu`` 参数。因此
+``CONFIG_RELOCATABLE``、``CONFIG_RANDOMIZE_BASE``、compression、SEV、ACPI、early printk等
+build分支，以及CPUID.LA57等runtime结果均按条件记录。
+
+本批符号账本
+------------
+
+沿用第031—033章：
+
+::
+
+   K = GRUB交付的protected payload/startup_32物理起点
+   Z = final boot_params物理地址
+   I = hdr.init_size
+   N = initramfs true size
+   R = initramfs物理起点
+
+新增：
+
+::
+
+   G  = GRUB实际交付在boot_params中的hdr.kernel_alignment
+   L  = build产生的LOAD_PHYSICAL_ADDR
+   E  = rva(_end)，compressed运行映像跨度
+   O0 = CONFIG_RELOCATABLE ? max(ALIGN_UP(K,G),L) : L
+   B  = O0 + I - E
+   D  = ALIGN_UP(max(output_len,kernel_total_size),2 MiB)
+   O  = KASLR决策后的物理解压输出
+   V  = KASLR决策后的正式内核虚拟位置量
+
+``G/L/I/E/output_len/kernel_total_size`` 依build/link artifact，``K/Z/R`` 依GRUB runtime，
+``O/V`` 还依KASLR config、CPUID entropy和E820。正文只固定公式与条件，不补造具体数字。
+
+已核定的整批成功路径
+--------------------
+
+``第034章：startup_32到当前副本startup_64``
+   ``cld/cli → scratch call/pop得EBP=K → 修正并加载Linux GDT → data selectors切到__BOOT_DS →
+   当前K副本16 KiB boot stack → lretl刷新__KERNEL32_CS → conditional startup32 SEV IDT →
+   verify_cpu成功 → O0/B计算 → CR4.PAE=1 → 在B+rva(pgtable)清零并建立6-page、低4 GiB、
+   2 MiB identity tables → conditional C-bit → CR3=B+rva(pgtable) → EFER.LME=1 → LLDT/LTR →
+   push current K+rva(startup_64) → write full CR0_STATE → compatibility mode → lret到K+0x200``。
+
+``第035章：startup_64从K搬到B``
+   ``cld/cli/zero segment selectors → 独立重算O0/B → RSP切到B boot stack → 修正gdt64并lretq
+   刷新CS → R15=Z → load_stage1_idt → conditional sev_enable → CR4只保留PAE/MCE/LA57 →
+   configure_5level_paging先sanitize params → fixed command无no5lvl，runtime CPUID.LA57选择保持
+   4-level或temporary low 8 KiB 4-to-5 trampoline → final root留在B → clear RFLAGS →
+   backward copy [K,K+rva(_bss)) to [B,B+rva(_bss)) → cld → GDTR切到B → near jump B中的
+   .Lrelocated``。
+
+``第036章：BSS、可扩展identity map与解压输出``
+   ``clear B copy [_bss,_ebss) → load_stage2_idt installs #PF/NMI/conditional #VC →
+   initialize_identity_maps(Z) preserves startup_32 first six tables and uses remaining26 → explicit
+   map relocated [_head,_end), boot_params, 2048-byte cmdline and setup_data → CR3 publish →
+   extract_kernel(Z,O0) → republish boot_params_ptr → clear KASLR_FLAG → parse_mem_encrypt(no option) →
+   sanitize again → video/io/TDX/SEV/console conditions → RSDP preserve/legacy lookup → boot heap →
+   D calculation → CONFIG_RANDOMIZE_BASE off gives O=O0,V=L; on with no nokaslr scans avoid ranges/E820
+   and independently selects O/V → hard validation → legacy BIOS makes unaccepted-memory init false →
+   stop before decompress_kernel``。
+
+寄存器、页表与对象边界
+----------------------
+
+* ``boot_params.scratch`` 只承载一次32-bit ``call`` return address；长期stack随即进入K副本，
+  第035章又在代码搬迁前进入B副本；
+* ``EBP=K``、``RBP=O0``、``RBX=B`` 分别是当前compressed基址、初步解压基址和未来compressed
+  基址，不能用一个“kernel load address”概括；
+* startup_32清零/填写的页表地址使用 ``EBX=B``，不是 ``EBP=K``；当前代码仍在K执行；
+* CR3切到B中的表后，最后far return仍进入当前K+0x200；只有第035章倒序copy完成才jump到B；
+* ``CR0_STATE`` 是PE/MP/ET/NE/WP/AM/PG的完整赋值，不是只OR一个PG bit；
+* stage1 IDT只按build安装第一阶段 ``#VC``，不提供 ``#PF``；stage2才安装
+  ``#PF``、NMI和条件 ``#VC``；
+* 4-to-5 trampoline临时借用低8 KiB，保存并恢复原内容，不永久改写E820；
+* backward copy只覆盖 ``[startup_32,_bss)``；BSS由 ``.Lrelocated`` 另行清零，``.pgtable``
+  更位于 ``_ebss`` 之后；
+* current startup_32来源在4/5-level两种结果下都满足p4d指向 ``_pgtable`` 的检查，所以
+  ``initialize_identity_maps`` 保留前六页并从32页buffer的剩余26页继续分配；
+* explicit identity mapping只含relocated compressed image、boot params、command line和
+  setup_data；initramfs和未知KASLR output没有被主动加入；
+* stage2 non-present supervisor ``#PF`` 对CR2所在2 MiB范围调用
+  ``kernel_add_identity_map``；protection/user/reserved/GHCB fault是fatal；
+* output只是地址选择结果；在第037章第一次实际写入前，``O`` 处没有凭选址自动生成内核对象。
+
+build、runtime与当前固定分支
+---------------------------
+
+* ``verify_cpu`` 使用build生成的 ``REQUIRED_MASK0/1`` 并检查SSE；缺少具体QEMU CPU model时只
+  固定“当前叙事成功所需能力满足”，不制造CPUID数值；
+* ``CONFIG_AMD_MEM_ENCRYPT`` 决定代码是否存在，runtime SEV状态再决定C-bit、``#VC`` 与guest
+  helper实际工作；
+* fixed 7.2-rc1的 ``configure_5level_paging`` 目标判断由 ``no5lvl`` 与CPUID.LA57决定，没有旧稿
+  所写的额外 ``CONFIG_X86_5LEVEL`` gate；
+* fixed command line没有 ``no5lvl``，但没有 ``-cpu`` 参数，故4-level与4-to-5结果均保留；
+* ``configure_5level_paging`` 在搬迁前sanitize一次外部params；BSS变量没有被copy且在B中清零，
+  ``extract_kernel`` 必须重新发布指针并sanitize第二次；
+* fixed command line的 ``console=ttyS0`` 不匹配compressed early parser识别的
+  ``earlyprintk`` 或 ``console=uart8250,io`` / ``console=uart,io``；
+* ``BOOT_HEAP_SIZE`` 是BZIP2 4 MiB、ZSTD 192 KiB、其他64 KiB三类build结果；
+* ``CONFIG_RANDOMIZE_BASE`` 未固定。关闭时 ``O=O0,V=L``；开启且无 ``nokaslr`` 时设置flag、
+  扫描slot并独立选择物理/虚拟位置；
+* physical KASLR找不到slot只保留O0并警告，不撤销KASLR flag，也不取消virtual KASLR；
+* legacy i386-pc boot params没有EFI type；无论unaccepted-memory config是否存在，本场景都不会
+  调用 ``accept_memory``。
+
+失败与未发生边界
+----------------
+
+* ``verify_cpu`` 返回1时进入永久 ``hlt`` loop，不存在32位fallback kernel；
+* page-table buffer耗尽或 ``kernel_ident_mapping_init`` 失败进入 ``error``；
+* stage2 ``#PF`` 只恢复non-present supervisor fault，其他错误码不会被当成“再加一张表”继续；
+* KASLR ``nokaslr`` 分支在当前command line未选；build没有RANDOMIZE_BASE时整套函数不进入；
+* 当前没有 ``mem=``、``memmap=``、``no5lvl``、``nokaslr``、``earlyprintk`` 或
+  ``console=uart8250,io``；
+* 物理KASLR无slot是warning fallback；output/virt alignment、mapping-window和non-relocatable
+  约束失败才是fatal；
+* stage2 IDT安装不打开IF；整个批次没有外部maskable interrupt、调度或AP执行；
+* initramfs尚未映射为正式内核对象、未验证格式且未unpack；
+* ``decompress_kernel``、compression decoder、ELF parse、PT_LOAD搬运、relocations、正式内核
+  ``startup_64`` 和 ``start_kernel`` 均未执行。
+
+发现并修复
+----------
+
+#. 三章全部从旧 ``Linux 6.12.95`` 历史稿改为固定7.2-rc1 commit，并替换所有漂移资料链接。
+#. 延续031—033的artifact边界，不再把alignment、init size、LOAD_PHYSICAL_ADDR、compression、
+   KASLR或CPU features写成commit alone给出的数字。
+#. 新增 ``K/O0/B`` 三地址账本，修复旧文把“当前compressed、解压输出、搬迁compressed”混为
+   一个kernel base的问题。
+#. 明确startup_32的六页table写在 ``B+rva(pgtable)``，而far return目标仍是 ``K+0x200``。
+#. 补齐 ``verify_cpu`` 的generated masks、SSE、vendor side effects和failure halt；不再假定CPU
+   model/vendor修正。
+#. 把CR0动作从“设置PG”修为写入完整 ``CR0_STATE``，并拆开LME、LMA、compatibility与L-bit CS。
+#. 修复stage1 IDT范围：它不是通用异常环境，``#PF`` 到stage2才安装。
+#. 删除错误 ``CONFIG_X86_5LEVEL`` 前提；按fixed command line与runtime CPUID重建4-to-5条件。
+#. 补齐low trampoline placement、save/restore、final root与“不永久reserve E820”边界。
+#. 固定backward copy、BSS clear和 ``.pgtable`` 三个不重叠section边界。
+#. 补齐 ``boot_params`` sanitize两次以及BSS全局指针无法跨copy/clear继承的原因。
+#. 撤销“identity maps已经覆盖initramfs和最终output”的旧结论；加入stage2 ``#PF`` 按2 MiB
+   demand map的真实机制。
+#. 修复 ``console=ttyS0`` 对compressed early serial的错误暗示，按parser实际接受形式说明。
+#. 补齐KASLR avoid范围、E820 slot、物理失败但虚拟继续、KASLR flag不回滚的边界。
+#. 把unaccepted-memory从“通常不进入”收紧为当前legacy BIOS ``EFI_TYPE_NONE`` 下精确不进入。
+#. 三章均按连续时间线重写，章末统一为
+   ``本章结束状态 → 关键边界 → 下一入口 → 资料``。
+
+连续性检查
+----------
+
+* 033出口 ``EIP=K,ESI=Z,32-bit protected,paging/PAE off,IF/DF=0`` 精确等于034入口；
+* 034出口为current K copy ``startup_64`` 第一条指令前，CR3已在B，精确等于035入口；
+* 035出口为B copy ``.Lrelocated`` 第一条BSS clear前，精确等于036入口；
+* 036出口为 ``extract_kernel`` 已选定并验证O/V、legacy unaccepted分支结束，
+  ``decompress_kernel`` 调用未执行；
+* 037历史稿从同一调用开始，但仍含pending旧结论，未在本批越序修改。
+
+验证结果
+--------
+
+* ``tools/check-linux-kernel-track.sh 36`` 通过001—036结构检查；
+* 仅报告既有第065/066章duplicate known debt；
+* ``git diff --check`` 通过；
+* 三章无 ``6.12.95`` / ``v6.12`` 遗留；
+* 固定源码工作树HEAD、clean、non-shallow、non-sparse检查通过；
+* 本批没有阻塞项，034—036状态为 ``repaired``，下一审查范围为037—039。

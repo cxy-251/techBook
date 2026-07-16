@@ -4,29 +4,35 @@
 第三十六章：Linux 怎样建立解压映射并选择正式内核的位置？
 ================================================================
 
-上一章结束时，compressed kernel 已经搬到安全高端位置，CPU 跳入新副本中的：
+第035章结束在BSP / CPU0跳入 ``B`` 副本的 ``.Lrelocated``。CPU仍处于64-bit long mode，
+IF与DF为0；``R15=Z``、``RBP=O0``、``RBX=B``，stack与GDTR也已经使用 ``B`` 地址域。代码和
+已初始化data完成搬迁，但compressed BSS尚未清零，stage1 IDT还没有page-fault handler，
+KASLR也尚未决定最终输出位置。
 
-.. code-block:: asm
+本章沿固定Linux 7.2-rc1的 ``.Lrelocated → initialize_identity_maps() →
+extract_kernel()`` 继续，停在：
 
-   arch/x86/boot/compressed/head_64.S:.Lrelocated
+.. code-block:: c
 
-此时：
+   entry_offset = decompress_kernel(output, virt_addr, error);
 
-* ``R15`` 保存 ``boot_params`` 地址；
-* ``RBP`` 保存初步计算出的解压输出物理地址；
-* compressed kernel 的代码和已初始化数据已搬迁；
-* 当前栈也位于搬迁后的 compressed image；
-* ``.bss`` 尚未清零；
-* 页表仍主要继承前面的初始映射；
-* 最终输出位置尚可能被 KASLR 修改；
-* 解压器尚未开始读取 compressed payload。
+调用即将发生而尚未发生的边界。为区分初步值与最终值，再定义：
 
-本章从 ``.Lrelocated`` 开始，追踪 BSS、第二阶段 IDT、按需 identity mapping、``boot_params`` 清洗、早期控制台和 KASLR 选址。章节停在 ``decompress_kernel()`` 调用之前。
+::
 
-搬迁后第一件事是清空新副本的 ``.bss``
----------------------------------------
+   O0 = startup_64计算并通过RBP传入的初步解压物理基址
+   O  = choose_random_location返回后的最终物理解压基址
+   V  = 正式内核用于relocation的虚拟位置量
+   D  = 解压与运行区都能容纳所需的对齐长度needed_size
 
-``.Lrelocated`` 的第一段代码是：
+固定commit没有build ``.config``，所以KASLR、compression、ACPI、early printk和confidential
+computing的config分支仍须保留；legacy GRUB handoff与固定command line能够排除的runtime
+分支则直接排除。
+
+新副本先把整个compressed BSS清零
+----------------------------------
+
+``.Lrelocated`` 第一段固定汇编是：
 
 .. code-block:: asm
 
@@ -37,160 +43,114 @@
    shrq $3, %rcx
    rep stosq
 
-上一章只复制到 ``_bss`` 之前，因为 ELF/BSS 语义规定这一区域在文件中不保存实际零字节，只记录内存长度。现在代码在新运行位置把：
+第035章只复制 ``[startup_32,_bss)``。现在CPU在 ``B`` 取指，RIP-relative地址自然落到新副本，
+``rep stosq`` 精确清零 ``[_bss,_ebss)``。linker把 ``_ebss`` 按8-byte对齐，故计数不会留下
+零散尾部。
 
-.. code-block:: text
+这里清的是compressed启动环境自己的BSS，例如全局allocator状态、page-table bookkeeping和
+临时数组；不是解压后正式内核的BSS。``.data`` 中需要跨搬迁保留的五级分页变量、
+``trampoline_32bit`` 等不在清零范围；位于 ``_ebss`` 之后的 ``.pgtable`` NOBITS区也不在该
+范围，第034—035章已经在其中建立并可能切换了页表。
 
-   [_bss, _ebss)
+stage2 IDT安装 ``#PF``、NMI与条件 ``#VC``
+-------------------------------------------
 
-逐个 8 字节写零。
+BSS可用后，汇编调用 ``load_stage2_idt()``。固定实现重新把IDT descriptor指向 ``B`` 副本中的
+``boot_idt``，然后无条件安装：
 
-这里会初始化 compressed 启动环境中的全局状态，例如：
+::
 
-* boot allocator 指针；
-* 页表分配计数；
-* KASLR 候选区数组；
-* compressed 阶段使用的各种临时标志。
+   #PF -> boot_page_fault
+   NMI -> boot_nmi_trap
 
-某些必须跨越这次 BSS 清零保存的变量会被明确放在 ``.data``，例如 5 级分页状态和低端 trampoline 指针。
+若build启用 ``CONFIG_AMD_MEM_ENCRYPT``，且 ``sev_status`` 表明相应guest需要第二阶段 ``#VC``，
+还会安装 ``boot_stage2_vc``；否则该vector被清空。最后 ``lidt`` 发布新表。这个动作没有执行
+``sti``，IF继续为0；NMI和同步page fault仍可进入各自trap gate。
 
-第二阶段 IDT 为什么在这里建立
+``#PF`` handler为何是identity map的一部分
+--------------------------------------------
+
+``boot_page_fault`` 保存通用寄存器并调用 ``do_boot_page_fault(regs,error_code)``。C handler
+读取CR2，把fault address向下按2 MiB对齐。若错误码表示present-page protection fault、user
+fault或reserved-bit fault，或者地址命中未就绪的SEV GHCB page，它不会尝试掩盖错误，而是
+打印诊断并停止。
+
+只有“supervisor访问一个尚未present的普通地址”才进入恢复路径：
+
+.. code-block:: c
+
+   address &= PMD_MASK;
+   end = address + PMD_SIZE;
+   kernel_add_identity_map(address, end);
+
+handler为CR2周围一个2 MiB范围追加identity map，``iretq`` 后重试原指令。NMI handler则只递增
+``spurious_nmi_count``，直到解压结束前统一检查。由此，后续代码可以访问尚未被初始页表显式
+覆盖的高物理地址，而不是要求第035章预先猜出KASLR会选择哪里。
+
+``initialize_identity_maps()`` 接续而不是盲目重建当前页表
+------------------------------------------------------------
+
+汇编以 ``RDI=R15=Z`` 调用 ``initialize_identity_maps()``。函数先从 ``physical_mask`` 去掉
+``sme_me_mask``，再初始化mapping参数：页表页由 ``alloc_pgt_page`` 从compressed ``.pgtable``
+区取得，普通mapping使用 ``__PAGE_KERNEL_LARGE_EXEC | sme_me_mask``，中间table使用
+``_KERNPG_TABLE``。
+
+它读取当前CR3得到 ``top_level_pgt``，再检查：
+
+.. code-block:: c
+
+   p4d_offset((pgd_t *)top_level_pgt, 0) == (p4d_t *)_pgtable
+
+当前确实来自第034章的 ``startup_32``：保持4-level时CR3本身就是 ``_pgtable``；切到5-level时
+CR3是 ``top_pgtable``，但其第0项仍指向 ``_pgtable``。两种runtime结果都满足该条件。因此函数
+保留已经承载低4 GiB mapping的前六页，只清零并从剩余空间继续分配：
+
+::
+
+   pgt_buf      = _pgtable + BOOT_INIT_PGT_SIZE
+   pgt_buf_size = BOOT_PGT_SIZE - BOOT_INIT_PGT_SIZE
+                = (32-6) * 4096
+
+固定源码还支持由64位bootloader带着外部页表直接进入的情况；若检查不匹配，它会清零整个32页
+buffer并在其中分配新的top-level table。那是同一函数的替代入口，不是当前32位GRUB路径。
+
+显式identity-map四类交接对象
 ----------------------------
 
-BSS 清零后调用：
+``kernel_add_identity_map(start,end)`` 先把范围向外扩到2 MiB PMD边界，再调用
+``kernel_ident_mapping_init()``。``initialize_identity_maps()`` 主动添加：
 
-.. code-block:: asm
+#. 当前relocated compressed映像 ``[_head,_end)``，即 ``B`` 副本连同其运行空间；
+#. ``Z`` 处一个完整 ``struct boot_params``；
+#. ``get_cmd_line_ptr()`` 返回地址起的 ``COMMAND_LINE_SIZE=2048`` bytes；
+#. ``boot_params.hdr.setup_data`` 链中每个header与 ``len`` bytes payload。
 
-   call load_stage2_idt
+命令行实际字符串比2048 bytes短，但解压后的正式内核需要继续访问boot protocol规定的整个
+buffer边界，所以这里显式映射2048 bytes，不只映射到第一个NUL。
 
-前一章的 stage1 IDT 主要保证模式转换和 confidential-computing 早期检测期间发生异常时仍有最小处理入口。搬迁完成、BSS 可用之后，Linux 可以建立第二阶段 compressed-boot IDT。
+setup_data遍历也解释了stage2 ``#PF`` 为什么必须先装好：链节点本身可能位于当前页表尚未覆盖
+的区域，首次解引用可以先fault-in对应2 MiB范围，再由循环显式保证完整node payload的mapping。
 
-它仍不是正式内核运行时的 IDT。它服务于：
+函数随后调用条件性的 ``sev_prep_identity_maps(top_level_pgt)``，写CR3发布扩展后的table，并在
+相应build/runtime下执行 ``snp_check_features()``。写CR3完成后，当前root仍可被后续
+``kernel_add_identity_map`` 原地扩展。
 
-* compressed 阶段页故障；
-* NMI；
-* SEV-ES ``#VC``；
-* KASLR 扫描和解压期间可能发生的早期异常。
+这里没有预先显式映射initramfs或最终 ``O``
+--------------------------------------------
 
-正式内核在后面还会重新建立自己的描述符表和异常入口。
+固定函数的显式列表里没有 ``ramdisk_image/ramdisk_size``，也没有尚未产生的KASLR output。
+这不是遗漏：initramfs由解压后的正式内核以后处理；compressed阶段选择或写入高地址 ``O`` 时，
+stage2 non-present ``#PF`` handler可以按访问需要追加mapping。
 
-``initialize_identity_maps()`` 不只是保留低 4 GiB
---------------------------------------------------
+因此本章结束时不能笼统写成“initramfs和所有候选输出区都已映射”。如果 ``O`` 仍在第034章
+覆盖的低4 GiB，访问直接命中；如果KASLR把它选到当前未映射的更高RAM，下一章解压器首次写入
+会触发 ``#PF``，添加一个2 MiB identity range并重试。显式交接mapping与按需fault-in是两条
+不同机制。
 
-接下来汇编把 ``R15`` 作为第一个 C 参数：
+汇编以 ``extract_kernel(Z,O0)`` 进入C环境
+------------------------------------------
 
-.. code-block:: asm
-
-   movq %r15, %rdi
-   call initialize_identity_maps
-
-上一章之前的页表由 compressed ``startup_32`` 快速建立，只用 6 页表和 2048 个 2 MiB PDE identity-map 低 4 GiB。它足够完成模式切换，但不一定覆盖：
-
-* compressed image 被搬迁后的完整范围；
-* ``boot_params``；
-* command line；
-* ``setup_data`` 链；
-* KASLR 最终选择的高物理输出位置；
-* 64 位 bootloader 可能放到 4 GiB 以上的数据。
-
-``initialize_identity_maps()`` 因此建立一套可继续扩展的按需映射环境。
-
-先接管当前 ``CR3``
-------------------
-
-函数读取当前 top-level page table：
-
-.. code-block:: c
-
-   top_level_pgt = read_cr3_pa();
-
-如果当前 ``CR3`` 的下一级正是 compressed image 中的 ``_pgtable``，说明路径来自 ``startup_32``。最初的 ``BOOT_INIT_PGT_SIZE`` 已经被使用，函数从后面的页表缓冲区继续分配：
-
-.. code-block:: c
-
-   pgt_data.pgt_buf = _pgtable + BOOT_INIT_PGT_SIZE;
-   pgt_data.pgt_buf_size = BOOT_PGT_SIZE - BOOT_INIT_PGT_SIZE;
-
-如果入口来自其他 64 位 bootloader，当前 top-level table 结构可能不同，函数会从整个 ``_pgtable`` 缓冲区重新分配自己的顶级表。
-
-x86-64 compressed 启动阶段为早期页表预留：
-
-.. code-block:: text
-
-   BOOT_PGT_SIZE = 32 × 4096 bytes
-
-其中前 6 页已经足够建立上一章的低 4 GiB 映射，其余页用于 KASLR、boot parameters、command line 和最终输出区等后续映射。
-
-按 2 MiB 边界添加 identity map
-------------------------------
-
-``kernel_add_identity_map(start, end)`` 会先把范围扩展到 PMD 边界：
-
-.. code-block:: text
-
-   start = round_down(start, 2 MiB)
-   end   = round_up(end, 2 MiB)
-
-然后调用通用的 ``kernel_ident_mapping_init()`` 建立页表。
-
-本阶段的映射 flags 包含可执行的大页内核属性：
-
-.. code-block:: c
-
-   __PAGE_KERNEL_LARGE_EXEC | sme_me_mask
-
-这里仍以 2 MiB 大页为主，目的是用很少的页表覆盖启动期需要访问的物理范围。
-
-明确映射四类关键数据
---------------------
-
-``initialize_identity_maps()`` 主动加入：
-
-#. compressed kernel 自身 ``[_head, _end)``；
-#. 一个完整的 ``struct boot_params``；
-#. command line 所在范围；
-#. ``boot_params.hdr.setup_data`` 单链表中的每个节点及其 payload。
-
-源码调用关系是：
-
-.. code-block:: c
-
-   kernel_add_identity_map((unsigned long)_head,
-                           (unsigned long)_end);
-
-   kernel_add_identity_map((unsigned long)boot_params_ptr,
-                           (unsigned long)(boot_params_ptr + 1));
-
-   kernel_add_identity_map(cmdline,
-                           cmdline + COMMAND_LINE_SIZE);
-
-Linux 不能只依赖“compressed 代码恰好访问到哪里，哪里就应该已经映射”。解压后的正式内核会继续读取 ``boot_params`` 和命令行，所以必须在交接前显式保证这些物理地址有 identity mapping。
-
-遍历 ``setup_data`` 时，每个节点范围是：
-
-.. code-block:: text
-
-   [node, node + sizeof(struct setup_data) + node->len)
-
-链表可以携带扩展 boot protocol 数据，例如 DTB、EFI、indirect setup data 或平台专用信息。
-
-最后切换到扩展后的页表
-----------------------
-
-映射建立完成后执行：
-
-.. code-block:: c
-
-   write_cr3(top_level_pgt);
-
-写 ``CR3`` 同时切换当前页表并刷新相关 TLB 状态。此后 compressed 启动环境使用的是可继续按需扩展的页表，而不再只是上一章那张固定低 4 GiB 快速映射。
-
-对于 SEV-SNP，函数还会在切换后检查 guest/hypervisor feature compatibility。这属于条件路径。
-
-进入 ``extract_kernel()``
--------------------------
-
-汇编接着准备两个参数：
+identity maps准备完成后，``.Lrelocated`` 执行：
 
 .. code-block:: asm
 
@@ -198,266 +158,307 @@ Linux 不能只依赖“compressed 代码恰好访问到哪里，哪里就应该
    movq %rbp, %rsi
    call extract_kernel
 
-按照 x86-64 C ABI：
+x86-64 C ABI给出：
 
-.. code-block:: text
+::
 
-   RDI = boot_params
-   RSI = 初步解压输出地址
+   rmode  = Z
+   output = O0
 
-C 函数原型是：
+参数名 ``rmode`` 是boot protocol历史名称，不表示CPU回到了real mode。CPU仍在BSP / CPU0的
+64-bit long mode，使用compressed boot stack；没有task、scheduler或普通内核allocator。
 
-.. code-block:: c
+先重建全局参数指针并撤销不可信KASLR状态
+------------------------------------------
 
-   void *extract_kernel(void *rmode, unsigned char *output)
+``extract_kernel()`` 首先令 ``boot_params_ptr=rmode``。第035章
+``configure_5level_paging()`` 曾设置当前副本的同名全局，但该变量属于BSS，没有被倒序复制，且
+刚在 ``B`` 中清零；所以这里必须重新发布 ``Z``。
 
-``rmode`` 这个历史名称表示 real-mode data/zero page，并不意味着 CPU 回到了 real mode。当前 CPU 仍在 64 位 long mode。
-
-把 ``boot_params`` 固定为 compressed 阶段全局入口
---------------------------------------------------
-
-函数首先执行：
-
-.. code-block:: c
-
-   boot_params_ptr = rmode;
-
-后面的 command-line parser、ACPI、KASLR、E820 和 early console 都通过这个指针访问 bootloader 提供的数据。
-
-随后清除仅供内核内部使用的 ``KASLR_FLAG``：
+随后按固定顺序：
 
 .. code-block:: c
 
    boot_params_ptr->hdr.loadflags &= ~KASLR_FLAG;
+   parse_mem_encrypt(&boot_params_ptr->hdr);
+   sanitize_boot_params(boot_params_ptr);
 
-这个 bit 不能无条件相信 bootloader。只有 compressed kernel 真正执行了自己的 KASLR 决策后，才会重新设置它。
+KASLR bit只允许由本次compressed内核自己的选址结果设置，不能继承loader或旧内核残值。当前
+command line没有 ``mem_encrypt=on/off``，所以 ``parse_mem_encrypt`` 不改变相应xloadflag；
+``sanitize_boot_params`` 再次按sentinel与protocol规则清洗外部ABI数据。这是搬迁后第二次调用，
+不是第一次。
 
-清洗 bootloader 提供的参数
---------------------------
+early console先区分video、port-I/O与confidential guest
+-------------------------------------------------------
 
-``sanitize_boot_params()`` 根据 setup header 中的 sentinel、协议版本和字段边界处理 ``boot_params``。
+函数根据 ``screen_info.orig_video_mode`` 选择monochrome ``0xb0000/0x3b4`` 或color
+``0xb8000/0x3d4``，保存行列数，然后依次：
 
-原因是 ``boot_params`` 是 bootloader 与内核之间的二进制 ABI：
+::
 
-* 新内核可能理解比旧 bootloader 更多的字段；
-* 某些 bootloader 可能没有把全部扩展区域清零；
-* 无效的旧数据不能直接当成可信指针或计数使用。
+   init_default_io_ops()
+   early_tdx_detect()
+   early_sev_detect()
+   console_init()
 
-GRUB 前面已经把参数页清零并填写支持字段，但 Linux 仍要在自己的信任边界内再次检查。
+TDX检测必须先于console初始化，才能在相应guest中改用paravirtualized port I/O；SEV-ES/SNP
+路径会禁止不受支持的视频MMIO输出。两者都依build和runtime guest类型，不因“QEMU q35”四字
+自动成立。
 
-建立 compressed 阶段控制台
----------------------------
+``console_init()`` 本身只有 ``CONFIG_EARLY_PRINTK`` build才有实质实现。更重要的是，固定
+compressed parser识别 ``earlyprintk=...`` 或 ``console=uart8250,io,...`` /
+``console=uart,io,...``，并不把普通 ``console=ttyS0`` 当作本阶段serial初始化请求。本项目的
+固定command line只有：
 
-``extract_kernel()`` 根据 ``screen_info`` 判断文本显存和 CRT controller 端口：
+::
 
-.. code-block:: text
+   BOOT_IMAGE=/boot/bzImage root=/dev/sda1 ro console=ttyS0
 
-   mono text mode : video memory 0xb0000, ports 0x3b4/0x3b5
-   color text mode: video memory 0xb8000, ports 0x3d4/0x3d5
+所以即使build含 ``CONFIG_EARLY_PRINTK``，这里也不会仅凭 ``console=ttyS0`` 设置
+``early_serial_base``。该参数主要供正式内核后续console选择；compressed debug输出是否可见还
+受 ``CONFIG_X86_VERBOSE_BOOTUP``、video state和其他build条件控制。
 
-然后初始化默认 port-I/O 操作、检测 TDX 条件路径，并调用 ``console_init()``。
+RSDP查找在console准备之后发生
+-------------------------------
 
-固定 GRUB 命令行包含：
-
-.. code-block:: text
-
-   console=ttyS0
-
-这并不自动等同于 compressed 阶段一定输出完整日志；early serial 是否启用还取决于内核构建配置和 early console 解析。``console=ttyS0`` 主要供后续正式内核 console 选择使用。
-
-重新确认 RSDP
-------------
-
-早期控制台可用后，compressed kernel 调用：
+源码接着写：
 
 .. code-block:: c
 
    boot_params_ptr->acpi_rsdp_addr = get_rsdp_addr();
 
-GRUB 可能已经传入 RSDP 地址，但 Linux compressed 阶段会根据自己的 ACPI 查找逻辑保存结果。把这个动作放在控制台初始化之后，是为了在 ACPI 解析出错时能够输出调试信息。
+若build不含 ``CONFIG_ACPI``，inline helper直接返回0。若包含ACPI，fixed helper先保留
+``boot_params`` 中已有的非零地址，否则尝试EFI config table，最后扫描EBDA与
+``0xe0000..0xfffff`` 的legacy BIOS窗口。
 
-建立 boot heap
---------------
+当前i386-pc handoff没有EFI loader signature，GRUB路径也没有交付EFI config table，因此EFI
+分支不能成功；在ACPI build中，现有字段若为0就落到SeaBIOS RSDP的legacy scan。把动作放到
+``console_init`` 之后，只保证解析诊断有机会输出，不保证当前config一定打印任何文字。
 
-compressed 解压器使用静态数组：
+compressed heap大小由compression build决定
+--------------------------------------------
 
-.. code-block:: c
-
-   static u8 boot_heap[BOOT_HEAP_SIZE];
-
-并设置：
+``boot_heap`` 是compressed映像内的静态数组。RSDP步骤后，函数设置：
 
 .. code-block:: c
 
    free_mem_ptr     = boot_heap;
    free_mem_end_ptr = boot_heap + BOOT_HEAP_SIZE;
 
-``BOOT_HEAP_SIZE`` 随压缩算法而变化。例如 Zstd 需要更大的上下文，因此为其保留约 192 KiB；多数其他配置使用较小的 64 KiB heap。它不是正式内核的 slab、buddy allocator 或 ``memblock``。
+固定源码的build分支是：
 
-计算输出区真正需要的长度
-------------------------
+::
 
-内核计算：
+   CONFIG_KERNEL_BZIP2 : 0x400000
+   CONFIG_KERNEL_ZSTD  : 0x30000
+   other compressors   : 0x10000
+
+仓库commit没有确定最终 ``CONFIG_KERNEL_*``，所以不能选定其中一个数字。这个heap只服务于
+compressed解析、KASLR与解压算法；它不是memblock、buddy或slab。``decompress_kernel()``
+稍后还会在指针为0时提供同一heap的fallback，但当前路径已经在这里初始化。
+
+``D`` 同时覆盖解压文件长度和正式运行跨度
+------------------------------------------
+
+源码计算：
 
 .. code-block:: c
 
-   needed_size = max(output_len, kernel_total_size);
+   needed_size = max_t(unsigned long, output_len, kernel_total_size);
    needed_size = ALIGN(needed_size, MIN_KERNEL_ALIGN);
 
-``output_len``
-   compressed payload 解压后的文件长度，其中还包括附加 relocation table。
+在x86-64固定源码中 ``MIN_KERNEL_ALIGN=PMD_SIZE=2 MiB``，所以：
 
-``kernel_total_size``
-   正式内核的 ``text + data + bss + brk`` 运行时总占用范围。
+::
 
-选择二者较大值，是因为某些构建中“文件解压长度”和“最终运行内存长度”没有固定大小关系。
+   D = ALIGN_UP(max(output_len,kernel_total_size),2 MiB)
 
-x86-64 再把结果按 ``MIN_KERNEL_ALIGN`` 对齐；当前最小值是 2 MiB。
+``output_len`` 是解压出的文件数据连同relocation table所需长度；``kernel_total_size`` 是正式
+内核 ``text/data/bss/brk`` 的运行跨度。两者没有固定大小关系，选较大者才能既容纳解压写入，
+又保证ELF搬运后的运行对象完整。2 MiB向上对齐还让KASLR验证整个PMD mapping覆盖的是可用RAM，
+不会只检查真实尾字节而跨进reserved区。
 
-KASLR 必须避开哪些区域
-----------------------
+KASLR关闭与开启是两套可验证结果
+---------------------------------
 
-然后调用：
+进入选择前：
 
-.. code-block:: c
+::
 
-   choose_random_location(input_data, input_len,
-                          &output, needed_size,
-                          &virt_addr);
+   output    = O0
+   virt_addr = L
+   KASLR_FLAG = 0
 
-如果内核没有启用 ``CONFIG_RANDOMIZE_BASE``，``misc.h`` 把它编译成空函数，``output`` 与 ``virt_addr`` 保持初始值。
+若build没有 ``CONFIG_RANDOMIZE_BASE``，``choose_random_location()`` 是空inline，结果保持：
 
-如果构建启用 KASLR，并且命令行没有 ``nokaslr``，函数会重新设置：
+::
 
-.. code-block:: c
+   O = O0
+   V = L
 
-   boot_params_ptr->hdr.loadflags |= KASLR_FLAG;
+若build启用KASLR，函数先查 ``nokaslr``。固定command line没有该参数，所以它设置
+``KASLR_FLAG``，建立物理avoid ranges并尝试物理与虚拟随机化。固定commit与命令行仍不足以
+判断build选了哪套结果，故本章保留二者，不用“当前一定随机”替代缺失 ``.config``。
 
-当前固定命令行没有 ``nokaslr``。是否真正随机化仍由固定 ``bzImage`` 的构建配置和可用内存决定。
-
-物理 KASLR 不能只随机挑一个看似空闲的地址。它至少要避开：
-
-* 当前 compressed image 及其 ``init_size`` 运行区；
-* initramfs；
-* kernel command line；
-* ``boot_params``；
-* 每个 ``setup_data`` 节点；
-* 命令行 ``mem=``、``memmap=`` 排除区域；
-* 非 E820 RAM；
-* 无法容纳完整 ``needed_size`` 的碎片区；
-* 不满足 ``CONFIG_PHYSICAL_ALIGN`` 的地址。
-
-固定路径是 legacy BIOS，因此 KASLR 主要扫描 GRUB 传入的 E820 RAM entries。EFI 路径会优先使用 EFI memory map。
-
-候选地址不是按字节随机
-----------------------
-
-每个可用 region 被切成以 ``CONFIG_PHYSICAL_ALIGN`` 为步长的 slot：
-
-.. code-block:: text
-
-   slot_count = 1 + (region_size - needed_size) / CONFIG_PHYSICAL_ALIGN
-
-所有候选 slot 汇总后，用启动熵选择其中一个。熵来源会混合构建字符串、``boot_params``、架构随机源等；具体来源取决于 CPU 和构建配置。
-
-物理随机化的最低搜索地址是：
-
-.. code-block:: text
-
-   min_addr = ALIGN(min(initial_output, 512 MiB), CONFIG_PHYSICAL_ALIGN)
-
-选中后：
-
-.. code-block:: text
-
-   output = random physical slot
-
-x86-64 还独立选择虚拟 KASLR offset：
-
-.. code-block:: text
-
-   virt_addr = LOAD_PHYSICAL_ADDR + N × CONFIG_PHYSICAL_ALIGN
-
-并要求 ``virt_addr + needed_size`` 不越过 ``KERNEL_IMAGE_SIZE`` 规定的内核映射窗口。
-
-物理位置与虚拟位置为什么可以不同
+物理KASLR先固定不可覆盖的对象
 --------------------------------
 
-``output`` 是解压后 ELF segments 实际落入的物理地址。
+启用路径调用 ``mem_avoid_init(input_data,input_len,O0)``。固定实现记录：
 
-``virt_addr`` 参与 relocation adjustment，决定正式内核链接地址对应的运行时虚拟偏移。
+* 从relocated compressed ``input_data`` 到 ``O0+I`` 的ZO解压运行区；
+* ``R`` 起的 ``N`` 个initramfs有效bytes；
+* command line实际NUL结束长度；
+* ``Z`` 处完整 ``boot_params``；
+* 最多四个 ``memmap=`` 声明的不可用range或由 ``mem=/memmap=`` 收紧的上限；
+* 在候选overlap检查中动态遍历所有setup_data node及合法indirect payload。
 
-所以 KASLR 可以同时随机化：
+当前command line没有 ``mem=``、``memmap=``、``nokaslr`` 或hugepage预留参数。initramfs虽然未被
+identity-map，也必须作为物理选址avoid range保留；“KASLR不能覆盖它”和“compressed代码现在
+不访问它”是两件不同的事。
 
-* 物理加载位置；
-* 内核高半区虚拟基址。
+当前是legacy BIOS handoff，没有EFI memory map；也没有KEXEC handover setup_data可提供KHO
+scratch区域。因此物理slot扫描落到GRUB交付的E820 entries，只接受 ``E820_TYPE_RAM``。每段先
+截到memory limit、扣除avoid overlap，再按 ``CONFIG_PHYSICAL_ALIGN`` 向上对齐，并且只有能
+完整容纳 ``D`` 的range才贡献slot。
 
-后面的 ``handle_relocations()`` 会使用两者之间的 delta 修正内核内嵌地址。
+物理与虚拟随机选择彼此独立
+----------------------------
 
-选择后必须再次做硬检查
-----------------------
+物理搜索下界精确为：
 
-``extract_kernel()`` 检查：
+::
 
-* ``output`` 按 ``MIN_KERNEL_ALIGN`` 对齐；
-* ``virt_addr`` 按 ``MIN_KERNEL_ALIGN`` 对齐；
-* 输出范围没有超过内核映射窗口；
-* non-relocatable kernel 的虚拟地址没有被改变；
-* compressed boot heap 地址处于架构允许范围。
+   minimum = ALIGN_UP(min(O0,512 MiB),CONFIG_PHYSICAL_ALIGN)
 
-这些检查不是调试提示，而是失败就停止启动的硬约束。错误输出位置会导致页表无法覆盖、ELF segment 错位或 relocation 写到错误地址。
+候选slot以 ``CONFIG_PHYSICAL_ALIGN`` 为步长汇总，再由 ``kaslr_get_random_long("Physical")``
+选一个。如果没有合法slot，函数只警告“Physical KASLR disabled”，``output`` 保持 ``O0``；它
+不会因此清掉先前设置的KASLR flag，也不会跳过后面的虚拟选择。
 
-unaccepted memory 条件路径
+x86-64随后在从 ``L`` 开始、能够容纳 ``D`` 且不越过 ``KERNEL_IMAGE_SIZE`` 的窗口中，按同一
+build alignment选择独立 ``virt_addr``：
+
+::
+
+   V = L + n * CONFIG_PHYSICAL_ALIGN
+
+因此启用KASLR时可能出现“物理仍为 ``O0``、虚拟offset已随机”的成功结果。``O`` 是ELF
+segments实际写入的物理位置；``V`` 只进入后续64位relocation delta，不能把两者合并成一个
+“内核地址”。
+
+选址后的检查是硬失败边界
 --------------------------
 
-某些 confidential-computing 平台会把一部分 RAM 标为 unaccepted。compressed kernel 在真正写入输出区前调用：
+``choose_random_location()`` 返回后，``extract_kernel()`` 验证：
+
+* ``O`` 按 ``MIN_KERNEL_ALIGN`` 对齐；
+* ``V`` 按 ``MIN_KERNEL_ALIGN`` 对齐；
+* compressed ``boot_heap`` 地址不高于 ``0x3fffffffffff``；
+* ``V+D`` 不超过 ``KERNEL_IMAGE_SIZE``；
+* non-relocatable build中 ``V`` 仍等于 ``L``。
+
+任一条件失败都会进入 ``error()``，不是可以继续的warning。注意源码第三项实际检查局部
+``heap`` 指针，虽然error文字写的是destination；正文按表达式记录，不把它改写成对 ``O`` 的
+另一项上界检查。
+
+legacy BIOS路径不会接受unaccepted memory
+------------------------------------------
+
+打印“Decompressing Linux”前，源码执行：
 
 .. code-block:: c
 
-   if (init_unaccepted_memory())
+   if (init_unaccepted_memory()) {
        accept_memory(__pa(output), needed_size);
+   }
 
-普通 QEMU q35 路径通常不会进入该分支。它被保留在控制流中，因为输出区是否“属于 RAM”与 CPU 是否允许立即访问并不是同一件事。
+未启用 ``CONFIG_UNACCEPTED_MEMORY`` 时helper是恒false inline；即使build启用，固定实现也先
+要求有效EFI loader type和EFI unaccepted-memory config table。当前i386-pc boot params没有EFI
+loader signature，所以 ``efi_get_type()=EFI_TYPE_NONE``，函数返回false。本场景不会调用
+``accept_memory``，这比“普通QEMU通常不会”更精确。
 
-当前机器状态
-------------
+到此只确定输出，尚未写入输出
+------------------------------
 
-本章结束在：
+所有检查通过后，下一条源码是：
 
 .. code-block:: c
 
    entry_offset = decompress_kernel(output, virt_addr, error);
 
-调用尚未执行。
+本章停在调用前。此时 ``O`` 只是已验证的目标；compressed bitstream尚未被解码，ELF header
+尚未解析，``O`` 处也不因选址本身自动出现正式内核对象。若 ``O`` 在现有页表之外，第一次
+实际写入要到第037章，并由stage2 ``#PF`` 按2 MiB范围补map后重试。
 
-此刻：
+本章结束状态
+------------
 
-* 当前执行者：Linux compressed ``extract_kernel()``；
-* CPU：BSP；
-* 模式：64 位 long mode；
-* paging：开启；
-* compressed ``.bss``：已清零；
-* stage2 IDT：已建立；
-* compressed image、``boot_params``、command line 与 ``setup_data``：已建立 identity mapping；
-* ``CR3``：已切换到可扩展 early identity tables；
-* ``boot_params``：已清洗；
-* early console：已初始化到构建和平台允许的程度；
-* RSDP：已重新查找并保存；
-* boot heap：已建立；
-* ``needed_size``：已计算并按 2 MiB 对齐；
-* ``output`` / ``virt_addr``：已通过固定地址或 KASLR 路径确定；
-* initramfs：仍原样保留，未解析；
-* compressed payload：尚未解压；
-* ELF program headers：尚未解析；
-* 正式内核入口：尚未得到。
+* current executor：Linux 7.2-rc1 compressed ``extract_kernel()``；
+* exact next action：调用 ``decompress_kernel(O,V,error)``，调用尚未执行；
+* CPU：BSP / CPU0，无调度、无AP参与；
+* CPU mode：64-bit long mode；IF=0，DF=0；
+* current code/stack/GDT：均位于relocated ``B`` 副本；
+* ``R15=Z``、``RBP=O0``、``RBX=B`` 由callee-saved ABI继续保留；
+* compressed BSS：``[_bss,_ebss)`` 已清零；
+* stage2 IDT：active，含 ``#PF``、NMI和条件 ``#VC``；
+* early identity root：保留前六页并可从剩余26页继续分配；
+* explicit identity maps：relocated compressed ``[_head,_end)``、``boot_params``、2048-byte
+  command-line buffer与setup_data nodes；
+* demand mapping：普通non-present supervisor fault可追加CR2周围2 MiB identity range；
+* initramfs：``N`` bytes仍在 ``R``，未解析、未显式加入当前identity map；
+* ``boot_params_ptr=Z``，KASLR flag先清零，再依build/command结果决定是否重设；
+* compressed serial：固定 ``console=ttyS0`` 不触发本阶段early serial parser；
+* ACPI RSDP：依ACPI build保留已有值或在legacy BIOS范围查找；
+* boot heap：已按最终compression build选定大小并发布；
+* ``D=ALIGN_UP(max(output_len,kernel_total_size),2 MiB)``；
+* ``O/V``：已由non-KASLR固定路径或KASLR条件路径选定并通过硬检查；
+* unaccepted memory：当前legacy BIOS路径未调用accept；
+* compressed payload、ELF segments与正式内核BSS：尚未生成；
+* initramfs unpack、正式内核page tables与 ``start_kernel()``：均未发生。
 
-下一章从 ``decompress_kernel()`` 开始。
+关键边界
+--------
+
+#. ``rep stosq`` 只清compressed BSS；``.data`` 与 ``.pgtable`` 分别保留搬迁状态和early tables。
+#. stage2 IDT先于 ``initialize_identity_maps``，因为建图过程本身可能需要non-present ``#PF``
+   fault-in。
+#. 当前startup_32来源无论最终4-level还是5-level，都保留 ``_pgtable`` 前六页并从后26页追加。
+#. 显式mapping不含initramfs和未知的KASLR output；高地址输出依stage2 ``#PF`` 按需补map。
+#. ``boot_params`` 在第035章为五级分页解析清洗过一次；搬迁后BSS清零，``extract_kernel`` 重新
+   发布全局指针并再次清洗。
+#. ``console=ttyS0`` 不是compressed early serial parser接受的
+   ``earlyprintk``/``console=uart8250,io`` 形式。
+#. ``CONFIG_RANDOMIZE_BASE`` 未由commit确定；无该config时 ``O=O0,V=L``，有该config且无
+   ``nokaslr`` 时才进入物理/虚拟选择。
+#. physical slot失败不取消virtual KASLR，也不自动清除KASLR flag。
+#. KASLR avoid initramfs不等于当前页表映射initramfs。
+#. 当前i386-pc handoff没有EFI type，因此unaccepted-memory接受分支精确不执行。
+#. 本章只选择并验证 ``O/V``；真正写 ``O`` 从下一章的decompressor开始。
+
+下一入口
+--------
+
+第037章从固定C调用开始：
+
+.. code-block:: c
+
+   entry_offset = decompress_kernel(output, virt_addr, error);
+
+``decompress_kernel`` 将按build选择的统一 ``__decompress`` 接口把bitstream写到 ``O``，再验证
+ELF、搬运 ``PT_LOAD`` segments并处理relocations；返回后 ``extract_kernel`` 清理compressed
+异常环境，汇编最终以 ``RSI=Z`` 跳入解压后正式内核入口。第037章仍是pending历史稿，留给下一
+批按相同fixed-source合同审查。
 
 资料
 ----
 
-* `Linux 6.12.95 head_64.S：.Lrelocated、initialize_identity_maps 与 extract_kernel 调用 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/compressed/head_64.S>`_
-* `Linux 6.12.95 ident_map_64.c：compressed 阶段按需 identity mapping <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/compressed/ident_map_64.c>`_
-* `Linux 6.12.95 misc.c：extract_kernel 前半段 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/compressed/misc.c>`_
-* `Linux 6.12.95 kaslr.c：物理与虚拟 KASLR 候选选择 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/compressed/kaslr.c>`_
-* `Linux 6.12.95 misc.h：CONFIG_RANDOMIZE_BASE 关闭时的空实现 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/compressed/misc.h>`_
+* `Linux 7.2-rc1固定提交：.Lrelocated、identity-map与extract_kernel调用 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/compressed/head_64.S#L444-L476>`_；
+* `Linux 7.2-rc1固定提交：stage2 IDT与cleanup边界 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/compressed/idt_64.c#L42-L92>`_；
+* `Linux 7.2-rc1固定提交：identity-map初始化与按需page fault <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/compressed/ident_map_64.c#L37-L190>`_；
+* `Linux 7.2-rc1固定提交：do_boot_page_fault的2 MiB补图 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/compressed/ident_map_64.c#L345-L388>`_；
+* `Linux 7.2-rc1固定提交：extract_kernel顺序、硬检查与decompress入口 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/compressed/misc.c#L407-L536>`_；
+* `Linux 7.2-rc1固定提交：KASLR avoid ranges、E820 slots与物理/虚拟选择 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/compressed/kaslr.c#L279-L398>`_；
+* `Linux 7.2-rc1固定提交：KASLR slot扫描与choose_random_location <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/compressed/kaslr.c#L400-L909>`_；
+* `Linux 7.2-rc1固定提交：early serial实际接受的command-line形式 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/early_serial_console.c#L46-L154>`_；
+* `Linux 7.2-rc1固定提交：RSDP保留、EFI与legacy BIOS查找顺序 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/compressed/acpi.c#L128-L169>`_；
+* `Linux 7.2-rc1固定提交：legacy BIOS下unaccepted-memory返回false <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/compressed/mem.c#L48-L85>`_；
+* `Linux 7.2-rc1固定提交：compressed linker的BSS与pgtable边界 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/compressed/vmlinux.lds.S#L54-L81>`_。
