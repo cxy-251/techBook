@@ -1,380 +1,247 @@
-第四十六章：Linux 怎样完成 x86-64 paging 收尾并建立 KASAN shadow？
-====================================================================
+第四十六章：Linux 怎样完成 CMA、paging hook 与 KASAN shadow 收尾？
+===================================================================
 
-第四十五章结束时，Linux 已经从 MADT/MP table 建立早期 CPU/APIC 拓扑，并通过 SRAT 或 single-node fallback 给 ``memblock.memory`` 标注 NUMA node。
-
-当前下一条调用是：
+第四十五章结束时，CPU0仍在 ``setup_arch``、IF=0；early MADT只登记了LAPIC physical address，
+尚未枚举processor entries。 ``initmem_init`` 已给 ``memblock.memory`` 建立NUMA node identity，
+direct map与active ``init_top_pgt`` 则在第四十三章就已完成。当前入口是：
 
 .. code-block:: c
 
    dma_contiguous_reserve(max_pfn_mapped << PAGE_SHIFT);
 
-本章追踪到：
+本章按fixed Linux 7.2-rc1继续到 ``sync_initial_page_table()`` 返回。它在buddy allocator接管前完成
+条件CMA/crashkernel reservation与early xHCI DbC console setup，调用native paging hook；若编入
+KASAN，再临时切换CR3重建正式shadow。它不会full-parse MADT，也不启动AP或普通IRQ。
 
-.. code-block:: c
+global CMA size先由early option或build policy选择
+-----------------------------------------------
 
-   sync_initial_page_table();
+未编入CMA时 ``dma_contiguous_reserve`` 是inline no-op。有效实现先从 ``cma=`` early option得到
+size/base/limit；若没有该option，再按build在fixed MiB、physical-memory percentage、二者minimum
+或maximum中选择 ``selected_size``。size为0或default area已经由reserved-memory路径建立时，不再
+声明第二个global area。
 
-返回。这个阶段容易被函数名误导：第四十三章已经建立 direct map 并切换到 ``swapper_pg_dir``，现在不是再次从零构造全部物理映射，而是在 NUMA 已知后补齐连续 DMA、crashkernel、架构 paging hook 与条件 KASAN shadow。
+fixed GRUB字符串没有 ``cma=``，但effective builtin command line与 ``.config`` 未固定，因此不能
+断言“没有CMA”或制造具体MiB值。函数执行本身也不表示area存在；只有
+``dma_contiguous_reserve_area``/``cma_declare_contiguous`` 成功后，才形成memblock reservation与
+``dma_contiguous_default_area``。
 
-为什么 CMA 必须在 page allocator 前预留
-------------------------------------
+``max_pfn_mapped`` 是default limit，不是不可覆盖的总规则
+---------------------------------------------------------
 
-``dma_contiguous_reserve()`` 为 Contiguous Memory Allocator（CMA）处理启动期保留。
-
-某些设备或子系统需要一大片物理连续页，例如：
-
-* 大型 DMA buffer；
-* 摄像头、显示或多媒体设备；
-* 不能使用 scatter-gather 的硬件；
-* 可迁移普通页之后再回收连续区的场景。
-
-普通 buddy allocator 一旦开始分散分配，想再找到大块连续物理内存会很困难。因此 CMA 在 memblock 阶段先圈出候选区域。
-
-传入的上界是：
+``setup_arch`` 传入的limit是：
 
 .. code-block:: c
 
    max_pfn_mapped << PAGE_SHIFT
 
-表示 CMA early reservation 必须落在当前 direct map 能安全访问的物理范围内。
+没有user limit时，它约束global CMA search的exclusive physical end，使早期会访问的area落在已知
+direct-map frontier内。但 ``cma=...@base-limit`` 提供的非0 ``limit_cmdline`` 会替换传入limit；
+fixed source还会在global area后调用 ``dma_numa_cma_reserve``，按 ``numa_cma=``、 ``cma_pernuma=``
+或per-node build policy分别声明node-local areas。
 
-是否真正保留 CMA 区取决于：
+因此旧稿把传入值写成“所有CMA绝对不能超过的上界”过强。可靠结论是：它是global default search
+limit；explicit early policy和per-NUMA path各有自己的参数。任何失败只记录/返回，不把一个未成功
+声明的range当成reserved。
 
-* ``CONFIG_CMA``；
-* 编译时默认大小；
-* ``cma=`` 命令行；
-* device tree 或平台预留；
-* 可用 memblock 布局。
+crashkernel在SRAT/NUMA之后选择，避免hotpluggable memory
+---------------------------------------------------------
 
-固定命令行没有 ``cma=``，因此不能凭本书主线断言一定存在一块具体大小的 CMA。函数仍按配置执行条件路径。
+下一条 ``arch_reserve_crashkernel`` 首先检查 ``CONFIG_CRASH_RESERVE``。启用时，它用effective
+``boot_command_line`` 与 ``memblock_phys_mem_size`` 解析 ``crashkernel=`` 的base/size、low、high与
+CMA部分；parse失败或无option就返回，Xen PV domain还会明确忽略请求。
 
-``crashkernel`` 为什么等 NUMA 后再处理
--------------------------------------
-
-接着：
+成功才依次调用：
 
 .. code-block:: c
 
-   arch_reserve_crashkernel();
+   reserve_crashkernel_generic(...);
+   reserve_crashkernel_cma(cma_size);
 
-kdump 需要提前保留一段物理内存，用来装载崩溃捕获内核。主内核发生 panic 后，kexec 跳入这段预留内存中的第二个内核，避免依赖已经损坏的普通内存状态。
+这个位置在NUMA/SRAT之后，使generic reservation能够避开标成hotpluggable的memory。fixed GRUB原始
+字符串没有 ``crashkernel=``，但builtin line未知，所以只能记录为条件路径，不能像旧稿那样把
+“本次必然无crashkernel reservation”写成fixed事实。
 
-``arch_reserve_crashkernel()`` 解析：
+它与initramfs/CMA是三种所有权：initramfs是当前boot输入，crashkernel为未来kdump长期保护，CMA
+则保留给以后可迁移页支持的contiguous allocator；都可体现在memblock reserved，却不能互换。
 
-.. code-block:: text
+xDBC只有先前early parameter已定位DbC时才能setup
+--------------------------------------------------
 
-   crashkernel=
-   crashkernel=,high
-   crashkernel=,low
-   crashkernel=,cma
-
-它被放在 SRAT/NUMA 解析之后，是因为保留策略可能需要避开 hot-pluggable memory，或者选择适合 DMA/低端访问的 node 与地址范围。
-
-当前固定命令行没有 ``crashkernel=``，因此主线不会创建 crash kernel reservation。
-
-这与 initramfs 的保留性质不同：
-
-.. code-block:: text
-
-   initramfs     当前启动必须读取，后面可以释放原始归档页
-   crashkernel   为未来 panic 准备，正常运行期间长期不可分配
-
-早期 xHCI debug console 的最后机会
---------------------------------
-
-随后：
+源码随后执行：
 
 .. code-block:: c
 
    if (!early_xdbc_setup_hardware())
        early_xdbc_register_console();
 
-xDBC 是 USB 3 xHCI Debug Capability。若平台和配置支持，Linux 可以在普通 USB host controller driver、device model 和完整 console 子系统出现前，直接使用 xHCI debug capability 输出日志。
+未编入 ``CONFIG_EARLY_PRINTK_USB_XDBC`` 时setup stub返回 ``-ENODEV``，register stub为空。即使编入，
+先前也必须由early-printk parameter path找到xHCI controller、映射BAR并定位Debug Capability，使
+``xdbc.xdbc_reg`` 非NULL；否则setup仍返回 ``-ENODEV``。
 
-这里必须已经具备：
+真实setup先做BIOS ownership handoff，初始化raw spinlock，再建立DbC event/in/out rings与DMA
+buffers、等待host connection。失败会释放rings与memblock pages、unmap xHCI并返回error；只有返回
+0才尝试register console。register又在已有其他 ``early_console`` 时返回，避免覆盖先选中的early
+console。
 
-* direct map；
-* memblock；
-* 早期 PCI/MMIO 访问；
-* 足够稳定的页表。
+fixed GRUB line只有 ``console=ttyS0``，没有 ``earlyprintk=xdbc``；builtin line/device CLI未知，故
+当前通常是未setup路径，但保持条件。 ``console=ttyS0`` 也不会在本次DbC call中注册正式serial
+console。
 
-同时又必须早于普通 console/USB 初始化，才能用于调试更后面的启动故障。
+native x86-64 paging hook不重建direct map
+-----------------------------------------
 
-固定 QEMU q35 是否提供可用 xDBC 取决于虚拟 xHCI 设备与启动配置；默认主线不假定存在，因此通常跳过注册。
-
-``x86_init.paging.pagetable_init`` 是可替换的架构钩子
----------------------------------------------------
-
-下一条：
-
-.. code-block:: c
-
-   x86_init.paging.pagetable_init();
-
-``x86_init`` 是一组 x86 平台操作表。普通 PC 默认初始化为：
+``x86_init.paging.pagetable_init`` 在ordinary PC初始化表中指向 ``native_pagetable_init``；x86-64
+把这个名字macro到 ``paging_init``。Xen PV等平台可以换hook，但fixed QEMU q35不是Xen PV入口，
+因此执行：
 
 .. code-block:: c
 
-   .paging = {
-       .pagetable_init = native_pagetable_init,
-   },
+   node_clear_state(0, N_MEMORY);
+   node_clear_state(0, N_NORMAL_MEMORY);
 
-Xen 等平台可以在早期启动中替换这个函数指针，以执行自己的页表模型。
+它只清掉编译期默认node 0的两种memory-state bits，后续zone初始化会根据真实node/PFN ranges重新
+设置。它不遍历E820、不建立PTE、不load CR3，也不启动buddy；direct map继续使用043建立的
+``init_top_pgt``。
 
-在 x86-64 上：
+``kasan_init`` 在未启用build中完全为空
+---------------------------------------
 
-.. code-block:: c
+若没有 ``CONFIG_KASAN``，arch header提供inline no-op，控制流直接去
+``sync_initial_page_table``。是否启用没有由fixed commit决定，因为最终 ``.config`` 未提供。
 
-   #define native_pagetable_init paging_init
+启用时，039的 ``kasan_early_init`` 已把 ``early_top_pgt`` 与 ``init_top_pgt`` 中整个shadow范围
+临时指向共享early page-table/page，保证最早compiler instrumentation不会fault。现在memblock、
+direct map和NUMA nid已可用，正式 ``kasan_init`` 才能为需要真实backing的shadow分配独立pages。
 
-因此固定普通 q35 路径最终调用 ``arch/x86/mm/init_64.c:paging_init()``。
+施工前先复制正式root并临时切回 ``early_top_pgt``
+--------------------------------------------------
 
-一个容易写错的事实：这里没有重建 direct map
-------------------------------------------
-
-x86-64 的 ``paging_init()`` 非常短：
-
-.. code-block:: c
-
-   void __init paging_init(void)
-   {
-       node_clear_state(0, N_MEMORY);
-       node_clear_state(0, N_NORMAL_MEMORY);
-   }
-
-它先清理静态默认的 node 0 memory-state 标记，后续 zone 初始化会根据真实 NUMA/PFN 范围重新设置。
-
-所以调用名虽然叫 ``pagetable_init``，在当前 x86-64 native 路径中并不会：
-
-* 再次遍历全部 E820；
-* 重新创建 direct map；
-* 再次装载 CR3；
-* 启动 buddy allocator。
-
-真正的大规模 direct-map 构造已经在第四十三章的 ``init_mem_mapping()`` 完成。
-
-这个钩子保留宽泛名称，是为了兼容 x86-32 和 paravirtualized 平台的不同实现。
-
-为什么紧接着调用 ``kasan_init()``
----------------------------------
-
-``setup_arch()`` 随后调用：
-
-.. code-block:: c
-
-   kasan_init();
-
-KASAN（Kernel Address Sanitizer）通过 shadow memory 记录内核地址对应内存的可访问状态，用于检测：
-
-* heap/stack/global 越界；
-* use-after-free；
-* 某些无效对象访问。
-
-典型 software KASAN 把一段内核内存映射到更小的 shadow 地址范围。每个 shadow byte 表示一组原始内存字节的可访问情况。
-
-若内核没有启用相应 ``CONFIG_KASAN``，该调用编译为空实现。本书固定 Linux 版本没有固定 ``.config``，因此正文必须把它视为条件路径，不能声称每次启动都分配 KASAN shadow。
-
-``kasan_early_init()`` 与现在的 ``kasan_init()`` 有什么区别
----------------------------------------------------------
-
-第三十九章之前，``x86_64_start_kernel()`` 已调用 ``kasan_early_init()``。
-
-早期版本的目标只是让编译器插桩在正式内存管理出现前不会因 shadow 缺失立即 page fault。它把广阔 shadow range 指向少量共享的 early shadow page/table。
-
-现在 memblock、NUMA 和 direct map 已建立，``kasan_init()`` 才能为真实映射范围分配独立 shadow pages。
-
-两阶段关系是：
-
-.. code-block:: text
-
-   kasan_early_init()
-   → 临时共享 shadow，保证最早 C 代码可运行
-
-   kasan_init()
-   → 按实际 RAM/内核虚拟区建立正式 shadow
-
-临时切回 ``early_top_pgt`` 的原因
---------------------------------
-
-``kasan_init()`` 首先复制：
+函数先执行：
 
 .. code-block:: c
 
    memcpy(early_top_pgt, init_top_pgt, sizeof(early_top_pgt));
 
-然后暂时：
+5-level paging时，KASAN shadow end与kernel/modules/EFI等共享最后一个PGD，源码还复制对应P4D到
+``tmp_p4d_table``，让施工root保留shadow end之外的映射。随后CPU0执行：
 
 .. code-block:: c
 
    load_cr3(early_top_pgt);
    __flush_tlb_all();
 
-原因是它需要清除并重建 ``init_top_pgt`` 中 KASAN shadow 对应的顶层 entry。如果 CPU 正在使用同一张正在拆改的页表，修改过程可能让当前执行代码瞬间失去必要映射。
+active root暂时变成正式root的安全副本，内核才能清 ``init_top_pgt`` 的KASAN shadow top entries而
+不拆当前正在使用的页表。这里的 ``early_top_pgt`` 已不是039内容不变的旧root，而是刚复制的新
+施工快照。
 
-因此 Linux 使用复制出的 ``early_top_pgt`` 作为临时安全页表，修改正式 ``init_top_pgt`` 的 shadow 部分。
+正式shadow按 ``pfn_mapped[]`` 而不只按free RAM建立
+--------------------------------------------------
 
-这次 ``early_top_pgt`` 与启动最初的临时页表作用不同：它是从当前正式页表复制出的施工用副本。
+``clear_pgds`` 清出shadow range后，源码先给shadow起点到 ``PAGE_OFFSET`` 对应位置恢复共享early
+shadow，然后遍历043记录的每个 ``pfn_mapped[]`` range。 ``map_range`` 把mapped PFN range换成
+shadow virtual range，并用 ``early_pfn_to_nid(range->start)`` 选择allocation node。
 
-KASAN 只为实际映射的 RAM 建立真实 shadow
----------------------------------------
+这里的输入是actual direct-map coverage，不应缩写成“仅free RAM”：它包含memblock RAM，也包含
+x86明确无条件映射的ISA compatibility range；reserved-over-RAM同样需要可访问性shadow。E820 hole
+是否属于ordinary RAM仍由memblock决定，KASAN mapping不会改变physical ownership。
 
-``kasan_init()`` 遍历第四十三章记录的：
+``early_alloc`` 从 ``__pa(MAX_DMA_ADDRESS)`` 以上、 ``MEMBLOCK_ALLOC_ACCESSIBLE`` 以下尝试按nid
+分配。PUD/PMD完整对齐且CPU支持时可取得1 GiB/2 MiB continuous backing并建立huge shadow mapping；
+失败就回退到lower-level page tables/4 KiB pages，必须的PAGE_SIZE allocation失败会panic。
 
-.. code-block:: c
+地址空洞继续共享early shadow或只建浅层结构
+---------------------------------------------
 
-   pfn_mapped[]
+除了 ``pfn_mapped[]``，函数还处理direct-map end与vmalloc之间、CPU entry area、kernel
+``_stext.._end`` 及shadow末端等边界。当前没有真实object backing的大区间继续映射共享early
+shadow，避免为整个virtual hole分配独立shadow pages。
 
-对每个已 direct-mapped 的 PFN range：
+``CONFIG_KASAN_VMALLOC`` 启用时，vmalloc shadow不在boot时填满lower levels，只预建PGD/P4D，之后
+随vmalloc allocation按需populate；关闭时则用early shared shadow覆盖该range。CPU entry area只给
+共享前段建立正式shadow，随机放置的per-CPU areas以后逐CPU映射，避免预映整个512 GiB window。
 
-#. 将原始 direct-map 地址转换成 KASAN shadow 地址；
-#. 根据 NUMA node 选择 memblock allocation node；
-#. 分配 PGD/P4D/PUD/PMD/PTE；
-#. 在对齐和 CPU 能力允许时使用 1 GiB 或 2 MiB huge shadow mapping；
-#. 否则分配 4 KiB shadow page。
+正式shadow完成后切回 ``init_top_pgt`` 并只读化共享页
+-------------------------------------------------------
 
-分配函数使用：
-
-.. code-block:: c
-
-   memblock_alloc_try_nid(..., nid)
-
-第四十五章提前建立 NUMA node 归属，因此 KASAN shadow page 可以尽量从对应 node 分配。
-
-这解释了本章顺序：
-
-.. code-block:: text
-
-   SRAT / NUMA node
-   → paging hook
-   → KASAN shadow allocation by node
-
-KASAN shadow 不只覆盖 direct map
--------------------------------
-
-正式初始化还处理：
-
-* direct-map RAM；
-* kernel image ``_stext`` 到 ``_end``；
-* vmalloc range；
-* modules range；
-* CPU entry area 的共享部分；
-* 不对应真实 RAM 的地址洞。
-
-对当前尚无真实 backing 的大范围，Linux 可以继续映射只读 early shadow page，或者只预建 PGD/P4D 以便以后按需填充。
-
-``CONFIG_KASAN_VMALLOC`` 开启时，vmalloc shadow 下层页表按实际 vmalloc allocation 动态建立，启动时只浅层预分配顶级结构，避免为整个巨大 vmalloc 空间立即消耗大量页表页。
-
-切回 ``init_top_pgt``
---------------------
-
-正式 shadow 建立后：
+函数执行：
 
 .. code-block:: c
 
    load_cr3(init_top_pgt);
    __flush_tlb_all();
 
-CPU 回到包含新 KASAN shadow 的正式页表。
+随后清零 ``kasan_early_shadow_page``，把所有共享early-shadow PTE改为kernel read-only/encrypted
+appropriate protection，再flush一次。这样意外写入代表空洞的共享shadow会fault，而不是静默污染
+所有共享地址。最后令 ``init_task.kasan_depth=0`` 并进入 ``kasan_init_generic``。
 
-随后 Linux：
+无论是否启用KASAN，本章出口active root都回到 ``init_top_pgt``。
 
-#. 清零共享 early shadow page；
-#. 把 early shadow PTE 改成只读；
-#. 再次刷新 TLB；
-#. 清除 ``init_task.kasan_depth``；
-#. 调用通用 ``kasan_init_generic()``。
+``sync_initial_page_table`` 在x86-64是compile-time no-op
+-------------------------------------------------------
 
-把共享 early shadow 设为只读，可以发现后续代码错误地向“空洞地址对应的占位 shadow”写入，而不是静默破坏一页被大量地址共享的数据。
-
-为什么 ``sync_initial_page_table()`` 在 x86-64 是空操作
-----------------------------------------------------
-
-KASAN 之后源码调用：
-
-.. code-block:: c
-
-   sync_initial_page_table();
-
-注释写着“Sync back kernel address range”，容易让人以为这里复制整张页表。
-
-但 x86-64 头文件定义：
-
-.. code-block:: c
-
-   static inline void sync_initial_page_table(void) { }
-
-原因是 x86-64 中：
+公共 ``setup_arch`` 注释要求“sync back kernel address range”，但x86-64定义：
 
 .. code-block:: c
 
    #define swapper_pg_dir init_top_pgt
+   static inline void sync_initial_page_table(void) { }
 
-当前正式内核页表本来就是 ``init_top_pgt``，不存在 x86-32 那种需要把正式 kernel range 同步回另一张 initial page table 的步骤。
+因此当前架构不会复制另一张initial table。该工作只对x86-32等实现有意义；调用名存在不等于fixed
+x86-64执行了一次页表同步。
 
-所以固定主线执行到这里时，函数调用存在于公共顺序中，实际不生成代码。
-
-这类“名字很重、当前架构为空”的入口必须在源码阅读中展开，否则容易虚构一次不存在的页表复制。
-
-本章结束时页表处于什么状态
---------------------------
-
-若 KASAN 未启用：
-
-.. code-block:: text
-
-   direct map / kernel map / fixmap 继续由 init_top_pgt 承载
-   paging_init 只清理 node memory state
-   sync_initial_page_table 为空
-
-若 KASAN 启用：
-
-.. code-block:: text
-
-   init_top_pgt 新增正式 KASAN shadow mappings
-   CR3 曾临时切到 early_top_pgt 施工副本
-   最终重新加载 init_top_pgt
-   TLB 已刷新
-
-两种配置最终都停在同一个控制流位置。
-
-当前机器状态
+本章结束状态
 ------------
 
-本章结束时：
+* current executor：CPU0上的 ``setup_arch``，下一条是 ``tboot_probe()``；
+* CPU/mode：BSP/logical CPU0，x86-64 long mode，IF=0，无schedule/AP bring-up；
+* NUMA：memory-node identity保留，full MADT processor enumeration尚未发生；
+* CMA：按build/effective global/per-node policy成功reserve或no-op/fail；具体areas未固定；
+* crashkernel：按effective ``crashkernel=`` 条件reserve；GRUB原始line本身未请求；
+* xDBC early console：仅在DbC已定位、hardware setup成功且没有existing early console时注册；
+* native paging hook：只清node 0 memory-state defaults；direct map未重建；
+* KASAN disabled path： ``kasan_init`` no-op；
+* KASAN enabled path：正式shadow已加入 ``init_top_pgt``，共享early shadow已清零并只读；
+* active CR3：最终为 ``init_top_pgt``；KASAN path中曾临时使用复制后的 ``early_top_pgt``；
+* ``sync_initial_page_table``：x86-64 no-op；
+* zones/buddy：仍未初始化；
+* ACPI full MADT/IOAPIC：尚未在本章执行。
 
-* 当前执行者：Linux 6.12.95 ``arch/x86/kernel/setup.c:setup_arch()``；
-* CPU：BSP / Linux CPU 0；
-* mode：64 位 long mode；
-* interrupts：关闭；
-* memblock RAM：已带 NUMA node 归属；
-* CMA：已按配置完成条件预留；
-* crashkernel：固定命令行未请求；
-* early xDBC console：已完成条件探测；
-* native paging hook：已执行，x86-64 对应 ``paging_init()``；
-* direct map：沿用第四十三章建立的映射，没有在本章重建；
-* KASAN：若配置启用，正式 shadow 已建立并由 ``init_top_pgt`` 承载；
-* ``sync_initial_page_table()``：x86-64 为空操作；
-* zone/buddy allocator：仍未完成；
-* ACPI 完整 MADT/FADT/HPET 解析：仍在后面；
-* ``setup_arch()``：仍未返回。
+关键边界
+--------
 
-下一条控制流从：
+#. ``max_pfn_mapped`` 是global CMA default limit；explicit ``cma=`` limit与per-node CMA另有路径。
+#. CMA call成功返回不等于一定有area；size=0、已有default、declare失败都是不同no-area边界。
+#. crashkernel必须在NUMA后reserve，但是否存在取决于build与effective command line。
+#. xDBC setup返回0才register；未编入支持的stub返回 ``-ENODEV``，不会注册console。
+#. ``console=ttyS0`` 与early xDBC console是不同入口。
+#. native x86-64 ``paging_init`` 只清node-state bits，不再建direct map或切CR3。
+#. KASAN shadow按 ``pfn_mapped[]`` coverage建立，不能缩写成只覆盖free RAM。
+#. KASAN临时CR3使用刚从 ``init_top_pgt`` 复制的施工root，不是恢复039旧页表状态。
+#. KASAN VMALLOC只浅层预建与全range shared-shadow是build-time两条路径。
+#. enabled KASAN最终切回 ``init_top_pgt`` 并把共享early shadow只读化。
+#. x86-64 ``sync_initial_page_table`` 为空，不制造一次不存在的table copy。
+#. 046出口仍未枚举MADT processor entries；047从tboot/vsyscall/early quirks继续。
+
+下一入口
+--------
+
+第047章从：
 
 .. code-block:: c
 
    tboot_probe();
 
-继续，随后映射 vsyscall、完成 ACPI/SMP/APIC/IOAPIC 拓扑、注册 E820 资源、初始化 wall clock/MCE/unwind，并最终从 ``setup_arch()`` 返回。
+开始。进入前active root是 ``init_top_pgt``，possible CPU space还只有early command-line limit前的
+上限，full ACPI/MP firmware enumeration尚未执行。
 
 资料
 ----
 
-* `Linux 6.12.95 setup.c：CMA、crashkernel、paging hook、KASAN 与同步调用顺序 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/setup.c>`_
-* `Linux 6.12.95 x86_init.c：普通 PC 的 pagetable_init 默认函数指针 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/x86_init.c>`_
-* `Linux 6.12.95 pgtable_types.h：x86-64 native_pagetable_init 映射为 paging_init <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/include/asm/pgtable_types.h>`_
-* `Linux 6.12.95 init_64.c：paging_init 的 x86-64 实现 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/mm/init_64.c>`_
-* `Linux 6.12.95 KASAN init：shadow page-table 建立与 CR3 切换 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/mm/kasan_init_64.c>`_
-* `Linux 6.12.95 pgtable_64.h：swapper_pg_dir 与空的 sync_initial_page_table <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/include/asm/pgtable_64.h>`_
-* `Linux CMA 文档 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/Documentation/admin-guide/mm/cma_debugfs.rst>`_
-* `Linux kdump 文档 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/Documentation/admin-guide/kdump/kdump.rst>`_
+* `Linux 7.2-rc1固定提交：CMA到initial-page-table sync调用顺序 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/setup.c#L1192-L1215>`_；
+* `Linux 7.2-rc1固定提交：global与per-NUMA CMA reservation <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/dma/contiguous.c#L139-L322>`_；
+* `Linux 7.2-rc1固定提交：x86 crashkernel effective-line解析 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/setup.c#L608-L628>`_；
+* `Linux 7.2-rc1固定提交：xHCI DbC setup与失败回滚 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/drivers/usb/early/xhci-dbc.c#L657-L687>`_；
+* `Linux 7.2-rc1固定提交：x86-64 native paging hook只清node state <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/mm/init_64.c#L823-L843>`_；
+* `Linux 7.2-rc1固定提交：x86-64 KASAN shadow与临时CR3 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/mm/kasan_init_64.c#L341-L425>`_；
+* `Linux 7.2-rc1固定提交：x86-64 initial table sync为空 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/include/asm/pgtable_64.h#L22-L31>`_。

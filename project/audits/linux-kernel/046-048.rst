@@ -1,0 +1,159 @@
+Linux Kernel第046—048章回溯审查
+================================
+
+批次状态
+--------
+
+::
+
+   range            = 046-048
+   status           = repaired
+   verified_before  = 045
+   verified_after   = 048
+   mode             = retrospective-audit
+   blocking_issue   = none
+
+审查范围
+--------
+
+* ``046-linux-finalizes-paging-and-kasan-shadow.rst``；
+* ``047-linux-probes-tboot-maps-vsyscall-and-applies-early-limits.rst``；
+* ``048-linux-completes-acpi-apic-and-possible-cpu-topology.rst``；
+* 入口为 ``initmem_init()`` 已返回、即将调用
+  ``dma_contiguous_reserve(max_pfn_mapped << PAGE_SHIFT)``；
+* 出口为 ``x86_init.hyper.guest_late_init()`` 已返回，下一条
+  ``e820__reserve_resources()`` 尚未执行。
+
+固定源码
+--------
+
+Linux release 7.2-rc1、gregkh/linux commit
+``7404ce51637231382873d0b55edabc2f3b841a9d``：
+
+* ``arch/x86/kernel/setup.c`` 从CMA到guest late hook的调用顺序；
+* global/per-NUMA CMA、x86 crashkernel、early xHCI DbC、native paging与x86-64 KASAN；
+* tboot、vsyscall、early direct-PCI quirks与topology command-line limits；
+* full ACPI FADT/MADT/HPET/BGRT/SPCR、MP fallback与Local APIC last detection；
+* possible/present CPU finalize、CPU-to-node/GI nodes与IOAPIC resource/fixmap setup。
+
+另核对QEMU commit ``a759542a2c62f0fd3b65f5a66ad9868201014669`` 的q35 MADT builder：它按
+possible CPU IDs生成Local APIC/x2APIC records，并无条件生成首个IOAPIC entry，按platform policy
+生成interrupt source overrides。 ``/Volumes/LinuxKernel/{seabios,qemu,grub,linux-7.2-rc1}`` 仍为
+fixed HEAD、clean、完整、非shallow、无active sparse checkout。最终 ``.config``、QEMU accelerator/
+SMP/NUMA/optional-device CLI、builtin command line、RAM容量与runtime addresses未提供，相关结果按
+实际branch记录。
+
+整批成功路径
+------------
+
+``第046章``
+   ``dma_contiguous_reserve按cma=/build及per-NUMA policy条件声明areas → arch_reserve_crashkernel在
+   SRAT后按effective option reserve → xDBC仅在先前已定位DbC且hardware setup返回0时register →
+   native x86-64 paging_init只清node0 memory-state bits → CONFIG_KASAN时复制init_top到early root、
+   临时切CR3、按pfn_mapped/virtual ranges建立shadow、切回init_top并只读化shared shadow → x86-64
+   sync_initial_page_table no-op → stop before tboot_probe``。
+
+``第047章``
+   ``tboot_probe在fixed zero tboot_addr返回 → map_vsyscall按build与EMULATE/XONLY/NONE形成PTE/
+   execute-only gate/no gate → x86_32_probe_apic在x86-64 no-op → early_quirks按early PCI availability
+   limited-scan实际vendor/device/class matches → topology_apply_cmdline_limits_early按zero maxcpus/APIC
+   disabled/possible_cpus收紧nr_cpu_ids capacity → stop before acpi_boot_init``。
+
+``第048章``
+   ``acpi_boot_init执行late DMI/disabled guard → BOOT/FADT → full MADT首次登记Local APIC/x2APIC
+   processors与local NMI → IOAPIC/source overrides/SCI identity/NMI source并选择ACPI IOAPIC model →
+   条件HPET/BGRT/PCI hook/SPCR → full MP parser只在ACPI缺失/partial时补足 → init_apic_mappings last
+   detection → topology_init_possible_cpus冻结allowed/possible/present → init_cpu_to_node + GI nodes →
+   io_apic_init_mappings准备resources并建fixmaps → conditional guest late hook → stop before E820
+   resource registration``。
+
+CMA、crashkernel、xDBC与KASAN边界
+--------------------------------
+
+* ``max_pfn_mapped<<PAGE_SHIFT`` 是global CMA default limit，不覆盖explicit ``cma=`` limit或
+  per-NUMA CMA声明；
+* CMA call存在不等于area存在，size 0、已有default、declare failure与success须分开；
+* crashkernel确实位于NUMA后以避开hotpluggable memory，但fixed GRUB原始line无option不排除未知
+  builtin line；
+* xDBC setup stub/未定位DbC返回error，只有hardware setup成功且没有existing early console才register；
+* native x86-64 paging hook不重建direct map，只清default node-state bits；
+* KASAN遍历 ``pfn_mapped[]``，其中含ISA compatibility mapping与memblock RAM，不能缩写为free RAM；
+* KASAN施工root是刚从 ``init_top_pgt`` 复制的 ``early_top_pgt``，最终active CR3回到
+  ``init_top_pgt``；
+* x86-64 ``sync_initial_page_table`` 是inline no-op。
+
+tboot、vsyscall、quirk与capacity边界
+-----------------------------------
+
+* fixed GRUB zeroed params没有tboot writer， ``tboot_addr=0`` guard确定返回；
+* nonzero branch给 ``e820__mapped_any`` 传相同start/end，按overlap predicates只可能命中entry严格
+  内部point，不验证整页、alignment或UUID；
+* fixed build启用vsyscall emulation framework时default只能XONLY/NONE，EMULATE来自early option；
+* EMULATE建立PTE与upper user bits，XONLY刻意无PTE、只保留execute gate，NONE无gate；
+* x86-64的 ``x86_32_probe_apic`` 无工作，Local APIC fixmap不能记到047；
+* ``early_quirks`` 只扫描fixed table的direct-PCI matches，不是完整PCI enumeration；
+* q35 core IDs不自动命中实体机quirks，optional devices未固定；
+* topology early limit在firmware enumeration前只收紧capacity；positive ``maxcpus=N`` 不在该函数中
+  把possible capacity缩为N， ``maxcpus=0``/``nosmp`` 才强制1。
+
+ACPI、APIC、topology与IOAPIC边界
+-------------------------------
+
+* 045只登记LAPIC physical address；048 full MADT才首次遍历Local APIC/x2APIC processor records；
+* FADT x86 handler落实legacy/i8042/RTC/VGA/PM timer，SCI route在MADT IOAPIC pass使用canonical FADT；
+* full MADT按processor/local NMI → IOAPIC → source override → SCI fallback → legacy identity → NMI
+  source有序处理；
+* ACPI enabled却无MADT会清先前MPS discovery，纯MPS takeover需要明确ACPI-disabled path；
+* full MP parser在ACPI LAPIC+IOAPIC齐全时返回，ACPI LAPIC-only时不重复processor records；
+* successful non-x2APIC LAPIC fixmap通常由045 ``register_lapic_address`` 建立，048只完成last check；
+* ``topology_init_possible_cpus`` 才把firmware registry与capacity变成possible/present masks；online仍仅
+  CPU0；
+* SRAT affinity在045保存，048 logical IDs明确后才由 ``init_cpu_to_node`` 接回；
+* ``io_apic_init_mappings`` 分配resource objects并映射fixmaps，不插入resource tree、不编程runtime
+  vectors；IOAPIC resource insertion实际在later PCI survey的 ``ioapic_insert_resources``；
+* QEMU accelerator未固定，guest late hook不能写死KVM或native no-op。
+
+发现并修复
+----------
+
+#. 三章从历史6.12.95标签/结构整章重写为fixed Linux 7.2-rc1，并补统一章末四节。
+#. 修正046开头：045没有从MADT/MP建立CPU topology，只登记LAPIC address与NUMA memory identity。
+#. 收紧CMA limit语义，补explicit user limit、per-NUMA areas与no-area success/failure边界。
+#. 修正crashkernel结论，不因GRUB原始line缺option就忽略未知builtin line。
+#. 固定xDBC register的前置parameter/DbC discovery、setup return与failure rollback顺序。
+#. 把native paging hook与043 direct-map creation分开，并固定x86-64 initial-table sync no-op。
+#. 修正KASAN输入为actual ``pfn_mapped[]`` coverage，不只free/ordinary RAM。
+#. 固定tboot的zero fast path与相同start/end E820 overlap调用，不夸大为整页validation。
+#. 修正vsyscall fixed defaults与三种mode的PTE/gate差异。
+#. 把x86-64 ``x86_32_probe_apic`` 明确为no-op，并收紧early quirk实际table。
+#. 修正topology early limit：positive ``maxcpus=N`` 不在此缩possible capacity。
+#. 修正045/048分工：full MADT processor enumeration、disabled CPU registration与IOAPIC routes首次发生
+   在048。
+#. 补ACPI enabled/no-MADT清MPS与partial ACPI/full-MP complement规则。
+#. 修正Local APIC mapping时点：normal non-x2APIC fixmap已在045建立。
+#. 区分possible/present/online/active CPU，以及SRAT affinity保存与logical mapping接回时点。
+#. 修正IOAPIC resource publication：048仅准备对象/fixmap，049 standard-I/O hook也不插入，真正插入
+   位于later PCI resource survey。
+
+失败与未发生
+------------
+
+* CMA/crashkernel/xDBC/KASAN allocation或policy failures按各自return/panic语义处理，正文不制造固定
+  area size/address；
+* malformed tboot、vsyscall option、MADT/MP entries或ACPI disable均保留源码fallback/error边界；
+* 本批没有普通PCI enumeration/BAR assignment、final clocksource selection或ACPI namespace/AML；
+* IOAPIC MMIO可访问不等于redirection table/vector/IRQ domain已完成，CPU IF仍为0；
+* possible/present CPUs没有被唤醒，AP仍无online/active identity；
+* zones/buddy allocator、first user task与schedule均未发生；
+* 第049章正文仍pending，adjacent read不提升验证状态。
+
+连续性与验证
+------------
+
+* 045出口与046 ``dma_contiguous_reserve`` call前一致；
+* 046出口为 ``tboot_probe`` call前，与047一致；
+* 047出口为 ``acpi_boot_init`` call前，与048一致；
+* 048出口为guest late hook已返回、 ``e820__reserve_resources`` call前，与pending 049真实入口一致；
+* 三章不含旧6.12.95标签，均有本章结束状态、关键边界、下一入口、资料；
+* ``tools/check-linux-kernel-track.sh 48``、TOML、 ``git diff --check`` 与旧版本guard通过，仅保留
+  既有065/066 duplicate debt；无阻塞；下一批049—051。

@@ -14,32 +14,33 @@
    mode                 = retrospective-audit
    forward production   = paused
    content present      = 001-193
-   audit verified       = 001-045
-   verified_through     = 045
+   audit verified       = 001-048
+   verified_through     = 048
    blocked batches      = none
-   next batch           = 046-048
+   next batch           = 049-051
    next batch status    = ready
 
-046—193中文件存在不等于技术已验证；当前pending范围是046—193。第193章审查闭合前不生产新章。
+049—193中文件存在不等于技术已验证；当前pending范围是049—193。第193章审查闭合前不生产新章。
 
 最近完成批次
 ------------
 
-`043—045审查报告 <audits/linux-kernel/043-045.rst>`_：状态 ``repaired``。
+`046—048审查报告 <audits/linux-kernel/046-048.rst>`_：状态 ``repaired``。
 
 本批修复了：
 
-* 三章从历史6.12.95叙事重写为fixed Linux 7.2-rc1，并按自然源码边界固定043/044/045出口；
-* pgt buffer在 ``reserve_brk`` 前从brk取得；封存后 ``extend_brk`` 不再是current mapping可靠后备；
-* E820 RAM、memblock memory/reserved与direct-map PTE身份分开，low 1MiB同时reserved与mapped；
-* direct map只覆盖ISA兼容range与memblock RAM，记录mapped PFN后才切 ``init_top_pgt`` 并flush；
-* printk early migration按条件分配text/descriptors/infos，失败回滚并补扫NMI-late records；
-* initramfs修正为 ``/boot/initramfs.img``，按actual mapped PFN选择fast identity或safe relocation；
-* ACPI override专用cpio scan与initial table定位/reservation分开；
-* fixed ``early_platform_quirks`` 只判断Apple vendor，不附加PCI/HPET/IOMMU工作；
-* early MADT/MP pass只登记LAPIC address，不枚举processor/IOAPIC/IRQ entries；
-* SRAT affinity、logical CPU topology、node online与buddy allocator四个阶段严格分开；
-* current ``setup_data=0`` 令 ``initial_dtb=0``，没有DT CPU/APIC topology。
+* 046开头不再继承“045已枚举CPU topology”的错误；processor records首次在048 full MADT处理；
+* CMA传入 ``max_pfn_mapped`` 只是global default limit，explicit/per-NUMA paths分开；
+* crashkernel、xDBC、KASAN均按build/effective parameters与failure rollback保留条件；
+* native paging hook只清node state，KASAN按 ``pfn_mapped[]`` 建shadow，x86-64 sync call为空；
+* fixed GRUB ``tboot_addr=0`` 确定probe返回，nonzero E820 check不再夸大成整页验证；
+* vsyscall build default固定为XONLY/NONE，EMULATE/XONLY/NONE三种PTE/gate结果分开；
+* x86-64 ``x86_32_probe_apic`` no-op，early PCI quirk收紧到actual fixed table；
+* topology early limit区分 ``maxcpus=0`` 与positive ``maxcpus=N``；
+* full MADT processor、IOAPIC、source override、SCI/NMI passes与MP complement顺序固定；
+* Local APIC normal fixmap在045已建立，048只做last detection；
+* possible/present/online/active CPU masks、SRAT affinity与logical mapping时点分开；
+* IOAPIC resource objects/fixmaps在048完成，但resource-tree insertion留给later PCI survey。
 
 当前符号
 --------
@@ -53,69 +54,67 @@
    O   = actual physical kernel output base / formal phys_base
    V   = relocation virtual position value
 
-initrd fast path保留original ``[R,E)`` 并令 ``initrd_start=R+PAGE_OFFSET``；relocation path先把N bytes
-复制到 ``max_pfn_mapped`` 以下的新reserved range，成功后free original ``[R,E)``。actual branch受
-未固定build/effective memory limits影响，不能在STATE中写死。
+initrd fast path保留original ``[R,E)``；relocation path复制成功后已free original range。actual branch、
+CMA/crashkernel reservations、KASAN/vsyscall modes与CPU/node counts都受未固定build/effective CLI影响，
+STATE只保存源码边界，不制造数值。
 
-第045章结束状态
+第048章结束状态
 ---------------
 
 ::
 
-   current executor         = setup_arch(), initmem_init returned
-   next call                = dma_contiguous_reserve(max_pfn_mapped << PAGE_SHIFT)
-   CPU                      = BSP / logical CPU0 only executing
-   CPU mode                 = 64-bit long mode
-   IF / DF                  = 0 / 0
-   current task             = init_task
-   active CR3               = swapper_pg_dir = init_top_pgt
-   old active root          = early_top_pgt no longer active
-   early brk                = reserved and sealed; _brk_start = 0
-   early pgt buffer         = reserved brk pages; 8 or 16 by build
-   high kernel PMDs         = tightened to text through rounded current brk end
-   memblock.memory          = page-aligned working-E820 RAM with NUMA node identity
-   memblock.reserved        = kernel + low1M + initramfs/current copy + firmware/conditional ranges
-   memblock current limit   = get_max_mapped()
-   direct map               = ISA range plus actual memblock RAM ranges
-   active mapped frontier   = pfn_mapped[] / max_pfn_mapped
-   real-mode trampoline     = low storage reserved; contents not yet initialized
-   early page-fault entry   = real PF gate or FRED exception setup; early mapping helper replaced
-   printk ring              = dynamic iff requested and allocations succeeded; otherwise static
-   printk percpu / console  = not ready / not formally initialized
-   initrd virtual range     = valid fast or relocated identity; archive not unpacked
-   EFI_BOOT                 = false; EFI secure-boot status switch skipped
-   ACPI initial tables      = located/reserved on successful enabled SeaBIOS path
-   ACPI early MADT          = LAPIC base registered; fixed q35 has no LAPIC address override entry
-   acpi_lapic               = 1 on successful fixed q35 MADT path
-   MP early parser          = skipped because acpi_lapic, or LAPIC-address-only fallback
-   MADT/MP CPU and IOAPIC   = full entry parsing not yet performed
-   flattened DT            = initial_dtb = 0; no populated tree
-   NUMA                     = configured source result or dummy node 0 fallback
-   memory nodes             = valid memory-range nodes online; zones not initialized
-   CPU topology / APs       = not fully enumerated / no AP online
-   buddy allocator          = not initialized
+   current executor          = setup_arch(), guest_late_init returned
+   next call                 = e820__reserve_resources()
+   CPU mode                  = x86-64 long mode
+   IF / DF                   = 0 / 0
+   current task              = init_task
+   active CR3                = swapper_pg_dir = init_top_pgt
+   early brk                 = reserved and sealed; _brk_start = 0
+   memblock.memory           = working-E820 RAM with NUMA node identities
+   memblock current limit    = get_max_mapped()
+   direct map                = ISA compatibility range + actual memblock RAM
+   CMA                       = conditional global/per-node reservations
+   crashkernel               = conditional effective-option reservation
+   KASAN                     = no-op or formal shadow in init_top_pgt
+   sync_initial_page_table   = x86-64 no-op
+   tboot                     = NULL; fixed GRUB tboot_addr = 0
+   vsyscall                  = build no-op or effective EMULATE/XONLY/NONE
+   early PCI quirks          = limited direct scan completed when allowed
+   ACPI FADT                 = enabled path applied legacy/PM-timer facts
+   MADT processors           = full Local APIC/x2APIC enumeration completed on success
+   ACPI IOAPIC model         = q35 success path selected with GSI/SCI/NMI routes
+   MP full parser            = skipped on complete ACPI or used as partial/disabled fallback
+   Local APIC                = address registered; MMIO fixmap or x2APIC MSR mode
+   nr_cpu_ids                = finalized from firmware registry and early capacity limit
+   CPU possible/present      = finalized allowed/physical masks
+   CPU online/active         = CPU0 only
+   CPU-to-node               = SRAT mapping connected where valid; fallback retained
+   Generic Initiator nodes   = conditionally onlined
+   IOAPIC MMIO               = fixed nocache mappings established
+   IOAPIC resources          = objects populated, not inserted into iomem tree yet
+   device IRQ runtime        = no final vector/redirection enable; IF remains 0
+   future PCI init hook      = pci_acpi_init when ACPI IRQ enabled
+   guest late hook           = actual detected hypervisor hook or native no-op
+   zones/buddy allocator     = not initialized
+   setup_arch                = not returned
 
-已验证的043—045关系
+已验证的046—048关系
 -----------------
 
-* ``early_alloc_pgt_buf`` 必须先消费开放brk， ``reserve_brk`` 随后保护used range并令
-  ``_brk_start=0``；
-* ``cleanup_highmap`` 清共享lower-level entries，明确translation回收发生在后续CR3切换/flush；
-* ``e820__memblock_setup`` 只把RAM加入memory、SOFT_RESERVED加入reserved，并暂把low 1MiB标KHO
-  scratch；
-* ordinary x86-64 real-mode reserve在1MiB下找storage，size非0时reserve完整low 1MiB并清scratch；
-* ``init_mem_mapping`` 映射ISA与memblock RAM，reserved-over-RAM仍mapped，physical holes不变成RAM；
-* ``load_cr3(swapper_pg_dir)`` 后active root才是 ``init_top_pgt``；memblock limit随后扩大到actual
-  mapped frontier；
-* ``setup_log_buf(1)`` 不宣布per-CPU data ready，也不完成console；
-* ``reserve_initrd`` 以 ``pfn_range_is_mapped`` 决定不copy或relocate，旧range只在copy成功后free；
-* ``acpi_table_upgrade`` 只扫描 ``kernel/firmware/acpi/``， ``acpi_boot_table_init`` 只定位/保护
-  initial tables；
-* q35不命中ScaleMP和I/O-delay DMI quirks， ``early_platform_quirks`` 只得到非Apple结果；
-* early MADT读取header LAPIC地址及可选override；fixed QEMU MADT没有override，返回0后设置
-  ``acpi_lapic/smp_found_config``；
-* early MP parser即使fallback也在processor configuration blocks前返回；
-* ``initmem_init`` 只建立NUMA memory-node归属，不建立zones/buddy或完整logical CPU topology。
+* global CMA default limit来自 ``max_pfn_mapped``，但user limit与per-NUMA declarations有独立规则；
+* crashkernel在SRAT后reserve；fixed GRUB line无option不排除builtin command line；
+* xDBC必须先定位DbC且hardware setup返回0，existing early console还可阻止register；
+* native x86-64 ``paging_init`` 不建页表，KASAN path才临时切复制后的 ``early_top_pgt``；
+* KASAN按mapped coverage而非free RAM建立正式shadow，最终返回 ``init_top_pgt``；
+* tboot fixed zero path不建fixmap；nonzero branch的same-start/end E820 overlap不是full-page check；
+* vsyscall EMULATE有PTE与user bits，XONLY无PTE但有execute gate，NONE无gate；
+* early quirk是limited table scan，q35名字本身不代表命中实体机workaround；
+* topology early limit只收capacity，048 ``topology_init_possible_cpus`` 才生成firmware-backed masks；
+* full MADT在048首次调用 ``topology_register_apic`` 并解析IOAPIC/IRQ routes；
+* full MP parser在complete ACPI时skip，partial ACPI时不重复LAPIC processors；
+* Local APIC fixmap的normal创建点是045 ``register_lapic_address``；
+* ``init_cpu_to_node`` 在logical IDs明确后才接回045保存的SRAT APIC affinity；
+* IOAPIC resource allocation、fixmap、later resource-tree insertion与runtime IRQ programming是四阶段。
 
 固定磁盘约定
 ------------
@@ -127,37 +126,37 @@ initrd fast path保留original ``[R,E)`` 并令 ``initrd_start=R+PAGE_OFFSET``�
        initrd /boot/initramfs.img
    }
 
-build ``.config``、compression、file sizes、RAM容量、QEMU CPU model/完整CLI、runtime addresses、
-builtin command line、initramfs内容与microcode blob未提供，不得从commit制造。
+build ``.config``、compression、file sizes、RAM容量、QEMU CPU/accelerator/SMP/NUMA/完整device CLI、
+runtime addresses、builtin command line、initramfs内容与microcode blob未提供，不得从commit制造。
 
 下一入口
 --------
 
-第046章从fixed ``arch/x86/kernel/setup.c``：
+第049章从fixed ``arch/x86/kernel/setup.c``：
 
 .. code-block:: c
 
-   dma_contiguous_reserve(max_pfn_mapped << PAGE_SHIFT);
+   e820__reserve_resources();
 
-开始。046旧开头把045误写成“已从MADT/MP建立早期CPU/APIC拓扑”，这是pending历史错误，下一批必须
-首先改成“只登记LAPIC地址，NUMA memory-node identity已建立”。046—048需沿fixed顺序重新核定：
+开始。049旧稿还需重新核定一个已发现边界： ``x86_init.resources.reserve_resources`` 的ordinary
+x86-64实现只登记standard I/O ports，不插入IOAPIC resources；后者位于later
+``pcibios_resource_survey``。049—051需要按fixed顺序重新核定：
 
-* CMA、crashkernel、early xHCI debug console及其build/effective option条件；
-* ``x86_init.paging.pagetable_init``、KASAN、 ``sync_initial_page_table`` 的真实边界；
-* TDX/EFI/ESRAM/ACPI table reserve、 ``reserve_standard_io_resources`` 等插入调用；
-* ``early_acpi_boot_init`` 与后续 ``acpi_boot_init`` 的职责分界，full MADT CPU/IOAPIC entries实际
-  在哪一章出现；
-* 048相邻出口与049入口，只读校验后按自然源码边界重写三章。
+* E820 resource objects、nosave PFNs、standard I/O ports与PCI gap的精确职责；
+* VGA/OEM/wallclock/thermal LVT/MCE/refined jiffies/EFI/unwind条件，以及 ``setup_arch`` 真实出口；
+* ``mm_core_init_early`` 在7.2-rc1的node/zone/``struct page``/buddy边界；
+* ``start_kernel`` 的jump-label/static-call、early security、bootconfig与command-line调用顺序；
+* 051出口与052 ``setup_nr_cpu_ids/setup_per_cpu_areas`` 入口只读相邻校验。
 
-046—048批次读取清单
+049—051批次读取清单
 -------------------
 
-#. ``AGENTS.md``、合同、本文件与 ``043-045`` 报告；
-#. 第045章末尾、046—048全文、049开头；
-#. fixed ``setup.c`` 从 ``dma_contiguous_reserve`` 开始到048自然出口；
-#. fixed CMA/crashkernel/xdbc/x86 paging/KASAN/ACPI/APIC实际被调用helper；
-#. QEMU/SeaBIOS仅在对应firmware事实需要时读取，不从默认CLI制造runtime结果；
-#. 两份manifest游标；旧046—048的版本标签、CPU topology与调用顺序一律重新核验。
+#. ``AGENTS.md``、合同、本文件与 ``046-048`` 报告；
+#. 第048章末尾、049—051全文、052开头；
+#. fixed ``setup.c`` 从 ``e820__reserve_resources`` 到函数返回；
+#. fixed ``start_kernel``、 ``mm_core_init_early``、bootconfig与command-line actual helpers；
+#. fixed E820/resource/standard-I/O/PCI gap、wallclock/MCE/unwind实际调用；
+#. 两份manifest游标；旧049—051的6.12.95标签与resource/buddy/second-init claims全部重核。
 
 固定源码工作树
 --------------
@@ -175,10 +174,10 @@ fixed evidence；项目 ``.sources/`` 不承担缓存。
 已知债务
 --------
 
-* 第046章起历史正文仍有旧版本、旧结构或未经fixed源码核验的断言；
+* 第049章起历史正文仍有旧版本、旧结构或未经fixed源码核验的断言；
 * 第065、066章各有重复正文文件；
 * 001—073尚未逐章进入track machine-readable catalog；
-* 046—193必须继续顺序审查，不能批量机械标verified。
+* 049—193必须继续顺序审查，不能批量机械标verified。
 
 历史前向终点
 ------------

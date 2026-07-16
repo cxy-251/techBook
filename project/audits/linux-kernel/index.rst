@@ -10,9 +10,9 @@ Linux Kernel回溯审查账本
 
    mode             = retrospective-audit
    production       = paused
-   verified_through = 045
+   verified_through = 048
    current_batch    = none
-   next_batch       = 046-048
+   next_batch       = 049-051
    current_status   = ready
 
 状态语义遵守 ``project/LINUX_KERNEL_CONTRACT.rst``。
@@ -36,11 +36,13 @@ Linux Kernel回溯审查账本
 * `040-042 <040-042.rst>`_：``repaired``；generic启动前缀、setup_arch/E820与PFN边界核验完成，无阻塞。
 * `043-045 <043-045.rst>`_：``repaired``；memblock/direct map、initrd/ACPI initial tables与early
   LAPIC/NUMA边界核验完成，无阻塞。
+* `046-048 <046-048.rst>`_：``repaired``；CMA/KASAN、tboot/vsyscall/early quirks与full
+  MADT/possible CPU/IOAPIC映射边界核验完成，无阻塞。
 
 已知但尚未轮到的结构债务
 ------------------------
 
-* 第046章起的历史启动正文仍引用旧版本标签或未经固定源码复核的artifact/数值；
+* 第049章起的历史启动正文仍引用旧版本标签或未经固定源码复核的artifact/数值；
 * 第065章存在两个正文文件；
 * 第066章存在两个正文文件；
 * 既有boot章节没有逐章登记到当前track manifest；

@@ -1,510 +1,262 @@
-第四十八章：Linux 怎样完成 ACPI、Local APIC、IOAPIC 与 possible CPU 拓扑？
+第四十八章：Linux 怎样 full-parse MADT 并建立 possible CPU 与 IOAPIC 映射？
 ============================================================================
 
-第四十七章结束时，Linux 已经完成 early MADT pass、early PCI quirks 和 CPU 命令行上限，但它仍没有建立完整中断模型。
-
-当前下一条调用是：
+第四十七章结束时，CPU0仍在 ``setup_arch``、IF=0；early PCI quirks与CPU capacity limits已经生效。
+045只从MADT header登记了Local APIC physical address，没有枚举processor或IOAPIC entries。当前
+入口是：
 
 .. code-block:: c
 
    acpi_boot_init();
 
-本章追踪到：
+本章按fixed Linux 7.2-rc1继续到 ``x86_init.hyper.guest_late_init()`` 返回。成功ACPI路径在这里才
+首次把QEMU生成的MADT Local APIC/x2APIC processor records送入topology registry，再登记IOAPIC、
+interrupt overrides与NMI；MP parser随后只在ACPI缺失/部分成功时补足。最后Linux冻结possible/
+present CPU集合、接回NUMA affinity并建立IOAPIC fixmaps，但仍不唤醒AP或打开普通device IRQ。
 
-.. code-block:: c
+late ACPI DMI quirks必须在early PCI quirks之后
+----------------------------------------------
 
-   x86_init.hyper.guest_late_init();
+``acpi_boot_init`` 先执行 ``dmi_check_system(acpi_dmi_table_late)``。这组machine-specific policy包含
+例如ignore timer override之类必须在047 chipset scan后决定的修正。fixed QEMU/SeaBIOS DMI不匹配
+这些旧实体机条目，ordinary路径保持table原义；正文仍按actual DMI match保留branch。
 
-返回。期间 Linux 会把固件表中的 FADT、MADT、HPET、SPCR 信息转成内核的启动期中断/定时器模型，执行 MP table fallback，确认 Local APIC 映射，最终确定 possible CPU 数量、CPU-to-node 关系和 IOAPIC MMIO 映射。
+若此前config/effective ``acpi=off``、blacklist或table locate failure已令 ``acpi_disabled`` 为真，
+函数立即返回1，不执行本章ACPI handlers。后面的full MP parser仍可使用042找到并reserved的MPS
+tables；但是否编入MPS及表是否有效仍是条件。
 
-为什么 ``early_acpi_boot_init()`` 后还要再解析一次 ACPI
-------------------------------------------------------
+BOOT table被再次解析，FADT handler只落实x86当前所需字段
+-------------------------------------------------------
 
-第四十五章中的 early pass 主要服务 NUMA：在 ``initmem_init()`` 之前尽早登记 processor APIC ID，使 SRAT processor affinity 可以关联到 CPU。
+enabled路径先再次解析optional BOOT table的simple-boot flag，再把ACPICA已经规范化的FADT交给
+``acpi_parse_fadt``。fixed x86 handler根据FADT boot flags更新：
 
-现在的 ``acpi_boot_init()`` 目标更完整：
+* legacy devices/PNPBIOS是否存在；
+* i8042是否由firmware声明缺席；
+* RTC与VGA probe是否允许；
+* ``CONFIG_X86_PM_TIMER`` 下的ACPI PM timer I/O port。
 
-.. code-block:: text
+SCI number等canonical FADT内容已经位于 ``acpi_gbl_FADT``，稍后的MADT IOAPIC parser会读取
+``sci_interrupt`` 来建立/补SCI route。此时只登记platform facts与timer address，不选择最终
+clocksource、不创建ACPI namespace device，也不执行AML methods。
 
-   FADT  → SCI、PM timer 与平台电源寄存器基础
-   MADT  → Local APIC、IOAPIC、GSI 与 interrupt source override
-   HPET  → 高精度事件定时器物理信息
-   BGRT  → 可选启动图像信息
-   SPCR  → 可选固件串口控制台描述
-   PCI   → 是否把后续 PCI 初始化切换到 ACPI 路径
+full MADT pass现在才枚举Local APIC/x2APIC processor entries
+---------------------------------------------------------
 
-所以 early pass 和 full pass 不是重复浪费。前者先满足内存拓扑依赖，后者在 early quirks 已经修正 timer/APIC 异常后建立完整平台模型。
+``acpi_process_madt`` 先再次解析MADT header，取得default LAPIC address与PCAT compatibility。045已
+完成可选64-bit LAPIC Address Override scan并调用 ``register_lapic_address``；本次full helper的
+新增工作从 ``acpi_parse_madt_lapic_entries`` 开始。
 
-晚期 DMI ACPI quirk 为什么放在这里
----------------------------------
-
-``acpi_boot_init()`` 首先执行：
-
-.. code-block:: c
-
-   dmi_check_system(acpi_dmi_table_late);
-
-这张表中的修正必须等 ``early_quirks()`` 已经运行后才判断，例如某些机器需要忽略 BIOS 提供的 IRQ0 timer override。
-
-如果在 chipset quirk 前决定，Linux 可能把一个原本可修正的 MADT override 当成最终事实。
-
-当前 QEMU q35 不匹配这些旧实体主板 DMI 项，主线继续使用 SeaBIOS/QEMU 生成的 ACPI 表。
-
-ACPI 被禁用时控制流怎样退化
----------------------------
-
-若命令行有 ``acpi=off``，表校验失败，或平台 blacklist 禁用 ACPI：
-
-.. code-block:: c
-
-   if (acpi_disabled)
-       return 1;
-
-后面的 ``x86_init.mpparse.parse_smp_cfg()`` 会尝试从 Intel MP Specification table 获取 CPU、bus、IOAPIC 与 IRQ route。
-
-这就是紧接着保留 MP table parser 的原因：x86 不能把启动完全押在 ACPI 单一路径上。
-
-当前固定 q35 主线有有效 ACPI，因此以 ACPI 为主，MP table 只承担兼容 fallback。
-
-FADT 首先建立哪些启动事实
-------------------------
-
-函数调用：
-
-.. code-block:: c
-
-   acpi_table_parse(ACPI_SIG_FADT, acpi_parse_fadt);
-
-FADT 是 Fixed ACPI Description Table。它把平台的固定电源管理接口描述给操作系统，包括：
-
-* SCI（System Control Interrupt）编号；
-* PM timer I/O/MMIO 地址；
-* PM1 event/control block；
-* reset register；
-* century register；
-* hardware-reduced ACPI 标志；
-* DSDT/FACS 地址等。
-
-``acpi_parse_fadt()`` 在当前阶段重点把 Linux 后续必须使用的 SCI 和 PM timer 信息转成 x86 全局状态。
-
-SCI 为什么不是普通设备 IRQ
--------------------------
-
-SCI 是 ACPI 固件向操作系统报告电源管理事件的共享中断，例如：
-
-* 电源按钮；
-* sleep/wake；
-* thermal event；
-* ACPI GPE。
-
-FADT 给出 SCI interrupt number，但其实际送达路径还依赖 MADT 中的 GSI 与 interrupt override。
-
-因此 Linux 先读 FADT 得到“ACPI 使用哪个中断”，再读 MADT 确认“这个中断怎样经 IOAPIC 路由”。
-
-PM timer 为什么现在只记录地址
-----------------------------
-
-FADT 也提供 ACPI PM timer。它是固定频率计数器，可用于校准或作为 clocksource 候选。
-
-此时 Linux 只完成地址和平台能力登记，尚未进行完整 timekeeping/clocksource 选择。真正启用哪个时钟源要等 timer infrastructure 更后面初始化。
-
-``acpi_process_madt()`` 的完整 pass
----------------------------------
-
-下一步：
-
-.. code-block:: c
-
-   acpi_process_madt();
-
-MADT header 给出 Local APIC 基址和 PCAT compatibility。其 subtables 进一步描述：
-
-* Processor Local APIC；
-* Processor Local x2APIC；
-* IOAPIC；
-* Interrupt Source Override；
-* NMI Source；
-* Local APIC NMI；
-* Local APIC Address Override。
-
-第四十五章已经登记 processor entry；现在完整 pass 重点加入 interrupt-controller 和 route 信息。
-
-Local APIC 与 IOAPIC 负责不同层次
---------------------------------
-
-可以把两者分开理解：
+它先尝试Local SAPIC entries；普通q35没有时，先检查Local APIC records是否包含usable processor，
+再用一个combined processor array按MADT出现顺序同时扫描：
 
 .. code-block:: text
 
-   Local APIC
-   → 每个 CPU 自己的中断控制器
-   → 接收 vector、IPI、local timer、LINT/NMI
+   ACPI_MADT_TYPE_LOCAL_APIC
+   ACPI_MADT_TYPE_LOCAL_X2APIC
 
-   IOAPIC
-   → 芯片组/平台的外部中断路由器
-   → 把设备 GSI 送到目标 CPU 的 Local APIC vector
+handler验证record，忽略invalid APIC ID与不可online processor，把usable entry交给
+``topology_register_apic(apic_id, acpi_uid, enabled)``。disabled但online-capable的entry也可登记，
+以便CPU hotplug/possible mask只为firmware实际描述的capacity分配，而非机械使用全部 ``NR_CPUS``。
 
-AHCI、网络、USB 等设备产生的 legacy INTx/GSI，最终要经过 IOAPIC 路由到某个 CPU 的 Local APIC。
+fixed QEMU q35 MADT builder按 ``possible_cpu_arch_ids`` 写Local APIC或x2APIC processor records；具体
+CPU数、APIC ID宽度与disabled hotplug slots取决于未固定QEMU SMP/CPU CLI，所以本章不制造数字。
+但与045不同，成功路径到这里确实第一次拥有firmware processor registry。
 
-MADT 的 IOAPIC entry 建立什么
-----------------------------
+Local APIC NMI与processor enumeration同一helper完成
+----------------------------------------------------
 
-每个 IOAPIC entry 提供：
+至少有一个Local APIC/x2APIC processor entry后，源码继续解析Local x2APIC NMI与Local APIC NMI
+records，验证LINT通常连接到1。它登记firmware NMI wiring facts，但尚未安装每CPU NMI runtime
+state或启动AP。
 
-* IOAPIC hardware ID；
-* MMIO physical address；
-* ``GSI base``。
+若processor entry parse成功， ``acpi_lapic=1``；若MADT malformed返回 ``-EINVAL``，fixed error
+path会禁用ACPI。没有MADT时还有更特殊的边界：ACPI enabled却找不到APIC table会把先前
+``smp_found_config`` 清0，并提示必须用 ``acpi=off`` 才允许MPS接管，而不是无条件把两套firmware
+描述混合。
 
-Linux 通过注册路径建立内部 ``ioapics[]`` 数据，并读取硬件 version/register count，计算该 IOAPIC 管理的 GSI 范围。
+IOAPIC parse受ACPI IRQ、APIC feature与 ``noapic`` 三重guard
+----------------------------------------------------------
 
-在典型 q35 虚拟平台中，IOAPIC MMIO 通常位于 PC 兼容的高端固定区域；正文不把一个具体地址当成所有配置的必然值，实际值以 MADT entry 为准。
-
-Interrupt Source Override 为什么重要
------------------------------------
-
-传统 ISA IRQ 号与 IOAPIC GSI 不总是一一相同。MADT override 可以描述：
-
-.. code-block:: text
-
-   source IRQ
-   → target GSI
-   → polarity
-   → trigger mode
-
-典型例子是：
-
-* legacy IRQ0 timer 被改路由；
-* SCI 使用 level-triggered / active-low；
-* 某些 IRQ 不再落在同号 GSI。
-
-Linux 把这些 override 写入 ISA IRQ→GSI 映射和中断 route 数据。后续驱动请求 IRQ 时看到的是内核整理后的中断域，而不是盲目相信“IRQ n 就是 pin n”。
-
-NMI entry 为什么也在 MADT
-------------------------
-
-NMI 不走普通可屏蔽 IRQ 语义。MADT 可以描述：
-
-* 哪个 GSI 是 NMI source；
-* 某个或全部 processor 的 LINT0/LINT1 如何接 NMI；
-* polarity 和 trigger mode。
-
-这为 watchdog、平台错误和不可屏蔽事件建立基础。此时只登记拓扑，NMI handler 和完整 Local APIC 编程仍在后续阶段。
-
-HPET 表建立候选定时器
----------------------
-
-接着：
-
-.. code-block:: c
-
-   acpi_table_parse(ACPI_SIG_HPET, acpi_parse_hpet);
-
-HPET table 提供：
-
-* hardware ID；
-* MMIO address；
-* sequence number；
-* minimum tick；
-* page protection 属性。
-
-Linux 记录 HPET 物理地址和可用性。early quirk 可能已经因硬件缺陷禁用它，所以这里必须在 ``early_quirks()`` 之后。
-
-当前 q35 通常提供虚拟 HPET，但最终是否把它作为 clocksource/clockevent，还要看配置、命令行和后续校准结果。
-
-BGRT 和 SPCR 为什么也是条件路径
-------------------------------
-
-``CONFIG_ACPI_BGRT`` 启用时，Linux 可以读取 BGRT，记录固件启动图像的位置和状态。
-
-SPCR 描述固件选定的串口控制台，包括 UART 类型、地址、波特率和中断。Linux 可以据此建立 early console。
-
-固定主线已经显式使用：
+Local processor pass成功后， ``acpi_parse_madt_ioapic_entries`` 只有在以下条件全部满足时继续：
 
 .. code-block:: text
 
-   console=ttyS0
+   ACPI enabled and acpi_noirq false
+   boot CPU has APIC feature
+   ioapic_is_disabled false
 
-所以控制台目标来自命令行；SPCR 是否存在并不是主线必需条件。
+它先解析 ``ACPI_MADT_TYPE_IO_APIC``，由每条record登记IOAPIC ID、physical MMIO base与GSI base；没有
+entry或parse error时返回失败。fixed QEMU q35 MADT builder提供至少一个PC IOAPIC entry，ordinary
+successful path继续。
 
-为什么 ACPI 会替换 PCI 初始化钩子
-------------------------------
+source override、SCI、legacy identity与NMI source顺序不能颠倒
+----------------------------------------------------------
 
-若 ACPI IRQ 没有被禁用：
+IOAPIC存在后，源码按顺序：
 
-.. code-block:: c
+#. 解析 ``INTERRUPT_OVERRIDE``，把legacy source IRQ改到指定GSI，并记录polarity/trigger；
+#. 若FADT SCI尚无override且不是hardware-reduced ACPI，用FADT ``sci_interrupt`` 合成SCI setup；
+#. 为未被override占用的legacy IRQ补identity route；
+#. 解析MADT ``NMI_SOURCE`` entries。
 
-   x86_init.pci.init = pci_acpi_init;
+这些步骤建立的是early ``mp_irqs``/GSI route model。成功后 ``acpi_set_irq_model_ioapic`` 选择
+``ACPI_IRQ_MODEL_IOAPIC``、安装GSI register/unregister callbacks并设置 ``acpi_ioapic=1``；随后
+``smp_found_config=1``。可选 ``CONFIG_ACPI_MADT_WAKEUP`` 还解析一个multiprocessor wakeup mailbox。
 
-这并没有立即枚举 PCI 设备。它只是选择以后 PCI subsystem 初始化时使用 ACPI-aware 路径，以便处理：
+外部interrupt仍未enable：没有为设备分配runtime vector、写最终redirection affinity或打开CPU
+IF。这里是configuration discovery，不是IRQ delivery开始。
 
-* root bridge；
-* PCI IRQ routing；
-* ACPI host bridge resources；
-* _OSC 等平台协商。
-
-SeaBIOS 已经配置过 PCI BAR，不代表 Linux 可以跳过自己的 PCI enumeration。固件配置是启动初值，Linux 后续仍要建立设备模型和资源所有权。
-
-MP table parser 怎样与 ACPI 共存
--------------------------------
-
-``acpi_boot_init()`` 返回后：
-
-.. code-block:: c
-
-   x86_init.mpparse.parse_smp_cfg();
-
-默认 MP parser 会检查 ``smp_found_config``、ACPI 成功状态和已有 topology，避免重复注册同一套有效配置。
-
-其角色是：
-
-.. code-block:: text
-
-   ACPI 有效且完整
-   → 保留 ACPI 结果
-
-   ACPI 禁用/损坏/缺项
-   → 使用 MP table 补足或回退
-
-固定 q35 主线继续采用 ACPI 的 MADT/IOAPIC 数据。
-
-``init_apic_mappings()`` 为什么叫“最后机会”
-----------------------------------------
-
-源码注释：
-
-.. code-block:: c
-
-   /* Last opportunity to detect and map the local APIC */
-   init_apic_mappings();
-
-若 x2APIC 已启用，Local APIC 通过 MSR 接口访问，不需要 MMIO fixmap，函数直接返回。
-
-若不是 x2APIC，并且 ACPI/MP parser 已经找到 SMP configuration，Local APIC 地址应当已被登记并映射。
-
-只有在：
-
-.. code-block:: c
-
-   !smp_found_config
-
-时，函数才主动检测默认 Local APIC：
-
-#. 检查 ``nolapic`` / APIC disabled；
-#. 根据 CPU vendor/family/features 判断 Local APIC 能力；
-#. 检查 ``MSR_IA32_APICBASE``；
-#. 必要时在用户指定 ``lapic`` 的情况下尝试重新启用；
-#. 验证默认 APIC physical base。
-
-失败时 Linux 调用 ``apic_disable()``，退化到单处理器/PIC 路径。
-
-当前 q35 + MADT 主线已有有效 APIC 配置，因此这一步主要确认现有结果，不走无固件配置的最后补救分支。
-
-Local APIC MMIO 怎样进入 fixmap
------------------------------
-
-非 x2APIC 模式下，``register_lapic_address()`` 把 MADT 给出的物理地址保存到：
-
-.. code-block:: c
-
-   mp_lapic_addr
-
-然后：
-
-.. code-block:: c
-
-   set_fixmap_nocache(FIX_APIC_BASE, mp_lapic_addr);
-
-得到固定虚拟地址 ``APIC_BASE``。页属性必须是 uncached/device-like，不能让普通 CPU cache 缓存 APIC 寄存器访问。
-
-``topology_init_possible_cpus()`` 最终决定什么
--------------------------------------------
-
-到这里，firmware parser 已经登记所有接受的 APIC ID。现在 Linux 把临时统计转为最终 possible CPU 空间：
-
-.. code-block:: c
-
-   topology_init_possible_cpus();
-
-它综合：
-
-* 已登记并分配 logical ID 的 CPU；
-* 固件描述但当前 disabled 的 CPU；
-* ``nr_cpu_ids`` 命令行/编译上限；
-* 是否找到 SMP config；
-* Local APIC 是否禁用；
-* package/die/core/thread topology bitmap。
-
-若根本没有登记 boot APIC，它会伪造 APIC ID 0 的 boot CPU topology，使通用查询接口仍可工作。
-
-为什么 disabled CPU 也可能属于 possible
+HPET、BGRT、PCI hook与SPCR保持独立条件
 --------------------------------------
 
-possible CPU 表示内核为其保留 logical CPU 编号和相关数据结构的 CPU。它可能：
+MADT后 ``acpi_boot_init`` 还依次：
 
-* 当前 present 且稍后会启动；
-* firmware 描述为 disabled/online-capable，可供 CPU hotplug；
-* 永远不会在本次运行出现，但受 ``possible_cpus=`` 预留。
+* 按 ``CONFIG_HPET_TIMER`` 等条件解析HPET table，记录MMIO resource/capability；047 quirk可先禁用
+  不可靠platform；
+* 仅在 ``CONFIG_ACPI_BGRT`` 且没有 ``bgrt_disable`` 时解析BGRT boot graphic；
+* ``acpi_noirq==false`` 时把未来PCI init hook改为 ``pci_acpi_init``；这只选择later path，不枚举PCI；
+* 调用 ``acpi_parse_spcr(earlycon_acpi_spcr_enable,acpi_spcr_add)``，在build/table/option支持时处理
+  firmware UART并可设置early/preferred console。
 
-``topology_init_possible_cpus()`` 会计算：
+fixed command line已有 ``console=ttyS0``，但没有 ``earlycon`` 或 ``acpi=spcr``；这不等于SeaBIOS必须
+有SPCR，也不把SPCR call写成必然新增console。BGRT在BIOS q35也保持table-present条件。
 
-* ``total_cpus``；
-* 最终 ``nr_cpu_ids``；
-* logical packages；
-* nodes per package；
-* dies per package；
-* threads per core；
-* cores/threads per package。
+full MP parser只补ACPI没有覆盖的部分
+------------------------------------
 
-这些是“可枚举拓扑上限”，不等于所有 CPU 已在线。
+``acpi_boot_init`` 返回后，ordinary PC调用 ``mpparse_parse_smp_config``。它先要求早先确实找到
+``smp_found_config`` 与 ``mpf_found``；若ACPI已经同时得到LAPIC和IOAPIC，立即返回，fixed normal q35
+不会重复登记一套MPS topology。
 
-``init_cpu_to_node()`` 把 CPU 拓扑接回 NUMA
-----------------------------------------
+若ACPI只有LAPIC而IOAPIC失败，full MP parser可验证并遍历MP configuration blocks，但遇
+``MP_PROCESSOR`` 时因 ``acpi_lapic`` 已真而跳过processor registration，只补bus/IOAPIC/interrupt
+data。若ACPI完全禁用且MPS有效，则MPS可登记processor与I/O configuration。MPS不支持
+Hyper-Threading的完整logical描述，所以它不是与MADT等价的双写来源。
 
-第四十五章已经从 SRAT 建立 APIC ID→node 映射。现在 logical CPU ID 已经确定，Linux 可以执行：
+Local APIC MMIO fixmap通常已在045建立
+--------------------------------------
 
-.. code-block:: c
+``init_apic_mappings`` 的名字容易让人把Local APIC mapping错误推迟到048。实际
+``register_lapic_address`` 在045 early MADT成功时已经调用 ``apic_set_fixmap``：非x2APIC把
+``mp_lapic_addr`` 映射到uncached ``FIX_APIC_BASE`` 并读取boot CPU APIC ID；x2APIC使用MSR interface
+不需要MMIO fixmap。
 
-   init_cpu_to_node();
+本次“last opportunity”函数先验证TSC deadline timer。x2APIC mode随后返回；若尚无
+``smp_found_config``，才按vendor/family/APIC feature、 ``nolapic/lapic`` policy与default APIC base
+做最后detect，失败则 ``apic_disable``。它不是在successful q35路径重新映射一次MADT LAPIC。
 
-对每个 possible CPU：
+``topology_init_possible_cpus`` 把temporary registry冻结成masks
+-------------------------------------------------------------
 
-#. 查它的 APIC ID；
-#. 从 ``__apicid_to_node[]`` 取得 NUMA node；
-#. 必要时把 memoryless CPU node 标记 online；
-#. 填写 early ``cpu_to_node`` 映射。
+full ACPI/MP parser已把enabled/disabled APIC identities放入 ``topo_info`` 与bitmaps。函数若连boot
+APIC都没有，先注册一个synthetic APIC ID 0，只保证通用topology query结构可用，不会重新启用被
+禁用的APIC。
 
-这一步把：
+若有SMP config且APIC有效，它以 ``assigned+disabled`` 与047已经收紧的 ``nr_cpu_ids`` 取allowed；
+否则ordinary非Xen PV限制为UP。随后更新assigned/disabled counts、 ``total_cpus`` 与最终
+``nr_cpu_ids``，计算package/node/die/core/thread capacity。
 
-.. code-block:: text
+最后它先把present/possible masks重置到CPU0，再给可接受的disabled APIC identities分配logical
+IDs；遍历 ``[0,allowed)`` 时逐一设置possible，只有APIC ID位于 ``phys_cpu_present_map`` 才设置
+present。此时possible CPU可能尚未present，present CPU也尚未online；仍只有CPU0 online/active。
 
-   logical CPU number
-   ↔ APIC ID
-   ↔ NUMA node
+``init_cpu_to_node`` 现在才把logical CPU接到SRAT affinity
+---------------------------------------------------------
 
-三者连接起来。
+045已经可以从SRAT保存 ``APIC ID→node``，但当时logical CPU registry尚未完成。现在
+``init_cpu_to_node`` 遍历possible CPUs，用early ``x86_cpu_to_apicid`` 查
+``__apicid_to_node``；有有效nid时先确保CPU-only/memoryless node online，再写early
+``x86_cpu_to_node_map``。
 
-``init_gi_nodes()`` 处理没有 CPU/内存的发起者
-------------------------------------------
+dummy/fake NUMA场景没有准确APIC affinity时，045的 ``numa_init_array`` round-robin fallback继续
+保留，不在这里伪造SRAT。 ``init_gi_nodes`` 随后把只有Generic Initiator、没有CPU/RAM而尚未online
+的nodes标online，使later zonelist/node-data阶段不丢其affinity identity。fixed ordinary q35是否
+有SRAT/GI nodes仍取决于QEMU NUMA CLI。
 
-ACPI SRAT 还可以描述 Generic Initiator，例如某些 accelerator 或设备 initiator。一个 node 可能没有 CPU、没有普通 RAM，却有距离/亲和性意义。
+IOAPIC resources先分配描述，再建立uncached fixmaps
+---------------------------------------------------
 
-``init_gi_nodes()`` 把这类 node 临时标记 online，使后续 node data 和 zonelist 建立前不会丢失它们。
+``io_apic_init_mappings`` 先按 ``nr_ioapics`` 用memblock分配一组 ``struct resource`` 与名称
+``IOAPIC n``，标 ``IORESOURCE_MEM|IORESOURCE_BUSY``。这里仅准备resource objects；ordinary
+``x86_init.resources.reserve_resources`` 在049只登记standard I/O ports，IOAPIC resources要到later
+``pcibios_resource_survey()`` 调用 ``ioapic_insert_resources`` 才进入 ``iomem_resource`` tree，不能
+提前记成已发布。
 
-固定普通 q35 配置通常没有 Generic Initiator node，此函数成为条件空路径。
+每个已登记IOAPIC在 ``smp_found_config`` 路径取firmware physical address，映射到从
+``FIX_IO_APIC_BASE_0`` 起的连续fixmap slots，normal protection是nocache。encrypted guest还通过
+``is_private_mmio`` 决定encrypted/decrypted pgprot。若没有IOAPIC，resource setup返回NULL且loop
+为空；若已有 ``nr_ioapics`` 却没有 ``smp_found_config``，fallback会为每项从memblock分配fake
+PAGE_SIZE physical page，而不是使用firmware MMIO address。
 
-``io_apic_init_mappings()`` 怎样映射 IOAPIC
------------------------------------------
+mapping只令kernel可访问IOAPIC registers，尚未完成runtime IRQ domain/vector allocation、最终
+redirection table programming或unmask device pins。
 
-随后：
+guest late hook取决于实际hypervisor detection
+----------------------------------------------
 
-.. code-block:: c
+最后 ``x86_init.hyper.guest_late_init`` 在native table中是 ``x86_init_noop``；KVM、Hyper-V、Xen等
+early detection可以替换它。fixed QEMU accelerator没有指定，故不能把QEMU等同于KVM，也不能断言
+hook必为空；它在topology/NUMA/APIC identity完成后做相应guest late setup。
 
-   io_apic_init_mappings();
-
-函数先为每个已登记 IOAPIC 分配一个 ``struct resource``，名称类似：
-
-.. code-block:: text
-
-   IOAPIC 0
-   IOAPIC 1
-
-然后从 MADT/MP data 取得每个 IOAPIC physical address，把它映射到连续 fixmap 槽位：
-
-.. code-block:: text
-
-   FIX_IO_APIC_BASE_0 + index
-
-映射属性是 ``FIXMAP_PAGE_NOCACHE``。在内存加密 guest 中，还会根据该 MMIO 是 private 还是 shared 调整 encryption pgprot。
-
-为什么这里只映射，尚未编程 redirection table
-------------------------------------------
-
-本阶段的目标是让内核能够访问 IOAPIC register window，并保存其物理资源。
-
-真正的：
-
-* mask/unmask pin；
-* 建立 IRQ domain；
-* 分配 vector；
-* 写 redirection table；
-* 选择目标 CPU；
-* 启用设备中断；
-
-会在 IRQ/APIC 初始化更后面发生。
-
-所以“IOAPIC 已映射”不等于“外部设备中断已经打开”。当前 CPU 的全局 interrupt flag 仍关闭。
-
-``guest_late_init()`` 是最后的平台插槽
--------------------------------------
-
-本章最后执行：
-
-.. code-block:: c
-
-   x86_init.hyper.guest_late_init();
-
-普通 native 默认实现是空函数。某些 hypervisor guest 可以在 CPU/APIC/NUMA 拓扑已完成后执行最后修正。
-
-QEMU 是否由 KVM、TCG 或其他 accelerator 驱动没有在固定主线中限定，因此正文不假定某个 hypervisor-specific late hook 一定运行。
-
-本章结束时建立了什么
---------------------
-
-本章完成了从固件描述到 Linux 内部启动拓扑的转换：
-
-.. code-block:: text
-
-   FADT
-   → SCI / PM timer 基础
-
-   MADT
-   → Local APIC / IOAPIC / GSI override / NMI
-
-   firmware CPU entries
-   → logical possible CPU IDs
-   → package/die/core/thread topology
-   → CPU-to-NUMA node
-
-   IOAPIC physical windows
-   → fixed uncached kernel virtual mappings
-
-当前机器状态
+本章结束状态
 ------------
 
-本章结束时：
+* current executor：CPU0上的 ``setup_arch``，下一条是 ``e820__reserve_resources()``；
+* CPU/mode：BSP/logical CPU0，x86-64 long mode，IF=0，无schedule/AP bring-up；
+* ACPI FADT：enabled路径已应用legacy/i8042/RTC/VGA/PM-timer facts；
+* MADT processor registry：成功路径已首次枚举Local APIC/x2APIC usable entries；
+* ACPI IOAPIC model：normal q35路径已登记IOAPIC/GSI overrides/SCI/legacy/NMI routes；
+* HPET/BGRT/SPCR：按build、table与effective options解析或no-op；
+* future PCI hook： ``acpi_noirq==false`` 时选择 ``pci_acpi_init``；尚未枚举PCI；
+* MP table：ACPI LAPIC+IOAPIC成功时skip；partial/disabled ACPI时按实际fallback补足；
+* Local APIC：normal path已从045持有address/fixmap或x2APIC MSR mode；last-opportunity check完成；
+* final ``nr_cpu_ids``：按firmware registry与047 capacity得出，具体值未固定；
+* CPU masks：allowed logical IDs已possible，actual firmware-present IDs已present；仅CPU0 online/active；
+* CPU-to-node：有效SRAT affinity已接到logical IDs；fallback mapping保留；
+* Generic Initiator nodes：存在时已online；
+* IOAPIC：resource objects已准备、MMIO fixmaps已建；resources尚未插入tree；
+* device IRQ：未分配最终vector/unmask，CPU IF仍为0；
+* guest late hook：按actual detected environment执行或no-op。
 
-* 当前执行者：Linux 6.12.95 ``arch/x86/kernel/setup.c:setup_arch()``；
-* CPU：BSP / Linux CPU 0；
-* interrupts：全局关闭；
-* ACPI FADT：SCI 和 PM timer 等启动信息已解析；
-* MADT：processor、Local APIC、IOAPIC、GSI override 与 NMI 信息已处理；
-* HPET/SPCR/BGRT：已完成条件解析；
-* PCI 初始化钩子：正常 ACPI 路径已选择 ``pci_acpi_init``；
-* MP table：已完成 fallback 检查；
-* Local APIC：已确认，非 x2APIC 模式下已有 fixmap；
-* possible CPU 数量与拓扑：已最终确定；
-* CPU-to-node：已建立；
-* IOAPIC：MMIO 已映射，redirection table 尚未正式启用；
-* AP：尚未唤醒；
-* 普通设备 IRQ：尚未开放；
-* ``setup_arch()``：尚未返回。
+关键边界
+--------
 
-下一条控制流从：
+#. 045只登记LAPIC address；048 full MADT才首次枚举processor records。
+#. FADT x86 handler落实legacy flags与PM timer；SCI route在MADT IOAPIC阶段使用canonical FADT字段。
+#. ACPI enabled但没有MADT会清MPS discovery；只有明确 ``acpi=off`` 才走纯MPS takeover语义。
+#. full MADT processor、IOAPIC、source override、SCI fallback与NMI是有序的不同passes。
+#. 设置 ``acpi_ioapic/smp_found_config`` 表示configuration有效，不表示device interrupts已打开。
+#. full MP parser在ACPI LAPIC+IOAPIC齐全时skip；ACPI LAPIC-only时不会重复登记processors。
+#. Local APIC non-x2APIC fixmap通常在045 ``register_lapic_address`` 时已建立，不由048重建。
+#. possible、present、online与active masks在topology finalize后仍不能互换。
+#. disabled firmware CPU可获得possible logical ID，但不因此present/online。
+#. SRAT APIC affinity在045保存，直到possible logical IDs确定后才由 ``init_cpu_to_node`` 接回。
+#. IOAPIC resource object、fixmap mapping、later PCI-survey resource-tree insertion与runtime IRQ
+   programming是四个边界；049的standard-I/O reservation不插入IOAPIC资源。
+#. QEMU不自动等于KVM；guest late hook按actual hypervisor detection决定。
+
+下一入口
+--------
+
+第049章从：
 
 .. code-block:: c
 
    e820__reserve_resources();
 
-开始，把 E820、IOAPIC、内核和标准 PC I/O 范围注册进 resource tree，然后完成 wall clock、thermal LVT、machine check 和 unwind 初始化，最终离开 ``setup_arch()``。
+开始。进入前E820/memblock/direct-map identities已经存在，CPU/APIC topology也已finalize；但E820与
+IOAPIC resources尚未完成本阶段的resource-tree发布， ``setup_arch`` 仍未返回。
 
 资料
 ----
 
-* `Linux 6.12.95 setup.c：完整 ACPI、APIC、topology 与 IOAPIC 调用顺序 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/setup.c>`_
-* `Linux 6.12.95 ACPI boot.c：acpi_boot_init、FADT、MADT、HPET 与 PCI hook <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/acpi/boot.c>`_
-* `Linux 6.12.95 APIC apic.c：Local APIC 探测、fixmap 与 init_apic_mappings <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/apic/apic.c>`_
-* `Linux 6.12.95 topology.c：possible CPU 与 package/die/core/thread 统计 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/cpu/topology.c>`_
-* `Linux 6.12.95 numa.c：init_cpu_to_node 与 Generic Initiator node <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/mm/numa.c>`_
-* `Linux 6.12.95 io_apic.c：IOAPIC resource、fixmap 与 GSI 范围 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/apic/io_apic.c>`_
-* `ACPI 6.5：FADT、MADT、HPET 与 SPCR <https://uefi.org/specs/ACPI/6.5/>`_
-* `Intel MultiProcessor Specification 1.4 <https://www.intel.com/content/dam/support/us/en/documents/motherboards/desktop/sb/multiprocessorspec.pdf>`_
+* `Linux 7.2-rc1固定提交：full ACPI到guest-late调用顺序 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/setup.c#L1225-L1244>`_；
+* `Linux 7.2-rc1固定提交：acpi_boot_init的BOOT/FADT/MADT/HPET/BGRT/PCI/SPCR顺序 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/acpi/boot.c#L1643-L1676>`_；
+* `Linux 7.2-rc1固定提交：full MADT processor与IOAPIC passes <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/acpi/boot.c#L1030-L1344>`_；
+* `QEMU固定提交：q35 MADT processor、IOAPIC与source-override生成 <https://gitlab.com/qemu-project/qemu/-/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/acpi-common.c#L35-L145>`_；
+* `Linux 7.2-rc1固定提交：MP full parser与ACPI complement guards <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/mpparse.c#L477-L550>`_；
+* `Linux 7.2-rc1固定提交：Local APIC last-opportunity detection与early fixmap <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/apic/apic.c#L2010-L2102>`_；
+* `Linux 7.2-rc1固定提交：possible/present CPU topology finalize <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/cpu/topology.c#L435-L552>`_；
+* `Linux 7.2-rc1固定提交：logical CPU接回NUMA与Generic Initiator nodes <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/mm/numa.c#L254-L325>`_；
+* `Linux 7.2-rc1固定提交：IOAPIC resource allocation与fixmap <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/apic/io_apic.c#L2494-L2585>`_。
