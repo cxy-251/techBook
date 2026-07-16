@@ -1,357 +1,421 @@
-第三十一章：GRUB linux 命令怎样检查并装载 Linux bzImage？
-================================================================
+第三十一章：GRUB linux命令怎样验证并装入固定bzImage？
+=======================================================
 
-上一章结束时，``linux.mod`` 已完成 ELF 重定位和初始化，dynamic placeholder 已被真实 ``linux`` 命令
-替换。dispatcher 正要调用：
-
-.. code-block:: c
-
-   grub_cmd_linux(cmd, argc, args);
-
-当前参数是：
+第030章停在dynamic command已经被替换后的精确边界。CPU0上的BSP仍在GNU GRUB 2.14
+32位flat保护模式中，paging关闭、A20开启、IF=0、DF=0；``linux.mod`` 已完成重定位和
+初始化，``grub_dyncmd_dispatcher`` 已经重新找到真正的command对象，下一调用是：
 
 ::
 
-   /boot/bzImage-6.12.95
-   root=/dev/sda1
-   ro
-   console=ttyS0
+   grub_cmd_linux(cmd, 4, args)
 
-本章处理的是 ``grub-core/loader/i386/linux.c`` 中的现代 ``linux`` 命令。它使用 Linux/x86 的 32 位
-boot protocol 装载入口，适用于本书固定的 x86-64 Linux 6.12.95 ``bzImage``。旧的 ``linux16`` 路径
-不参与当前流程。
+   args[0] = /boot/bzImage
+   args[1] = root=/dev/sda1
+   args[2] = ro
+   args[3] = console=ttyS0
 
-没有设备前缀的路径仍然落到 hd0,msdos1
----------------------------------------
+``/boot/bzImage`` 是本书镜像约定中的Linux 7.2-rc1构建结果，对应
+gregkh/linux commit ``7404ce51637231382873d0b55edabc2f3b841a9d``。本章沿
+``grub-core/loader/i386/linux.c:grub_cmd_linux`` 的成功路径前进，停在kernel file已经
+关闭、loader hook已经登记、脚本即将执行下一条 ``initrd`` 命令的位置。
 
-``grub_cmd_linux()`` 首先增加 ``linux.mod`` 的引用计数，防止 loader 已建立后模块被卸载。随后打开：
+本章固定哪些值、保留哪些运行时量
+--------------------------------
+
+固定Linux源码无条件写入setup header的值包括：
+
+::
+
+   boot_flag       = 0xaa55
+   header          = "HdrS"
+   version         = 0x020f
+   loadflags       contains LOADED_HIGH
+   code32_start    = 0x00100000
+   initrd_addr_max = 0x7fffffff
+   cmdline_size    = 2047
+
+另一些字段不能只凭commit写成数字：
+
+* ``setup_sects`` 由最终setup输出大小决定；
+* ``kernel_alignment`` 来自 ``CONFIG_PHYSICAL_ALIGN``；
+* ``relocatable_kernel`` 来自 ``CONFIG_RELOCATABLE``；
+* ``pref_address`` 由 ``CONFIG_PHYSICAL_START`` 与alignment共同决定；
+* ``init_size`` 由最终compressed image、解压安全余量和vmlinux大小共同决定；
+* 文件总长度、protected payload长度和最终relocator地址来自实际artifact与运行时memory map。
+
+后文用符号保存这些真实关系：
+
+::
+
+   S = setup_sects的有效值；header为0时按4
+   F = /boot/bzImage的实际文件长度
+   P = F - 512 - S * 512
+   I = header.init_size
+   K = prot_mode_target
+
+``P`` 是实际读入的protected-mode文件字节数，``I`` 是Linux初始化阶段要求的连续空间；
+两者不是同一个量。当前成功叙事只要求artifact合法且地址分配成功，不制造缺失的构建数字。
+
+模块引用先于文件打开
+--------------------
+
+``grub_cmd_linux`` 一进入就执行：
 
 .. code-block:: c
 
-   grub_file_open("/boot/bzImage-6.12.95",
-                  GRUB_FILE_TYPE_LINUX_KERNEL);
+   grub_dl_ref(my_mod);
 
-路径没有写成 ``(hd0,msdos1)/boot/...``。``grub_file_open()`` 因此没有解析出显式 device name，
-``grub_device_open(NULL)`` 会读取 environment 中的：
+第030章的dynamic dispatcher已经为 ``linux.mod`` 留下一份autoload引用；这里再增加一份，
+让已经登记的Linux loader在以后被执行或卸载以前继续持有模块代码及其dependency closure。
+成功返回时这份新引用不会在函数尾部释放。
+
+随后：
+
+.. code-block:: c
+
+   grub_file_open("/boot/bzImage", GRUB_FILE_TYPE_LINUX_KERNEL);
+
+路径没有显式device，``grub_device_open(NULL)`` 使用当前：
 
 ::
 
    root = hd0,msdos1
 
-最终仍是：
+于是文件读取仍沿：
 
 ::
 
-   hd0 → BIOS drive 0x80
-   msdos1 → physical LBA 2048
-   ext2 module → fixed ext4 filesystem
-   /boot/bzImage-6.12.95
+   ext2 driver读取固定ext4
+   → msdos1，whole-disk start LBA 2048
+   → biosdisk hd0 / BIOS drive 0x80
+   → SeaBIOS INT 13h extensions
+   → q35 ICH9 AHCI SATA port 0
 
-文件内容继续经 ``biosdisk → INT 13h AH=42h → SeaBIOS AHCI`` 进入 GRUB 的文件缓冲区。
+具体inode、extent、文件data LBA与cache命中次数由磁盘artifact决定，本章不把它们写成源码
+常量。打开期间file拥有device/fs data；关闭后这些对象可以释放，GRUB全局disk cache仍可保留
+已经读过的block。
 
-GRUB 先读取一份能覆盖 setup header 的结构
--------------------------------------------
+GRUB只先读固定大小的头部结构
+----------------------------
 
-``grub_cmd_linux()`` 不会一开始把整个内核文件读进内存。它先读取：
+文件打开后，GRUB从offset 0读取：
 
 .. code-block:: c
 
    struct linux_i386_kernel_header lh;
 
-这个 packed 结构从文件偏移 0 开始，内部用 padding 跨过早期 boot code，直到 ``0x1f1`` 后的
-``setup_sects``、``boot_flag``、``HdrS``、protocol version、``loadflags``、``code32_start``、
-``kernel_alignment``、``relocatable_kernel``、``pref_address`` 和 ``init_size`` 等字段。
+这个packed结构跨过legacy boot code，覆盖从 ``setup_sects`` 到现代setup header的关键字段。
+此时GRUB是在解析bzImage容器，不执行boot sector或16位setup code。
 
-这一步的目的不是执行 boot sector，而是把 ``bzImage`` 当作一种有明确 header contract 的容器读取。
+校验顺序首先是：
 
-第一道检查：0xAA55
-------------------
+#. ``boot_flag == 0xaa55``，否则报 ``invalid magic number``；
+#. ``setup_sects <= 64``，否则报setup sector过多；
+#. offset ``0x202`` 为 ``HdrS`` 且protocol至少 ``0x0203``；
+#. ``loadflags`` 含 ``BIG_KERNEL/LOADED_HIGH``，否则当前PC BIOS路径提示尝试
+   ``linux16``。
 
-GRUB 首先要求：
+固定7.2-rc1源码生成 ``0x020f`` 协议头并设置 ``LOADED_HIGH``，所以成功路径通过四道
+检查。``linux16``、zImage和16位setup执行路径均不发生。
 
-::
-
-   boot_flag at offset 0x1fe = 0xaa55
-
-Linux 6.12.95 的 ``arch/x86/boot/header.S`` 在该位置生成 ``0xAA55``。这个字段源自传统可启动扇区格式，
-在现代 ``bzImage`` 中仍被 Linux/x86 Boot Protocol 保留。
-
-检查失败时，GRUB 报 ``invalid magic number``，不会继续把任意文件解释成内核镜像。
-
-第二道检查：HdrS 与 protocol 版本
---------------------------------
-
-现代 setup header 在偏移 ``0x202`` 写入 ASCII：
-
-::
-
-   HdrS
-
-按小端整数读取就是：
-
-::
-
-   0x53726448
-
-当前 GRUB ``linux`` 命令还要求 protocol version 至少为 ``0x0203``，因为这条 loader 路径使用 32 位
-boot protocol。Linux 6.12.95 的 ``header.S`` 写入：
-
-::
-
-   version = 0x020f
-
-因此它包含 GRUB 后续会使用的 command-line size、relocatable kernel、minimum alignment、
-``pref_address`` 和 ``init_size`` 等字段。
-
-第三道检查：必须是 big kernel
------------------------------
-
-GRUB 检查 ``loadflags`` 中的 ``BIG_KERNEL``，Linux 源码中的名字是 ``LOADED_HIGH``。固定
-``bzImage`` 设置该位，表示 protected-mode kernel 不走传统 zImage 的低地址布局。
-
-若该位没有设置，现代 ``linux`` 命令会拒绝文件，并提示 i386-pc 用户尝试 ``linux16``。固定路径不进入
-这个分支。
-
-setup_sects 怎样决定 payload 起点
----------------------------------
-
-``setup_sects`` 表示 boot sector 之后还有多少个 512 字节 setup sector。若该字段为 0，协议规定按 4 处理。
-Linux 6.12.95 在构建时写入实际 setup 大小。
-
-GRUB 计算：
-
-::
-
-   real_size     = setup_sects × 512
-   payload_start = 512 + real_size
-   prot_file_size = total_file_size - payload_start
-
-这里的第一个 512 字节是 legacy boot sector，``real_size`` 是其后的 setup code。``payload_start`` 才是
-protected-mode kernel 部分在文件中的起点。
-
-文件里的 payload 与运行时所需空间不是一回事
---------------------------------------------
-
-``prot_file_size`` 只是磁盘文件中 protected-mode 部分的字节数。Linux 6.12.95 setup header 还给出：
-
-::
-
-   init_size
-
-它表示 kernel 初始化阶段需要的线性内存空间。该空间通常大于文件中的压缩 payload，因为 Linux 自带的
-解压器以后要在目标区域展开真正的内核，并需要覆盖解压过程的额外安全边界。
-
-对于 protocol ``0x020a`` 及以上，GRUB 使用 ``init_size`` 作为 relocator chunk 的容量，并将它按页对齐
-记录为 ``prot_init_space``。GRUB 此时只会把 ``prot_file_size`` 字节从磁盘写入 chunk 前部，余下空间留给
-Linux 自己的启动和解压代码。
-
-GRUB 不在这里解压 bzImage
--------------------------
-
-名称 ``bzImage`` 容易产生误解：GRUB 不是读取一个普通压缩包后替 Linux 解压。它装入的是 Linux 构建系统
-生成的整体启动镜像，其中 protected-mode payload 自己包含入口代码和解压器。
-
-本章结束时，内存中仍是 Linux 的压缩启动 payload。真正的解压发生在控制权交给 Linux 之后。
-
-选址必须服从 kernel_alignment
+命令行容量为什么恰好是2048字节
 ------------------------------
 
-Linux/x86 protocol 2.05 引入：
+protocol不低于2.06时，GRUB读取：
+
+.. code-block:: c
+
+   maximal_cmdline_size = le32(lh.cmdline_size) + 1;
+
+固定x86源码把 ``COMMAND_LINE_SIZE - 1`` 写入header，而
+``COMMAND_LINE_SIZE=2048``，所以本次得到：
 
 ::
 
-   kernel_alignment
-   relocatable_kernel
+   maximal_cmdline_size = 2048
 
-固定 Linux 6.12.95 还提供：
+GRUB还会把异常的小值提高到128；当前不触发这个兼容分支。这里的2048来自固定源码中不依赖
+``.config`` 的x86 command-line常量，可以明确写出；它不同于最终command-line字符串的实际
+长度。
 
-::
+setup sector怎样划开文件
+------------------------
 
-   min_alignment
-   pref_address
-   init_size
-
-GRUB 先验证 ``kernel_alignment`` 是非零的 2 的幂，再把它转换成对齐阶数。若
-``relocatable_kernel`` 为 1，GRUB 优先尝试 header 中的 ``pref_address``；失败时可在 32 位可寻址范围内，
-按允许的 alignment 逐步寻找其他可用地址，但不会低于 ``min_alignment`` 的要求。
-
-因此不能仅凭“bzImage 传统加载到 1 MiB”断言本次最终 target 一定是 ``0x100000``。``code32_start`` 的
-传统值确实是 ``0x100000``，现代可重定位 x86-64 镜像的实际目标还受其构建配置写入的 ``pref_address``、
-``kernel_alignment``、``init_size`` 和当前内存占用共同决定。
-
-relocator chunk 同时记录当前地址与目标地址
-------------------------------------------
-
-``allocate_pages()`` 创建 GRUB relocator，并取得一个 chunk：
+GRUB取得header中的原始 ``setup_sects``。若为0，协议规定有效值为4；否则使用artifact给出的
+值 ``S``。接着计算：
 
 ::
 
-   prot_mode_mem     = GRUB 当前写入 payload 的地址
-   prot_mode_target  = 交给 Linux 前应该位于的物理目标地址
+   real_size      = S * 512
+   payload_offset = 512 + real_size
+   prot_file_size = F - payload_offset = P
 
-在 i386-pc 的分页关闭、平坦地址环境里，两者经常可以直接对应同一片物理内存；relocator 仍保留“当前位置”
-和“最终目标”的区分，因为它还要统一处理重叠搬移、不同平台和启动前状态转换。
+第一个512字节是legacy boot sector，随后 ``S`` 个sector是setup，protected-mode payload从
+``(S + 1) * 512`` 开始。固定成功条件保证文件完整，``P`` 足以覆盖后续读取；本章不根据源码树
+猜测 ``S``、``F`` 或 ``P``。
 
-GRUB 怎样建立 linux_params
---------------------------
+alignment判断先于relocator分配
+-----------------------------
 
-模块中有一份静态：
+protocol至少2.05、``kernel_alignment`` 非零且为2的幂时，GRUB把它转换成alignment阶数，并从
+header读取 ``relocatable_kernel``。否则它把镜像当作不可重定位，回到传统1 MiB目标。
+
+固定protocol又高于2.10，所以当前分支读取：
+
+::
+
+   min_align        = lh.min_alignment
+   prot_size        = I
+   prot_init_space  = PAGE_ALIGN(I)
+   preferred_address = lh.pref_address，若镜像可重定位
+
+对x86-64构建，``min_alignment`` 由 ``MIN_KERNEL_ALIGN_LG2=PMD_SHIFT`` 生成；但首选alignment、
+preferred address和是否可重定位仍由构建配置写入实际header。GRUB以读出的值为准。
+
+allocate_pages先撤销旧relocator
+------------------------------
+
+``allocate_pages`` 先把 ``prot_size`` 按4 KiB对齐，然后调用：
+
+.. code-block:: c
+
+   free_pages();
+   relocator = grub_relocator_new();
+
+本场景此前没有Linux loader，旧 ``relocator=NULL``，所以第一次 ``free_pages`` 没有chunk可撤销。
+随后分配protected chunk。
+
+若镜像可重定位，GRUB先尝试header给出的精确preferred address；若那里不可用，再从16 MiB到
+32位上限以内按header alignment搜索，并按实现允许的阶数逐步放宽但不越过
+minimum-alignment target边界。若镜像不可重定位，只能申请传统preferred address。成功后保存：
+
+::
+
+   prot_mode_mem    = chunk的current address
+   K                = chunk的physical target
+
+current address是GRUB现在写payload的位置，target是relocation trampoline完成后Linux真正执行的
+物理位置。接口允许两者不同；即使某次分配恰好相同，正文也不能抹掉这层所有权。
+
+init_size空间不等于已经读入init_size字节
+-----------------------------------------
+
+relocator chunk按 ``I`` 取得足够空间，是因为compressed startup、解压输出和搬移过程需要整个
+初始化窗口。GRUB稍后只从文件读取 ``P`` 字节：
+
+::
+
+   [prot_mode_mem, prot_mode_mem + P)       = bzImage protected payload
+   [prot_mode_mem + P, prot_mode_mem + I)   = 为Linux初始化保留的容量
+
+后一区间不是第二份kernel，也不能声称已经由GRUB解压或填零。bzImage内的Linux解压器在取得控制权
+之后才使用这片布局。
+
+linux_params先清零再复制有效header
+---------------------------------
+
+protected chunk分配成功后，GRUB清零模块内的静态：
 
 .. code-block:: c
 
    struct linux_kernel_params linux_params;
 
-它对应 Linux ``boot_params`` 的关键布局，setup header 位于偏移 ``0x1f1``。GRUB 先把整个对象清零，再按
-Linux header 中 jump 字段声明的 header 末尾，只复制镜像真正支持的 setup header 字节。
-
-随后 GRUB 改写 loader 负责的字段：
-
-* ``code32_start``：调整为本次 ``prot_mode_target`` 对应的实际 32 位入口；
-* ``kernel_alignment``：记录最终使用的对齐；
-* ``type_of_loader``：写入 GRUB 的 loader id；
-* ``boot_flag``：在参数副本中清零，因为它不再作为交接时的 boot-sector magic 使用；
-* ``heap_end_ptr`` 与 ``CAN_USE_HEAP``：允许 Linux setup 使用其低端 heap；
-* ``ramdisk_image``、``ramdisk_size``：暂时保持 0，等待下一条 ``initrd`` 命令填写。
-
-此时 ``linux_params`` 仍位于 GRUB 模块自己的内存中。它最终怎样与命令行、E820、EDD 等信息一起放入
-Linux 可接收的位置，属于后续 ``grub_linux_boot()`` 的工作。
-
-为什么 code32_start 要重新计算
-------------------------------
-
-镜像 header 中的 ``code32_start`` 以传统 ``GRUB_LINUX_BZIMAGE_ADDR`` 为基准描述入口。若 relocator 最终将
-payload 放到其他目标地址，GRUB 使用：
+setup header的有效末端不是用C结构大小猜测，而按boot protocol从jump第二字节计算：
 
 ::
 
-   adjusted_code32_start
-   = prot_mode_target
-   + original_code32_start
-   - 0x100000
+   header_end = 0x202 + byte_at_0x201
 
-这样保留入口在 payload 内的相对偏移，同时把它转换为本次实际物理目标中的入口地址。
+GRUB先确认这个末端没有越过 ``linux_params.edd_mbr_sig_buffer``，再把从offset ``0x1f1``
+开始的有效header复制到zeroed参数模板；若固定头部结构尚未覆盖全部有效header，就从当前file
+位置继续读取剩余字节。
 
-命令行不是原样拼接 argv
------------------------
+这个顺序保证：
 
-GRUB 依据 header 的 ``cmdline_size`` 分配命令行缓冲区，至少保留 128 字节。缓冲区先写入：
+* kernel声明的字段被保留；
+* 不存在的尾字段仍为0；
+* 恶意header不能借长度越界覆盖参数对象后部。
 
-::
+loader字段怎样覆盖kernel原值
+----------------------------
 
-   BOOT_IMAGE=
-
-然后由 ``grub_create_loader_cmdline()`` 处理 argv。固定配置最终形成近似：
-
-::
-
-   BOOT_IMAGE=/boot/bzImage-6.12.95 root=/dev/sda1 ro console=ttyS0
-
-这里还会经过 kernel-command-line verifier，而不是不加检查地复制字符串。参数中的 ``quiet``、``mem=``
-和旧式 ``vga=`` 还会影响 GRUB 自己保存的 loader 状态；当前固定参数只有 ``root``、``ro`` 和
-``console``，它们主要留给 Linux 解析。
-
-现在才读取 protected-mode payload
-----------------------------------
-
-header 处理完成后，GRUB 将文件 offset 移到：
-
-::
-
-   (setup_sects + 1) × 512
-
-然后执行：
+复制完成后，GRUB写回由bootloader负责的字段：
 
 .. code-block:: c
 
-   grub_file_read(file, prot_mode_mem, prot_file_size);
+   linux_params.hdr.code32_start =
+       K + lh.code32_start - 0x00100000;
+   linux_params.hdr.kernel_alignment = 1U << align;
+   linux_params.hdr.boot_flag = 0;
+   linux_params.hdr.type_of_loader = 0x72;
+   linux_params.hdr.ramdisk_image = 0;
+   linux_params.hdr.ramdisk_size = 0;
+   linux_params.hdr.heap_end_ptr = 0x8e00;
+   linux_params.hdr.loadflags |= CAN_USE_HEAP;
 
-这次读取可能跨越大量 ext4 extent 和磁盘扇区。数据路径仍是：
+固定Linux header原始 ``code32_start`` 正是 ``0x00100000``，所以本次关系可进一步化简为：
 
 ::
 
-   ext2 file mapping
-   → GRUB disk cache
-   → biosdisk bounce buffer
-   → SeaBIOS INT 13h
-   → q35 AHCI
-   → fixed boot disk
+   adjusted code32_start = K
 
-读完后，``prot_mode_mem`` 的前 ``prot_file_size`` 字节包含 Linux protected-mode payload；为
-``init_size`` 预留的其余部分尚未由 Linux 解压器使用。
+这个结论不要求把 ``K`` 猜成1 MiB。它只说明protected payload offset 0处的
+``startup_32`` 将在实际target起点执行。
 
-grub_loader_set 只登记未来的 boot 动作
---------------------------------------
+``boot_flag`` 在artifact校验时必须是 ``0xaa55``，但参数副本随后被GRUB清零；不要把“文件头
+通过magic检查”和“交接zero page中的字段值”写成同一个时刻。ramdisk字段仍为0，因为
+``initrd`` 尚未运行。
 
-读取无错误后，GRUB 执行：
+当前参数没有触发GRUB特殊分支
+----------------------------
+
+GRUB把file cursor移到 ``payload_offset``，随后扫描 ``args[1..3]``：
+
+* 没有 ``vga=``，不改 ``gfxpayload``；
+* 没有 ``mem=``，所以 ``linux_mem_size=0``；
+* 没有 ``quiet``，不额外设置loader quiet flag。
+
+然后它为command line分配zeroed buffer，先写 ``BOOT_IMAGE=``，再由
+``grub_create_loader_cmdline`` 逐个转义并拼接全部四个argv。当前参数不含空格、引号或反斜杠，
+结果精确为：
+
+::
+
+   BOOT_IMAGE=/boot/bzImage root=/dev/sda1 ro console=ttyS0
+
+该字符串还通过 ``GRUB_VERIFY_KERNEL_CMDLINE`` verifier链。``BOOT_IMAGE`` 部分不是用户
+command line里额外写的一项；它由GRUB loader主动加上。
+
+现在才读取protected payload
+---------------------------
+
+GRUB执行：
+
+.. code-block:: c
+
+   grub_file_read(file, prot_mode_mem, P);
+
+读取成功后，relocator protected chunk前 ``P`` 字节持有固定bzImage的protected-mode部分。
+这仍然是包含 ``startup_32``、compressed kernel和解压器的构建产物，不是已解压的vmlinux。
+
+文件读取可能多次进入ext4、biosdisk和SeaBIOS AHCI路径；实际I/O次数受extent与GRUB cache影响。
+本章只固定“全部 ``P`` 字节成功进入chunk”这一完成边界。
+
+grub_loader_set只发布未来动作
+-----------------------------
+
+``grub_errno`` 仍为0时：
 
 .. code-block:: c
 
    grub_loader_set(grub_linux_boot, grub_linux_unload, 0);
    loaded = 1;
 
-这一步把全局 loader hook 设置为 ``grub_linux_boot``，并登记失败或替换 loader 时的清理函数。它不会立即
-调用 ``grub_linux_boot``，也不会跳到 ``code32_start``。
+当前没有旧loader，``grub_loader_set_ex`` 不需要调用旧unload hook；它把simple boot/unload
+wrapper、context和flags发布到全局loader状态，再写入 ``grub_linux_boot`` 与
+``grub_linux_unload``。
 
-第三个参数为 0，使当前注册不带 ``NORETURN`` 标志；真正执行 ``boot`` 时仍由 Linux loader 自己完成最终
-机器状态整理和不可返回的控制权转移。
+flags为0的直接含义是以后 ``grub_machine_fini`` 不因 ``NORETURN`` 关闭console。这里既不执行
+``grub_linux_boot``，也不搬relocator chunk，更不进入Linux。
 
-内核文件随后可以关闭
---------------------
+``grub_linux_unload`` 这个名字也不能扩写成“释放全部Linux装载状态”。固定实现只撤销本次
+loader持有的module ref、清 ``loaded`` 并释放 ``linux_cmdline``；它没有调用
+``free_pages``。当前成功路径将直接handoff而不运行unload，但对象生命期说明必须以函数实际
+内容为准。
 
-payload 已经读入 relocator chunk，setup header 已复制到 ``linux_params``，命令行也有独立缓冲区，因此
-``grub_cmd_linux()`` 关闭 ``bzImage`` 文件。ext2 inode、文件对象与磁盘引用可以释放，已装载的内核数据不受
-影响。
+成功路径最后关闭kernel file
+----------------------------
 
-``linux.mod`` 的引用仍被 loader 持有。若后续 ``initrd`` 失败、另一个 loader 替换当前 loader，或启动流程
-返回错误，``grub_linux_unload()`` 才会释放对应状态。
+函数统一经过 ``fail:`` 标签关闭非NULL file；标签名不表示当前一定失败。成功路径因此也执行：
 
-为什么这里还不能隐式 boot
+.. code-block:: c
+
+   grub_file_close(file);
+
+file、ext4 per-open data、device和disk引用到此释放。payload、``linux_params``、command-line
+buffer和relocator不依赖已关闭file。``grub_cmd_linux`` 返回0，dynamic dispatcher再返回脚本
+执行器；菜单项还有下一条 ``initrd /boot/initramfs.img``，所以此刻不会隐式boot。
+
+失败回滚不能写成“全部恢复”
 --------------------------
 
-``grub_menu_execute_entry()`` 的确会在 entry sourcecode 执行完毕后检查 ``grub_loader_is_loaded()``，并
-隐式执行 ``boot``。当前 sourcecode 尚未结束，下一行是：
+固定实现的失败出口只保证：
 
-.. code-block:: cfg
+* 关闭已经打开的kernel file；
+* ``grub_dl_unref(my_mod)`` 撤销本次command取得的模块引用；
+* 把 ``loaded`` 写回0。
 
-   initrd /boot/initramfs-6.12.95.img
+若失败发生在 ``allocate_pages`` 内部，该函数会调用 ``free_pages`` 撤销刚建的relocator。但若
+protected chunk已经成功、随后header尾读取、command-line分配/验证或payload读取失败，公共
+``fail:`` 并不再次调用 ``free_pages``，也不统一释放新command-line buffer。因此这份固定源码
+不是“任意失败点都完整回滚”的实现。本章成功路径不触发该缺口，但正文必须区分已证明的file/ref
+回滚与没有发生的全状态回滚。
 
-因此 ``grub_loader_set()`` 完成后，控制权先返回脚本执行器，再继续执行 ``initrd``。此刻跳转会让内核看不到
-固定配置要求的 initramfs。
+本章结束状态
+------------
 
-本章结束时的状态
-----------------
+* current executor：CPU0 BSP上的GNU GRUB 2.14菜单脚本执行器；
+* CPU mode：32位flat protected mode，paging off，A20 on，IF=0、DF=0；
+* ``root=hd0,msdos1``，``prefix=(hd0,msdos1)/boot/grub``；
+* fixed kernel identity：Linux 7.2-rc1，commit
+  ``7404ce51637231382873d0b55edabc2f3b841a9d``；
+* kernel file：已完整读取并关闭；当前无file/device/fs/disk object，disk cache可保留block；
+* header checks：``0xaa55``、``HdrS``、``0x020f``、``LOADED_HIGH`` 已通过；
+* ``S``、``F``、``P``、``I``：来自实际artifact，不伪造数值；
+* protected chunk：current address为 ``prot_mode_mem``，target为 ``K``；
+* protected bytes：前 ``P`` 字节已装入，尚未解压；
+* ``prot_init_space=PAGE_ALIGN(I)``；
+* ``linux_params``：zeroed后复制有效header并由GRUB改写loader字段；
+* adjusted ``code32_start=K``；
+* command line：``BOOT_IMAGE=/boot/bzImage root=/dev/sda1 ro console=ttyS0``；
+* ``linux_mem_size=0``；
+* ``ramdisk_image=0``、``ramdisk_size=0``；
+* loader hook：``grub_linux_boot``；
+* loader unload hook：``grub_linux_unload``；
+* loader flags：0；``grub_loader_loaded=1``，module-local ``loaded=1``；
+* ``linux.mod``：autoload引用与本次loader引用仍在；
+* entry sourcecode：尚未结束；
+* Linux：尚未取得控制权。
+
+关键边界
+--------
+
+#. 固定commit能证明protocol头的源码常量，不能代替最终 ``.config``、链接输出和运行时memory map。
+#. ``P`` 是从文件读取的protected payload长度；``I`` 是初始化窗口，不能互换。
+#. relocator的current address与physical target是两个地址身份。
+#. fixed header原始 ``code32_start=1 MiB``，所以GRUB调整后入口精确等于 ``K``，但
+   ``K`` 本身仍由header和运行时分配决定。
+#. ``boot_flag`` 先用于验证artifact，随后在 ``linux_params`` 副本中清零。
+#. command line包含GRUB添加的 ``BOOT_IMAGE=/boot/bzImage``。
+#. ``grub_loader_set`` 只登记hook；菜单项后续还有 ``initrd``，不会提前启动Linux。
+#. 成功关闭kernel file不会释放relocator、参数模板、command line或loader module引用。
+#. ``grub_linux_unload`` 本身也不调用 ``free_pages``，不能称为完整relocator destructor。
+#. 固定失败出口不是完整事务回滚；正文不得声称所有后分配对象都在失败时释放。
+
+下一入口
+--------
+
+下一章从同一entry scope中的第二条命令开始：
 
 ::
 
-   当前执行者          GNU GRUB 2.14 grub_cmd_linux()
-   CPU 模式             32 位保护模式
-   paging               off
-   root                 hd0,msdos1
-   kernel file          已关闭
-   boot header          0xaa55 / HdrS / protocol 0x020f 已通过检查
-   image type           bzImage / loaded high
-   linux_params         已清零并填入 setup header 副本
-   kernel command line  已建立
-   relocator             已建立
-   protected payload    已读入 prot_mode_mem
-   protected target     由 header 对齐、pref_address 与可用内存决定
-   initrd address/size  仍为 0
-   loader hook          grub_linux_boot
-   loader loaded        true
-   initrd command       尚未执行
-   boot command         尚未执行
-   Linux payload        尚未解压
-   Linux                尚未取得控制权
+   initrd /boot/initramfs.img
+   → grub_cmd_initrd(cmd, 1, argv)
+   → verify module-local loaded == 1
+   → grub_initrd_init
 
-下一章从 ``grub_cmd_linux()`` 返回脚本执行器开始，执行 ``initrd`` 命令，将固定 initramfs 放到允许的高地址，
-更新 ``linux_params.hdr.ramdisk_image`` 与 ``ramdisk_size``，并停在 entry sourcecode 全部执行完毕、隐式
-``boot`` 即将开始的位置。
+它将读取initramfs的真实大小，以 ``K + PAGE_ALIGN(I)`` 为最低target边界，在GRUB的i386
+initrd上界以内取得4 KiB对齐chunk，并在成功复制后填写 ``ramdisk_image`` 与
+``ramdisk_size``。
 
 资料
 ----
 
-* `GNU GRUB 2.14 grub-core/loader/i386/linux.c <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/loader/i386/linux.c>`_
-* `GNU GRUB 2.14 include/grub/i386/linux.h <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/include/grub/i386/linux.h>`_
-* `GNU GRUB 2.14 include/grub/lib/cmdline.h <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/include/grub/lib/cmdline.h>`_
-* `Linux 6.12.95 Linux/x86 Boot Protocol <https://github.com/gregkh/linux/blob/v6.12.95/Documentation/arch/x86/boot.rst>`_
-* `Linux 6.12.95 arch/x86/boot/header.S <https://github.com/gregkh/linux/blob/v6.12.95/arch/x86/boot/header.S>`_
+* `GRUB固定提交：i386 grub_cmd_linux、allocate_pages与loader登记 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/loader/i386/linux.c>`_；
+* `GRUB固定提交：Linux header与loader常量 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/include/grub/i386/linux.h>`_；
+* `GRUB固定提交：kernel command-line构造 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/lib/cmdline.c>`_；
+* `GRUB固定提交：dynamic command模块引用与真实command调用 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/normal/dyncmd.c>`_；
+* `Linux 7.2-rc1固定提交：x86 setup header生成 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/header.S>`_；
+* `Linux 7.2-rc1固定提交：Linux/x86 Boot Protocol <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/Documentation/arch/x86/boot.rst>`_；
+* `Linux 7.2-rc1固定提交：x86 command-line容量 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/include/asm/setup.h>`_；
+* `Linux 7.2-rc1固定提交：x86 minimum alignment <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/include/asm/boot.h>`_。

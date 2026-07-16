@@ -1,0 +1,240 @@
+Linux Kernel第031—033章回溯审查
+================================
+
+批次状态
+--------
+
+::
+
+   range            = 031-033
+   status           = repaired
+   verified_before  = 030
+   verified_after   = 033
+   mode             = retrospective-audit
+   blocking_issue   = none
+
+审查范围
+--------
+
+* ``031-grub-linux-command-loads-bzimage.rst``；
+* ``032-grub-initrd-placement-and-boot-parameters.rst``；
+* ``033-grub-boot-params-and-linux-handoff.rst``；
+* 上一边界为 ``grub_dyncmd_dispatcher`` 即将调用真实
+  ``grub_cmd_linux(cmd,4,args)``，bzImage尚未打开；
+* 下一边界为Linux 7.2-rc1 compressed ``startup_32`` 已取得执行入口，第一条
+  ``cld`` 尚未执行。
+
+固定源码与artifact边界
+----------------------
+
+* GRUB ``d38d6a1a9b79427848976f53d474392cd29c2a71``：
+  i386 Linux loader、通用initrd helper、loader/boot core、PC machine fini、mmap overlay、
+  relocator与relocator32 trampoline；
+* Linux ``7404ce51637231382873d0b55edabc2f3b841a9d``：
+  release 7.2-rc1、x86 boot protocol、setup header生成、x86 command-line/minimum-alignment
+  常量与compressed ``startup_32``；
+* SeaBIOS ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf`` 与QEMU
+  ``a759542a2c62f0fd3b65f5a66ad9868201014669``：只用于沿用已验证的BIOS INT 13h、
+  q35 ICH9 AHCI SATA port 0磁盘边界，本批不制造具体文件I/O次数。
+
+本地固定工作树均位于大小写敏感卷：
+
+::
+
+   /Volumes/LinuxKernel/seabios
+   /Volumes/LinuxKernel/qemu
+   /Volumes/LinuxKernel/grub
+   /Volumes/LinuxKernel/linux-7.2-rc1
+
+四个工作树均为完整、非sparse、非shallow checkout，HEAD等于固定commit且干净。
+``/Volumes/LinuxKernel/linux`` 是用户原有master工作树，不作为本批正文证据。
+
+磁盘artifact只按第029章约定：
+
+.. code-block:: cfg
+
+   menuentry 'Linux 7.2-rc1' {
+       linux /boot/bzImage root=/dev/sda1 ro console=ttyS0
+       initrd /boot/initramfs.img
+   }
+
+``/boot/bzImage`` 的源码身份固定，但没有与仓库一起提供build ``.config`` 或可读取的最终文件；
+``/boot/initramfs.img`` 也没有静态内容清单。因此本批只把固定源码无条件生成的header常量写成
+数字，把config/link/artifact/runtime量保留为符号。
+
+已核定的固定值与符号
+--------------------
+
+固定Linux header无条件值：
+
+::
+
+   boot_flag       = 0xaa55
+   HdrS            = 0x53726448
+   protocol        = 0x020f
+   loadflags       includes LOADED_HIGH
+   code32_start    = 0x00100000
+   initrd_addr_max = 0x7fffffff
+   cmdline_size    = 2047
+   maximal GRUB command-line buffer = 2048
+
+保留量：
+
+::
+
+   S = effective setup_sects
+   F = bzImage file size
+   P = F - 512 - S*512
+   I = header.init_size
+   K = protected payload physical target
+   N = initramfs true size
+   A = ALIGN_UP(N,4096)
+   R = initramfs physical target
+   C = low chunk command-line offset
+   Q = low chunk total size
+   Z = boot_params physical target
+
+``kernel_alignment``、``relocatable_kernel`` 与 ``pref_address`` 受build config影响；
+``setup_sects``、``init_size``、file sizes受最终链接/artifact影响；``K/R/Z`` 受header和
+runtime memory map/allocator影响。正文不再把这些值冒充为commit常量。
+
+已核定的整批成功路径
+--------------------
+
+``第031章：bzImage验证与protected chunk``
+   ``grub_cmd_linux → grub_dl_ref(my_mod) → /boot/bzImage open via root →
+   read linux_i386_kernel_header → validate 0xaa55/setup<=64/HdrS/protocol>=2.03/
+   LOADED_HIGH → derive S/P/2048-byte cmdline capacity → read build-derived alignment/I/
+   preferred fields → free old relocator(NULL) → new relocator/protected chunk K →
+   zero linux_params → copy valid setup header extent → set code32_start=K, loader id,
+   heap and zero ramdisk fields → build exact BOOT_IMAGE command line → read P payload bytes →
+   grub_loader_set(grub_linux_boot,grub_linux_unload,0) → loaded=1 → close kernel file →
+   return to entry script``。
+
+``第032章：raw initramfs与高地址target``
+   ``grub_cmd_initrd → verify loaded → one ordinary initrd component open with
+   NO_DECOMPRESS → N/A sizing → clamp 0x7fffffff to 0x37ffffff → no mem= limit →
+   subtract 64 KiB to 0x37feffff → L=K+PAGE_ALIGN(I) → highest aligned candidate H →
+   append high-preference 4 KiB aligned chunk R → copy N raw bytes to current address →
+   publish ramdisk_image=R, ramdisk_size=N, root_dev=0x0100 → close file/components →
+   sourcecode returns to grub_menu_execute_entry``。
+
+``第033章：implicit boot、low params与handoff``
+   ``loader check → boot command → grub_loader_boot → grub_machine_fini(flags0) keeps
+   console and stops floppy → empty preboot chain → grub_simple_boot_hook →
+   grub_linux_boot → text/video screen_info → size and choose low [0x10000,0x90000)
+   target Z → append low chunk → copy linux_params → cmd_line_ptr=Z+C and copy 2048 bytes →
+   fill E820 from firmware map plus overlays → i386-pc skips EFI → set EIP=K, ESI/ESP=Z,
+   EBP/EDI/EBX=0 → relocator32 safe trampoline → move all chunks → flat GDT, paging/PAE off,
+   IF/DF clear → far jump 0x10:K → Linux startup_32``。
+
+对象、引用与状态边界
+--------------------
+
+* dynamic dispatcher为 ``linux.mod`` 留有autoload引用；``grub_cmd_linux`` 再取得一份
+  loader引用，成功路径保留到unload；
+* ``grub_linux_unload`` 只撤销loader module ref、清 ``loaded`` 并释放command line，
+  不调用 ``free_pages``；
+* kernel file关闭不影响protected payload、parameter template、command line或relocator；
+* ``P`` 字节file payload与 ``I`` 字节初始化窗口不同；GRUB不在第031章解压bzImage，也不
+  保证reserved tail已填零；
+* fixed header原始 ``code32_start=1 MiB``，所以GRUB调整式化简为
+  ``adjusted code32_start=K``，但不推出 ``K=1 MiB``；
+* single ordinary initrd没有newc header或trailer；``NO_DECOMPRESS`` 保留raw bytes；
+* initrd valid length为 ``N``，allocation span为 ``A``；尾部不保证清零且不计入
+  ``ramdisk_size``；
+* initrd target只保证 ``L <= R <= H``、4 KiB aligned和无target重叠；
+  high preference不保证 ``R=H``；
+* component/file close不释放relocator chunk；
+* low chunk的current address与physical target ``Z`` 分离；``cmd_line_ptr=Z+C``、
+  ``ramdisk_image=R`` 与 ``ESI=Z`` 均使用target；
+* relocator allocation不调用 ``grub_mmap_register``，所以不会自动把K/R/Z范围改成E820
+  reserved；Linux通过boot protocol的独立字段识别并保护这些对象；
+* fixed simple-install/module路径没有注册USB/native-AHCI/network/keyboard/drivemap/sendkey或
+  mmap-overlay preboot hook，当前preboot loop为空；
+* i386-pc final state明确设置 ``EBP/EDI/EBX=0``、``ESI/ESP=Z``、``EIP=K``；
+  automatic state没有初始化 ``EAX/ECX/EDX``，协议也不要求，故三者标为unspecified。
+
+失败与未发生边界
+----------------
+
+* header magic/version/image type失败时不登记loader；
+* ``allocate_pages`` 自身失败会 ``free_pages``，但成功分配后的公共
+  ``grub_cmd_linux fail:`` 只关闭file、撤销本次module ref并清 ``loaded``；它不统一撤销
+  relocator或释放新command-line buffer；
+* ``grub_cmd_initrd`` 的所有出口关闭components；若chunk已追加后file读取失败，该chunk不会在
+  command出口单独删除，ramdisk字段则因尚未发布而保留旧值；
+* 当前没有 ``vga=``、``mem=``、``quiet``；
+* 当前没有multiple initrd、新cpio合成、GRUB-side decompression或initramfs内容验证；
+* 当前没有16-bit Linux setup、``linux16``、EFI boot services或64-bit direct boot entry；
+* 当前没有preboot restore：成功handoff不返回，且本场景preboot chain为空；
+* 当前没有Linux decompression、paging、long mode、IDT、scheduler或initramfs unpack。
+
+发现并修复
+----------
+
+#. 把三章全部旧 ``Linux 6.12.95`` 与版本化artifact路径改为固定
+   Linux 7.2-rc1、``/boot/bzImage`` 和 ``/boot/initramfs.img``。
+#. 撤销“固定commit等于一个已知build header”的混淆；config/link/runtime量统一保留为符号。
+#. 补齐header检查的实际顺序、2048-byte command-line容量、exact
+   ``BOOT_IMAGE=/boot/bzImage root=/dev/sda1 ro console=ttyS0`` 与file close边界。
+#. 明确 ``P`` 与 ``I``、relocator current与target、file object与loader state是不同对象。
+#. 补齐 ``linux_params.boot_flag`` 在通过artifact校验后被清零，adjusted entry精确等于 ``K``。
+#. 撤销“失败时loader统一完整清理”的旧概括，记录两个command的真实不完整chunk/buffer回滚。
+#. 补齐initrd的true size/aligned span、页尾非内容且不保证清零、high preference非精确地址承诺。
+#. 补齐component close与relocator chunk的所有权分离。
+#. 核定 ``boot/mmap/relocator`` dependency、flags0的machine fini与当前empty preboot chain。
+#. 撤销“relocator占用自动写成E820 reserved”的错误；E820与boot protocol对象身份分开。
+#. 补齐low parameter chunk sizing、physical command-line pointer和i386-pc跳过EFI。
+#. 撤销“所有general registers均为0”的错误；``EAX/ECX/EDX`` 明确为unspecified。
+#. 三章统一补齐
+   ``本章结束状态 → 关键边界 → 下一入口 → 资料``。
+
+连续性检查
+----------
+
+* 030→031：真实 ``grub_cmd_linux(cmd,4,args)`` 与四个args完全一致；
+* 031→032：``K``、``I``、zero ramdisk fields、loaded loader与关闭kernel file完全一致；
+* 032→033：``R/N`` 已发布、entry sourcecode结束、implicit boot尚未调用完全一致；
+* 033→034：``EIP=K``、``ESI=Z``、flat selectors、paging/PAE off、IF/DF clear与
+  fixed ``startup_32`` 第一条指令一致；
+* 第034章正文仍是pending历史稿，其版本标签和后续startup细节留给034—036下一顺序批次。
+
+批次结束状态
+------------
+
+::
+
+   current executor = Linux 7.2-rc1 compressed startup_32
+   CPU               = BSP / CPU0
+   mode              = 32-bit protected mode
+   paging            = off
+   PAE               = off
+   A20               = on
+   IF / DF           = 0 / 0
+   CS                = 0x10 flat code
+   DS/ES/FS/GS/SS    = 0x18 flat data
+   EIP               = K
+   ESI / ESP         = Z / Z
+   EBP / EDI / EBX   = 0 / 0 / 0
+   EAX / ECX / EDX   = unspecified
+   boot_params       = at Z
+   cmdline           = at Z+C
+   protected payload = at K, not decompressed
+   initramfs         = N raw bytes at R, not unpacked
+   GRUB              = no successful return path
+
+下一批
+------
+
+下一批固定为034—036，不跳章：
+
+* 第034章：``startup_32`` 的scratch stack、runtime base、GDT/stack、CPU验证、early 4 GiB
+  page tables与long-mode transition；
+* 第035章：compressed ``startup_64`` 的boot-params保存、5-level/KASLR前置、compressed
+  image安全搬移与BSS清理；
+* 第036章：identity-map扩展、output地址选择与进入 ``extract_kernel`` 前的精确边界。
+
+开始前必须重新读取第033章末尾、第034—036章全文和第037章入口，并核对fixed Linux
+``head_64.S``、``verify_cpu.S``、compressed paging/KASLR和decompressor入口；不能把本批对
+``startup_32`` 的入口证明扩张成第034—036章已经验证。

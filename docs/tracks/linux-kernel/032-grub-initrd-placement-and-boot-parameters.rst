@@ -1,372 +1,393 @@
-第三十二章：GRUB 怎样把 initramfs 放到内核允许的高地址？
-==========================================================
+第三十二章：GRUB怎样选址并装入固定initramfs？
+===============================================
 
-上一章结束时，``linux`` 命令已经完成了两件事：
-
-* Linux ``bzImage`` 中的 protected-mode payload 已经读入 GRUB relocator 管理的内存；
-* ``grub_loader_set()`` 已经登记 ``grub_linux_boot``，表示以后执行 ``boot`` 时应调用这个函数。
-
-但启动参数里的：
+第031章返回菜单脚本执行器时，fixed bzImage的protected payload已经位于relocator current
+chunk，未来target记为 ``K``；header给出的初始化空间为 ``I``，GRUB保存：
 
 ::
 
-   ramdisk_image = 0
-   ramdisk_size  = 0
+   prot_mode_target = K
+   prot_init_space  = PAGE_ALIGN(I)
+   ramdisk_image    = 0
+   ramdisk_size     = 0
+   grub_loader_loaded = 1
 
-仍然表明没有 initramfs。固定菜单项的下一条命令是：
+CPU0上的BSP仍运行GNU GRUB 2.14，32位flat protected mode、paging off、A20 on、IF=0、DF=0。
+同一entry scope继续执行最后一条配置：
 
 .. code-block:: cfg
 
-   initrd /boot/initramfs-6.12.95.img
+   initrd /boot/initramfs.img
 
-这一章继续执行这条命令，说明 GRUB 为什么不能把 initramfs 随便塞进一块空闲内存，以及它怎样同时满足内核初始化区、Linux/x86 Boot Protocol 和 32 位传统启动路径的地址限制。
+本章追踪 ``grub_cmd_initrd`` 从检查Linux loader状态、打开原始initramfs、计算地址上下界到
+更新 ``linux_params`` 的全过程，停在entry sourcecode成功结束、``grub_menu_execute_entry``
+即将检查loader并隐式执行 ``boot`` 的位置。
 
-``initrd`` 命令已经由 ``linux.mod`` 注册
-------------------------------------------
+本章继续保留artifact量
+----------------------
 
-第三十章中，动态命令占位符促使 GRUB 装入 ``linux.mod``。模块初始化函数同时注册两个真实命令：
+initramfs不是Linux源码树直接生成的固定常量。本书只约定磁盘中的
+``/boot/initramfs.img`` 与当前7.2-rc1场景匹配；其具体内容、压缩格式、inode、extent和长度来自
+实际磁盘artifact。
 
-.. code-block:: c
-
-   cmd_linux = grub_register_command("linux", grub_cmd_linux, ...);
-   cmd_initrd = grub_register_command("initrd", grub_cmd_initrd, ...);
-
-因此脚本执行器处理菜单项第二行时，不需要再次装模块。它在全局命令表里直接找到 ``initrd``，然后调用：
-
-.. code-block:: c
-
-   grub_cmd_initrd(cmd, argc, argv)
-
-当前只有一个参数：
+后文记：
 
 ::
 
-   argv[0] = /boot/initramfs-6.12.95.img
+   N = /boot/initramfs.img的真实字节数，N > 0
+   A = ALIGN_UP(N, 4096)
+   L = K + PAGE_ALIGN(I)
+   R = initrd_mem_target
 
-``grub_cmd_initrd()`` 首先检查 ``loaded``。这个变量只有 ``linux`` 命令成功装入内核并登记 loader 后才会设为 1。若用户在 ``linux`` 之前写 ``initrd``，GRUB 会直接报错：
+``N`` 是Linux应读取的内容长度，``A`` 是relocator保留的地址跨度，``L`` 是initramfs target
+允许的最低起点。三者不能混为一个数。
 
-::
+initrd命令不重新装入linux.mod
+----------------------------
 
-   you need to load the kernel first
+第030章的 ``GRUB_MOD_INIT(linux)`` 已同时注册真正的 ``linux`` 和 ``initrd`` command。
+因此脚本执行器直接调用：
 
-这里的顺序要求不是语法习惯，而是地址计算依赖。GRUB 必须先知道内核被放在哪里、初始化阶段最多会占用多大范围，才能确定 initramfs 的最低安全地址。
+.. code-block:: c
 
-GRUB 打开的是原始 initramfs 字节
+   grub_cmd_initrd(cmd, 1, argv);
+
+``argv[0]`` 为 ``/boot/initramfs.img``。函数先要求 ``argc != 0``，再检查module-local：
+
+.. code-block:: c
+
+   if (!loaded)
+       error("you need to load the kernel first");
+
+第031章已经在成功的 ``grub_loader_set`` 后写入 ``loaded=1``，所以当前通过。这一检查不只
+表达脚本语法顺序：没有先装kernel，就没有 ``K``、``I`` 和可追加chunk的relocator，initrd地址
+下界无法成立。
+
+component数组先取得所有file所有权
 --------------------------------
 
-``grub_initrd_init()`` 为每个参数建立一个 component，并通过当前 ``root`` 打开文件。固定路径没有显式设备前缀，因此仍使用：
-
-::
-
-   root = hd0,msdos1
-
-文件访问继续经过：
-
-::
-
-   biosdisk
-   → part_msdos
-   → ext2
-   → /boot/initramfs-6.12.95.img
-
-打开时带有：
+``grub_initrd_init`` 按argc分配component数组，初始化累计size，然后处理唯一参数。当前字符串
+没有 ``newc:`` 前缀，所以直接打开：
 
 .. code-block:: c
 
-   GRUB_FILE_TYPE_LINUX_INITRD | GRUB_FILE_TYPE_NO_DECOMPRESS
+   grub_file_open(
+       "/boot/initramfs.img",
+       GRUB_FILE_TYPE_LINUX_INITRD |
+       GRUB_FILE_TYPE_NO_DECOMPRESS);
 
-``NO_DECOMPRESS`` 很重要。initramfs 文件本身可以是 gzip、xz、zstd 或其他 Linux 支持的压缩格式；GRUB 此时不把它展开成文件树，也不替 Linux 解压。它读取并复制磁盘上的原始字节，之后由 Linux 早期 initramfs 代码识别和解包。
+没有显式device的路径仍由 ``root=hd0,msdos1`` 解析，经固定ext4、biosdisk和SeaBIOS AHCI磁盘
+取得文件。
 
-GRUB 的通用 initrd helper 还支持多个文件以及 ``newc:目标名:源文件`` 形式，可现场拼接 cpio newc 记录。当前固定配置只传入一个普通文件，因此不会额外生成 newc header 或 ``TRAILER!!!``；最终大小就是该文件本身的字节数。
+``NO_DECOMPRESS`` 约束的是GRUB file filter：即使文件字节本身采用gzip、xz、zstd或其他Linux
+支持的封装，GRUB也不在这里把它展开。它稍后交给kernel的是磁盘上的原始字节流。
 
-``size`` 和 ``aligned_size`` 不是一回事
---------------------------------------
+通用helper支持多个component和 ``newc:目标名:源文件`` 语法；那条路径会创建目录、cpio newc
+header及 ``TRAILER!!!``。当前只有一个普通file，因此：
 
-文件打开后：
+::
+
+   nfiles           = 1
+   newc_name        = NULL
+   synthesized cpio = none
+   initrd_ctx.size  = N
+
+本章不能把helper的通用能力写成当前实际发生的cpio重打包。
+
+真实长度与页对齐占用分开
+------------------------
+
+file打开后：
 
 .. code-block:: c
 
    size = grub_get_initrd_size(&initrd_ctx);
    aligned_size = ALIGN_UP(size, 4096);
 
-``size`` 是稍后写入 Linux boot parameters 的真实 initramfs 长度。
-
-``aligned_size`` 是 GRUB 为 relocator 保留的物理地址范围，向上取整到 4 KiB。假设文件大小为：
+所以：
 
 ::
 
-   size = N
+   size         = N
+   aligned_size = A
 
-则保留区大小是：
+``A - N`` 个尾部字节只属于地址占用，不属于initramfs内容。固定单component路径没有在读取完成
+后显式清零这段页尾；但Linux收到的 ``ramdisk_size=N`` 会阻止它把尾部当作有效字节。正文既不能
+把 ``ramdisk_size`` 写成 ``A``，也不能声称padding一定为0。
 
-::
+地址上界先读kernel header
+------------------------
 
-   aligned_size = (N + 4095) & ~4095
-
-最后一页末尾可能存在未使用空间，但 ``ramdisk_size`` 仍填写 ``N``，Linux 不会把页对齐填充误认为 initramfs 内容。
-
-地址上界首先来自内核头
-----------------------
-
-Linux/x86 Boot Protocol 2.03 引入 ``initrd_addr_max``，让内核告诉 bootloader：initramfs 最后一个字节允许放到多高。
-
-固定 Linux 6.12.95 ``bzImage`` 的 setup header 中，该字段由内核构建为：
+固定Linux 7.2-rc1源码在setup header无条件写入：
 
 ::
 
    initrd_addr_max = 0x7fffffff
 
-GRUB 先读取这个值：
-
-.. code-block:: c
-
-   addr_max = linux_params.hdr.initrd_addr_max;
-
-但 i386 PC BIOS 启动路径不会完全接受这个上界。GRUB 又施加自己的限制：
-
-.. code-block:: c
-
-   if (addr_max > GRUB_LINUX_INITRD_MAX_ADDRESS)
-       addr_max = GRUB_LINUX_INITRD_MAX_ADDRESS;
-
-其中：
+protocol高于2.03，所以GRUB先取这个值，再用自身的i386 loader上界截断：
 
 ::
 
    GRUB_LINUX_INITRD_MAX_ADDRESS = 0x37ffffff
 
-所以当前路径的有效上界先从 ``0x7fffffff`` 被压低到：
+结果先变为 ``0x37ffffff``。这不是本机RAM末端，也不是initramfs起点；它只是当前loader愿意
+考虑的最高地址边界。
 
-::
-
-   0x37ffffff
-
-这不是机器 RAM 的真实末端，也不是 initramfs 的最终起始地址。它是 GRUB 传统 32 位 Linux loader 为 initrd 使用的最高候选边界。
-
-若内核命令行存在 ``mem=``，GRUB 还会把 ``linux_mem_size`` 作为更低的上限。固定命令行只有：
-
-::
-
-   root=/dev/sda1 ro console=ttyS0
-
-因此本路径没有 ``mem=`` 进一步缩小地址范围。
-
-为什么还要从上界减去 64 KiB
-----------------------------
-
-接下来源码执行：
+第031章没有解析到 ``mem=``，``linux_mem_size=0``，所以command-line memory limit不再压低
+它。随后固定实现无条件保留历史64 KiB兼容余量：
 
 .. code-block:: c
 
    addr_max -= 0x10000;
 
-这 64 KiB 是 GRUB 为很老的 Linux 内核内存边界缺陷保留的兼容余量。Linux 6.12.95 本身不需要依靠这个古老 workaround，GRUB 的通用 i386 loader 仍然沿用这一安全规则。
-
-因此当前候选上界成为：
+当前得到：
 
 ::
 
-   0x37ffffff - 0x10000 = 0x37feffff
+   M = 0x37feffff
 
-后面的起始地址还要减去整个页对齐后的 initramfs 大小，并再向下按 4 KiB 对齐。
+这一步来自GRUB对旧Linux 2.2/2.3 range-check问题的兼容，不表示7.2-rc1自身只能使用这个上界。
 
-地址下界为什么是内核目标加 ``init_size``
-----------------------------------------
+地址下界来自完整初始化窗口
+--------------------------
 
-上一章中，GRUB 读取 setup header 的：
-
-::
-
-   pref_address
-   init_size
-   relocatable_kernel
-   kernel_alignment
-   min_alignment
-
-并为 protected-mode payload 选择了实际目标 ``prot_mode_target``。
-
-``init_size`` 不是磁盘上压缩 payload 的文件大小。它表示内核从进入 compressed startup 到完成解压和早期重定位期间，需要保持可用的连续线性内存范围。
-
-GRUB 将它向上按页对齐保存为：
-
-::
-
-   prot_init_space = page_align(init_size)
-
-然后规定 initramfs 的最低地址：
+GRUB计算：
 
 .. code-block:: c
 
    addr_min = prot_mode_target + prot_init_space;
 
-这意味着 initramfs 不能只避开磁盘上读入的压缩数据，还必须避开 compressed kernel 解压时可能使用的整个初始化工作区。
-
-否则 Linux 解压自己的 payload 时，输出区、输入区或临时空间可能覆盖 initramfs。等内核稍后尝试挂载初始根文件系统时，读到的已经是被破坏的数据。
-
-GRUB 从高地址向下放置 initramfs
--------------------------------
-
-有了：
+代入上一章符号：
 
 ::
 
-   addr_min = prot_mode_target + prot_init_space
-   addr_max = min(initrd_addr_max, 0x37ffffff, optional mem=) - 0x10000
+   addr_min = L = K + PAGE_ALIGN(I)
 
-GRUB 先计算理想起点：
+这里避开的不是仅有 ``P`` 字节的compressed file输入，而是Linux header声明的完整初始化窗口。
+compressed startup以后可能在该窗口内放置页表、搬移输入并展开输出；若initramfs只避开
+``K + P``，它仍可能在kernel自解压时被覆盖。
 
-.. code-block:: c
+理想高端起点怎样计算
+--------------------
 
-   addr = (addr_max - aligned_size) & ~0xfff;
-
-它的含义是：
-
-#. 从允许上界减去 initramfs 页对齐后的占用大小；
-#. 清除最低 12 位，使起点按 4 KiB 对齐；
-#. 尽量让 initramfs 靠近允许范围的高端。
-
-随后检查：
+GRUB先确认 ``M >= A``，再算：
 
 .. code-block:: c
 
-   if (addr < addr_min)
-       error("the initrd is too big");
+   H = (M - A) & ~0xfff;
 
-所以“系统总内存能放下这个文件”还不够。必须在内核初始化区末端与 initrd 上界之间，找到一段足够大的连续区域。
+``H`` 是4 KiB向下对齐后的最高候选target起点。随后检查：
 
-relocator 仍然区分当前地址和最终物理地址
----------------------------------------
+::
 
-GRUB 请求 relocator 分配：
+   H >= L
+
+否则即使系统总RAM很大，也不能在kernel初始化窗口和当前loader上界之间放下这份连续initramfs，
+函数会报 ``the initrd is too big``。
+
+成功路径的可用target范围由此固定为：
+
+::
+
+   start >= L
+   start <= H
+   start is 4 KiB aligned
+   allocation span = A
+   start + A <= M
+
+relocator偏好高地址但不承诺等于H
+------------------------------
+
+GRUB向第031章建立的同一个relocator追加chunk：
 
 .. code-block:: c
 
    grub_relocator_alloc_chunk_align(
-       relocator,
-       &ch,
-       addr_min,
-       addr,
-       aligned_size,
-       0x1000,
+       relocator, &ch,
+       L, H,
+       A, 0x1000,
        GRUB_RELOCATOR_PREFERENCE_HIGH,
        1);
 
-参数表达了四个关键约束：
+``PREFERENCE_HIGH`` 让搜索尽量靠近上界，但已有target冲突、GRUB current-memory可用性和memory
+map都会影响返回结果，所以不能无条件写：
 
-* 允许范围从 ``addr_min`` 到高端候选 ``addr``；
-* 大小为 ``aligned_size``；
-* 对齐为 ``0x1000``；
-* 偏好高地址。
+::
 
-返回的 chunk 提供两个地址：
+   R = H
+
+可以确定的是：
+
+::
+
+   L <= R <= H
+   R mod 4096 = 0
+   [R, R + A)不与relocator中其他target chunk重叠
+
+返回对象仍有两种地址身份：
+
+::
+
+   initrd_mem        = current address
+   R                 = physical target
+
+GRUB现在向 ``initrd_mem`` 写文件；最终trampoline才保证字节出现在 ``R``。
+
+单一普通component按原字节复制
+----------------------------
+
+``grub_initrd_load`` 遍历一个component。因为没有前一个component、没有newc name，也没有需要插入
+的对齐记录，核心动作就是：
 
 .. code-block:: c
 
-   initrd_mem        = get_virtual_current_address(ch);
-   initrd_mem_target = get_physical_target_address(ch);
+   grub_file_read(component.file, initrd_mem, N);
 
-``initrd_mem`` 是 GRUB 当前复制文件时使用的地址。
+成功要求返回值严格等于 ``N``。GRUB不检查cpio member、``/init``、userspace程序或kernel module，
+也不在此验证Linux以后能否解包；这些属于kernel取得控制权后的initramfs路径。
 
-``initrd_mem_target`` 是 relocator 完成最终搬运后，Linux 将看到的物理地址。两者在某次布局中可能相同，但接口没有假设它们必须相同。
+读取过程仍可能经ext4、BIOS INT 13h和AHCI发出多次I/O；实际命令数由artifact与cache决定。完成
+边界只固定：
 
-文件内容被完整复制到 chunk
+::
+
+   [initrd_mem, initrd_mem + N) = 磁盘原始initramfs字节
+
+参数字段只在复制成功后发布
 --------------------------
 
-``grub_initrd_load()`` 逐 component 读取内容。当前只有一个普通 component，因此主动作就是：
-
-::
-
-   从 ext4 文件读取 size 字节
-   → 写入 initrd_mem
-
-GRUB 不解析其中的 ``/init``、驱动模块或用户空间程序，也不会在此时检查 cpio 是否有效。对当前流程而言，它只是一个需要原样交给 Linux 的字节区间。
-
-复制完成后，文件句柄会由 ``grub_initrd_close()`` 关闭，component 数组也被释放；relocator chunk 本身仍保留，因为后面的 Linux 启动还需要它。
-
-``ramdisk_image`` 与 ``ramdisk_size`` 终于有值
---------------------------------------------
-
-装载成功后：
+全部 ``N`` 字节读入后，GRUB才写：
 
 .. code-block:: c
 
-   linux_params.hdr.ramdisk_image = initrd_mem_target;
-   linux_params.hdr.ramdisk_size  = size;
+   linux_params.hdr.ramdisk_image = R;
+   linux_params.hdr.ramdisk_size  = N;
    linux_params.hdr.root_dev      = 0x0100;
 
-前两个字段是 Linux 真正需要的信息：
+所以parameter publication晚于file data completion。``ramdisk_image`` 是最终physical target，
+不是GRUB当前指针 ``initrd_mem``；``ramdisk_size`` 是真实内容长度，不是页对齐跨度 ``A``。
+
+``root_dev=0x0100`` 是固定GRUB实现保留的历史赋值。当前实际root选择仍由：
 
 ::
 
-   ramdisk_image = initramfs 最终物理起始地址
-   ramdisk_size  = initramfs 真实字节数
+   root=/dev/sda1
 
-``root_dev = 0x0100`` 是 GRUB 保留的历史兼容赋值。现代 Linux 的根文件系统选择主要由命令行 ``root=/dev/sda1`` 和 initramfs 早期用户空间决定，不依赖这个旧字段完成当前启动。
+以及initramfs早期userspace共同决定，不能把旧字段解释成GRUB已经挂载某个Linux根文件系统。
 
-菜单项脚本到这里执行完毕
-------------------------
+component与relocator的生命期在这里分开
+-------------------------------------
 
-``grub_cmd_initrd()`` 返回后，脚本执行器发现 entry sourcecode 已经没有下一条命令。当前固定菜单项：
+成功和失败最终都经过：
+
+.. code-block:: c
+
+   grub_initrd_close(&initrd_ctx);
+
+它关闭component file、释放可选newc name和component数组。因此本章结束时没有存活的initramfs
+file、ext4 per-open data、device或disk object。
+
+relocator chunk不属于 ``initrd_ctx``，不会随close释放。它继续由全局relocator持有，等待
+``grub_linux_boot`` 的最终搬移。``linux.mod`` 的两份既有引用也没有因 ``initrd`` command
+增加或减少。
+
+失败出口同样不是chunk级事务
+---------------------------
+
+若参数缺失、kernel尚未loaded、file open失败、大小越界或chunk分配失败，helper会关闭已打开的
+component。若错误发生在chunk已经追加之后的file读取阶段，公共 ``fail:`` 只关闭
+``initrd_ctx``，没有从relocator单独删除刚追加的chunk；参数字段因为写入发生在成功读取之后，
+仍保持先前值。
+
+当前路径读取成功，所以不会进入该状态。但这再次说明：固定实现保证file/component引用回滚，
+不保证每个后分配relocator对象都能按command单独回滚。
+
+entry sourcecode在initrd返回后结束
+---------------------------------
+
+``grub_cmd_initrd`` 返回0，脚本中的block没有第三条命令：
 
 .. code-block:: cfg
 
-   menuentry 'Linux 6.12.95' {
-       linux /boot/bzImage-6.12.95 root=/dev/sda1 ro console=ttyS0
-       initrd /boot/initramfs-6.12.95.img
+   menuentry 'Linux 7.2-rc1' {
+       linux /boot/bzImage root=/dev/sda1 ro console=ttyS0
+       initrd /boot/initramfs.img
    }
 
-已经全部执行完成。
+``grub_script_execute_new_scope`` 因而完成，控制流回到 ``grub_menu_execute_entry``。此时
+``grub_errno=GRUB_ERR_NONE`` 且 ``grub_loader_is_loaded()`` 为真，但下一行隐式
+``grub_command_execute("boot", 0, 0)`` 尚未执行。把本章停在这里，可以把“装入initramfs”和
+“最终改造机器状态、交接Linux”分成两个自然源码边界。
 
-现在内存中同时存在：
+本章结束状态
+------------
 
-* protected-mode Linux payload；
-* Linux 命令行；
-* ``linux_params`` 模板；
-* initramfs relocator chunk；
-* 指向 ``grub_linux_boot`` 的 loader hook。
+* current executor：CPU0 BSP上的GNU GRUB 2.14 ``grub_menu_execute_entry``，entry脚本刚返回；
+* CPU mode：32位flat protected mode，paging off，A20 on，IF=0、DF=0；
+* kernel target：``K``；
+* kernel init span：``PAGE_ALIGN(I)``；
+* initramfs true size：``N``，来自磁盘artifact；
+* initramfs allocation span：``A=ALIGN_UP(N,4096)``；
+* effective upper boundary：``M=0x37feffff``；
+* minimum initrd target：``L=K+PAGE_ALIGN(I)``；
+* actual initrd target：``R``，满足 ``L <= R <= H`` 且4 KiB aligned；
+* initramfs current bytes：已在 ``initrd_mem`` 完整读取；
+* initramfs target bytes：尚待relocator最终搬移；
+* initramfs file/components：已关闭并释放；disk cache可保留block；
+* ``linux_params.hdr.ramdisk_image=R``；
+* ``linux_params.hdr.ramdisk_size=N``；
+* ``linux_params.hdr.root_dev=0x0100``；
+* kernel command line：``BOOT_IMAGE=/boot/bzImage root=/dev/sda1 ro console=ttyS0``；
+* loader hook：``grub_linux_boot``，仍loaded；
+* ``linux.mod`` 引用：未改变；
+* entry sourcecode：成功结束；
+* implicit ``boot``：尚未调用；
+* Linux：尚未取得控制权。
 
-但 ``grub.cfg`` 并没有显式写 ``boot``。控制流返回 ``grub_menu_execute_entry()`` 后，它将检查：
+关键边界
+--------
 
-.. code-block:: c
+#. ``NO_DECOMPRESS`` 让GRUB复制原始file bytes；当前没有newc合成或GRUB侧解压。
+#. ``N`` 是内容长度，``A`` 是地址占用；页尾不属于Linux可见initramfs内容，也不保证为0。
+#. 固定kernel header上界 ``0x7fffffff`` 先被GRUB截为 ``0x37ffffff``，再减64 KiB得到
+   ``0x37feffff``。
+#. initramfs下界避开的是 ``PAGE_ALIGN(init_size)``，不是只避开compressed payload长度。
+#. high preference不等于target必为最高候选；``R`` 必须保留为实际allocator结果。
+#. ``ramdisk_image`` 使用physical target ``R``，``ramdisk_size`` 使用true size ``N``。
+#. component close不释放relocator chunk；两者是不同所有权。
+#. 读取失败后的component回滚完整，但已追加的chunk没有在这个command出口单独撤销。
+#. initrd成功返回仍不会直接启动Linux；隐式boot只在整个entry sourcecode结束后发生。
+
+下一入口
+--------
+
+下一章从 ``grub_menu_execute_entry`` 的loader检查开始：
+
+::
 
    if (grub_errno == GRUB_ERR_NONE && grub_loader_is_loaded())
        grub_command_execute("boot", 0, 0);
 
-本章停在这次隐式 ``boot`` 调用之前。
-
-当前机器状态
-------------
-
-* 当前执行者：GNU GRUB 2.14 菜单项脚本执行器；
-* 当前主流程 CPU：BSP；
-* CPU 模式：32 位保护模式；
-* 分页：关闭；
-* ``bzImage`` protected-mode payload：已装入 relocator chunk；
-* initramfs 文件：已从 ext4 读取并关闭；
-* initramfs 内容：保持磁盘原始字节，GRUB 未解压；
-* initramfs 目标：位于 ``prot_mode_target + prot_init_space`` 以上，并尽量靠近受限高地址；
-* initramfs 对齐：4 KiB；
-* ``ramdisk_image``：已写为 ``initrd_mem_target``；
-* ``ramdisk_size``：已写为文件真实大小；
-* entry sourcecode：执行完成；
-* loader hook：``grub_linux_boot``；
-* 隐式 ``boot``：尚未调用；
-* Linux：尚未取得控制权。
-
-下一段真实控制流是：
+随后将进入：
 
 ::
 
-   grub_menu_execute_entry()
-   → grub_command_execute("boot")
-   → registered loader hook
-   → grub_linux_boot()
+   grub_cmd_boot
+   → grub_loader_boot
+   → grub_machine_fini(flags=0)
+   → grub_simple_boot_hook
+   → grub_linux_boot
+
+``grub_linux_boot`` 才会选择最终低端 ``boot_params`` 地址、写command-line physical pointer和
+E820、准备32位handoff state，并让relocator完成所有chunk搬移。
 
 资料
 ----
 
-* `GNU GRUB 2.14：i386 Linux loader 的 grub_cmd_initrd() <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/loader/i386/linux.c>`_
-* `GNU GRUB 2.14：通用 initrd component、newc 和复制实现 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/loader/linux.c>`_
-* `GNU GRUB 2.14：Linux loader 常量与 boot parameter 结构 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/include/grub/i386/linux.h>`_
-* `Linux 6.12.95：Linux/x86 Boot Protocol <https://github.com/gregkh/linux/blob/v6.12.95/Documentation/arch/x86/boot.rst>`_
-* `Linux 6.12.95：setup header 中的 initrd_addr_max 与 init_size <https://github.com/gregkh/linux/blob/v6.12.95/arch/x86/boot/header.S>`_
+* `GRUB固定提交：i386 grub_cmd_initrd与initrd地址规则 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/loader/i386/linux.c>`_；
+* `GRUB固定提交：通用initrd component、newc与load/close生命期 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/loader/linux.c>`_；
+* `GRUB固定提交：initrd上界和Linux参数结构 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/include/grub/i386/linux.h>`_；
+* `GRUB固定提交：relocator aligned chunk分配 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/lib/relocator.c>`_；
+* `GRUB固定提交：entry结束后的隐式boot <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/normal/menu.c>`_；
+* `Linux 7.2-rc1固定提交：setup header中的initrd_addr_max与init_size <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/boot/header.S>`_；
+* `Linux 7.2-rc1固定提交：initrd地址与Linux/x86 Boot Protocol <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/Documentation/arch/x86/boot.rst>`_。
