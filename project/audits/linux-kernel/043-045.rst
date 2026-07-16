@@ -1,0 +1,158 @@
+Linux Kernel第043—045章回溯审查
+================================
+
+批次状态
+--------
+
+::
+
+   range            = 043-045
+   status           = repaired
+   verified_before  = 042
+   verified_after   = 045
+   mode             = retrospective-audit
+   blocking_issue   = none
+
+审查范围
+--------
+
+* ``043-linux-builds-memblock-and-early-direct-map.rst``；
+* ``044-linux-expands-log-buffer-and-reserves-initramfs-acpi.rst``；
+* ``045-linux-parses-early-acpi-and-builds-numa-nodes.rst``；
+* 入口为 ``setup_arch`` 即将调用 ``early_alloc_pgt_buf()``，callee尚未执行；
+* 出口为 ``initmem_init()`` 已返回，下一条
+  ``dma_contiguous_reserve(max_pfn_mapped << PAGE_SHIFT)`` 尚未执行。
+
+固定源码
+--------
+
+Linux release 7.2-rc1、gregkh/linux commit
+``7404ce51637231382873d0b55edabc2f3b841a9d``：
+
+* ``arch/x86/kernel/setup.c`` 从early page-table buffer到 ``initmem_init`` 的调用顺序；
+* x86 ``mm/init.c``、 ``mm/init_64.c``、 ``kernel/e820.c`` 与real-mode trampoline reserve；
+* printk dynamic ring、x86 initrd relocate与ACPI table upgrade/initial table manager；
+* x86 vSMP、I/O delay、platform quirk、early ACPI/MADT、MP table与flattened-DT入口；
+* x86/通用NUMA memory-block source、registration与dummy fallback。
+
+另核对QEMU commit ``a759542a2c62f0fd3b65f5a66ad9868201014669`` 的q35 MADT builder：它在
+MADT header写默认LAPIC地址并生成processor/IOAPIC等entries，不生成Local APIC Address Override
+entry。 ``/Volumes/LinuxKernel/{seabios,qemu,grub,linux-7.2-rc1}`` 仍为fixed HEAD、clean、完整、
+非shallow、无active sparse checkout；正文证据固定到object ID。最终 ``.config``、QEMU完整CLI/
+``-cpu``/``-numa``、RAM容量、builtin command line、initramfs内容及runtime addresses未提供，相关
+结果按build/runtime branch记录。
+
+整批成功路径
+------------
+
+``第043章``
+   ``early_alloc_pgt_buf从开放brk取得8或16页 → reserve_brk保护已用range并令_brk_start=0 →
+   cleanup_highmap收紧共享kernel PMDs → E820 RAM/SOFT_RESERVED分别进入memblock memory/reserved →
+   临时标low-1MiB KHO scratch → 条件CoCo/EFI/MPC/BIOS corruption → ordinary realmode reserve在1MiB
+   下分配并reserve完整low 1MiB → init_mem_mapping映射ISA与memblock RAM → load_cr3(init_top_pgt)
+   并flush → 替换early PF/FRED exception入口 → 保存无PCIDE的mmu_cr4_features → memblock limit扩大
+   到get_max_mapped → 条件OHCI → stop before setup_log_buf(1)``。
+
+``第044章``
+   ``setup_log_buf(1)按new_log_buf_len选择no-op或分配text/descs/infos → 复制static records → 发布
+   dynamic prb并补扫NMI-late records → BIOS跳过EFI secure-boot switch → reserve_initrd组合R/N/E →
+   actual PFN coverage选择direct-map fast path或先分配/复制再释放旧range → acpi_table_upgrade条件
+   扫描kernel/firmware/acpi cpio目录 → acpi_boot_table_init执行DMI/disabled guard并定位/reserve
+   initial tables → stop before vsmp_init``。
+
+``第045章``
+   ``vsmp_init在q35 ICH9 ID上返回 → io_delay保留override/build default且q35不命中旧DMI表 →
+   early_platform_quirks只把x86_apple_machine置false → early_acpi_boot_init完成table manager、BOOT、
+   blacklist → early MADT读取header/LAPIC地址且fixed QEMU无address override，设置acpi_lapic与
+   smp_found_config → ordinary PC不是reduced hardware → early MP因acpi_lapic返回 → setup_data=0令
+   DT入口无tree → initmem_init按CONFIG_NUMA尝试SRAT/AMD/条件OF/dummy或直接node0，为actual
+   memblock ranges登记node并online有memory的nodes → stop before dma_contiguous_reserve``。
+
+页表、memblock与地址身份边界
+----------------------------
+
+* pgt buffer必须在 ``reserve_brk`` 前从 ``extend_brk`` 取得；之后 ``_brk_start=0``，通用
+  ``alloc_low_pages`` 源码里的brk fallback不再是本次mapping的可靠第三后备；
+* ``cleanup_highmap`` 清共享lower-level PMDs，但明确global translation回收在后面的CR3 load/TLB
+  flush；
+* E820 RAM、 ``memblock.memory``、 ``memblock.reserved`` 与direct-map PTE presence继续分开；
+* low 1 MiB既reserved又mapped，reserved-in-RAM的kernel/initramfs也仍可mapped；
+* direct map遍历memblock RAM ranges，不把全部 ``[0,max_pfn)`` holes当ordinary WB RAM；ISA range是
+  明确的兼容例外；
+* ``max_pfn/max_low_pfn/max_pfn_mapped/max_low_pfn_mapped`` 分别保留边界语义；
+* active CR3直到 ``load_cr3(swapper_pg_dir)`` 才从 ``early_top_pgt`` 切为 ``init_top_pgt``；
+* memblock current limit只扩到actual ``get_max_mapped()``，不直接扩到physical maximum。
+
+printk、initramfs与ACPI table边界
+-------------------------------
+
+* ``setup_log_buf(1)`` 不设置per-CPU data ready； ``new_log_buf_len==0`` 是合法static-ring路径；
+* dynamic printk需要text、descriptors、infos三块，partial allocation failure按逆序回滚；
+* local IRQ关闭不能排除NMI，所以 ``prb`` 切换后还要补扫旧static ring；
+* 第041章的early initrd reservation只防覆盖；本批才按actual ``pfn_mapped[]`` 建立可持续virtual
+  identity或搬迁；
+* fast path不复制，slow path先成功分配/复制，再free旧 ``[R,PAGE_ALIGN(R+N))``；
+* ``initrd_end`` 使用真实N，physical reserved/check边界使用page-aligned E；
+* ACPI table upgrade只early扫描专用cpio目录，不展开普通rootfs；
+* ``acpi_boot_table_init`` 定位/reserve initial tables，不执行AML、namespace、MADT processor/
+  IOAPIC或SRAT affinity解析。
+
+early APIC与NUMA边界
+-------------------
+
+* fixed ``early_platform_quirks`` 只检测Apple DMI vendor，删除旧稿附加的PCI/HPET/IOMMU工作；
+* ``early_acpi_process_madt`` 只处理MADT header LAPIC address与可选address override；
+* fixed QEMU MADT没有Local APIC Address Override entry，helper返回0后设置
+  ``acpi_lapic/smp_found_config``；这里没有处理Local APIC/x2APIC processor records；
+* early MP parser在ACPI LAPIC有效时返回；fallback ``smp_read_mpc(...,early=true)`` 也只验证并注册
+  LAPIC address，不遍历processor/IOAPIC/interrupt blocks；
+* current ``setup_data=0`` 令 ``initial_dtb=0``，DT入口没有CPU/APIC tree可解析；
+* SRAT可以先保存APIC-ID-to-node affinity与memory-node ranges，但不等于MADT possible CPU topology；
+* ``memblock_set_node`` 改现有memory/reserved ranges的nid，不把holes变成RAM，也不启动buddy；
+* ``numa_init_array`` 是缺失CPU-to-node mapping的round-robin兜底，不证明CPU已发现或online。
+
+发现并修复
+----------
+
+#. 三章从历史6.12.95叙事整章重写为fixed Linux 7.2-rc1，并统一章末四节与fixed links。
+#. 固定043新插入的CoCo RNG、EFI mirror/ESRT/MOK/boot-services、MPC和KHO scratch调用顺序。
+#. 修正 ``reserve_brk`` 后allocator叙事： ``extend_brk`` 已因sentinel封存，不能作为current normal
+   fallback。
+#. 区分high-map PMD cleanup与后续CR3/TLB flush，不制造不存在的立即global flush。
+#. 固定E820 type导入memblock的真实规则，并区分reserved-over-RAM与PTE mapping。
+#. 修正real-mode reserve：size非0时即使allocation失败也reserve low 1MiB并清KHO scratch；当前仅
+   reserve storage，尚未复制trampoline或发送INIT/SIPI。
+#. 固定direct-map范围为ISA加memblock RAM，补充top-down/bottom-up自举、mapped PFN记录与active
+   CR3切换边界。
+#. 修正044旧initramfs文件名为固定 ``/boot/initramfs.img``，删除旧6.12.95 artifact。
+#. 把initrd fast/relocate路径改成actual ``pfn_mapped[]`` 条件，未从未知RAM/builtin command line
+   武断选择fast path。
+#. 补齐printk三块allocation、失败回滚、record metadata migration和NMI-late补扫。
+#. 区分ACPI override cpio scan、initial table reservation与后续full ACPI parsing。
+#. 修正045最大错误：early MADT不枚举CPU条目，early MP也不建立processor topology。
+#. 把 ``early_platform_quirks`` 收紧为fixed source实际Apple布尔判断。
+#. 固定无DTB条件与NUMA source顺序，区分SRAT affinity、CPU topology、node online和buddy可分配。
+#. 记录相邻046旧开头仍继承“045已建CPU topology”的历史错误，留在046—048原子批次修复，不把
+   pending正文误标verified。
+
+失败与未发生
+------------
+
+* pgt buffer/mapped allocation不能满足page-table自举会导致启动失败；本批不假定一个具体RAM数值；
+* CoCo RNG不足会panic，initrd relocation分配或copy失败也会panic；fixed ordinary q35不选择CoCo；
+* printk动态allocation失败安全保留旧static ring，不形成半发布状态；
+* ACPI可被config/effective option/blacklist禁用，initial table locate失败会 ``disable_acpi``；
+* 本批没有full MADT/MP/DT CPU enumeration、IOAPIC/IRQ routing、AP bring-up、zones或buddy init；
+* initramfs未普通unpack，console未正式注册，IF未打开，没有schedule或用户态；
+* 第046章正文仍pending，没有因相邻入口阅读而提升验证状态。
+
+连续性与验证
+------------
+
+* 042出口与043 ``early_alloc_pgt_buf()`` call前一致；
+* 043出口为 ``setup_log_buf(1)`` call前，与044一致；
+* 044出口为 ``vsmp_init()`` call前，与045一致；
+* 045出口为 ``initmem_init()`` 已返回、 ``dma_contiguous_reserve`` call前，与pending 046真实入口一致；
+* 三章不含旧6.12.95或旧initramfs filename；正文均有本章结束状态、关键边界、下一入口、资料；
+* ``tools/check-linux-kernel-track.sh 45``、TOML、 ``git diff --check`` 与旧版本正文guard通过，仅保留
+  既有065/066 duplicate debt；无阻塞；下一批046—048。
