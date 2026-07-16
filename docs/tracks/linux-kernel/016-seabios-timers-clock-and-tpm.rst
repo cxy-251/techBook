@@ -1,5 +1,5 @@
-第十六章：SeaBIOS 怎样建立时间基准、18.2 Hz BIOS 时钟并初始化 TPM？
-====================================================================
+第十六章：SeaBIOS 怎样建立时间基准、18.2 Hz BIOS 时钟并条件初始化 TPM？
+=======================================================================
 
 上一章结束时，``qemu_platform_setup()`` 已经返回。控制流回到：
 
@@ -25,7 +25,8 @@
    配置传统 PIT/RTC，建立 BDA time-of-day counter、IRQ0/IRQ8 和 INT 1Ah 服务。
 
 ``tpm_setup()``
-   条件探测 TPM、初始化 event log，并在 option ROM 扫描前开始 measured boot 记录。
+   先查 TPM2/TCPA event-log 表；固定QEMU默认没有TPM设备，因而本章正常路径在这里
+   返回。只有显式加入TPM的条件分支才继续启动硬件并开始measured boot记录。
 
 “内部计时器”和“BIOS 系统时钟”不是一个东西
 --------------------------------------
@@ -71,14 +72,16 @@ SeaBIOS 同时需要两种时间概念。
 
 运行到当前章节前，已有两个更早机会改变它。
 
-KVM pvclock 可以最先确定 TSC 频率
------------------------------
+KVM 可以最先确定 TSC 频率
+-------------------------
 
-第七章经过的 ``kvmclock_init()`` 在 KVM 路径中可能从 paravirtualized clock 得到稳定 TSC 频率，然后调用：
+较早的 ``kvm_detect()`` 可从KVM CPUID ``base+0x10`` 取得invtsc频率；随后
+``kvmclock_init()`` 也可从带stable bit的paravirtualized clock反推TSC频率。两条路径
+都会调用：
 
 .. code-block:: c
 
-   tsctimer_setfreq(khz, "kvmclock");
+   tsctimer_setfreq(khz, "invtsc" or "kvmclock");
 
 它设置：
 
@@ -110,7 +113,7 @@ ICH9 PM timer 是 q35 的第二选择
 ::
 
    TimerPort = PMBASE + 0x08
-   TimerKHz  ≈ 3579.545 kHz
+   TimerKHz  = 3580 kHz（由3,579,545 Hz向上取整）
 
 PM timer 是递增计数器，底层频率为 3,579,545 Hz。当前实现按 24 位有效值读取：
 
@@ -120,8 +123,8 @@ PM timer 是递增计数器，底层频率为 3,579,545 Hz。当前实现按 24 
 
 24 位计数器会周期性回绕。``timer_adjust_bits()`` 用 ``TimerLast`` 保存扩展高位：当新低位小于上次值时，加上 ``0x01000000``，把多次读取拼成单调递增的 32 位时间轴。
 
-timer_setup 是最后的 TSC 校准机会
--------------------------------
+timer_setup 在固定 q35 路径为什么直接返回
+--------------------------------------
 
 到当前 ``timer_setup()`` 时，函数先检查：
 
@@ -130,18 +133,21 @@ timer_setup 是最后的 TSC 校准机会
    if (TimerPort != PORT_PIT_COUNTER0)
        return;
 
-因此：
+因此在固定q35主线中只有两种实际结果：
 
 * 稳定 KVM TSC 已选中时，不再校准；
-* ICH9 PM timer 已选中时，不再校准；
-* 只有两者都没有建立，才继续检查 CPUID 的 TSC bit。
+* 否则ICH9 LPC初始化已经选中ACPI PM timer，仍不再校准。
 
-如果 CPU 支持 TSC，``tsctimer_setup()`` 临时使用 PIT channel 2 做基准。
+q35的LPC function是当前固定机器不可缺少的南桥功能；默认开启的
+``CONFIG_PMTIMER`` 又使 ``pmtimer_setup(acpi_pm_base + 0x08)`` 能够接管初始哨兵。
+所以到这里 ``TimerPort`` 不会仍是 ``0x40``， ``timer_setup()`` 的CPUID检查与
+``tsctimer_setup()`` 都不在当前执行轨迹上。
 
-PIT channel 2 怎样校准 TSC
--------------------------
+PIT channel 2 校准属于哪条排除分支
+--------------------------------
 
-SeaBIOS 先读取 I/O port ``0x61`` 的原状态，关闭 speaker 输出但打开 timer 2 gate：
+若换成没有提前提供TSC频率、也没有建立PM timer的平台或构建配置，且CPU报告TSC，
+SeaBIOS才会读取I/O port ``0x61`` 的原状态，关闭speaker输出但打开timer 2 gate：
 
 ::
 
@@ -172,28 +178,24 @@ PIT 输入频率约为 1.193182 MHz，所以 2048 个 PIT ticks 大约持续 1.7
 
 估算值可能很大，后续 deadline 计算主要使用 32 位整数。代码因此不断右移频率并增加 ``ShiftTSC``，直到缩放值落入安全范围。读取时再把 TSC 同样右移，时间比例保持一致。
 
-如果 CPU 连 TSC 都不支持，``TimerPort`` 保持 ``0x40``，内部 timer 最终回退为读取 PIT channel 0 当前计数值。
+若这条排除分支中的CPU连TSC也不支持， ``TimerPort`` 才会保持 ``0x40``，内部timer
+回退为读取PIT channel 0。两者解释了通用实现，却不能列入本章固定q35的当前状态。
 
 内部 timer 的选择优先级
 ----------------------
 
-当前控制流可以整理为：
+固定q35控制流应整理为：
 
 ::
 
-   1. 稳定 KVM pvclock 提供的 TSC 频率
+   KVM提供可用invtsc频率或稳定kvmclock
       TimerPort = 0
 
-   2. q35 ICH9 ACPI PM timer
+   否则q35 ICH9 LPC建立ACPI PM timer
       TimerPort = PMBASE + 8
 
-   3. 用 PIT channel 2 校准的 TSC
-      TimerPort = 0
-
-   4. PIT channel 0 fallback
-      TimerPort = 0x40
-
-这里的优先级由“谁先把 ``TimerPort`` 从初始哨兵改掉”实现，不是由一个集中式 switch 表实现。
+选择仍由“谁先把 ``TimerPort`` 从初始哨兵改掉”实现，而不是集中式switch。用PIT
+channel 2校准TSC及PIT channel 0 fallback只是其他平台/配置的后备分支。
 
 timer_calc 和 timer_check 怎样处理回绕
 ----------------------------------
@@ -275,7 +277,11 @@ RTC 每秒会把内部时间更新到可读寄存器。Status A 的 UIP，Update
 
 其中 minute 来自更新前，second 来自更新后。
 
-``rtc_updating()`` 如果看到 UIP 已经清零就立即返回；如果 UIP 为一，则最多等待约 15 ms，期间调用 ``yield()``。超时说明 RTC 没有按预期完成更新。
+``rtc_updating()`` 如果看到UIP已经清零就立即返回；如果UIP为一，则最多等待约15 ms，
+期间调用 ``yield()``。但这里有一个必须保留的错误边界： ``clock_setup()`` 没有检查
+它的返回值。即使等待超时，代码仍会继续分别读取秒、分、时并初始化BDA；只有后续
+``INT 1Ah`` 的部分读服务会把 ``rtc_updating()`` 失败报告给调用者。因此“先等待”不
+等于“只有拿到一致快照才继续”。
 
 RTC 时间怎样变成 BDA tick counter
 -------------------------------
@@ -319,7 +325,11 @@ IRQ0 怎样进入 INT 08h
 
    enable_hwirq(0, FUNC16(entry_08));
 
-第六章已经建立 PIC 映射：master IRQ0 对应 ``INT 08h``。现在解除 IRQ0 屏蔽并把中断向量指向 SeaBIOS handler。
+第六章已经建立PIC映射：master IRQ0对应 ``INT 08h``。现在 ``enable_hwirq`` 先解除
+IRQ0屏蔽，再把中断向量指向SeaBIOS handler。主线程的32位执行环境仍保持IF=0；这里
+建立的是“向量+PIC放行”状态，不表示调用返回前已经执行过一次IRQ0。SeaBIOS以后在
+``yield()``、 ``check_irqs()`` 或16位调用边界短暂允许中断时，pending tick才可进入
+handler。
 
 每次 PIT tick 的路径是：
 
@@ -383,13 +393,15 @@ RTC IRQ8 与 1024 Hz wait service
 
 slave PIC IRQ8 映射到 ``INT 70h``。
 
-RTC periodic interrupt 默认不是无条件一直开启。``rtc_use()`` 用引用计数 ``RTCusers`` 管理 PIE bit：第一个使用者出现时开启，最后一个使用者离开时关闭。
+``rtc_setup()`` 把PIE保持为关闭；安装 ``INT 70h`` 和放行IRQ8也不会自动产生1024 Hz
+中断。 ``rtc_use()`` 用引用计数 ``RTCusers`` 管理PIE bit：第一个使用者出现时开启，
+最后一个使用者离开时关闭。
 
 典型使用者包括：
 
 * INT 15h AH=86 微秒等待；
 * INT 15h AH=83 interval callback；
-* option ROM 执行期间的 SeaBIOS 线程抢占检查。
+* 仅在 ``ThreadControl==2`` 时，option ROM执行期间的SeaBIOS线程抢占检查。
 
 每次 periodic IRQ 约代表：
 
@@ -420,8 +432,8 @@ INT 1Ah 暴露传统时间与日期服务
 
 这套接口是 bootloader 进入操作系统前常见的 BIOS 服务。Linux 启动后会建立自己的 timekeeping、clocksource、clockevent 和 RTC 驱动，不再依赖 BIOS 每秒 18.2 次更新内核时间。
 
-tpm_setup 首先需要 ACPI event log 描述
------------------------------------
+tpm_setup 在固定默认路径停在哪里
+--------------------------------
 
 ``tpm_setup()`` 是条件路径。``CONFIG_TCGBIOS`` 关闭时立即返回。
 
@@ -454,10 +466,19 @@ SeaBIOS 把这块区域清零并初始化：
    last entry
    entry count
 
-没有对应 ACPI 表时，当前 TCG BIOS 流程不会继续。这说明 ACPI 不只服务未来操作系统，SeaBIOS 自己也依赖它取得 TPM log 内存布局。
+固定QEMU只在机器中存在唯一TPM interface时才把 ``tpm_get_version(tpm_find())`` 变成
+有效版本，并据此生成TPM 1.2的TCPA表或TPM 2.0的TPM2表。当前固定条件没有
+``-tpmdev`` 及对应TPM device；QEMU默认也不自动创建TPM。因此正常ACPI图里两张表都
+不存在， ``tpm_tpm2_probe()`` 与 ``tpm_tcpa_probe()`` 都失败， ``tpm_setup()`` 立即
+返回：不访问 ``0xfed40000``，不设置 ``TPM_working``，也不产生PCR extend或event-log
+记录。
 
-TPM 1.2 与 TPM 2.0 使用不同启动序列
---------------------------------
+只有显式加入TPM的条件分支才由ACPI表取得log address/length，清零该区域并继续
+``tpmhw_probe()``。这说明ACPI不只服务未来操作系统，SeaBIOS自己也依赖它取得TPM
+event-log的内存布局；但不能把代码支持写成固定机器已经拥有TPM。
+
+显式 TPM 条件分支的不同启动序列
+-------------------------------
 
 ``tpmhw_probe()`` 探测实际 TPM interface 和版本。
 
@@ -483,7 +504,9 @@ TPM 2.0 路径执行：
 
 Spec ID event 告诉 event log 读取者当前包含哪些 hash algorithm 和 digest size，例如 SHA-1、SHA-256、SHA-384 或 SHA-512。
 
-任何关键命令失败时，SeaBIOS 会把 ``TPM_working`` 清零，停止后续 measurement，而不是让整台虚拟机无法启动。
+启动、自检、PCR bank或Spec ID等关键步骤失败时，SeaBIOS会把 ``TPM_working`` 清零，
+停止后续measurement，而不是让整台虚拟机无法启动。物理存在断言失败本身不是这里
+的致命条件；TPM 1.2路径仍会继续确定timeout并自检。
 
 PCR extend 与 event log 为什么必须同时存在
 -------------------------------------
@@ -514,7 +537,8 @@ Measured boot 对同一事件做两件事。
 SeaBIOS 在 option ROM 扫描前测量什么
 --------------------------------
 
-TPM 启动成功后，SeaBIOS 首先取得已经安装的 SMBIOS structure blob，对它计算 SHA-1，并把 measurement 记录到 PCR 1。
+显式TPM分支启动成功后，SeaBIOS首先取得已经安装的SMBIOS structure blob，对它
+计算SHA-1，并把measurement记录到PCR 1；SMBIOS缺席时这一步直接跳过。
 
 随后加入动作：
 
@@ -542,75 +566,53 @@ Measured Boot 不等于 Secure Boot
 
 两者可以组合，但不能因为出现 TPM/PCR 就把当前 SeaBIOS 路径描述成已经执行 UEFI Secure Boot。
 
-platform_hardware_setup 到这里返回
---------------------------------
+执行完 ``timer_setup() → clock_setup() → tpm_setup()`` 后，
+``platform_hardware_setup()`` 返回 ``maininit()``。本章停在下一次
+``threads_during_optionroms()`` 尚未求值的位置。
 
-执行完：
+本章结束状态
+------------
 
-.. code-block:: c
+* current executor：BSP上的SeaBIOS ``MainThread``，调用点回到 ``maininit()``；
+* CPU/mode：32位保护模式，分页关闭，A20开启，IF=0，CMOS NMI仍被每次RTC访问保持屏蔽；
+* internal timer：若KVM先提供可用频率则 ``TimerPort=0`` 并读取缩放TSC，否则
+  ``TimerPort=acpi_pm_base+8`` 并读取24位ICH9 PM timer；
+* PIT channel 0：binary mode 2、divisor 65536，约18.2 Hz；
+* BDA ``timer_counter``：已由一次RTC秒/分/时读取换算并对 ``TICKS_PER_DAY`` 取模；
+* RTC UIP timeout：即使发生也未阻止上述读取，当前没有可据此宣称快照必然一致；
+* IRQ0/INT 08h：IVT入口已安装，master PIC的IRQ0已解除屏蔽；
+* IRQ8/INT 70h：IVT入口已安装，slave PIC的IRQ8已解除屏蔽； ``RTCusers=0``，PIE仍关闭；
+* fixed default TPM：不存在TPM2/TCPA表， ``tpm_setup()`` 已返回，
+  ``TPM_working=0``，没有event log、PCR extend或“Start Option ROM Scan”记录；
+* 显式TPM条件分支：只有同时存在有效ACPI log表、TPM interface且startup成功时，才已
+  测量条件存在的SMBIOS并向PCR 2加入option-ROM扫描动作；
+* VGA Option ROM、USB/PS2、block driver与普通Option ROM：尚未进入本轮初始化；
+* next entry： ``threads_during_optionroms()``。
 
-   timer_setup();
-   clock_setup();
-   tpm_setup();
+关键边界
+--------
 
-``platform_hardware_setup()`` 返回 ``maininit()``。
+#. 固定q35在当前入口前已经由KVM频率或ICH9 PM timer结束 ``TimerPort=0x40`` 哨兵；
+   PIT校准TSC与PIT内部timer fallback不是本章当前轨迹。
+#. internal deadline timer与PIT IRQ0/BDA 18.2 Hz时钟是两套用途不同的机制。
+#. ``clock_setup()`` 忽略 ``rtc_updating()`` 的失败返回，不能保证初始化读取是原子RTC快照。
+#. ``enable_hwirq`` 建立IVT并解除PIC屏蔽；MainThread保持IF=0，调用本身不等于handler已运行。
+#. RTC IRQ8已可路由不等于periodic interrupt已开启；PIE由 ``RTCusers`` 的首尾引用控制。
+#. 固定QEMU默认无TPM；TPM启动、PCR和event log只能保留为显式设备条件分支。
+#. TPM测量记录实际执行链，但不在这里形成UEFI Secure Boot执行许可机制。
 
-第十六章结束时的机器状态
-----------------------
+下一入口
+--------
 
-控制权目前走过：
-
-::
-
-   platform_hardware_setup()
-   → qemu_platform_setup() 返回
-   → timer_setup()
-   → 选择 KVM TSC / PM timer / calibrated TSC / PIT fallback
-   → clock_setup()
-   → PIT channel 0 mode 2, divisor 65536
-   → RTC 初始化与 UIP 等待
-   → RTC BCD time 转换为 BDA timer_counter
-   → IRQ0 → INT 08h
-   → 条件 IRQ8 → INT 70h
-   → tpm_setup()
-   → 条件 TPM2/TCPA event log
-   → 条件 TPM startup/self-test/PCR bank 初始化
-   → 测量 SMBIOS
-   → 记录 Start Option ROM Scan
-   → platform_hardware_setup() 返回
-
-此刻：
-
-* 当前执行者：SeaBIOS ``maininit()``；
-* 当前主流程 CPU：BSP；
-* 模式：32 位保护模式；
-* 分页：关闭；
-* SeaBIOS 内部 deadline timer：已经选定；
-* PIT channel 0：已配置为约 18.2 Hz；
-* BDA ``timer_counter``：已按 RTC 当前时间初始化；
-* IRQ0 / INT 08h：已经启用；
-* INT 1Ch：可作为用户 tick hook；
-* RTC / INT 1Ah 时间日期服务：已经建立；
-* 条件 RTC IRQ8 / INT 70h：已经建立；
-* 条件 TPM：已启动并建立 event log；
-* 条件 measured boot：已测量 SMBIOS 并标记 option ROM scan 起点；
-* USB、PS/2、ATA/AHCI/NVMe 与普通 virtio-pci 驱动：尚未完成 ``device_hardware_setup()``；
-* VGA Option ROM：尚未执行；
-* 普通 option ROM：尚未扫描；
-* ``BootList``：尚未形成最终启动设备集合；
-* GRUB：尚未被读取或执行；
-* Linux：尚未装入内存。
-
-``maininit()`` 接下来检查：
+``maininit()`` 接下来求值：
 
 .. code-block:: c
 
    if (threads_during_optionroms())
        device_hardware_setup();
 
-   vgarom_setup();
-
-后续控制流会根据 ``ThreadControl`` 决定设备探测是与 option ROM 执行交错进行，还是在 VGA ROM 之后同步完成。下一章将先确认这个条件，然后进入 USB、PS/2 和 block driver 的实际设备发现阶段。
+固定QEMU没有发布 ``etc/threads``，所以 ``ThreadControl=1``、条件为false，提前的设备
+初始化被跳过；下一章继续进入 ``vgarom_setup()``，而不是直接进入USB或block driver。
 
 资料
 ----
@@ -623,5 +625,7 @@ platform_hardware_setup 到这里返回
 * `SeaBIOS src/stacks.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/stacks.c>`_；
 * `SeaBIOS src/tcgbios.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/tcgbios.c>`_；
 * `SeaBIOS src/hw/tpm_drivers.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/tpm_drivers.c>`_；
+* `QEMU hw/i386/acpi-build.c <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/acpi-build.c>`_；
+* `QEMU include/system/tpm.h <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/include/system/tpm.h>`_；
 * `TCG PC Client Platform Firmware Profile Specification <https://trustedcomputinggroup.org/resource/pc-client-specific-platform-firmware-profile-specification/>`_；
 * `ACPI Specification <https://uefi.org/specifications>`_。

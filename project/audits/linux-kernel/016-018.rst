@@ -1,0 +1,244 @@
+第016—018章回溯审查报告
+========================
+
+批次状态
+--------
+
+::
+
+   mode             = retrospective-audit
+   batch            = 016-018
+   status           = repaired
+   verified_through = 018
+   next_batch       = 019-021
+   blocked          = none
+
+审查范围
+--------
+
+* ``016-seabios-timers-clock-and-tpm.rst``；
+* ``017-seabios-vga-option-rom-and-console.rst``；
+* ``018-seabios-usb-and-ps2-input.rst``；
+* 上一边界：第015章结束 ``qemu_platform_setup()``，随后固定QEMU路径中的
+  ``coreboot_platform_setup()`` 不接管主线，下一入口是 ``timer_setup()``；
+* 下一边界：第019章从 ``device_hardware_setup()`` 内的 ``block_setup()`` 开始。
+
+固定源码
+--------
+
+::
+
+   SeaBIOS repository = coreboot/seabios
+   SeaBIOS commit     = c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
+   SeaBIOS target     = unmodified defaults for QEMU target
+   QEMU repository    = qemu/qemu
+   QEMU commit        = a759542a2c62f0fd3b65f5a66ad9868201014669
+   QEMU machine       = q35 alias at fixed commit (pc-q35-11.1)
+
+本批关键符号包括 ``timer_setup``、 ``clock_setup``、 ``tpm_setup``、
+``vgarom_setup``、 ``sercon_setup``、 ``enable_vga_console``、 ``usb_setup`` 和
+``ps2port_setup``。
+
+批次开始状态
+------------
+
+当前执行者是BSP上的SeaBIOS ``MainThread``，CPU处于32位保护模式，分页关闭、A20
+开启、IF=0，CMOS NMI保持屏蔽。PIC只放行master IRQ2与slave IRQ13。固定条件没有
+``-smp`` 数量约束：无override时只有BSP，显式多CPU时AP仍停在IF=0的HLT循环。
+``qemu_platform_setup()`` 已返回，完整ACPI表图位于HIGH/FSEG，SeaBIOS只缓存了FADT的
+32位DSDT入口所能解析的有限device摘要；固定磁盘仍是ICH9 AHCI SATA port 0，尚未进入
+block driver。
+
+证据账本
+--------
+
+q35内部timer的已决选择
+   ``TimerPort`` 初始以PIT channel 0的 ``0x40`` 作为哨兵。KVM的invtsc leaf或稳定
+   kvmclock可较早通过 ``tsctimer_setfreq`` 把它改成0；否则q35 ICH9 LPC初始化必经的
+   ``pmtimer_setup(acpi_pm_base+8)`` 在默认 ``CONFIG_PMTIMER=y`` 下接管哨兵。于是当前
+   ``timer_setup()`` 必因 ``TimerPort != 0x40`` 返回。PIT channel 2校准TSC与PIT
+   channel 0 fallback只是其他平台/配置分支，不能构成固定q35的四级当前选择。
+
+PIT、RTC与中断发布
+   ``clock_setup()`` 独立地把PIT channel 0设成binary mode 2、count 65536，形成约
+   18.2 Hz的legacy IRQ0/BDA时钟；它不改变internal deadline timer。 ``rtc_setup()``
+   设置Status A 0x26，并把Status B收敛为保留DSE、强制24小时制、其余bit清零，故PIE
+   初始关闭。 ``clock_setup()`` 调用 ``rtc_updating()`` 却忽略返回值，即使15 ms超时
+   仍分别读取秒/分/时并写BDA，不能宣称必得原子RTC快照。
+
+   ``enable_hwirq(0/8)`` 解除PIC屏蔽并安装IVT入口；MainThread仍保持IF=0。IRQ8已可
+   路由也不等于1024 Hz periodic IRQ已启动，后者要由 ``RTCusers`` 首引用设置PIE。
+   以后 ``yield/check_irqs`` 或16位调用帧暂时开IF时，pending IRQ才可能进入handler。
+
+TPM固定缺席与条件分支
+   固定QEMU默认不创建TPM interface。 ``acpi_get_misc_info()`` 因
+   ``tpm_find()==NULL`` 得到 ``TPM_VERSION_UNSPEC``，不生成TPM2/TCPA表。SeaBIOS默认虽
+   有 ``CONFIG_TCGBIOS=y``， ``tpm_setup()`` 仍在两个log-table probe都失败后返回，
+   不访问TPM MMIO、不设置 ``TPM_working``、不测SMBIOS，也不写“Start Option ROM
+   Scan”。只有显式 ``-tpmdev`` 加TPM device的条件分支才取得log buffer、探测TIS/CRB、
+   运行1.2或2.0 startup/self-test并开始PCR/event-log记录。
+
+线程策略与VGA前置顺序
+   ``thread_setup()`` 从不存在的 ``etc/threads`` 取得默认1；固定QEMU源码没有发布该
+   fw_cfg文件。因此 ``threads_during_optionroms()`` 为false， ``maininit()`` 跳过
+   VGA之前的 ``device_hardware_setup()``。这不关闭普通 ``run_thread``：它只禁止
+   device worker跨16位Option ROM阶段运行。
+
+默认display与失败边界
+   q35 class设置 ``default_display="std"``，通用MachineState默认
+   ``enable_graphics=true``；无 ``-nographic``、 ``-vga none`` 或显式display覆盖时，
+   QEMU创建standard VGA。 ``-display none`` 只关闭frontend，不必然删除guest VGA。
+   ``vgarom_setup()`` 清空低端ROM shadow，筛选legacy decode有效的PCI VGA，从同名
+   romfile或临时开启的PCI ROM BAR取得匹配x86 image，再验证signature、size与checksum。
+
+ROM执行、测量与返回
+   ``init_optionrom()`` 先reserve/copy，调用 ``tpm_option_rom``，再对VGA或PnP ROM执行
+   segment:0003。固定无TPM路径的measurement调用是no-op。 ``__callrom`` 构造IF=1的
+   16位寄存器帧，通过 ``farcall16big`` 调用；默认不启动RTC preemption，但
+   ``finish_preempt()`` 仍yield一次并让MainThread通过 ``check_irqs`` 短暂开IF。
+
+   ``vgarom_setup``、 ``init_pcirom`` 和 ``enable_vga_console`` 都不把VGA成功状态返回
+   ``maininit``。后者无条件发 ``INT 10h AX=0003``，不检查返回，再打印banner/UUID；
+   若IVT 0x10仍是占位 ``entry_10``， ``screenc()`` 静默丢弃screen字符，POST仍继续。
+   默认没有 ``etc/sercon-port``， ``sercon_setup`` 不改vector；显式配置时才建立primary
+   或split wrapper。
+
+固定QEMU的USB总门
+   ``MachineState`` 零初始化后 ``usb=false``；固定 ``machine_initfn`` 没有改为true，
+   q35的 ``default_machine_opts`` 也只有firmware。只有 ``-usb``、 ``-usbdevice`` 或
+   ``-machine usb=on`` 把machine property设为on。当前无override固定路径因此跳过
+   ``ehci_create_ich9_with_companions``， ``PCIDevices`` 没有ICH9 USB function；
+   ``usb_setup`` 的XHCI/EHCI/UHCI/OHCI扫描全空，不创建controller或port worker，也没有
+   USB HID/MSC对象或USB启动项。
+
+显式USB条件拓扑
+   若打开machine USB，q35在00:1d.7创建一个六port ICH9 EHCI，在00:1d.0/1/2创建三个
+   两port UHCI companion，并用firstport 0/2/4共享同一组port。SeaBIOS先启动EHCI，
+   ``PendingEHCI`` 归零后UHCI worker才枚举root port；每个port worker在controller
+   ``resetlock`` 下完成reset结束、default address与SET_ADDRESS敏感区。首个
+   configuration只挑hub、受支持MSC/UAS或boot-subclass HID。无受支持设备时controller
+   停止并释放；命中时保留仍使用的controller/schedule/pipe，并非统一“搬到永久区”。
+
+固定i8042与PS/2 worker
+   ``PCMachineState.i8042_enabled`` 默认true，QEMU创建ISA i8042；其AML发布
+   ``PNP0303``、 ``_STA=0x0f``、I/O 0x60/0x64与IRQ1。SeaBIOS的presence gate明确命中，
+   先安装/放行IRQ1→INT 09h与IRQ12→INT 74h，再 ``run_thread(ps2_keyboard_setup)``。
+   worker依次flush、disable两port、controller self-test 0x55、keyboard interface test
+   0x00、keyboard reset/BAT 0xaa、disable scanning、选择set 2、设置i8042 translation与
+   keyboard IRQ、重新enable scanning。任一步失败只结束该worker，不终止POST；IRQ12
+   已路由也不表示aux/mouse已启用。
+
+整批控制流与交接
+----------------
+
+``第016章``
+   ``coreboot_platform_setup()`` 在固定QEMU路径不接管； ``timer_setup`` 直接消费早已
+   确定的TSC/PM timer结果， ``clock_setup`` 建立PIT/BDA/RTC/IVT/PIC状态，默认
+   ``tpm_setup`` 因无TPM2/TCPA表返回。章节停在 ``maininit`` 即将第一次调用
+   ``threads_during_optionroms()``。
+
+``第017章``
+   默认条件求值为false，跳过提前设备初始化； ``vgarom_setup → sercon_setup →
+   enable_vga_console`` 完成正常standard-VGA分支，同时保留ROM/INT 10h失败不传播的
+   出口。章节停在第二次 ``threads_during_optionroms()`` 判断前。
+
+``第018章``
+   第二次条件使 ``device_hardware_setup`` 开始。固定 ``usb_setup`` 四类扫描为空；
+   ``ps2port_setup`` 命中QEMU AML，安装IRQ1/12并启动PS/2 worker。章节停在紧邻的
+   ``block_setup()`` 调用前，尚未执行 ``wait_threads``。
+
+执行上下文与对象账本
+--------------------
+
+* BSP/MainThread是三章主控制流；32位路径保持IF=0。VGA ROM和INT 10h的16位寄存器帧
+  使用IF=1， ``finish_preempt/yield`` 返回MainThread时通过 ``check_irqs`` 短暂开IF。
+* 固定条件无TPM对象、event log或PCR状态；显式TPM分支的log位于QEMU ACPI分配blob，
+  TIS/CRB driver state与 ``TPM_working`` 只在table和hardware均成功时存在。
+* normal standard-VGA ROM被确认在从0xc0000开始的shadow区；失败image不推进
+  ``RomEnd``。PCI ROM BAR在复制后恢复；低端resident size以ROM返回后的size确认。
+* 固定路径无USB controller、schedule、port thread、HID pipe或USB drive。显式USB分支
+  的controller bookkeeping、DMA schedule、low/FSEG pipe分属不同zone与生命期。
+* 固定i8042硬件/AML存在。IRQ1/12的IVT与PIC状态在PS/2 worker之前发布；
+  ``Ps2ctr`` 只有worker成功完成后才成为aux disabled、translation与keyboard IRQ开启。
+* 章节终点可能仍有PS/2 worker；MainThread尚未等待它。AHCI block worker将在下一章
+  加入同一协作线程集合， ``wait_threads`` 位于完整 ``device_hardware_setup`` 之后。
+
+发现并修复
+----------
+
+第016章
+   原文把calibrated TSC与PIT fallback列入固定q35四级当前选择，现已证明它们被先前的
+   KVM/ICH9 PM timer排除。补上 ``rtc_updating`` 返回被忽略、IRQ发布不等于已投递、
+   IRQ8路由不等于PIE开启。最重要的修复是把默认TPM启动/测量改为无TPM表直接返回，
+   并把TPM 1.2/2.0内容明确降为显式设备条件分支。
+
+第017章
+   原文把standard VGA、ROM验证/测量、INT 10h接管与屏幕可用全部写成无条件成功。
+   现已拆出graphics override、ROM失败与vector未接管出口；固定无TPM时Option ROM测量
+   是no-op， ``enable_vga_console`` 也不验证mode 3结果。补齐ROM/INT 10h返回后的
+   yield与MainThread IF边界。
+
+第018章
+   原文最大错误是把 ``pc_q35_init`` 的 ``if (machine_usb(machine))`` 条件展开成默认
+   EHCI/UHCI必然存在。固定源码证明machine USB默认false，正文已改为扫描全空的当前
+   路径，并把完整USB枚举保留为 ``usb=on`` 条件分支。i8042则从“通常存在”收紧为
+   QEMU默认device与 ``PNP0303/_STA=0x0f`` 的确定命中；同时撤销controller state统一
+   搬迁的错误描述，区分IRQ12已路由与mouse仍disabled。
+
+三章
+   原有“第十六/十七/十八章结束时的机器状态”已统一成合同要求的
+   ``本章结束状态 → 关键边界 → 下一入口 → 资料``，每章只保留一个精确终点。
+
+连续性检查
+----------
+
+``015 → 016``
+   第015章结束 ``qemu_platform_setup()``；第016章从同一
+   ``platform_hardware_setup`` 调用点继续 ``coreboot_platform_setup → timer_setup``，
+   没有重复ACPI解析或提前设备驱动。
+
+``016 → 017``
+   第016章停在 ``threads_during_optionroms()`` 前；第017章先固定返回false，再进入紧邻
+   ``vgarom_setup``。PIT/RTC/TPM终态与VGA前置顺序无断裂。
+
+``017 → 018``
+   第017章停在第二次thread-policy判断；第018章从成立的
+   ``if (!threads_during_optionroms())`` 进入 ``device_hardware_setup``，没有提前扫描普通
+   Option ROM。
+
+``018 → 019``
+   第018章完成 ``usb_setup`` 与 ``ps2port_setup`` 后停在下一条 ``block_setup``；
+   第019章既有开头从同一调用进入q35 AHCI，PS/2 worker未必完成、 ``wait_threads`` 尚未
+   执行，两侧状态一致。
+
+验证
+----
+
+* ``tools/check-linux-kernel-track.sh 18``：通过001—018结构检查；
+* 016—018均且仅有一次“本章结束状态—关键边界—下一入口—资料”，顺序正确；
+* SeaBIOS与QEMU缓存HEAD分别等于合同固定commit，缓存worktree无源码改动；
+* ``git diff --check``：通过；
+* 全局重复文件警告仍只有第065、066章，未越过顺序游标处理；
+* 本批无技术阻塞，下一顺序批次为019—021。
+
+资料
+----
+
+* `SeaBIOS固定提交：平台与设备调用顺序 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/post.c#L125-L222>`_；
+* `SeaBIOS固定提交：internal timer与PIT <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/timer.c#L1-L278>`_；
+* `SeaBIOS固定提交：BDA clock与IRQ handler <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/clock.c#L1-L377>`_；
+* `SeaBIOS固定提交：RTC setup与PIE引用 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/rtc.c#L1-L98>`_；
+* `SeaBIOS固定提交：TPM setup <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/tcgbios.c#L1040-L1262>`_；
+* `SeaBIOS固定提交：Option ROM与VGA <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/optionroms.c#L1-L499>`_；
+* `SeaBIOS固定提交：线程切换与ROM preemption <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/stacks.c#L470-L733>`_；
+* `SeaBIOS固定提交：USB总入口与枚举 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/usb.c#L180-L513>`_；
+* `SeaBIOS固定提交：EHCI <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/usb-ehci.c#L1-L345>`_；
+* `SeaBIOS固定提交：UHCI <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/usb-uhci.c#L1-L273>`_；
+* `SeaBIOS固定提交：PS/2 setup <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/ps2port.c#L19-L548>`_；
+* `QEMU固定提交：q35 USB拓扑 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/pc_q35.c#L78-L127>`_；
+* `QEMU固定提交：q35 machine USB总门 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/pc_q35.c#L286-L308>`_；
+* `QEMU固定提交：q35 display与machine默认项 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/pc_q35.c#L355-L367>`_；
+* `QEMU固定提交：MachineState初始化 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/core/machine.c#L1224-L1242>`_；
+* `QEMU固定提交：命令行开启machine USB <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/system/vl.c#L3435-L3461>`_；
+* `QEMU固定提交：i8042创建与AML <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/input/pckbd.c#L895-L952>`_；
+* `QEMU固定提交：TPM ACPI表条件 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/acpi-build.c#L2098-L2127>`_。

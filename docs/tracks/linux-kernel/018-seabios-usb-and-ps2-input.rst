@@ -1,5 +1,5 @@
-第十八章：SeaBIOS 怎样枚举 USB 设备并初始化 PS/2 键盘？
-========================================================
+第十八章：SeaBIOS 怎样扫描条件 USB 控制器并初始化 PS/2 键盘？
+============================================================
 
 上一章已经确认，当前固定 QEMU q35 默认路径中：
 
@@ -40,7 +40,7 @@ VGA Option ROM 和文字控制台建立以后，``maininit()`` 进入：
 ::
 
    main thread 调用 usb_setup()
-   → USB controller thread 开始运行并在等待时 yield
+   → 条件USB controller thread开始运行并在等待时yield
    → main thread 继续 ps2port_setup()
    → PS/2 keyboard thread 开始运行并在等待时 yield
    → main thread 即将进入 block_setup()
@@ -48,11 +48,29 @@ VGA Option ROM 和文字控制台建立以后，``maininit()`` 进入：
    → device_hardware_setup() 返回后 wait_threads() 统一收尾
 
 “同步路径”指这些任务不会跨过 VGA Option ROM 阶段并行运行；它们在当前设备初始化阶段内部仍然可以协作并发。
+其中USB controller与port worker都受机器是否真的提供controller约束；固定无override
+路径的 ``usb_setup()`` 不创建这些线程，当前实际启动的第一个设备worker来自PS/2。
 
-q35 默认创建怎样的 USB 控制器
--------------------------
+固定 QEMU 默认为什么没有 USB controller
+-------------------------------------
 
-固定 QEMU ``pc_q35_init()`` 在 USB 启用时调用：
+``MachineState`` 由QOM零初始化；固定提交的 ``machine_initfn()`` 没有把 ``usb`` 改成
+true，q35的 ``default_machine_opts`` 也只有 ``firmware=bios-256k.bin``。只有命令行
+``-usb``、 ``-usbdevice`` 或 ``-machine usb=on`` 等显式设置才会令：
+
+::
+
+   machine_usb(machine) = true
+
+当前固定条件没有这项设置。因此无override正常路径中 ``pc_q35_init()`` 跳过下面的
+创建调用， ``PCIDevices`` 没有ICH9 EHCI/UHCI function。 ``usb_setup()`` 仍按顺序调用
+四类setup函数，但它们扫描不到controller，不创建worker，也不可能发现USB HID或
+mass-storage device。
+
+显式打开 machine USB 时的 q35 拓扑
+---------------------------------
+
+显式启用USB时，固定QEMU ``pc_q35_init()`` 才调用：
 
 .. code-block:: c
 
@@ -67,7 +85,8 @@ q35 默认创建怎样的 USB 控制器
    00:1d.1  ICH9 UHCI companion 2
    00:1d.2  ICH9 UHCI companion 3
 
-具体 BDF 仍会受总线拓扑和机器配置影响，上面是没有额外 bridge 改写默认根总线布局时的典型结果。
+这些function由机器代码固定放在root bus的slot ``0x1d``，BDF就是上列值；额外添加的
+其他USB controller可以位于别处，但不会改写这组内建function的devfn。
 
 这组控制器不是四套互不相关的 USB 端口。EHCI 负责 USB 2.0 high-speed 事务，三个 UHCI companion 负责同一组物理端口上的 low-speed/full-speed 设备。
 
@@ -93,7 +112,8 @@ SeaBIOS 执行：
    uhci_setup();
    ohci_setup();
 
-当前默认 q35 重点是 EHCI + UHCI；XHCI 和 OHCI 扫描通常找不到匹配 function，除非虚拟机另外添加对应控制器。
+固定无override路径四次扫描都为空。若启用q35 machine USB，内建命中的是EHCI+UHCI；
+XHCI和OHCI仍要另外添加对应controller才会命中。
 
 EHCI 必须早于 UHCI 的原因不是“新协议优先”。真正原因是 companion routing。
 
@@ -343,12 +363,14 @@ Bulk-Only mass-storage driver 找到 bulk-IN 和 bulk-OUT endpoint，读取最�
 
 因此如果虚拟机挂有 USB U 盘或 USB 光驱，启动设备候选可以在通用 ``block_setup()`` 调用前就出现。
 
-这不表示默认 q35 一定挂载 USB 存储；默认创建的是 controller，具体 USB devices 由虚拟机配置决定。
+这只适用于同时显式启用controller并挂载USB存储的配置；固定无override q35既没有这组
+controller，也没有条件USB drive，所以在 ``block_setup()`` 前不会出现USB启动项。
 
 UHCI 为什么必须等待 EHCI
 ---------------------
 
-q35 的三个 UHCI function 各自使用 PCI I/O BAR4。SeaBIOS 为每个 controller：
+显式启用machine USB时，q35的三个UHCI function各自使用PCI I/O BAR4。SeaBIOS为每个
+controller：
 
 * 开启 I/O decode 和 bus master；
 * 清理 legacy PIRQ/SMI 状态；
@@ -377,7 +399,11 @@ SeaBIOS 对 EHCI/UHCI 的策略不是“只要发现 controller 就永远保持�
 * 临时 frame list、queue head、pipe 被释放；
 * 不保留无意义的轮询状态。
 
-如果找到键盘、鼠标或存储，必要的 pipe 和 controller state 会搬到可跨 POST 保留的区域，供后续 16 位 BIOS 服务继续访问。
+如果找到受支持设备，配置函数直接保留仍在使用的controller、schedule与pipe；它只把
+已经进入controller freelist的临时pipe摘链并释放，并不存在一个把整套controller
+state“搬迁到永久区”的统一步骤。EHCI/UHCI controller bookkeeping最初来自
+``ZoneTmpHigh``，DMA schedule来自 ``ZoneHigh``，HID pipe/data等需要16位访问的对象则
+按driver分配在low/FSEG可达区域；这些对象的分区与生命期不能合并成一个“已搬家”结论。
 
 i8042 是否存在先由 ACPI 提示
 -------------------------
@@ -398,7 +424,10 @@ i8042 是否存在先由 ACPI 提示
 
 返回值为明确不存在时，SeaBIOS 跳过 PS/2 初始化。这防止固件对没有 i8042 的平台盲目访问 ``0x60/0x64``。
 
-如果 DSDT 表示存在，或解析结果无法确定，SeaBIOS 继续传统探测。当前 q35 PC 兼容路径通常提供 i8042。
+如果DSDT表示存在，或解析结果无法确定，SeaBIOS继续传统探测。固定QEMU的
+``PCMachineState.i8042_enabled`` 默认true； ``pc_superio_init()`` 创建ISA i8042，设备
+自己的AML builder发布 ``PNP0303``、 ``_STA=0x0f``、I/O ``0x60/0x64`` 与IRQ1。因此
+当前正常ACPI解析结果明确为present，而不是仅靠“未知时也尝试”的fallback。
 
 PS/2 data port 与 status/command port
 ---------------------------------
@@ -554,64 +583,66 @@ IRQ1 到 INT 16h 之间还隔着哪些步骤
 
 执行到 ``ps2port_setup()`` 返回时：
 
-* EHCI/UHCI controller threads 可能仍在枚举端口；
-* USB hub 子端口线程可能仍在运行；
-* USB mass-storage LUN 可能正在执行 SCSI inquiry；
 * PS/2 keyboard thread 可能正在等待 BAT；
-* USB keyboard 或 PS/2 keyboard 任一方都可能先完成。
+* 固定无override路径没有USB worker、hub port、HID pipe或USB SCSI inquiry；
+* 只有显式启用machine USB且挂载相应设备时，EHCI/UHCI、hub、HID或MSC worker才可能
+  与PS/2 thread交错推进。
 
 主线程不会立刻在这里调用 ``wait_threads()``。它继续进入 ``block_setup()``，把 SATA、virtio、NVMe 等探测任务也加入同一个协作式执行集合，最后统一等待。
 
-第十八章结束时的机器状态
-----------------------
+本章结束状态
+------------
 
-控制权目前走过：
+* current executor：BSP上的SeaBIOS ``MainThread``，位于
+  ``device_hardware_setup()`` 内、 ``ps2port_setup()`` 返回之后；
+* CPU/mode：32位保护模式，分页关闭，A20开启，MainThread IF=0；
+* thread policy： ``ThreadControl=1`` 仍允许普通 ``run_thread`` 协作worker，只禁止它们
+  跨Option ROM阶段运行；
+* fixed default USB topology： ``machine_usb=false``，没有ICH9 EHCI/UHCI function；
+* fixed default USB runtime：四类controller扫描均为空，没有USB schedule、port thread、
+  HID pipe、USB drive或USB ``BootList`` entry；
+* explicit ``usb=on`` branch：才可能存在一个00:1d.7 EHCI、三个UHCI companion及其条件
+  hub/HID/MSC/UAS对象；这些对象的完成状态要等worker各自返回和后续 ``wait_threads``；
+* fixed i8042：QEMU ISA device存在，DSDT ``PNP0303`` 的 ``_STA=0x0f`` 已让presence gate
+  通过；
+* IRQ1/INT 09h与IRQ12/INT 74h：IVT入口已安装，PIC line已解除屏蔽；MainThread仍IF=0；
+* ``Ps2ctr``：初始化worker完成前可能仍是keyboard/aux均disabled；成功完成后为aux
+  disabled、set-2 translation enabled、keyboard IRQ enabled；
+* PS/2 keyboard worker：可能停在协作式yield/ACK/BAT等待，也可能已经成功或非致命失败；
+* q35内置AHCI：PCI function与BAR已在早期存在，SeaBIOS block driver尚未进入；
+* ``BootList``：固定路径没有USB条目，最终集合尚未形成；
+* next entry： ``block_setup()``。
 
-::
+关键边界
+--------
 
-   maininit()
-   → default synchronous device_hardware_setup()
-   → usb_setup()
-   → xHCI conditional scan
-   → EHCI controller setup
-   → EHCI reset / schedules / port ownership
-   → UHCI companion setup after EHCI routing
-   → per-port USB threads
-   → address 0 / SET_ADDRESS / descriptors
-   → hub / MSC / UAS / HID boot class dispatch
-   → ps2port_setup()
-   → DSDT PNP0303 presence check
-   → IRQ1 / INT09h and IRQ12 / INT74h
-   → PS/2 keyboard thread
-   → controller test / keyboard BAT / scan set 2 / translation
-   → 即将调用 block_setup()
+#. ``usb_setup`` 的调用是无条件的，controller与设备的存在不是；固定QEMU默认
+   ``machine_usb=false``。
+#. 显式启用q35 USB时，一个EHCI与三个UHCI共享六个port；UHCI只在
+   ``PendingEHCI`` 归零后枚举root port。
+#. ``resetlock`` 串行化同一controller上从reset完成到default-address/SET_ADDRESS的
+   敏感区，避免多个设备同时占用address 0。
+#. SeaBIOS只在第一configuration中选择hub、受支持MSC/UAS或boot-subclass HID interface。
+#. 条件USB keyboard与PS/2 keyboard最终都调用 ``process_key``，但固定路径此刻只有PS/2
+   来源。
+#. ``ps2port_setup`` 先安装并放行IRQ1/IRQ12，再启动keyboard worker；IRQ12可路由不等于
+   mouse已启用， ``Ps2ctr`` 仍保持aux disabled。
+#. i8042 controller self-test ``0x55``、keyboard interface test ``0x00`` 与keyboard BAT
+   ``0xaa`` 是三个不同边界。
+#. 本章没有调用 ``wait_threads``；worker完成不能由setup函数已经返回推导。
 
-此刻：
+下一入口
+--------
 
-* 当前主流程执行者：SeaBIOS ``device_hardware_setup()``；
-* 主流程 CPU：BSP；
-* 模式：32 位保护模式；
-* 分页：关闭；
-* q35 EHCI/UHCI controllers：已发现并启动配置线程；
-* USB ports：正在或已经完成枚举；
-* USB HID：条件建立 boot keyboard/mouse pipe；
-* USB mass storage：条件建立 SCSI-backed drive 并加入启动候选；
-* i8042 IRQ1/IRQ12：已经接通；
-* PS/2 keyboard：正在或已经完成 BAT、scan set 和 IRQ 配置；
-* USB 与 PS/2 键盘：最终汇合到 ``process_key()``、BDA ring 和 ``INT 16h``；
-* q35 内置 AHCI controller：PCI 层已存在，但 SeaBIOS AHCI driver 尚未开始本轮探测；
-* 普通非 VGA Option ROM：尚未扫描；
-* ``BootList``：可能已有 USB 条件设备，尚未形成最终集合；
-* GRUB：尚未被读取或执行；
-* Linux：尚未装入内存。
-
-``device_hardware_setup()`` 的下一条调用是：
+``device_hardware_setup()`` 的下一条语句是：
 
 .. code-block:: c
 
    block_setup();
 
-下一章将固定启动磁盘走 q35 内置 ICH9 AHCI SATA 路径，逐步追踪 HBA reset、BAR5、command list/FIS、port link、IDENTIFY、LBA 容量、transfer mode、``boot_add_hd()`` 和 ``wait_threads()``。
+下一章从该调用开始，固定启动磁盘进入q35 ICH9 AHCI SATA port 0；PS/2 worker可在block
+探测发生等待时继续运行，统一的 ``wait_threads()`` 仍要等整个
+``device_hardware_setup()`` 返回后才执行。
 
 资料
 ----
@@ -626,6 +657,9 @@ IRQ1 到 INT 16h 之间还隔着哪些步骤
 * `SeaBIOS src/kbd.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/kbd.c>`_；
 * `SeaBIOS src/stacks.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/stacks.c>`_；
 * `QEMU hw/i386/pc_q35.c <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/pc_q35.c>`_；
+* `QEMU hw/core/machine.c <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/core/machine.c>`_；
+* `QEMU system/vl.c <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/system/vl.c>`_；
+* `QEMU hw/input/pckbd.c <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/input/pckbd.c>`_；
 * `USB 2.0 Specification <https://www.usb.org/document-library/usb-20-specification>`_；
 * `USB HID Specification <https://www.usb.org/hid>`_；
 * `ACPI Specification <https://uefi.org/specifications>`_。

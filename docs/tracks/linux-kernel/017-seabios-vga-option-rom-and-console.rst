@@ -120,7 +120,10 @@ QEMU q35 默认创建哪一种显示设备
 
    m->default_display = "std";
 
-所以没有显式 ``-vga`` 或 ``-device`` 覆盖时，q35 使用 QEMU standard VGA。
+``MachineState.enable_graphics`` 的通用默认值为true，所以没有 ``-nographic``、
+``-vga none`` 或显式display device覆盖时，q35创建QEMU standard VGA。
+``-display none`` 只可关闭display frontend，不必然移除guest所见的VGA device。
+``default_display="std"`` 是默认选择，不是“无论命令行怎样都必有VGA”的保证。
 
 这个事实与 SeaBIOS 的职责要分开：
 
@@ -330,13 +333,15 @@ SeaBIOS 的流程是：
 VGA ROM 执行前会进入 TPM measured-boot 记录
 --------------------------------------
 
-如果上一章成功初始化 TPM，``init_optionrom()`` 在执行前调用：
+``init_optionrom()`` 在执行前无条件调用：
 
 .. code-block:: c
 
    tpm_option_rom(newrom, rom->size * 512);
 
-也就是先对将要执行的 ROM image 做 measurement，再把控制权交给它。
+固定默认机器没有TPM， ``TPM_working=0``，所以该调用立即返回而不产生measurement。
+只有上一章的显式TPM条件分支成功时，它才先对将要执行的ROM image做measurement，再
+把控制权交给ROM。
 
 顺序必须是：
 
@@ -408,10 +413,15 @@ Option ROM 运行期间的线程抢占是条件功能
 * ``start_preempt()`` 实际不会开启这套抢占；
 * VGA ROM 返回后才开始同步设备初始化。
 
+不过 ``finish_preempt()`` 在该条件为false时仍调用一次 ``yield()``。当前还没有启动
+USB/AHCI worker可供切换，但MainThread可在这个边界通过 ``check_irqs()`` 短暂开IF，
+使第016章已放行的pending PIT/RTC中断得到处理。ROM自己的寄存器帧则以
+``FLAGS.IF=1`` 进入16位代码；返回到32位MainThread后仍恢复为IF=0。
+
 这避免外部 16 位 ROM 与固件设备线程共享复杂状态，也让默认执行顺序更容易复现。
 
-VGA ROM 返回后，INT 10h 应当已经被接管
-----------------------------------
+VGA ROM 返回后怎样判断 INT 10h 是否可用
+------------------------------------
 
 SeaBIOS 在第四章建立 IVT 时，``INT 10h`` 最初指向自己的占位入口 ``entry_10``。
 
@@ -424,7 +434,10 @@ VGA ROM 初始化成功后，通常会把 IVT vector ``0x10`` 改成 ROM 中的 
 
 如果 vector 仍指向占位 handler，SeaBIOS 不会假装屏幕已经可用。
 
-因此判断 VGA ROM 是否真正建立 BIOS video service 的关键，不只是“函数返回成功”，还包括 ``INT 10h`` 是否已经指向实际视频 handler。
+``vgarom_setup()``、 ``init_pcirom()`` 和 ``enable_vga_console()`` 都不向 ``maininit()``
+返回“VGA已成功”的状态。因此判断VGA ROM是否真正建立BIOS video service的关键，不
+只是控制流已经返回，还包括 ``INT 10h`` 是否已经离开占位入口；失败只会让screen
+character output静默跳过，不会终止POST。
 
 sercon_setup 可以把 INT 10h 镜像到串口
 ----------------------------------
@@ -460,14 +473,15 @@ SeaBIOS 最后怎样打开文字控制台
 
 AH=0 表示设置视频模式，AL=3 是经典的 80×25 彩色文本模式。
 
-这次调用经过刚安装的 VGA BIOS handler。成功后，SeaBIOS 才执行：
+``enable_vga_console()`` 不先检查vector，也不检查 ``INT 10h`` 的返回状态；它总是发出
+这次mode-set调用，然后执行：
 
 .. code-block:: c
 
    printf("SeaBIOS (version %s)\n", VERSION);
    display_uuid();
 
-屏幕上的 SeaBIOS banner 因此不是“固件一开始就能显示”。它依赖此前已经完成的完整链：
+正常standard-VGA分支中，屏幕上的SeaBIOS banner依赖此前完成的完整链：
 
 ::
 
@@ -480,49 +494,49 @@ AH=0 表示设置视频模式，AL=3 是经典的 80×25 彩色文本模式。
    → INT 10h AX=0003 设置文本模式
    → SeaBIOS printf 通过 INT 10h AH=0e 输出字符
 
-第十七章结束时的机器状态
-----------------------
+如果ROM缺失、校验失败或没有安装 ``INT 10h``，mode 3调用不会被当成致命错误；随后
+``screenc()`` 发现vector仍是 ``entry_10`` 时直接丢弃屏幕字符，debug输出是否仍可见
+则由 ``ScreenAndDebug`` 决定。
 
-控制权目前走过：
+本章结束状态
+------------
 
-::
+* current executor：BSP上的SeaBIOS ``MainThread``，位于 ``enable_vga_console()`` 返回后的
+  ``maininit()``；
+* CPU/mode：32位保护模式，分页关闭，A20开启，MainThread IF=0；16位ROM与INT 10h调用帧
+  曾以IF=1运行，返回后恢复；
+* ``ThreadControl=1``， ``threads_during_optionroms()=false``，提前的
+  ``device_hardware_setup()`` 未执行；
+* no-override display：QEMU standard VGA；禁用graphics或显式display覆盖时保留不同分支；
+* ROM shadow：扫描前已清零，从 ``0xc0000`` 起只对通过部署/确认的ROM推进 ``RomEnd``；
+* normal standard-VGA branch：匹配的x86 image通过signature/size/checksum检查，固定默认
+  TPM路径没有测量，ROM已从segment offset 3执行并通常安装 ``INT 10h``；
+* VGA failure branch：ROM缺失/无效或未安装vector不会终止POST， ``screenc()`` 可静默丢弃
+  screen output；
+* ``sercon``：固定默认没有 ``etc/sercon-port``，未包装 ``INT 10h``；显式配置时才建立
+  primary或split wrapper；
+* video mode： ``AX=0003`` 已被无条件请求，但SeaBIOS没有验证结果；
+* USB、PS/2与block driver：尚未进入当前设备初始化阶段；
+* 普通非VGA Option ROM：尚未扫描；
+* next entry：第二次 ``threads_during_optionroms()`` 判断。
 
-   maininit()
-   → threads_during_optionroms() = false
-   → 跳过提前 device_hardware_setup()
-   → vgarom_setup()
-   → 读取 Option ROM 策略
-   → 清空 0xc0000 起始 ROM shadow 区
-   → 定位默认 PCI VGA
-   → 从 fw_cfg 或 PCI ROM BAR 取得 x86 VGA image
-   → 验证 55aa、长度、PCIR 与 checksum
-   → 条件 TPM measure
-   → farcall16big(ROM segment:0003)
-   → VGA ROM 安装 INT 10h
-   → sercon_setup() 条件跳过或包装 INT 10h
-   → enable_vga_console()
-   → INT 10h AX=0003
-   → 显示 SeaBIOS banner 与 UUID
+关键边界
+--------
 
-此刻：
+#. 固定QEMU不发布 ``etc/threads``，默认值1不会让设备worker跨VGA Option ROM运行。
+#. q35的 ``default_display="std"`` 只决定无override时的默认display，不能覆盖禁用graphics
+   或显式设备选择。
+#. ``vgarom_setup`` 清零的是客户机低端ROM shadow窗口，不是PCI设备的持久ROM内容。
+#. PCI ROM BAR只在映射/复制期间临时enable，完成或失败都恢复原 ``PCI_ROM_ADDRESS``。
+#. 固定默认TPM缺席时 ``tpm_option_rom`` 是no-op；显式TPM分支才执行PCR/event-log测量。
+#. Option ROM以16位入口和IF=1执行；MainThread返回32位路径后保持IF=0。
+#. ``finish_preempt()`` 即使未开启ROM抢占也会yield一次，但此时尚无设备初始化worker。
+#. ``enable_vga_console`` 请求mode 3后不校验返回；控制流返回不能冒充VGA成功证明。
 
-* 当前执行者：SeaBIOS ``maininit()``；
-* 当前主流程 CPU：BSP；
-* 模式：32 位保护模式；
-* 分页：关闭；
-* 默认 q35 display：QEMU standard VGA；
-* VGA Option ROM：已经完成验证、测量和初始化；
-* ``INT 10h``：已经由 VGA BIOS 或条件 sercon wrapper 提供；
-* VGA 文本模式：已经请求 mode 3；
-* SeaBIOS 屏幕控制台：已经可用；
-* 默认设备初始化并行模式：关闭；
-* USB、PS/2、AHCI 等设备探测：尚未开始当前同步阶段；
-* 普通非 VGA Option ROM：尚未扫描；
-* ``BootList``：尚未形成最终启动设备集合；
-* GRUB：尚未被读取或执行；
-* Linux：尚未装入内存。
+下一入口
+--------
 
-``maininit()`` 接下来再次判断：
+``maininit()`` 接下来再次执行：
 
 .. code-block:: c
 
@@ -531,7 +545,8 @@ AH=0 表示设置视频模式，AL=3 是经典的 80×25 彩色文本模式。
        wait_threads();
    }
 
-当前默认条件成立。下一章从同步 ``device_hardware_setup()`` 开始，先进入 USB controller/port 枚举与 i8042 PS/2 keyboard 初始化，再到 ``block_setup()``。
+条件成立，下一章从 ``device_hardware_setup() → usb_setup()`` 开始，只追踪USB与
+``ps2port_setup()``，并停在 ``block_setup()`` 调用之前； ``wait_threads()`` 仍在更后面。
 
 资料
 ----
@@ -544,5 +559,6 @@ AH=0 表示设置视频模式，AL=3 是经典的 80×25 彩色文本模式。
 * `SeaBIOS src/sercon.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/sercon.c>`_；
 * `SeaBIOS src/config.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/config.h>`_；
 * `QEMU hw/i386/pc_q35.c <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/pc_q35.c>`_；
+* `QEMU hw/core/machine.c <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/core/machine.c>`_；
 * `PCI Firmware Specification <https://pcisig.com/specifications>`_；
 * `Plug and Play BIOS Specification <https://uefi.org/specifications>`_。
