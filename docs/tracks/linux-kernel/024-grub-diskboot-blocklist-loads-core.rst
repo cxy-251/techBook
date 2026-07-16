@@ -1,8 +1,8 @@
 第二十四章：GRUB diskboot.img 怎样按 blocklist 读完 core.img？
 ===========================================================
 
-上一章结束时，``boot.img`` 已经把启动盘 LBA 1 的 512 字节复制到物理地址 ``0x8000``，
-随后直接跳到：
+上一章采用clean-gap布局约定；在该约定下， ``boot.img`` 已经把启动盘LBA 1的512字节复制到
+物理地址 ``0x8000``，随后直接跳到：
 
 ::
 
@@ -66,9 +66,10 @@
 
 * ``CS=0``；
 * ``DS=0``；
-* ``SS=0``；
-* 低端实模式栈已经可用；
+* ``SS=0``、 ``SP=0x1ffe``，栈顶word是 ``boot.img`` 保存的启动 ``DX``；
+* ``ES=0``、FLAGS.IF=1、DF=0、A20开启；
 * ``SI`` 仍指向 ``boot.img`` 创建的 disk address packet；
+* ``SI-1`` 的mode byte为1，表示上一章选择了EDD/LBA；
 * ``DL`` 仍是启动盘号 ``0x80``。
 
 源码注释直接说明它继续使用 ``boot.img`` 的栈，并依赖若干寄存器已经处于预期状态。
@@ -175,22 +176,26 @@ blocklist 放在扇区末尾
 
 安装器只增加上一项的 ``len``，不会浪费一个新的 12 字节 entry。
 
-当前固定布局中 ``core.img`` 连续位于 LBA 1..N：
+当前clean-gap布局约定中，安装器获得连续的LBA 1..N。 ``save_blocklists()`` 第一次收到LBA 1
+时只把它保存为 ``first_sector``，因为该扇区已由 ``boot.img`` 单独读取；它从第二次callback
+才为剩余内容建立entry：
 
 ::
 
    LBA 1      diskboot.img，已由 boot.img 读取
    LBA 2..N   core.img 剩余部分
 
-所以 blocklist 通常只有一个有效 entry：
+所以当前约定精确产生一个有效entry，而不是仅仅“通常”如此：
 
 ::
 
    start   = 2
-   len     = core_sectors - 1
+   len     = N - 1
    segment = 0x0820
 
-它前面再放一个全零 terminator。
+``save_blocklists()`` 把后续相邻扇区合并进这一项；安装器随后在下一个更低的12字节槽写入全零
+terminator。 ``N`` 是安装器实际取得并写入的总扇区数，可能包含为Reed–Solomon冗余扩大的
+padding；固定源码版本与模块集合并不足以在没有构建产物时给出它的具体数值。
 
 为什么目的 segment 从 0x0820 开始
 --------------------------------
@@ -277,8 +282,9 @@ SeaBIOS 已通过 EDD 探测，所以当前路径继续使用 LBA。
 
    0x7f sectors = 127 sectors
 
-理由写在源码中：Phoenix EDD 实现存在单次数量限制。即使 blocklist 的 ``len`` 更大，GRUB 也会
-把它拆成多批。
+理由写在源码中：Phoenix EDD实现存在单次数量限制。即使blocklist的 ``len`` 更大，GRUB也会
+把它拆成多批。对当前SeaBIOS还有一个可验证的结果： ``127 * 512 = 65024``，没有越过
+``process_op()`` 拒绝的 ``>64 KiB`` 单次传输边界。
 
 每一批执行：
 
@@ -318,6 +324,11 @@ LBA 模式下，每一批把 DAP 更新为：
 
 SeaBIOS 再次沿 ``IDMap[HD][0]`` 找到 q35 AHCI port 0，把这一批 sector DMA 到物理
 ``0x70000``。
+
+当前clean-gap entry全部位于LBA 2到LBA 2047之间，且每批少于256扇区；
+``sata_prep_readwrite()`` 因而每批都选择非queued ``ATA_CMD_READ_DMA(0xc8)``，将当前LBA、
+count和 ``0x70000`` PRDT写入slot 0。若blocklist指向 ``lba+count >= 2^28`` 的条件布局，
+SeaBIOS才会改用 ``READ DMA EXT``；这不是当前数值路径。
 
 为什么每一批仍先落到 0x70000
 ----------------------------
@@ -436,10 +447,10 @@ bounce buffer：
 是不可靠的，因为文件移动或碎片整理会让物理 sector 改变。源码也明确警告这种安装方式不可靠，
 默认不愿继续。
 
-当前固定布局为什么只有一个 entry
---------------------------------
+当前布局约定为什么只有一个 entry
+---------------------------------
 
-本书固定：
+本批沿用的显式约定是：
 
 ::
 
@@ -447,7 +458,9 @@ bounce buffer：
    first partition starts at LBA 2048
    core.img embedded contiguously from LBA 1
 
-所以 ``grub-setup`` 获得连续 embedding sectors，并在 ``save_blocklists()`` 中不断合并。
+所以 ``grub-setup`` 获得连续embedding sectors，并在 ``save_blocklists()`` 中不断合并。
+仅有“第一分区LBA 2048”而没有clean-gap约定时，MSDOS embed实现仍可能避开已知签名，不能推出
+这一项式结果。
 
 结果相当于：
 
@@ -458,7 +471,8 @@ bounce buffer：
    entry.segment = 0x0820
    terminator.len = 0
 
-这种布局没有文件系统碎片风险，也最适合逐地址追踪。
+这种布局不依赖文件系统blocklist，也最适合逐地址追踪； ``N`` 的确切值仍留给实际构建产物，
+正文不编造 ``core.img`` 大小。
 
 加载范围为什么不能无限增长
 --------------------------
@@ -471,14 +485,9 @@ bounce buffer：
 
 为低端装载空间上限之一。
 
-原因不是磁盘不能读更多数据，而是早期阶段的低端内存已经有明确用途：
-
-* ``0x70000`` 附近是 bounce buffer；
-* 其上还有 GRUB scratch/protected stack 区；
-* BIOS、EBDA、VGA 与 ROM 区也不能覆盖；
-* 解压后的完整 GRUB 会转移到 1 MiB 以上。
-
-所以 ``diskboot.img`` 只负责把早期压缩映像安全装入低端暂存区。
+``setup.c`` 把 ``maxsec`` 截到这个差值除以512；embedding provider返回的 ``nsec`` 若小于
+实际 ``core_sectors`` 就直接报错。这里能从源码确定的是安装器的硬上限与失败门，不能把没有
+保存的构建结果扩写成某个精确末地址，也不能仅凭该表达式臆测每一块早期内存的用途。
 
 加载完成后怎样找到下一入口
 --------------------------
@@ -516,8 +525,8 @@ bounce buffer：
 下一阶段的汇编使用绝对低端地址，并很快建立自己的 GDT。固定 ``CS=0`` 可以消除
 ``0000:8200`` 与其他等价 segment:offset 表示之间的歧义。
 
-第二十四章结束时的机器状态
---------------------------
+本章结束状态
+------------
 
 控制流已经走过：
 
@@ -531,6 +540,7 @@ bounce buffer：
    → choose LBA mode
    → split request into <= 0x7f-sector batches
    → INT 13h AH=42h to 0x70000
+   → ATA READ DMA(0xc8) on fixed clean-gap LBAs
    → copy batch to entry.segment:0
    → advance LBA, len and destination segment
    → move backward through blocklist entries
@@ -542,31 +552,55 @@ bounce buffer：
 
 * 当前执行者：GRUB 2.14 ``startup_raw``；
 * 当前 CPU：BSP；
-* 模式：16 位实模式；
-* 分页：关闭；
+* 模式：16位实模式，分页关闭，A20仍开启；FLAGS.IF=1、DF=0；
 * ``CS:IP``：``0000:8200``；
 * ``DL``：``0x80``；
-* ``core.img`` 的磁盘内容：已经全部装入低端内存；
+* ``SS``：0， ``SP=0x1ffe``； ``boot.img`` 保存的那个启动 ``DX`` 仍在栈顶；
+* ``DS``：0； ``ES`` 保留最后一批复制使用的目的segment，下一入口不会依赖它；
+* ``EBP``：第一项起始LBA的低32位，当前clean-gap约定为2；
+* blocklist有效项：已被当作游标原地修改， ``len=0``、start和segment已推进到末端；
+* ``DI``：指向其下方的zero-length terminator；
+* ``core.img`` 的N个嵌入扇区：已经全部装入从 ``0x8000`` 开始的低端内存；
 * ``diskboot.img``：位于 ``0x8000..0x81ff``；
 * ``startup_raw``：从 ``0x8200`` 开始；
 * 压缩 GRUB core 与内建模块：已经位于后续低端地址；
-* A20：下一阶段会重新验证；
+* A20：仍开启，下一阶段会自行验证而非盲信继承值；
 * 保护模式：尚未由 GRUB 开启；
 * 解压后的 GRUB core：尚未写到 ``0x100000``；
 * ``grub_main()``：尚未调用；
 * Linux bzImage：尚未读取。
 
-下一章从 ``startup_raw.S:_start`` 开始，追踪它怎样重建栈、保存 ``DL``、进入 32 位保护模式、
-验证 A20、执行 Reed–Solomon 修复、把压缩 core 解压到 ``0x100000``，并最终进入
-``grub_main()``。
+关键边界
+--------
+
+* ``boot.img`` 只知道 ``core.img`` 第一扇区； ``diskboot.img`` 的blocklist只描述余下扇区，
+  第一项的目标因此从 ``0x0820`` 而不是 ``0x0800`` 开始。
+* ``save_blocklists()`` 把第一callback单独保存为 ``first_sector``；连续的余下扇区才合并成当前
+  ``start=2,len=N-1`` 的单项。LBA 1和单项结果属于显式clean-gap约定。
+* 每批先减少len并增加start，再调用BIOS；失败时内存entry已经前移。当前成功路径每批至多127
+  扇区，既满足GRUB的Phoenix兼容限制，也不超过SeaBIOS的64 KiB边界。
+* 当前低LBA批次精确使用AHCI ``READ DMA(0xc8)``。BIOS只写 ``0x70000`` bounce buffer，GRUB
+  再用 ``rep movsw`` 写最终segment。
+* ``diskboot.img`` 的read/geometry error只打印错误并自旋，不执行INT 18h；不能套用
+  ``boot.img`` 的失败恢复链。
+* ``ljmp $0,$0x8200`` 不建立返回地址；此时blocklist已经被原地消耗为游标终态。
+
+下一入口
+--------
+
+下一章从 ``startup_raw.S:_start`` 的 ``ljmp $0,$ABS(codestart)`` 开始，追踪它怎样重建栈、
+保存 ``DL``、复位BIOS磁盘系统、进入32位保护模式，随后验证A20并处理压缩core。第025章既有
+开头对保存 ``DL`` 与 ``INT 13h AH=0`` 的先后描述仍待下一批按源码修正。
 
 资料
 ----
 
-* `GRUB 2.14 grub-core/boot/i386/pc/diskboot.S <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/boot/i386/pc/diskboot.S>`_；
-* `GRUB 2.14 include/grub/i386/pc/boot.h <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/include/grub/i386/pc/boot.h>`_；
-* `GRUB 2.14 include/grub/offsets.h <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/include/grub/offsets.h>`_；
-* `GRUB 2.14 util/setup.c <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/util/setup.c>`_；
-* `GRUB 2.14 release commit <https://github.com/GitMirroring/grub/commit/d38d6a1a9b79427848976f53d474392cd29c2a71>`_；
-* `SeaBIOS disk services <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/disk.c>`_；
-* `SeaBIOS AHCI driver <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/ahci.c>`_。
+* `GRUB固定提交：diskboot blocklist循环 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/boot/i386/pc/diskboot.S#L36-L301>`_；
+* `GRUB固定提交：blocklist槽与默认值 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/boot/i386/pc/diskboot.S#L355-L378>`_；
+* `GRUB固定提交：kernel segment <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/include/grub/offsets.h#L38-L41>`_；
+* `GRUB固定提交：blocklist结构 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/include/grub/offsets.h#L159-L165>`_；
+* `GRUB固定提交：安装器合并blocklist <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/util/setup.c#L135-L206>`_；
+* `GRUB固定提交：embedding大小、terminator与写盘 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/util/setup.c#L505-L648>`_；
+* `GRUB固定提交：MSDOS embedding连续候选与签名避让 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/partmap/msdos.c#L330-L394>`_；
+* `SeaBIOS固定提交：EDD与64 KiB disk_op边界 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/block.c#L618-L638>`_；
+* `SeaBIOS固定提交：AHCI read命令选择 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/ahci.c#L27-L61>`_。

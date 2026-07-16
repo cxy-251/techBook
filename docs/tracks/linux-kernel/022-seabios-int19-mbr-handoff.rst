@@ -9,8 +9,8 @@
    → IDMap[EXTTYPE_HD][0]
    → BIOS drive 0x80
    → final BEV[]
-   → PMM closed
-   → E820 frozen
+   → PMM入口已撤销
+   → 当前E820 map完成最后一次dump
    → BIOS checksum updated
 
 控制流仍在 ``maininit()`` 的 32 位保护模式环境中：
@@ -25,8 +25,8 @@
 
 固定主线规定该扇区由 GRUB i386-pc 安装，因此跳转后执行者从 SeaBIOS 变为 GRUB 的 ``boot.img``。本章只追到 GRUB 第一条指令即将执行的位置，下一章再进入 GRUB 源码。
 
-为什么启动前还要把 BIOS shadow RAM 锁回只读
----------------------------------------
+为什么启动前还要收回 BIOS shadow RAM 的写权限
+-------------------------------------------
 
 SeaBIOS 在较早的 POST 阶段调用 ``make_bios_writable()``，通过 q35 host bridge 的 PAM 寄存器，使 ``0xc0000`` 到 ``0xfffff`` 的 shadow RAM 可写。
 
@@ -52,17 +52,23 @@ SeaBIOS 在较早的 POST 阶段调用 ``make_bios_writable()``，通过 q35 hos
 
 它把处理器缓存中的脏数据写回并使缓存失效，避免尚未落入 shadow RAM 的修改在写保护开启后丢失。
 
-随后 SeaBIOS 修改 PAM：
+随后 SeaBIOS 修改 PAM。固定QEMU target默认
+``CONFIG_MALLOC_UPPERMEMORY=y``、 ``CONFIG_WRITABLE_UPPERMEMORY=n``；因此F segment的
+``PAM0`` 被写成 ``0x10``，QEMU把 ``0xf0000..0xfffff`` 映射为只读RAM alias。SeaBIOS随后
+从低地址遍历六个Option-ROM PAM byte：位于 ``rom_get_max()`` 以下的完整32 KiB窗口收紧为
+``0x11``；边界落在窗口中间时写 ``0x31``，然后停止，边界以上承载运行期ZoneLow对象的窗口
+保持 ``0x33``：
 
-* 已确认的 Option ROM 区域关闭写入；
-* ``0xf0000`` 到 ``0xfffff`` BIOS segment 关闭写入；
-* 读取仍来自 shadow RAM；
-* 未被 ROM 占用的 upper-memory 区是否保留可写能力由构建配置和分配上界决定。
+* nibble ``1`` 表示读来自shadow RAM、写不再落入该RAM；
+* nibble ``3`` 表示该16 KiB半区仍读写shadow RAM；
+* ``rom_get_max()`` 以下的Option ROM/清零padding范围被写保护；
+* 边界以上仍承载运行期upper-memory分配的半区必须保持可写，不能把整个
+  ``0xc0000..0xeffff`` 一概写成只读。
 
 这一步保护的是已经生成的固件运行期镜像，不是重新把执行切回最初的 flash 内容。
 
-为什么 startBoot 要清空 0x7000 到 EBDA 之前
---------------------------------------
+为什么 startBoot 要清空固定的低端临时窗口
+------------------------------------
 
 ``startBoot()`` 先执行：
 
@@ -78,19 +84,22 @@ SeaBIOS 在较早的 POST 阶段调用 ``make_bios_writable()``，通过 q35 hos
    BUILD_STACK_ADDR  = 0x00007000
    BUILD_EBDA_MINIMUM = 0x00090000
 
-因此被清理的范围大致是：
+因此被清理的范围精确是：
 
 ::
 
    0x00007000 .. 0x0008ffff
 
-这是 POST 阶段临时栈和低端临时分配曾经使用的区域。清理它符合 PMM 收尾要求，也避免把固件临时数据无意暴露给启动代码。
+这是 POST 阶段临时栈和低端临时分配曾经使用的区域。清理它符合 PMM 收尾要求，也避免把
+固件临时数据无意暴露给启动代码。这里的上界是编译期常量
+``BUILD_EBDA_MINIMUM``，不是运行时从BDA读取的实际EBDA起点；实际EBDA只需保证不低于这个
+边界。
 
 几个关键区域不会被破坏：
 
 * IVT 位于 ``0x00000``，低于清理起点；
 * BDA 位于 ``0x00400``，低于清理起点；
-* EBDA 位于实际分配的高端低内存区域，边界由 BDA 保存；
+* 实际EBDA位于 ``0x90000`` 或更高的低内存高端，起点仍由BDA保存；
 * BIOS/Option ROM 位于 ``0xc0000`` 以上；
 * ``0x7c00`` 此时会被清零，随后马上由磁盘第一扇区覆盖。
 
@@ -343,7 +352,7 @@ SeaBIOS 再次通过 thunk 打开 ``CR0.PE``，进入 32 位模式运行 AHCI �
 这说明“BIOS 使用 CHS”只描述外部接口。底层控制器仍按 LBA 和 DMA 执行。
 
 AHCI 怎样把 LBA 0 读进 0x7c00
----------------------------
+----------------------------
 
 ``ahci_process_op()`` 对 ``CMD_READ`` 调用 AHCI read path。
 
@@ -358,7 +367,8 @@ AHCI 怎样把 LBA 0 读进 0x7c00
 
 读取时 SeaBIOS：
 
-#. 构造 READ DMA 或 READ DMA EXT command FIS；
+#. ``sata_prep_readwrite()`` 看到 ``count=1`` 且 ``lba+count < 2^28``，精确选择
+   ``ATA_CMD_READ_DMA``（``0xc8``），不是 ``READ DMA EXT``；
 #. 设置 LBA=0、sector count=1；
 #. 在 PRDT 中填写目标 buffer ``0x7c00`` 和长度 512；
 #. 写 ``PxCI`` bit 0 提交 command slot；
@@ -421,8 +431,8 @@ x86 是小端序，所以扇区最后两个字节实际排列为：
 
 签名只证明它符合传统 boot-sector 标记，不证明代码一定正确，也不证明分区表或 GRUB ``core.img`` 完整。
 
-TPM 为什么在跳转前测量这 512 字节
--------------------------------
+固定无TPM时为什么测量调用没有状态变化
+----------------------------------
 
 签名通过后，SeaBIOS 条件调用：
 
@@ -432,9 +442,9 @@ TPM 为什么在跳转前测量这 512 字节
                MAKE_FLATPTR(0x07c0, 0),
                512);
 
-在启用 measured boot 的路径中，这把即将执行的 boot sector 纳入 TPM event/PCR 测量链。
-
-前面 Option ROM 已被测量；这里测量的是真正从磁盘读取、马上取得控制权的启动代码。
+在存在并启用TPM的条件路径中，这会把即将执行的boot sector纳入event/PCR测量链；但第016章
+已经固定当前QEMU机器没有TPM。当前调用因此不创建event、不扩展PCR，也不改变本批对象账本。
+它仍位于签名检查之后、执行交接之前，不能因为固定路径无状态变化而把调用顺序删掉。
 
 为什么最终跳转使用 0000:7c00 而不是 07c0:0000
 ------------------------------------------
@@ -489,6 +499,12 @@ SeaBIOS 交给启动扇区哪些寄存器
    DL    = 0x80
    AX    = 0xaa55
    IF    = 1
+
+``farcall16()`` 先用 ``call16_override(0)`` 建立普通实模式环境；默认
+``CONFIG_DISABLE_A20=n``，所以A20保持开启。进入INT 19h的32位handler时暂时屏蔽的NMI也在
+回到外部16位环境时恢复。 ``bregs`` 中的通用寄存器和 ``DS/ES`` 来自清零后的结构，只有上面
+列出的 ``AX``、 ``DL``、 ``CS:IP`` 和FLAGS被明确改写； ``SS:SP`` 则仍是SeaBIOS调用栈，
+GRUB不能把它当成自己的长期栈。
 
 其余由 ``bregs`` 表达的通用寄存器被清零。SeaBIOS thunk 使用普通 real-mode ``farcall16``，而不是 Option ROM 使用的 big-real 版本。
 
@@ -559,8 +575,8 @@ SeaBIOS 不识别其中是否为 GRUB、Windows boot code、SYSLINUX 或其他�
 
 从下一条指令开始，SeaBIOS 不再决定主流程。GRUB ``boot.img`` 将使用 ``DL=0x80`` 和 BIOS 磁盘服务定位并加载嵌入区中的后续代码。
 
-第二十二章结束时的机器状态
------------------------
+本章结束状态
+------------
 
 控制流已经走过：
 
@@ -569,7 +585,7 @@ SeaBIOS 不识别其中是否为 GRUB、Windows boot code、SYSLINUX 或其他�
    maininit()
    → make_bios_readonly()
    → wbinvd
-   → q35 PAM write-protect shadow BIOS/ROM
+   → q35 PAM撤销F segment和rom_get_max以下ROM/padding范围的写权限
    → startBoot()
    → 清理 0x7000..0x8ffff
    → call16_int(0x19)
@@ -585,6 +601,7 @@ SeaBIOS 不识别其中是否为 GRUB、Windows boot code、SYSLINUX 或其他�
    → CHS 转 LBA 0
    → call32(process_op_32)
    → ahci_process_op(CMD_READ)
+   → ATA READ DMA(0xc8), slot 0, one PRDT
    → DMA 512 bytes 到 0x7c00
    → CF=0
    → 检查 0x55aa
@@ -597,38 +614,56 @@ SeaBIOS 不识别其中是否为 GRUB、Windows boot code、SYSLINUX 或其他�
 
 * 当前执行者：即将从 SeaBIOS 切换到 GRUB ``boot.img``；
 * CPU：BSP；
-* 模式：16 位实模式；
-* 分页：关闭；
+* 模式：16位实模式，分页关闭，A20开启，NMI已恢复；
 * ``CS:IP``：``0000:7c00``；
 * ``DL``：``0x80``；
 * ``AX``：``0xaa55``；
-* FLAGS.IF：1；
+* FLAGS.IF：1，方向标志为0；
 * 物理 ``0x7c00..0x7dff``：硬盘 LBA 0 的 512 字节；
 * MBR signature：已通过 ``0x55aa`` 检查；
-* q35 AHCI controller：仍由 SeaBIOS BIOS disk service 支持，供 GRUB 继续通过 ``INT 13h`` 使用；
+* q35 PAM：F segment和 ``rom_get_max()`` 以下shadow已收回写权限；其上运行期ZoneLow分配
+  仍可写；
+* q35 AHCI controller：仍由SeaBIOS BIOS disk service支持，供GRUB继续通过 ``INT 13h`` 使用；
 * GRUB ``core.img``：尚未由 ``boot.img`` 读取；
 * GRUB protected-mode core：尚未执行；
 * Linux bzImage：尚未读取；
 * Linux：尚未取得控制权。
 
-下一条主流程入口不再属于 SeaBIOS：
+关键边界
+--------
+
+* ``e820_prepboot()`` 只dump当前map；本章没有继承或制造E820 ``frozen`` 状态。
+* ``startBoot()`` 清零到固定 ``BUILD_EBDA_MINIMUM``，不是遍历到运行时EBDA，也不清IVT/BDA。
+* SeaBIOS外部使用CHS ``0/0/1``，内部转换为LBA 0；固定AHCI命令是非queued
+  ``READ DMA(0xc8)``，不是EDD调用或 ``READ DMA EXT``。
+* ``0x55aa`` 只证明传统boot-sector签名存在；“内容是GRUB”来自固定安装前提，不来自SeaBIOS
+  识别。
+* 当前无TPM， ``tpm_add_bcv()`` 不产生event/PCR状态； ``call_boot_entry()`` 则确实固定
+  ``AX=0xaa55``、 ``DL=0x80`` 与 ``IF=1``。
+* 一旦 ``iretw`` 取出 ``0000:7c00``，当前执行者已经是磁盘代码；只有它返回时SeaBIOS才沿
+  INT 18h尝试下一项。
+
+下一入口
+--------
+
+下一条主流程入口不再属于SeaBIOS：
 
 ::
 
    GRUB i386-pc boot.img @ 0000:7c00
 
-下一章需要先固定 GRUB i386-pc 的准确源码版本和磁盘安装布局，再从 ``boot.img`` 的第一条汇编指令追踪它怎样找到并读取 ``core.img``。
+第023章从固定GRUB 2.14 ``grub-core/boot/i386/pc/boot.S:_start`` 的跳过BPB指令开始，先区分
+安装器写入字段与本书采用的磁盘布局约定，再追踪它读取 ``core.img`` 第一扇区。
 
 资料
 ----
 
-* `SeaBIOS src/post.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/post.c>`_；
-* `SeaBIOS src/fw/shadow.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/shadow.c>`_；
-* `SeaBIOS src/boot.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/boot.c>`_；
-* `SeaBIOS src/disk.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/disk.c>`_；
-* `SeaBIOS src/block.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/block.c>`_；
-* `SeaBIOS src/hw/ahci.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/ahci.c>`_；
-* `SeaBIOS src/stacks.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/stacks.c>`_；
-* `SeaBIOS src/romlayout.S <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/romlayout.S>`_；
-* `SeaBIOS src/std/disk.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/std/disk.h>`_；
-* `BIOS Enhanced Disk Drive Specification <https://www.t13.org>`_。
+* `SeaBIOS固定提交：prepareboot与startBoot <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/post.c#L160-L234>`_；
+* `SeaBIOS固定提交：q35 shadow写保护 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/shadow.c#L77-L167>`_；
+* `QEMU固定提交：PAM alias语义 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/pci-host/pam.c#L33-L69>`_；
+* `SeaBIOS固定提交：boot_disk与INT 19h策略 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/boot.c#L865-L1046>`_；
+* `SeaBIOS固定提交：CHS与EDD disk_op <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/disk.c#L118-L189>`_；
+* `SeaBIOS固定提交：16/32位disk dispatch <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/block.c#L542-L638>`_；
+* `SeaBIOS固定提交：AHCI FIS、PRDT与轮询 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/ahci.c#L27-L315>`_；
+* `SeaBIOS固定提交：real-mode transition与farcall <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/romlayout.S#L69-L163>`_；
+* `SeaBIOS固定提交：外部16位调用环境 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/stacks.c#L409-L453>`_。

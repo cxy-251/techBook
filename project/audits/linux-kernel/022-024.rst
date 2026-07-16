@@ -1,0 +1,203 @@
+Linux Kernel第022—024章回溯审查
+================================
+
+批次状态
+--------
+
+::
+
+   range            = 022-024
+   status           = repaired
+   verified_before  = 021
+   verified_after   = 024
+   mode             = retrospective-audit
+   blocking_issue   = none
+
+审查范围
+--------
+
+* ``022-seabios-int19-mbr-handoff.rst``；
+* ``023-grub-boot-img-loads-diskboot.rst``；
+* ``024-grub-diskboot-blocklist-loads-core.rst``；
+* 上一边界为第021章 ``prepareboot()`` 返回、即将调用 ``make_bios_readonly()``；
+* 下一边界为第025章 ``startup_raw.S`` 在 ``0000:8200`` 的入口。
+
+固定源码与证据入口
+------------------
+
+* SeaBIOS ``c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf``：q35 shadow、
+  ``startBoot``、INT 19h/INT 13h、thunk、 ``boot_disk`` 与AHCI READ路径；
+* QEMU ``a759542a2c62f0fd3b65f5a66ad9868201014669``：q35 PAM映射与ICH9 AHCI
+  READ/DMA实现；
+* GRUB ``d38d6a1a9b79427848976f53d474392cd29c2a71``： ``boot.S``、
+  ``diskboot.S``、安装器写入逻辑、blocklist结构和偏移定义；
+* 三个本地缓存均位于被忽略的 ``.sources/``；HEAD已核对为上述固定commit，源码worktree
+  均无修改；GRUB缓存为本批按需建立的partial/sparse checkout。
+
+批次开始状态
+------------
+
+* BSP上的SeaBIOS ``MainThread`` 已从 ``prepareboot()`` 返回，仍在32位保护模式、分页关闭、
+  自身IF=0的 ``maininit()`` 中；
+* BIOS segment checksum已调整为零模256；q35 shadow读取来自RAM但写保护尚未恢复；
+* 固定启动序列首项是generic hard disk， ``IDMap[EXTTYPE_HD][0]`` 指向AHCI port 0，
+  BIOS drive ``0x80`` 可解析；
+* LBA 0尚未读取， ``0x7c00`` 尚无MBR，GRUB尚未执行。
+
+整批控制流与交接
+----------------
+
+``第022章``
+   ``make_bios_readonly → startBoot → INT 19h → boot_disk → INT 13h → AHCI READ``，
+   出口只到固定磁盘LBA 0通过签名检查并进入其 ``0000:7c00`` 第一条指令。
+
+``第023章``
+   GRUB ``boot.img`` 建立自己的实模式环境，确定启动盘和EDD/CHS路径，读取
+   ``core.img`` 第一扇区到bounce buffer、复制到 ``0x8000`` 并转交 ``diskboot.img``。
+
+``第024章``
+   GRUB ``diskboot.img`` 解释安装器写入的blocklist，分批读取剩余 ``core.img``，复制到
+   连续低端目标并跳入 ``0000:8200`` 的 ``startup_raw``。
+
+执行上下文与对象账本
+--------------------
+
+* 跟踪BSP在SeaBIOS 32位flat、16位real-mode ABI、GRUB 16位real mode之间的切换；
+* 跟踪q35 PAM、 ``BEV[]``/``BootSequence``、INT 13h寄存器、 ``disk_op_s``、AHCI command
+  FIS/PRDT、MBR缓冲区、GRUB DAP、bounce buffer和blocklist游标；
+* 区分固定源码能够证明的行为、安装器会写入的字段，以及只有具体生成磁盘镜像才能证明的
+  LBA、连续性、entry数量和 ``core.img`` 大小；本批把LBA 1连续embedding保留为明确的
+  clean-gap叙事约定，不伪装成已解析的artifact；
+* 重点复核旧正文中的E820 ``frozen``、 ``startBoot`` 清理上界、PAM位含义、AHCI命令选择、
+  GRUB字段偏移、BPB保留范围、LBA/CHS分支、blocklist遍历方向和下一入口寄存器状态。
+
+已核定的整批成功路径
+--------------------
+
+``shadow写权限收回``
+   固定QEMU配置的 ``CONFIG_MALLOC_UPPERMEMORY=y``、
+   ``CONFIG_WRITABLE_UPPERMEMORY=n``。 ``make_bios_readonly_intel`` 先 ``wbinvd``，再把
+   q35 ``PAM0`` 写成 ``0x10``；QEMU PAM nibble 1选择只读RAM alias。Option-ROM PAM窗口在
+   ``rom_get_max()`` 以下用 ``0x11``，边界半窗可用 ``0x31``；边界以上承载运行期ZoneLow
+   对象的区域保留 ``0x33``。它不是把整个C/E segment机械改成只读，也不是切回flash读取。
+
+``startBoot与INT 19h``
+   ``startBoot`` 精确清零 ``BUILD_STACK_ADDR=0x7000`` 到
+   ``BUILD_EBDA_MINIMUM=0x90000`` 的半开区间；上界不是运行时EBDA。随后清零 ``bregs``、只置
+   ``F_IF`` 并经16位INT 19h ABI进入32位 ``handle_19``。固定 ``BEV[0]`` 为generic hard
+   disk，故 ``BootSequence=0`` 后进入 ``boot_disk(0x80,1)``。
+
+``MBR读取与执行交接``
+   ``boot_disk`` 发出INT 13h AH=02h、CHS 0/0/1、ES:BX=07c0:0000；
+   ``basic_access`` 用上一章的LCHS把它转成LBA 0并通过 ``IDMap[HD][0]`` 找到AHCI port 0。
+   16位 ``process_op`` 对DTYPE_AHCI经 ``call32(process_op_32)``；因为LBA 0、count 1满足28-bit
+   条件， ``sata_prep_readwrite`` 精确选择非queued ``ATA_CMD_READ_DMA(0xc8)``。slot 0的
+   单PRDT把512字节DMA到 ``0x7c00``；成功清CF并通过 ``0x55aa`` 检查。固定无TPM使
+   ``tpm_add_bcv`` 无event/PCR变化。 ``farcall16`` 最终以A20开、NMI恢复、IF=1、DF=0、
+   ``AX=aa55``、 ``DL=80`` 的普通实模式环境进入 ``0000:7c00``。
+
+``GRUB安装字段与布局边界``
+   BIOS版 ``write_rootdev`` 总把 ``boot_drive`` 写为 ``0xff``，把实际first sector写入
+   0x5c处的64-bit ``kernel_sector``。 ``setup.c`` 复制旧MBR的0x003..0x059 BPB和当前硬盘
+   分支的0x1b8..0x1fd disk-signature/partition-table范围；0x1fe..0x1ff不从旧MBR复制，
+   ``0x55aa`` 来自新 ``boot.img`` 模板。MSDOS embed provider从LBA 1向上给候选，但会避开
+   已知识别签名；所以第一分区LBA 2048本身不能证明first sector=1或单entry。本批仅在显式
+   clean-gap约定下继续数值路径LBA 1..N，具体N仍不编造。
+
+``boot.img``
+   ``_start`` 跳过BPB、CLI；当前默认 ``allow_floppy=0`` 的硬盘安装已把drive-check跳转改为
+   两个NOP，SeaBIOS的 ``DL=0x80`` 通过mask检查不变。远跳规范化 ``CS=0``，代码设
+   ``DS=SS=0``、 ``SP=0x2000`` 后STI，再把DX压到 ``SS:0x1ffe``。固定SeaBIOS AH=41h返回
+   ``BX=aa55,CX=0007,AH=30,CF=0``，故mode byte置1并走EDD。clean-gap字段使DAP读取LBA 1到
+   ``7000:0000``；固定低LBA仍用AHCI READ DMA(0xc8)。CPU随后用 ``rep movsw`` 复制到
+   ``0000:8000``，间接近跳进入 ``diskboot.img``；此时SP仍为1ffe，SI仍指DAP。
+
+``diskboot.img``
+   入口再次压DX、保留SI并打印 ``loading``，DI指向0x1f4的firstlist，EBP保存第一余下entry
+   起始LBA低32位。安装器第一次callback只把LBA 1记为first sector，从第二个sector才建立
+   ``start=2,len=N-1,segment=0x0820``；clean-gap后续连续，故合并为一项，下一个低地址槽为
+   zero terminator。循环按mode=1走EDD，每批先把entry的len/start当游标前移，再以
+   ``min(len,0x7f)`` 读取到0x70000；65024字节上限低于SeaBIOS ``>64 KiB`` 拒绝门，所有
+   当前LBA又使AHCI继续使用READ DMA(0xc8)。CPU复制到entry segment并把segment增加
+   ``count*0x20``。最后DI退到terminator、弹出本章DX并远跳0:8200；原有效entry的len已经
+   变0，start/segment均推进到末端，SP回到1ffe，EBP仍为2。
+
+失败与未发生边界
+----------------
+
+* MBR读失败、签名失败或boot code返回，会使SeaBIOS ``do_boot`` 走INT 18h下一项；固定GRUB
+  正常路径不返回。
+* ``boot.img`` 的AH=41h probe失败或首次AH=42h读失败会进入CHS；固定SeaBIOS EDD路径成功。
+* ``boot.img`` 最终read/geometry error调用INT 18h后自旋； ``diskboot.img`` 的对应error只
+  打印并自旋，不调用INT 18h。
+* 具体磁盘artifact缺失不阻塞源码控制流审查，因为章节已把clean-gap LBA数值标为约定；它
+  也意味着不能声明N、 ``core.img`` 字节数或实际RS padding。
+* 第025章既有开头把保存DL与INT 13h reset先后写反：固定 ``startup_raw.S`` 是先
+  ``movb %dl,boot_drive``，后 ``int $0x13``。它属于下一顺序批次，已登记而未越章修改。
+
+发现并修复
+----------
+
+第022章
+   撤销不存在的E820 ``frozen``；把 ``startBoot`` 上界从“实际EBDA之前”收紧为编译期
+   ``0x90000``；细化q35 PAM的 ``0x10/0x11/0x31/0x33`` 语义，保留运行期ZoneLow写能力；
+   把模糊 ``READ DMA或EXT`` 改成当前精确 ``READ DMA(0xc8)``；固定无TPM测量为无状态变化；
+   补齐A20、NMI、IF/DF、外部栈和失败返回边界。
+
+第023章
+   把LBA 1连续embedding从未注明的“固定事实”改成显式clean-gap约定，并写明MSDOS provider
+   的签名避让。纠正旧MBR ``0x55aa`` 被安装器复制的错误；固定 ``boot_drive=ff``、drive
+   workaround、SeaBIOS EDD返回和AHCI READ DMA；把交接 ``SP`` 从误写的2000修为压入DX后的
+   1ffe，并补齐 ``ES=0``、SI/DAP、mode byte和bounce副本状态。
+
+第024章
+   证明第一callback只登记first sector、余下连续扇区才形成 ``start=2,len=N-1`` 单entry；
+   把“通常一项”和不明core size改成约定下精确一项、N未知。补齐0x7f批量与SeaBIOS 64 KiB
+   门、低LBA READ DMA、entry先变更后I/O、error自旋不INT 18h，以及终点SP、EBP、DI、ES与
+   被原地消耗的blocklist游标状态。删除没有源码支撑的低端内存用途推演，只保留安装器硬上限。
+
+三章
+   原有“第二十二/二十三/二十四章结束时的机器状态”统一改成合同规定的
+   ``本章结束状态 → 关键边界 → 下一入口 → 资料``，资料收紧到固定commit行锚。
+
+连续性检查
+----------
+
+``021 → 022``
+   第021章停在 ``prepareboot`` 返回、 ``make_bios_readonly`` 尚未调用；第022章从同一语句
+   进入。第021章已核定E820只dump，第022章不再继承 ``frozen``。
+
+``022 → 023``
+   第022章停在 ``iretw`` 即将取 ``0000:7c00``，精确交出 ``DL=80``、 ``AX=aa55``、IF=1、
+   DF=0、A20开和未受信任的SeaBIOS栈；第023章从 ``boot.S:_start`` 同一指令开始并立即CLI。
+
+``023 → 024``
+   第023章的间接近跳交出 ``CS:IP=0000:8000``、 ``DS=SS=ES=0``、 ``SP=1ffe``、DL=80、
+   SI=DAP且mode=1；第024章逐项继承，并在自己的push/pop DX之间完成blocklist读取。
+
+``024 → 025``
+   第024章停在 ``ljmp $0,$0x8200``， ``startup_raw.S`` 第一条是再次远跳到
+   ``ABS(codestart)``。第025章现有标题入口一致，但其保存DL/reset顺序问题已登记给025—027批次。
+
+验证
+----
+
+* ``tools/check-linux-kernel-track.sh 24``：通过001—024结构检查；
+* 022—024均且仅有一次 ``本章结束状态—关键边界—下一入口—资料``，顺序正确；
+* SeaBIOS、QEMU与GRUB缓存HEAD分别等于合同固定commit，源码worktree无改动；
+* GRUB缓存位于 ``.sources/grub``，整个 ``.sources/`` 已由 ``.gitignore`` 排除；
+* ``git diff --check``：通过；
+* 全局重复文件警告仍只有第065、066章；
+* 本批无技术阻塞，下一顺序批次为025—027。
+
+资料
+----
+
+* `SeaBIOS固定提交：shadow与startBoot <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/shadow.c#L77-L167>`_；
+* `SeaBIOS固定提交：boot与disk入口 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/boot.c#L865-L1046>`_；
+* `SeaBIOS固定提交：AHCI命令 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/ahci.c#L27-L315>`_；
+* `QEMU固定提交：PAM alias <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/pci-host/pam.c#L33-L69>`_；
+* `GRUB固定提交：boot.img <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/boot/i386/pc/boot.S#L119-L455>`_；
+* `GRUB固定提交：diskboot.img <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/boot/i386/pc/diskboot.S#L36-L378>`_；
+* `GRUB固定提交：setup与blocklist <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/util/setup.c#L100-L648>`_；
+* `GRUB固定提交：MSDOS embedding <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/partmap/msdos.c#L235-L412>`_。

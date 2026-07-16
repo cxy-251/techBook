@@ -30,7 +30,16 @@
 权威发布物是 GNU 官方 ``grub-2.14.tar.xz``；GitHub 镜像只用于提供稳定、可直接点击到具体
 源码文件和发布提交的引用。
 
-本书还固定一条具体磁盘安装布局：
+源码、平台条件与磁盘布局约定必须分开
+------------------------------------
+
+合同固定了MBR、第一分区从LBA 2048开始以及GRUB i386-pc，但仓库没有保存本次安装产生的
+逐扇区磁盘镜像。 ``pc_partition_map_embed()`` 会先提供从LBA 1递增的post-MBR扇区，同时扫描
+若干已知的第三方签名；命中时会跳过相应扇区。因此“第一分区从LBA 2048开始”本身不能证明
+``core.img`` 必定从LBA 1开始，也不能证明blocklist只有一项。
+
+为了让本书的数值路径保持唯一，本章继续采用一个**明确的磁盘布局约定**：post-MBR gap没有
+触发GRUB签名避让，安装器取得的embedding sectors从LBA 1连续递增。在这个约定下：
 
 ::
 
@@ -39,12 +48,9 @@
    disk LBA 2..N   core.img 剩余部分
    first partition 从 LBA 2048 开始
 
-这是一块使用 MBR 分区表、第一分区按 1 MiB 对齐的 QEMU 启动盘。``grub-install`` 把
-``core.img`` 连续嵌入 MBR 与第一分区之间的空隙。
-
-GRUB 并不要求所有机器的 ``core.img`` 都从 LBA 1 开始。``grub-setup`` 会根据实际可用的
-embedding area 取得一组扇区，并把真实地址写进 ``boot.img`` 和 ``diskboot.img``。这里固定
-LBA 1 只是为了让本书后面的磁盘地址能够保持唯一和可复现。
+这是固定源码上的clean-gap成功分支，不是假称已经从一个缺失的磁盘artifact中读出的事实。
+运行时真正权威的地址仍是安装器写入 ``boot.img`` 的 ``kernel_sector`` 以及
+``diskboot.img`` 的blocklist；如果以后加入可复现磁盘构建物，应以解析产物所得值替换本约定。
 
 boot.img 不是安装时原样写入的模板
 ---------------------------------
@@ -65,20 +71,22 @@ boot.img 不是安装时原样写入的模板
    0x003..0x059   可保留的 BPB 区域
    0x1b8..0x1bd   disk signature 与保留字段
    0x1be..0x1fd   四项 MBR partition table
-   0x1fe..0x1ff   0x55aa signature
+   0x1fe..0x1ff   新boot.img模板自带的0x55aa，不从旧MBR复制
 
-所以安装 GRUB 并不等于把整个旧 MBR 不加区分地覆盖掉。新的 ``boot.img`` 提供启动代码，
-原分区表则被复制回它的固定位置。
+``setup.c`` 总会复制 ``0x003..0x059`` 的possible DOS BPB；在当前硬盘/MBR路径还复制
+``0x1b8..0x1fd``。复制范围明确在 ``0x1fe`` 前结束，最终签名由新 ``boot.img`` 模板自身的
+``.word 0xaa55`` 提供。安装GRUB因此既不是整扇区盲覆盖，也不是原样保留旧MBR。
 
 接着，``write_rootdev()`` 修改 ``boot.img`` 内部两个关键字段：
 
 ``boot_drive``
-   位于偏移 ``0x64``。安装器通常写入 ``0xff``，表示运行时使用 BIOS 传入的 ``DL``，而不是
+   位于偏移 ``0x64``。BIOS版 ``write_rootdev()`` 明确写入 ``0xff``，表示运行时使用BIOS
+   传入的 ``DL``，而不是
    强制指定另一个驱动号。
 
 ``kernel_sector``
    位于偏移 ``0x5c``，宽度为 64 位。这里写入 ``core.img`` 第一个扇区的绝对 LBA。
-   当前固定布局中，它被写成 ``1``。
+   当前clean-gap布局约定中，它被写成 ``1``。
 
 因此，磁盘上的 LBA 0 已经不是一个完全通用的 GRUB 模板。它已经被安装器绑定到这块磁盘上
 ``core.img`` 的实际位置。
@@ -142,7 +150,10 @@ GRUB 仍保留这块布局，因为同一个 512 字节启动映像既可能被�
 某些旧 BIOS 即使从硬盘启动，也可能错误传入 ``DL=0x00`` 或其他异常值。GRUB 在确认自己安装于
 硬盘时，可以把明显错误的值修正为 ``0x80``。
 
-当前 SeaBIOS 路径本来就正确传入了 ``DL=0x80``，所以修正逻辑不会改变它。
+当前clean-gap安装约定同时采用 ``grub-setup`` 默认 ``allow_floppy=0``；目标又是hard disk，
+所以安装器确实把原两字节跳转改成两个
+``NOP`` 并启用检查。SeaBIOS本来就正确传入 ``DL=0x80``；第一项test不跳到纠正分支，第二项
+确认 ``0x70`` mask为0，最终不改 ``DL``。
 
 为什么还要远跳转到 0000:real_start
 ----------------------------------
@@ -289,7 +300,8 @@ GRUB 执行：
    BX = 0xaa55
    CX bit 0 = 1
 
-SeaBIOS 的硬盘服务支持 EDD，因此当前主线进入 ``lba_mode``，不会使用后面的 CHS 几何换算回退。
+SeaBIOS ``disk_1341()`` 在这块硬盘上返回 ``BX=0xaa55``、 ``CX=0x0007``、 ``AH=0x30`` 并清
+CF，因此当前主线进入 ``lba_mode``，不会使用后面的CHS几何换算回退。
 
 调用返回后，GRUB 仍然把压栈保存的 ``DX`` 恢复再重新压回去，因为历史上确实存在会破坏
 ``DL`` 的 BIOS。
@@ -309,7 +321,7 @@ Disk Address Packet：
    0x06    2     buffer segment = 0x7000
    0x08    8     starting LBA = 1
 
-当前固定布局下：
+当前clean-gap布局约定下：
 
 ::
 
@@ -363,11 +375,14 @@ INT 13h AH=42h 怎样回到 SeaBIOS AHCI
    → q35 ICH9 AHCI port 0 drive_s
    → extended_access()
    → CMD_READ, LBA 1, count 1
+   → ATA READ DMA(0xc8), slot 0, one PRDT
    → AHCI command table / PRDT
    → HBA DMA 512 bytes 到 0x70000
    → Carry Flag 清零
 
-GRUB 此时依然没有自己的 AHCI 驱动。最小的 ``boot.img`` 完全依靠 BIOS 磁盘服务。
+``LBA=1,count=1`` 仍满足SeaBIOS的28-bit选择条件，所以这里精确使用非queued
+``ATA_CMD_READ_DMA(0xc8)``。GRUB此时没有自己的AHCI驱动；最小的 ``boot.img`` 完全依靠
+BIOS磁盘服务。
 
 把 diskboot.img 从 0x70000 搬到 0x8000
 -------------------------------------
@@ -447,8 +462,8 @@ GRUB 构建 ``core.img`` 时，把多个部分连接在一起：
 
 这不是 C 函数调用，也没有返回地址。``boot.img`` 的使命到此结束。
 
-第二十三章结束时的机器状态
---------------------------
+本章结束状态
+------------
 
 控制流已经走过：
 
@@ -474,30 +489,49 @@ GRUB 构建 ``core.img`` 时，把多个部分连接在一起：
 
 * 当前执行者：GRUB 2.14 ``diskboot.img``；
 * 当前 CPU：BSP；
-* 模式：16 位实模式；
-* 分页：关闭；
+* 模式：16位实模式，分页关闭，A20开启；
 * ``CS:IP``：``0000:8000``；
-* ``DS``、``SS``：0；
-* 栈：沿用 ``boot.img`` 在低端内存建立的栈；
+* ``DS``、 ``SS``、 ``ES``：0；FLAGS.IF=1、DF=0；
+* ``SP``： ``0x1ffe``； ``boot.img`` 从初始 ``0x2000`` 压入的启动 ``DX`` 位于
+  ``SS:0x1ffe``，尚未弹出；
 * ``DL``：仍表示 BIOS 启动盘 ``0x80``；
+* ``SI``：仍指向 ``boot.img`` 的disk address packet，前一字节 ``mode=1``；
 * 物理 ``0x8000..0x81ff``：``core.img`` 第一扇区；
+* 物理 ``0x70000..0x701ff``：仍保留刚由BIOS读入的同一扇区bounce副本；
 * ``core.img`` 剩余扇区：尚未装入内存；
 * 保护模式：尚未进入；
 * GRUB C 代码：尚未执行；
 * Linux bzImage：尚未读取。
 
-下一章从 ``grub-core/boot/i386/pc/diskboot.S:_start`` 开始，解释第一扇区末尾的 blocklist
+关键边界
+--------
+
+* LBA 1与连续embedding是本章显式clean-gap布局约定；固定MBR/LBA 2048条件本身只能保证有
+  post-MBR gap，不能排除安装器因已知签名而跳过扇区。
+* 安装器复制旧MBR的BPB、disk signature和partition table，但不复制旧 ``0x55aa``；签名来自
+  新 ``boot.img``。
+* ``GRUB_BOOT_MACHINE_STACK_SEG`` 虽名为SEG，却被写入 ``SP``；实际栈顶是物理
+  ``0x2000``，不是 ``0x20000``。
+* EDD probe成功后第一次AH=42h若仍失败， ``boot.S`` 会退回CHS；固定SeaBIOS成功路径不走该
+  分支。
+* BIOS先读到 ``0x70000``，CPU再复制到 ``0x8000``； ``jmp *(kernel_address)`` 是不压返回
+  地址的间接近跳转， ``CS`` 继续为0。
+
+下一入口
+--------
+
+下一章从 ``grub-core/boot/i386/pc/diskboot.S:_start`` 开始，解释第一扇区末尾的blocklist
 怎样描述 ``core.img`` 剩余磁盘范围，以及 ``diskboot.img`` 怎样分批读取、搬运并最终跳到
 ``0000:8200``。
 
 资料
 ----
 
-* `GNU GRUB 2.14 官方发布包目录 <https://ftp.gnu.org/gnu/grub/>`_；
-* `GRUB 2.14 发布提交 <https://github.com/GitMirroring/grub/commit/d38d6a1a9b79427848976f53d474392cd29c2a71>`_；
-* `GRUB 2.14 grub-core/boot/i386/pc/boot.S <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/boot/i386/pc/boot.S>`_；
-* `GRUB 2.14 include/grub/i386/pc/boot.h <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/include/grub/i386/pc/boot.h>`_；
-* `GRUB 2.14 include/grub/offsets.h <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/include/grub/offsets.h>`_；
-* `GRUB 2.14 util/setup.c <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/util/setup.c>`_；
-* `SeaBIOS INT 13h implementation <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/disk.c>`_；
-* `IBM/MS INT 13 Extensions overview <https://en.wikipedia.org/wiki/INT_13H>`_。
+* `GNU GRUB 2.14官方发布包目录 <https://ftp.gnu.org/gnu/grub/>`_；
+* `GRUB 2.14固定发布提交 <https://github.com/GitMirroring/grub/commit/d38d6a1a9b79427848976f53d474392cd29c2a71>`_；
+* `GRUB固定提交：boot.img入口、EDD与复制 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/boot/i386/pc/boot.S#L119-L455>`_；
+* `GRUB固定提交：boot.img字段偏移 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/include/grub/i386/pc/boot.h#L24-L66>`_；
+* `GRUB固定提交：安装器patch boot.img与blocklist <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/util/setup.c#L100-L206>`_；
+* `GRUB固定提交：MBR保存范围与drive workaround <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/util/setup.c#L373-L424>`_；
+* `GRUB固定提交：MSDOS embedding sector选择 <https://github.com/GitMirroring/grub/blob/d38d6a1a9b79427848976f53d474392cd29c2a71/grub-core/partmap/msdos.c#L235-L412>`_；
+* `SeaBIOS固定提交：EDD probe/read实现 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/disk.c#L407-L435>`_。
