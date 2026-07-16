@@ -10,9 +10,9 @@ Linux Kernel回溯审查账本
 
    mode             = retrospective-audit
    production       = paused
-   verified_through = 012
+   verified_through = 015
    current_batch    = none
-   next_batch       = 013-015
+   next_batch       = 016-018
    current_status   = ready
 
 状态语义遵守 ``project/LINUX_KERNEL_CONTRACT.rst``。
@@ -24,6 +24,7 @@ Linux Kernel回溯审查账本
 * `004-006 <004-006.rst>`_：``repaired``；固定SeaBIOS源码核验完成，无阻塞。
 * `007-009 <007-009.rst>`_：``repaired``；固定SeaBIOS/QEMU源码核验完成，无阻塞。
 * `010-012 <010-012.rst>`_：``repaired``；SMM、MTRR/MSR与SMP条件边界核验完成，无阻塞。
+* `013-015 <013-015.rst>`_：``repaired``；PIR/MP/SMBIOS、ACPI loader与受限DSDT解析核验完成，无阻塞。
 
 已知但尚未轮到的结构债务
 ------------------------

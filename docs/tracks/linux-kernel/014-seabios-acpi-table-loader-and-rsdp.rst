@@ -1,438 +1,307 @@
-第十四章：SeaBIOS 怎样执行 QEMU 的 ACPI table-loader 并找到 RSDP？
+第十四章：SeaBIOS 怎样执行 QEMU 的 ACPI table-loader 并搜索 RSDP？
 ================================================================
 
-上一章结束时，SeaBIOS 已经安装 PIRQ、MP table 与 SMBIOS。控制流仍在：
-
-::
-
-   qemu_platform_setup()
+第十三章停在 ``smbios_setup()`` 返回之后。当前执行者仍是BSP上的SeaBIOS
+``MainThread``；CPU处于32位保护模式，分页关闭、A20开启、IF=0，CMOS NMI屏蔽，
+没有锁竞争或线程切换。PIR、MP与SMBIOS是已经结束的独立构造，本章不再修改它们。
 
 下一段源码是：
 
 .. code-block:: c
 
    if (CONFIG_FW_ROMFILE_LOAD) {
+       int loader_err;
+
        loader_err = romfile_loader_execute("etc/table-loader");
        RsdpAddr = find_acpi_rsdp();
-       ...
+       if (RsdpAddr) {
+           acpi_dsdt_parse();
+           virtio_mmio_setup_acpi();
+           return;
+       }
+       if (!loader_err)
+           warn_internalerror();
    }
+   acpi_setup();
 
-这一段容易被概括成“加载 ACPI 表”。实际发生的事情更接近一次小型动态链接：QEMU 先准备表的原始字节、RSDP 和一串重定位命令；SeaBIOS 再决定这些字节放进客户机物理内存的什么位置，修正表与表之间的指针，重新计算 checksum，最后从低端固件区找到 ACPI 的入口 RSDP。
+固定SeaBIOS QEMU默认配置启用 ``CONFIG_FW_ROMFILE_LOAD``，所以BSP进入loader。本章只
+走到 ``find_acpi_rsdp()`` 返回并把结果写入 ``RsdpAddr``；是否沿表图解析或走无RSDP
+出口留给下一章。
 
-本章固定使用：
+QEMU为什么要交给固件做最后链接
+------------------------------
 
-::
-
-   SeaBIOS commit c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
-   QEMU commit    a759542a2c62f0fd3b65f5a66ad9868201014669
-
-本章结束在 ``find_acpi_rsdp()`` 成功返回。下一章再沿 RSDP 进入 RSDT/XSDT、FADT、MADT 和 DSDT。
-
-ACPI 表的内容由 QEMU 生成，最终地址由 SeaBIOS 决定
--------------------------------------------------
-
-在当前 QEMU q35 路径中，现代 ACPI 表并不是 SeaBIOS 从零硬编码出来的。QEMU 比客户机 CPU 更早知道虚拟机的完整硬件模型，例如：
-
-* 创建了多少 vCPU；
-* local APIC 与 I/O APIC 怎样呈现；
-* q35 PCI host bridge 和 ICH9 LPC 位于哪里；
-* SCI、PM timer、reset register 使用哪些端口；
-* 是否存在 HPET、TPM、NUMA、热插拔设备或 virtio-mmio；
-* PCI 路由和 AML namespace 应怎样描述。
-
-因此 QEMU 在宿主机进程中生成 ACPI table blob，再通过 ``fw_cfg`` 暴露给 SeaBIOS。关键文件名由 QEMU 头文件固定：
+QEMU在客户机CPU执行SeaBIOS之前已经根据q35设备、CPU topology与内存布局生成ACPI
+内容。默认启用ACPI build时，fw_cfg至少发布三类对象：
 
 ::
 
-   etc/acpi/tables
-   etc/acpi/rsdp
-   etc/table-loader
-   etc/tpm/log          条件存在
+   etc/acpi/tables   # FACS、DSDT、FADT、MADT、root tables等所在blob
+   etc/acpi/rsdp     # RSDP blob
+   etc/table-loader  # 固定格式链接命令流
 
-``etc/acpi/tables``
-   保存 RSDT/XSDT 所指向的主要表及 AML 数据。
-
-``etc/acpi/rsdp``
-   保存 Root System Description Pointer。它必须放到传统固件搜索范围，使仍按 PC 固件规则工作的软件能够找到它。
-
-``etc/table-loader``
-   不是 ACPI 表本身，而是一串告诉固件怎样分配、链接和校验前两个 blob 的命令。
-
-``etc/tpm/log``
-   只有虚拟机提供相应 TPM measured-boot 配置时才出现。它可能也由 loader 分配，并被 TPM2 或 TCPA 表指向。
-
-这里形成一个明确分工：
+QEMU构造blob时还不知道SeaBIOS最终能把它们放到哪些客户机物理地址。表内的FADT→DSDT、
+RSDT/XSDT→子表、RSDP→root table等字段最初保存blob内offset，checksum字段也尚待最终
+地址写入后计算。因此职责被分成两段：
 
 ::
 
-   QEMU
-      生成机器描述和未完成链接的表字节
+   QEMU host side
+   → 生成内容、offset和链接命令
 
-   SeaBIOS
-      在客户机地址空间分配最终位置
-      → 按命令修正地址
-      → 计算最终 checksum
-      → 公布 RSDP
+   SeaBIOS guest side
+   → 分配最终客户机地址
+   → 把offset重定位成物理指针
+   → 计算最终checksum
 
-为什么 QEMU 不能事先把所有物理指针写死
+这是一种受限链接协议，不是SeaBIOS在客户机内重新执行QEMU的ACPI builder。
+
+每条loader entry固定为128字节
+-------------------------------
+
+QEMU与SeaBIOS使用同一packed布局：4字节little-endian command，加124字节union/padding，
+合计128字节。文件名字段固定56字节。SeaBIOS先调用 ``romfile_loadfile()`` 把整个
+``etc/table-loader`` 读入临时内存；文件不存在便直接返回 ``-1``。
+
+若总长度不是128的整数倍，函数告警、释放command blob并返回 ``-1``。长度合法时，它
+用命令条数作为可能文件数的上界，为 ``romfile_loader_files`` 申请临时索引数组；
+分配失败同样返回 ``-1``。只有这三类问题是loader的函数级失败：
+
+::
+
+   loader file missing
+   command blob size malformed
+   temporary files index allocation failed
+
+建立索引后，BSP按原始顺序逐项解释command。QEMU把所有ALLOCATE entry插到命令流头部，
+因此正常生成的指针和checksum命令不会先于对应文件分配。
+
+ALLOCATE怎样把fw_cfg blob变成固件内存
+--------------------------------------
+
+``ROMFILE_LOADER_COMMAND_ALLOCATE`` 指定文件名、alignment和zone。SeaBIOS只接受：
+
+::
+
+   zone HIGH = 1
+   zone FSEG = 2
+
+非零alignment必须是2的幂；小于 ``MALLOC_MIN_ALIGN`` 的值会提升到最小分配对齐。
+文件名最后一字节必须为0，防止越过56字节字段比较。QEMU正常命令为主ACPI blob请求
+HIGH、64字节对齐，为RSDP请求FSEG、16字节对齐。
+
+验证通过后，SeaBIOS用 ``romfile_find()`` 找对应fw_cfg文件。文件不存在或size为0时，
+该命令直接返回，不增加 ``files->nfiles``；zone、alignment或名称无效则告警。找到文件
+后， ``_malloc()`` 在目标zone申请与fw_cfg文件等长的连续区，再调用romfile ``copy``
+填充。分配失败只发出 ``warn_noalloc()``；短复制会释放刚分配的区并告警。
+
+只有分配与完整复制都成功时，SeaBIOS才把三元组加入临时索引：
+
+::
+
+   romfile descriptor
+   final guest address
+   file size
+
+后续命令用文件名查这个索引，不直接相信QEMU提供的地址。
+
+ADD_POINTER怎样完成重定位
+-------------------------
+
+``ROMFILE_LOADER_COMMAND_ADD_POINTER`` 同时查找destination与source。两者必须都已成功
+ALLOCATE，目标offset加pointer size不能溢出或越过目标blob，size只能是1、2、4、8。
+
+QEMU已经在目标字段中写入source blob内部offset。SeaBIOS执行：
+
+::
+
+   old little-endian value = source offset
+   relocated value         = old value + source final guest base
+
+然后把结果按相同宽度写回目标blob。例如FADT的DSDT字段最初只是
+``etc/acpi/tables`` 内的DSDT offset；主blob落到HIGH后，这条命令才把它变成客户机可用
+的物理地址。
+
+代码检查目标范围与宽度，却没有单独检查相加结果能否装入小于8字节的字段；正常QEMU
+builder会根据ACPI字段宽度和分配区选择满足协议的地址。畸形命令在这里不会得到事务
+回滚。
+
+ADD_CHECKSUM为什么必须在指针之后
 ---------------------------------
 
-ACPI 表包含大量物理地址关系，例如：
-
-::
-
-   RSDP → RSDT / XSDT
-   RSDT / XSDT → FADT、MADT、MCFG、HPET、TPM2 ...
-   FADT → FACS
-   FADT → DSDT
-
-QEMU 生成 blob 时，还不能简单假设 SeaBIOS 一定会把 ``etc/acpi/tables`` 放在某个固定客户机物理地址。最终位置受以下因素影响：
-
-* 当前 ``ZoneHigh`` 与 ``ZoneFSeg`` 的剩余空间；
-* 表的大小和对齐要求；
-* 其他固件表和永久分配已经占用的区域；
-* 某些入口结构必须放在低于 1 MiB 的传统可搜索区域；
-* 某些大表适合放在高端 RAM。
-
-如果先把地址写死，SeaBIOS 一旦选择不同位置，表中的所有指针都会失效。QEMU 因此把指针字段先写成“源 blob 内偏移”，再让 SeaBIOS 在完成分配后加上真实基址。
-
-table-loader 是固定大小命令数组
----------------------------
-
-QEMU 的 ``BiosLinkerLoaderEntry`` 由一个 32 位 command 和一个填充到 124 字节的 union 构成，所以每条命令固定占 128 字节。
-
-SeaBIOS 执行：
+``ROMFILE_LOADER_COMMAND_ADD_CHECKSUM`` 指定同一blob中的checksum byte、range start与
+range length。SeaBIOS验证checksum byte在文件内，范围加法不溢出且不越界，然后执行：
 
 .. code-block:: c
 
-   data = romfile_loadfile("etc/table-loader", &size);
+   *checksum_byte -= checksum(range_start, range_length);
 
-随后先检查：
+所有运算按8位截断，结果使指定范围的最终字节和为0。QEMU把checksum命令追加在相关
+pointer patch之后，所以校验覆盖的是最终物理地址，而不是原始offset。
 
-.. code-block:: c
+RSDP是最清楚的例子。QEMU要求它在FSEG按16字节对齐分配，先修补RSDT/XSDT地址，再为
+前20字节写基本checksum；ACPI 2.0+还为36字节整体写extended checksum。
 
-   size % sizeof(*entry) == 0
+WRITE_POINTER为什么会修改宿主侧fw_cfg文件
+-------------------------------------------
 
-这保证整个文件可以完整切分为命令记录。然后它按 128 字节步长顺序解释：
-
-::
-
-   ALLOCATE
-   ADD_POINTER
-   ADD_CHECKSUM
-   WRITE_POINTER
-
-未知 command 会被跳过，而不是直接把整个启动过程判为失败。这给接口保留了向后兼容空间：较新的 QEMU 可以增加旧 SeaBIOS 不认识、但并非当前启动必需的命令。
-
-ALLOCATE：先把 blob 放进客户机内存
---------------------------------
-
-``ROMFILE_LOADER_COMMAND_ALLOCATE`` 携带：
+``ROMFILE_LOADER_COMMAND_WRITE_POINTER`` 与ADD_POINTER不同：destination可以是没有加载
+到RAM的fw_cfg文件，source则必须在SeaBIOS内成功分配。BSP计算：
 
 ::
 
-   file
-   align
-   zone
+   pointer = source final guest base + source offset
 
-SeaBIOS 首先验证 ``align`` 是 2 的幂，然后把最小对齐提高到固件分配器要求的 ``MALLOC_MIN_ALIGN``。
+它检查destination范围、source offset、1/2/4/8字节宽度以及pointer能否装入该宽度，
+再经 ``qemu_cfg_write_file()`` 把little-endian pointer回写QEMU。
 
-zone 只有两种受支持选择：
+写回成功后，SeaBIOS尝试在high memory保存一项resume replay记录，包括pointer、fw_cfg
+selector key、目标offset和宽度。之后固件恢复时 ``romfile_fw_cfg_resume()`` 可以重放
+这些地址。若replay记录分配失败，当前回写已经发生，只是未来重放能力缺失；代码只
+告警，不撤销写入。
 
-``ROMFILE_LOADER_ALLOC_ZONE_HIGH``
-   从 ``ZoneHigh`` 分配。这里适合体积较大的 ACPI table blob 和其他不要求传统低端搜索的对象。
+为什么返回0不代表所有命令成功
+------------------------------
 
-``ROMFILE_LOADER_ALLOC_ZONE_FSEG``
-   从 ``ZoneFSeg`` 分配。RSDP 等需要被传统固件扫描规则发现的小型入口结构放在这里。
+四个命令handler都返回 ``void``。逐命令遇到文件缺失、内存不足、越界、非法宽度或短
+复制时，只会告警、跳过该项，解释循环继续处理下一条。未知command更是按注释直接
+跳过，不告警。
 
-随后 SeaBIOS：
-
-.. code-block:: c
-
-   file->file = romfile_find(entry->alloc.file);
-   data = _malloc(zone, file->file->size, alloc_align);
-   file->file->copy(file->file, data, file->file->size);
-
-这三步分别表示：
-
-#. 在 ``romfile`` 名字空间中找到对应 fw_cfg 文件；
-#. 在客户机物理内存中分配最终存放位置；
-#. 把 QEMU 提供的原始 blob 复制进去。
-
-loader 会记录：
+因此loader的真实错误模型是：
 
 ::
 
-   文件名
-   原始 romfile 元数据
-   客户机中的最终 data 地址
+   function-level error
+   → return -1
+   → command stream not fully entered
 
-后续指针修正都通过这张运行期映射表，把“文件名”解析成“最终客户机物理地址”。
+   per-command error
+   → warn or skip this command
+   → continue
+   → final return can still be 0
 
-为什么所有 ALLOCATE 命令必须最先执行
---------------------------------
+``romfile_loader_execute() == 0`` 只证明command blob格式可遍历且临时索引分配成功，
+不证明每个blob都已分配、每个pointer都已修补或每个checksum都有效。它也不是原子
+事务：前面已经成功分配和修补的对象不会因后面失败而回滚。
 
-QEMU 生成命令时，会把 ALLOCATE 记录 prepend 到 command blob 前部。原因不是格式习惯，而是链接依赖：
+循环结束后，SeaBIOS释放临时files索引和command blob。成功ALLOCATE得到的HIGH/FSEG
+区不能释放，因为ACPI表中的指针已经引用它们；WRITE_POINTER replay list也作为全局
+状态保留。
 
-::
+RSDP搜索为什么不相信loader返回值
+-------------------------------
 
-   在修正 A → B 的指针之前
-   A 与 B 都必须已经拥有最终地址
-
-如果先出现 ADD_POINTER，而目标或源文件尚未分配，SeaBIOS 无法知道应加上的基址，只能报内部错误。
-
-所以命令流逻辑上分两阶段：
-
-::
-
-   第一阶段：为所有 blob 确定最终客户机地址
-   第二阶段：修正指针、checksum 和回写字段
-
-ADD_POINTER：把 blob 内偏移变成真实物理地址
----------------------------------------
-
-``ROMFILE_LOADER_COMMAND_ADD_POINTER`` 指定：
-
-::
-
-   dest_file
-   src_file
-   offset
-   size
-
-它的语义是：读取 ``dest_file`` 中 ``offset`` 位置的 1、2、4 或 8 字节小端整数，把 ``src_file`` 的最终客户机基址加进去，再把结果写回原字段。
-
-假设 QEMU 在 XSDT 某项中预先写入：
-
-::
-
-   0x0000000000002400
-
-这个值表示目标表位于 ``etc/acpi/tables`` blob 内 offset ``0x2400``。SeaBIOS 最终把整个 blob 分配到：
-
-::
-
-   tables_base = 0x7fe0000
-
-修正后字段变成：
-
-::
-
-   0x07fe0000 + 0x2400 = 0x07fe2400
-
-于是 XSDT 中不再是“文件内偏移”，而是 CPU 可以直接访问的客户机物理地址。
-
-SeaBIOS 对每次修正都检查：
-
-* 源文件和目标文件都已经分配；
-* offset 加 size 没有整数回绕；
-* 字段没有越过目标 blob；
-* size 必须是 1、2、4 或 8；
-* 最终地址能装进指定字段宽度。
-
-这些检查防止损坏的 loader 命令把地址写出 ACPI blob。
-
-ADD_CHECKSUM：地址改完以后重新闭合校验和
-------------------------------------
-
-ACPI 表头包含 8 位 checksum。规范要求指定范围内所有字节相加后，低 8 位为零：
-
-::
-
-   sum(table bytes) mod 256 = 0
-
-指针字段被 ADD_POINTER 修改以后，QEMU 生成 blob 时预先计算的 checksum 已经失效。因此 checksum 命令必须位于相关指针修正之后。
-
-SeaBIOS 执行：
-
-.. code-block:: c
-
-   *checksum_byte -= checksum(file->data + start, length);
-
-假设当前所有字节之和低 8 位是 ``0x35``，checksum byte 就减去 ``0x35``。修改后再次求和，低 8 位变成零。
-
-这不是密码学完整性保护。它只能检测常见的字节损坏、长度错误或未完成重定位，不能抵抗恶意修改。
-
-WRITE_POINTER：把客户机地址反向写回 QEMU
-------------------------------------
-
-``ROMFILE_LOADER_COMMAND_WRITE_POINTER`` 与 ADD_POINTER 的方向不同。
-
-ADD_POINTER 修改的是已经装进客户机 RAM 的 ACPI blob；WRITE_POINTER 则通过 fw_cfg DMA，把某个已分配对象的客户机物理地址写回 QEMU 暴露的另一个 fw_cfg 文件。
-
-SeaBIOS 计算：
-
-::
-
-   pointer = src_file guest base + src_offset
-
-然后调用：
-
-.. code-block:: c
-
-   qemu_cfg_write_file(...)
-
-成功以后，它还把 key、offset、pointer size 和值保存进 ``romfile_pointer_list``。后续固件 resume 路径可以调用 ``romfile_fw_cfg_resume()``，重新把这些地址写回 QEMU，避免恢复后 QEMU 仍持有过期的客户机指针。
-
-这条命令要求 fw_cfg DMA 写能力，普通只读端口访问无法完成反向写入。
-
-SeaBIOS 顺序执行命令，不再做第二轮链接
----------------------------------
-
-``romfile_loader_execute()`` 的主循环只有一遍：
-
-.. code-block:: c
-
-   for each entry:
-       switch command:
-           ALLOCATE
-           ADD_POINTER
-           ADD_CHECKSUM
-           WRITE_POINTER
-
-因此 QEMU 必须保证命令顺序已经满足依赖关系。SeaBIOS 不是通用 ELF linker，不会分析符号图，也不会为了等待依赖而重新排序。
-
-执行成功返回零，表示命令文件格式可执行且主循环走完。单个可选文件缺失时，某些 allocate 可以直接不产生对象；严重的格式、越界或分配问题会发出固件警告。返回零也不自动证明 RSDP 一定已经正确安装，所以调用者紧接着还要主动搜索。
-
-find_acpi_rsdp 不是读取一个全局变量
---------------------------------
-
-loader 返回后，``qemu_platform_setup()`` 执行：
+无论 ``loader_err`` 是0还是 ``-1``，下一条源码都执行：
 
 .. code-block:: c
 
    RsdpAddr = find_acpi_rsdp();
 
-SeaBIOS 没有直接相信“RSDP 应该在某个预定地址”，而是在最终 ``ZoneFSeg`` 范围内按 16 字节边界扫描：
+这使“命令流状态”和“最终是否存在可发现RSDP”成为两个正交结果。loader可能局部失败，
+但RSDP相关命令已经完成；loader也可能函数级失败，而FSEG里此前已有有效RSDP。反过来，
+loader返回0仍可能因为RSDP ALLOCATE或checksum命令软失败而搜索不到有效对象。
+
+``find_acpi_rsdp()`` 不读取标准EBDA pointer另行跳转，也不遍历HIGH。它只在SeaBIOS的
+``zonefseg_start`` 到 ``zonefseg_end`` 之间，从第一个16字节对齐地址开始，每16字节
+检查一个候选。这与QEMU为 ``etc/acpi/rsdp`` 请求FSEG和16字节对齐相匹配。
+
+候选RSDP怎样验证
+----------------
+
+``get_acpi_rsdp_length()`` 先检查8字节signature ``RSD PTR ``。基本部分固定20字节：
+
+* 剩余FSEG范围必须至少容纳20字节；
+* 前20字节8位checksum必须为0。
+
+当revision大于1时，函数再读取RSDP自己的 ``length``：
+
+* ``length`` 不能超过当前候选到FSEG末端的剩余范围；
+* 整个扩展结构的8位checksum也必须为0。
+
+任一条件失败就继续下一个16字节候选；全部失败才返回 ``NULL``。函数在这里不验证
+RSDT/XSDT地址、root signature或任何子表，它只证明FSEG中有一份边界与checksum合格
+的RSDP。
+
+本章为什么不能以“RSDP成功”作为唯一结束状态
+-------------------------------------------
+
+固定q35默认ACPI build的正常路径会让QEMU提供tables、RSDP与loader，SeaBIOS完成链接后
+找到RSDP。但稳定叙事还必须保留源码真实失败边界，因为当前函数没有把逐命令失败汇总
+到 ``loader_err``。
+
+所以本章在赋值后结束，状态按结果分叉：
 
 ::
 
-   ALIGN(zonefseg_start, 16)
-   → 每次增加 16
-   → 直到 zonefseg_end
+   found
+   → RsdpAddr points into FSEG
+   → next branch parses DSDT and probes ACPI-described virtio-mmio
 
-16 字节对齐来自 ACPI 对 RSDP 搜索的传统要求，也能避免逐字节遍历整段 F-segment。
+   not found
+   → RsdpAddr = NULL
+   → loader_err == 0: warn_internalerror()
+   → then acpi_setup()
 
-每个候选位置必须先通过 ``get_acpi_rsdp_length()``。
+   not found + loader_err == -1
+   → no extra loader-success warning
+   → then acpi_setup()
 
-第一层验证是固定 20 字节部分：
+注意：即使 ``loader_err == -1``，只要搜索找到有效RSDP，源码仍优先进入found分支；
+``loader_err`` 不会否决已经可验证的RSDP。
 
-* signature 必须是 ``"RSD PTR "``；
-* 候选区域至少容纳 20 字节；
-* 前 20 字节 checksum 必须为零。
+本章结束状态
+------------
 
-如果 revision 大于 1，还要继续：
+* current executor：BSP上的SeaBIOS ``MainThread``；
+* CPU/mode：32位保护模式，分页关闭，A20开启，IF=0，CMOS NMI屏蔽；
+* table-loader input：已尝试读取并按128字节entry遍历；
+* final ACPI allocations：成功项保留在HIGH或FSEG，失败项无全局回滚；
+* temporary command blob/files index：已释放；
+* WRITE_POINTER replay entries：仅为成功回写且成功登记的项保留；
+* ``loader_err``：只区分函数级0/ ``-1``，不汇总逐命令错误；
+* ``RsdpAddr``：正常q35默认路径指向FSEG有效RSDP；失败路径为 ``NULL``；
+* RSDP validation：signature、范围、基本checksum及条件extended checksum已检查；
+* RSDT/XSDT/FADT/DSDT：尚未由SeaBIOS当前控制流遍历；
+* next entry： ``if (RsdpAddr)``。
 
-* 读取 RSDP 自带的 length；
-* 确认 length 没有越过扫描区尾端；
-* 验证整个扩展 RSDP checksum。
+关键边界
+--------
 
-只有两段验证都通过，函数才返回该物理地址。
+#. QEMU生成表内容与offset，SeaBIOS决定最终客户机地址并完成重定位。
+#. loader entry固定128字节，文件名固定56字节，数值字段按little endian解释。
+#. QEMU把ALLOCATE放在引用命令之前；SeaBIOS仍逐项验证实际分配结果。
+#. ADD_POINTER把目标字段已有source offset加上source最终基址。
+#. ADD_CHECKSUM作用于pointer patch之后的最终字节。
+#. WRITE_POINTER修改fw_cfg宿主文件；replay登记失败不会撤销已经完成的写回。
+#. 逐命令错误不传播到 ``romfile_loader_execute()`` 返回值，返回0不是全成功承诺。
+#. loader不是事务；后续失败不会回滚先前成功的分配或patch。
+#. ``find_acpi_rsdp()`` 无条件运行，结果不能由 ``loader_err`` 推导。
+#. RSDP搜索只扫SeaBIOS FSEG并按16字节对齐，不在本章验证root或子表。
+#. 正常q35命中RSDP，但源码失败出口仍必须保留，供状态与回滚边界闭合。
 
-为什么 revision 2 仍要保留前 20 字节 checksum
-----------------------------------------
+下一入口
+--------
 
-ACPI 2.0 以后，RSDP 增加了：
-
-::
-
-   length
-   xsdt_physical_address
-   extended_checksum
-
-但它没有删除 ACPI 1.0 的前 20 字节布局。旧软件可能只理解 RSDT 字段，所以新版 RSDP 同时维持：
-
-::
-
-   checksum           覆盖前 20 字节
-   extended_checksum  覆盖整个 RSDP
-
-SeaBIOS 的验证顺序正好反映这个兼容设计。
-
-找到 RSDP 后，ACPI 才真正拥有入口
------------------------------
-
-在 ``find_acpi_rsdp()`` 返回前，表 blob 即使已经放进 RAM，也只是一些彼此链接的结构。找到并保存：
+下一章从：
 
 .. code-block:: c
 
-   RsdpAddr
+   if (RsdpAddr) {
+       acpi_dsdt_parse();
+       virtio_mmio_setup_acpi();
+       return;
+   }
 
-以后，SeaBIOS、bootloader 和 Linux 才拥有统一入口去遍历整张 ACPI 表图。
-
-它们不需要知道 QEMU 的 fw_cfg 文件名，也不需要理解 ``table-loader``。对后续软件来说，QEMU 与 SeaBIOS 的协作痕迹已经被隐藏，剩下的是标准 ACPI 结构：
-
-::
-
-   RSDP
-   ├── RSDT
-   └── XSDT
-       ├── FADT
-       ├── MADT
-       ├── MCFG
-       ├── HPET
-       ├── TPM2 / TCPA
-       └── 其他条件表
-
-第十四章结束时的机器状态
-----------------------
-
-控制权目前走过：
-
-::
-
-   qemu_platform_setup()
-   → smbios_setup() 返回
-   → romfile_loader_execute("etc/table-loader")
-   → 从 fw_cfg 读取 128 字节命令记录
-   → ALLOCATE：把 ACPI blobs 分配到 ZoneHigh / ZoneFSeg
-   → ADD_POINTER：把 blob 内偏移修正为客户机物理地址
-   → ADD_CHECKSUM：重新计算 ACPI checksum
-   → 条件 WRITE_POINTER：通过 fw_cfg DMA 把地址写回 QEMU
-   → loader 返回
-   → find_acpi_rsdp()
-   → 16 字节对齐扫描 F-segment
-   → 验证 RSDP signature 与两层 checksum
-   → RsdpAddr 保存成功
-
-此刻：
-
-* 当前执行者：SeaBIOS ``qemu_platform_setup()``；
-* 当前主流程 CPU：BSP；
-* 模式：32 位保护模式；
-* 分页：关闭；
-* AP：已完成固件报到并停在 ``HLT``；
-* ACPI table blob：已复制到最终客户机内存；
-* 表间物理指针：已修正；
-* ACPI checksum：已在重定位后重新计算；
-* RSDP：已在 F-segment 找到并保存到 ``RsdpAddr``；
-* RSDT/XSDT 表图：尚未在本叙事中展开；
-* DSDT AML：尚未由 SeaBIOS 轻量解析；
-* 平台定时器与周期 IRQ0：尚未完成最后初始化；
-* TPM：尚未初始化；
-* 存储、USB 与网络驱动：尚未探测介质；
-* ``BootList``：尚无具体启动设备；
-* GRUB：尚未被读取或执行；
-* Linux：尚未装入内存。
-
-成功找到 ``RsdpAddr`` 后，当前主线下一条调用是：
-
-.. code-block:: c
-
-   acpi_dsdt_parse();
-   virtio_mmio_setup_acpi();
-   return;
-
-下一章先沿 RSDP 解释 RSDT/XSDT 怎样索引 FADT、MADT、MCFG 等表，再进入 FADT 指向的 DSDT，说明 SeaBIOS 为什么只解析 AML 的一个受限子集，而不是在固件里实现完整 ACPI Machine Language 解释器。
+开始。found分支将沿RSDP优先查XSDT、回退RSDT，再通过FADT的32位DSDT字段进入受限
+AML解析；not-found分支则区分告警条件并进入当前已经退化的 ``acpi_setup()``。
 
 资料
 ----
 
-* `SeaBIOS src/fw/romfile_loader.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/romfile_loader.c>`_；
-* `SeaBIOS src/fw/paravirt.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/paravirt.c>`_；
-* `SeaBIOS src/fw/biostables.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/biostables.c>`_；
-* `SeaBIOS src/romfile.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/romfile.c>`_；
-* `QEMU hw/acpi/bios-linker-loader.c <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/acpi/bios-linker-loader.c>`_；
-* `QEMU include/hw/acpi/aml-build.h <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/include/hw/acpi/aml-build.h>`_；
-* `QEMU hw/i386/acpi-build.c <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/acpi-build.c>`_；
-* `ACPI Specification <https://uefi.org/specifications>`_。
+* `SeaBIOS固定提交：table-loader命令格式 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/romfile_loader.h#L1-L89>`_
+* `SeaBIOS固定提交：table-loader执行与错误模型 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/romfile_loader.c#L1-L265>`_
+* `SeaBIOS固定提交：RSDP长度、checksum与FSEG搜索 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/biostables.c#L89-L134>`_
+* `SeaBIOS固定提交：QEMU平台loader、搜索与分支顺序 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/paravirt.c#L301-L324>`_
+* `QEMU固定提交：BIOS linker/loader协议与ALLOCATE前置 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/acpi/bios-linker-loader.c#L1-L300>`_
+* `QEMU固定提交：RSDP的FSEG分配、pointer与checksum命令 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/acpi/aml-build.c#L1821-L1899>`_
+* `QEMU固定提交：PC ACPI blob与loader文件发布 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/acpi-build.c#L2278-L2344>`_

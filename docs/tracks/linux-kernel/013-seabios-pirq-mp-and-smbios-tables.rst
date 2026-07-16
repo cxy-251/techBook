@@ -1,14 +1,18 @@
 第十三章：SeaBIOS 怎样把 CPU、IRQ 和内存信息写成固件表？
 =========================================================
 
-上一章结束时，SeaBIOS 已经唤醒所有当前存在的 AP，记录 APIC ID，把每 CPU MSR 设置同步给它们，再将 AP 停在
-``HLT``。控制流回到：
+第十二章结束时，BSP已经从 ``smp_setup()`` 返回。CPU仍在32位保护模式，分页关闭、
+A20开启、IF=0，CMOS NMI保持屏蔽；当前执行者仍是SeaBIOS ``MainThread``，没有发生
+线程切换。PIC mask也没有改变：master只放行级联IRQ2，slave只放行IRQ13。
 
-::
+需要先保留第十二章已经收紧的CPU数量分支。当前固定条件没有规定 ``-smp``：
 
-   qemu_platform_setup()
+* 无override时QEMU缺省只有BSP，没有AP执行 ``entry_smp``；
+* 显式配置多CPU时，在场AP才已经登记APIC ID、重放日志中实际保留的MSR前缀，并在
+  IF=0下停在HLT循环；
+* ``MaxCountCPUs`` 保存的是QEMU发布的APIC-ID上界，不是已经启动CPU的精确数量。
 
-接下来执行：
+接下来的真实控制流是：
 
 .. code-block:: c
 
@@ -18,734 +22,311 @@
    }
    smbios_setup();
 
-这三类表都在向后续软件描述机器，但描述对象不同：
+这三类表都是给之后的软件读取的描述对象。它们不会在这里重新编程PIC、IOAPIC、
+local APIC、ICH9 PIRQ寄存器或DRAM控制器，也不会唤醒新的CPU。
 
-``PIRQ table``
-   传统 PCI INTx pin 可以通过哪些 PIRQ link 与 ISA IRQ 路由。
+为什么PIR和MP共享255这个外层门
+---------------------------------
 
-``Intel MP table``
-   处理器、local APIC、I/O APIC、总线和中断连接关系。
+SeaBIOS只在 ``MaxCountCPUs <= 255`` 时调用 ``pirtable_setup()`` 与
+``mptable_setup()``。MP结构中的APIC ID字段只有8位；SeaBIOS把这个限制放在两次
+兼容表调用外层，因此一旦APIC-ID上界超过255，两张表一起跳过。
 
-``SMBIOS``
-   BIOS、系统、处理器插槽、内存设备和机器身份等清单式信息。
+这个判断不等于“当前有255颗CPU”。例如只有少量在场vCPU、但machine topology允许
+更大的APIC-ID空间时， ``MaxCountCPUs`` 仍可能大于实际 ``CountCPUs``。反过来，
+缺省单CPU的上界满足条件时，两张兼容表仍会构造。
 
-这些表也不等同于 ACPI。现代操作系统通常优先使用 ACPI 的 MADT、``_PRT``、SRAT 等结构；PIRQ 与 MP table 是更早的
-兼容接口，SMBIOS则继续广泛用于硬件清单和系统身份信息。
+两个函数内部还有各自的构建开关。固定SeaBIOS QEMU默认配置启用
+``CONFIG_PIRTABLE`` 与 ``CONFIG_MPTABLE``，所以正常路径进入构造；但后续分配、
+校验与FSEG复制仍可能失败，调用发生不能扩大成表必然安装成功。
 
-本章沿下面的真实控制流前进：
+PIR表从一份静态模板开始
+------------------------
 
-::
-
-   qemu_platform_setup()
-   → 检查 MaxCountCPUs <= 255
-   → pirtable_setup()
-   → 生成 $PIR header 与 6 个 slot entry
-   → 计算 checksum
-   → 复制到 F-segment
-   → mptable_setup()
-   → 建立 PCMP configuration table
-   → 写 CPU / PCI / ISA / IOAPIC entry
-   → 写 PCI 与 ISA interrupt source entry
-   → 写 ExtINT / NMI local interrupt entry
-   → 建立 _MP_ floating pointer
-   → 复制到 F-segment
-   → smbios_setup()
-   → 优先读取 QEMU fw_cfg SMBIOS anchor/tables
-   → 条件补入 SeaBIOS Type 0
-   → 或回退到 SeaBIOS legacy SMBIOS 生成器
-   → 安装 SMBIOS 2.1 或 3.0 entry point
-   → smbios_setup() 返回
-
-本章结束在 ACPI table loader 之前。
-
-本章固定使用：
+``pirtable_setup()`` 不遍历当前 ``PCIDevices`` 来推导q35的实际路由，而是修改并复制
+``src/fw/pirtable.c`` 中的静态 ``pir_table``。表头的关键值是：
 
 ::
 
-   SeaBIOS repository: coreboot/seabios
-   SeaBIOS commit:     c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
-   QEMU repository:    qemu/qemu
-   QEMU commit:        a759542a2c62f0fd3b65f5a66ad9868201014669
+   signature          = "$PIR"
+   version            = 0x0100
+   table size         = header + 6 slot entries
+   router bus         = 0
+   router devfn       = 0x08          # 00:01.0
+   compatible device  = 8086:122e
+   exclusive IRQs     = 0
 
-为什么 MaxCountCPUs 超过 255 时跳过两张旧表
----------------------------------------
-
-源码把 PIRQ table 与 MP table 放在同一个条件中：
-
-.. code-block:: c
-
-   if (MaxCountCPUs <= 255) {
-       pirtable_setup();
-       mptable_setup();
-   }
-
-真正与 255 限制直接相关的是 legacy MP table。它的 processor entry 使用 8 位 APIC ID，SeaBIOS 的
-``FoundAPICIDs`` 也是 256 位 bitmap，只能直接描述 APIC ID ``0-255``。
-
-当 ``MaxCountCPUs`` 超过 255 时，系统需要 x2APIC 和现代 ACPI MADT 等更宽的描述方式。SeaBIOS因此不再生成 MP table。
-
-PIRQ table 本身不描述 CPU ID，仍因源码外层条件而一同被跳过。这是当前实现的控制流，不应误解成 PIRQ 规范本身有
-255 CPU 限制。
-
-PIRQ table 是什么
------------------
-
-PIRQ 是 PCI Interrupt Routing 的传统 BIOS 数据结构。PCI 设备提供最多四个 legacy interrupt pin：
-
-::
-
-   INTA#
-   INTB#
-   INTC#
-   INTD#
-
-这些 pin 不一定一一对应固定 ISA IRQ。主板或芯片组通常先把 pin 接到 PIRQ link，再由 interrupt router 把 link 映射到
-IRQ 线。
-
-传统软件需要知道：
-
-* 某个 PCI slot 的 INTA-D 分别接到哪个 link；
-* 每个 link 允许使用哪些 ISA IRQ；
-* interrupt router 位于哪个 PCI BDF；
-* 表本身是否完整且 checksum 正确。
-
-SeaBIOS 生成的是一个静态 emulator compatibility table
-------------------------------------------------------
-
-``src/fw/pirtable.c`` 定义：
-
-.. code-block:: c
-
-   struct pir_table {
-       struct pir_header pir;
-       struct pir_slot slots[6];
-   };
-
-header 采用：
-
-::
-
-   version             = 0x0100
-   size                = sizeof(struct pir_table)
-   router_devfunc      = 0x08
-   compatible_devid    = 0x122e8086
-
-``router_devfunc = 0x08`` 编码 device 1、function 0；``0x122e8086`` 则是 Intel vendor/device 组合的传统兼容标识。
-
-这里需要特别谨慎：当前固定平台是 q35，实际 ICH9 LPC function 常见于 ``00:1f.0``，前面章节也已经通过 ICH9
-``PIRQA-H`` 寄存器完成真实中断路由。这个静态 ``$PIR`` 表保留的是老式 emulator/BIOS 兼容布局，不能用它反推当前
-q35 LPC 的真实 BDF。
-
-SeaBIOS 源码自己也写着：
-
-::
-
-   DO NOT ADD NEW FEATURES HERE
-
-现代 q35 路由的权威描述将在 ACPI ``_PRT`` 等结构中出现。
-
-六个 slot entry 怎样轮转 INTA-D
-------------------------------
-
-表中有六个 slot entry：
-
-* 第一个表示 embedded PCI-to-ISA 位置，``slot_nr = 0``；
-* 后五个表示 PCI slot 1-5。
-
-每个 entry 为 INTA-D 指定 link ``0x60-0x63``。不同 slot 会旋转 link：
-
-::
-
-   slot 1: INTA→0x61 INTB→0x62 INTC→0x63 INTD→0x60
-   slot 2: INTA→0x62 INTB→0x63 INTC→0x60 INTD→0x61
-   slot 3: INTA→0x63 INTB→0x60 INTC→0x61 INTD→0x62
-
-这种 rotation 用来把不同 slot 的 INTA 请求分散到不同 PIRQ link，避免所有设备默认集中到同一条线。
-
-bitmap 0xdef8 表示哪些 IRQ 可选
-------------------------------
-
-每个 link 都携带：
+六个slot entry覆盖device 1至6、function 0；slot number依次为0至5。每个slot有INTA到
+INTD四个pin，link值在 ``0x60``、 ``0x61``、 ``0x62``、 ``0x63`` 间轮转，形成传统
+PCI slot swizzle。所有link都带相同bitmap：
 
 ::
 
    bitmap = 0xdef8
+          = IRQ3,4,5,6,7,9,10,11,12,14,15
 
-bitmap 的 bit ``n`` 表示 IRQ ``n`` 可用。展开后允许：
+这个bitmap只表达兼容软件可以尝试的IRQ集合，不是“当前每个pin已经接到哪个IRQ”。
 
-::
+为什么这张PIR表不能冒充q35真实路由
+-----------------------------------
 
-   IRQ 3, 4, 5, 6, 7,
-   IRQ 9, 10, 11, 12,
-   IRQ 14, 15
+固定平台是q35，ICH9 LPC通常位于 ``00:1f.0``，有PIRQA—PIRQH八条路由输入；前面的
+PCI章节已经按q35逻辑为设备写入 ``PCI_INTERRUPT_LINE`` 并设置ICH9路由寄存器。
+静态PIR表却保留router devfn ``00:01.0``、四个link和i440fx时代的兼容device ID。
 
-IRQ0、1、2、8、13 被排除，因为它们具有时钟、键盘、级联、RTC、数学异常等传统固定用途。
-
-这只是可选集合，不是当前实际路由。前面 q35 ICH9 初始化已经把 PIRQ A-H 实际写到 IRQ10/IRQ11。
-
-PIRQ checksum 怎样生成
----------------------
-
-``pirtable_setup()`` 先写入 signature：
+因此本章必须把三层信息分开：
 
 ::
 
-   $PIR
+   已生效硬件状态       = q35/ICH9寄存器与设备PCI_INTERRUPT_LINE
+   legacy发现接口       = 本节复制的静态$PIR表
+   现代OS权威描述       = 后续ACPI namespace中的_PRT等对象
 
-然后执行：
+``pirtable_setup()`` 只填入signature并令checksum字节减去整表8位和，使最终字节和为
+0。 ``copy_pir()`` 随后重新检查signature、最小长度与checksum；若已有 ``PirAddr``、
+校验失败或FSEG分配失败，它直接保留旧值或空值。成功时才把整表复制到FSEG并发布
+``PirAddr``。
 
-.. code-block:: c
+MP表为什么先在32 KiB临时区构造
+--------------------------------
 
-   PIR_TABLE.pir.checksum -=
-       checksum(&PIR_TABLE, sizeof(PIR_TABLE));
-
-目标是让整个表所有字节按 8 位求和后结果为 0。
-
-``copy_pir()`` 会再次验证：
-
-* signature 正确；
-* size 至少覆盖 header；
-* checksum 为 0；
-* 尚未安装另一份 PIRQ table。
-
-验证通过后，表被复制到 F-segment 分配区，并由 ``PirAddr`` 保存最终地址。
-
-为什么表要复制到 F-segment
--------------------------
-
-传统 BIOS 数据结构通常需要位于 1 MiB 以下、可由实模式软件扫描的区域。SeaBIOS 的 F-segment 位于传统 BIOS
-``0xf0000-0xfffff`` 范围。
-
-生成用的 C 对象可以在普通数据区，最终对外公布的副本必须落在旧软件能够找到的位置。
-
-MP table 描述的范围比 PIRQ 更广
------------------------------
-
-``mptable_setup()`` 生成 Intel MultiProcessor Specification 1.4 风格结构，包含两部分：
-
-``MP Floating Pointer Structure``
-   以 ``_MP_`` 开头，告诉软件 configuration table 在哪里。
-
-``MP Configuration Table``
-   以 ``PCMP`` 开头，包含 CPU、bus、I/O APIC 和 interrupt entries。
-
-SeaBIOS 先从临时高端内存申请 32 KiB：
-
-.. code-block:: c
-
-   config = malloc_tmp(32 * 1024);
-
-这块空间用于逐项构造，完成后再复制到最终传统 BIOS 区。
-
-Configuration header 保存什么
------------------------------
-
-SeaBIOS 写入：
+``mptable_setup()`` 从 ``ZoneTmp`` 申请32 KiB并清零。分配失败只告警并返回；成功后，
+BSP在这块临时区依次写MP Configuration Table Header和entry。表头包括：
 
 ::
 
-   signature = "PCMP"
-   spec      = 4
-   local APIC address = 0xfee00000
+   signature       = "PCMP"
+   spec revision   = 4
+   OEM ID          = BUILD_CPUNAME8       # 默认BOCHSCPU
+   product ID      = "0.1"
+   local APIC addr = 0xfee00000
 
-还填入 OEM ID、product ID、entry count、总长度与 checksum。
+这仍是BSP普通POST控制流中的内存写入，没有锁竞争。已经停驻的AP不读取这块临时区。
 
-``spec = 4`` 表示 MP Specification 1.4。local APIC 地址来自固定：
+CPU entry按package跨度写入
+--------------------------
 
-::
-
-   BUILD_APIC_ADDR = 0xfee00000
-
-后续软件不用猜 local APIC MMIO 基址。
-
-为什么 MP table 不一定列出每个 SMT 逻辑线程
-----------------------------------------
-
-SeaBIOS 读取 ``CPUID.01H`` 的 processor signature、feature bits 和 logical processor count。
-
-如果 CPUID 的 HTT bit 存在，源码计算：
-
-.. code-block:: c
-
-   pkgcpus = (ebx >> 16) & 0xff;
-   pkgcpus = round_up_to_power_of_two(pkgcpus);
-
-随后 CPU entry 循环不是 ``i++``，而是：
+SeaBIOS读取CPUID leaf 1。若EDX的HTT位没有设置， ``pkgcpus`` 保持1；若设置，则取
+EBX[23:16]的logical processor count并向上取到2的幂。随后循环不是逐一走过每个
+可能APIC ID，而是：
 
 .. code-block:: c
 
    for (i = 0; i < MaxCountCPUs; i += pkgcpus)
+       mptable_init_processor(..., apic_id_is_present(i), i == 0);
 
-源码注释明确说明：
+也就是说，MP表为每个推导出的package写一个CPU entry，entry的APIC ID取该package
+第一个logical ID。 ``apic_id_is_present(i)`` 决定enabled flag；ID 0还设置BSP flag。
+local APIC version来自当前BSP的APIC version register。
 
-::
+这里有三条不能越过固定条件的边界：
 
-   Only populate the MPS tables with the first logical CPU in each package
+#. CPU模型没有固定，HTT位和EBX logical count不能提前写死；
+#. ``MaxCountCPUs`` 是APIC-ID上界，循环可以写disabled的潜在package entry；
+#. 缺省单CPU路径只有ID 0为present；只有显式多CPU路径才可能让更多entry enabled。
 
-因此 legacy MP table 可能只列每个 package 的第一个逻辑处理器，而不是完整展示 SMT sibling。现代操作系统应依赖
-ACPI MADT 和 CPUID topology，而不是把旧 MP table 当成完整现代 CPU 拓扑。
-
-CPU entry 怎样区分 present 与 possible
-------------------------------------
-
-每个 processor entry 写入：
-
-* APIC ID；
-* local APIC version；
-* CPUID signature；
-* CPUID feature flags；
-* enabled flag；
-* bootstrap processor flag。
-
-flag 计算为：
-
-.. code-block:: c
-
-   enabled = apic_id_is_present(i) ? 1 : 0;
-   bootstrap = (i == 0) ? 2 : 0;
-
-上一章实际运行过的 CPU 才会在 ``FoundAPICIDs`` 中出现，因此 enabled bit 来自真实 AP 报到结果。
-
-循环上界使用 ``MaxCountCPUs``，所以表可以包含当前未启用但处于最大范围内的位置；这些 entry 的 enabled bit 为 0。
-
-代码还假定 BSP 使用 APIC ID 0。固定 QEMU PC 平台通常满足这个约定，不能把它扩展成所有 x86 平台的架构定律。
-
-MP table 只建立 root PCI bus 与 ISA bus
--------------------------------------
-
-如果 ``PCIDevices`` 非空，SeaBIOS 添加：
-
-::
-
-   bus 0: "PCI   "
-
-随后总是添加：
-
-::
-
-   next bus id: "ISA   "
-
-它没有在这里完整描述前面发现的所有 secondary PCI bus。这再次体现 MP table 是兼容结构；复杂 PCIe 拓扑和 bridge
-routing 将由 ACPI 与 PCI 配置空间本身描述。
-
-I/O APIC entry
---------------
-
-SeaBIOS 添加一个 enabled I/O APIC：
-
-::
-
-   APIC ID  = BUILD_IOAPIC_ID = 0
-   version  = 0x11
-   address  = 0xfec00000
-
-``0xfec00000`` 与前面 PCI MMIO 窗口的上界相邻。第八章已经避免把普通 PCI BAR 分配到这个固定 I/O APIC MMIO
-范围。
-
-PCI interrupt source entry 怎样生成
----------------------------------
-
-SeaBIOS 遍历 ``PCIDevices``，只处理 bus 0。遇到第一个非 bus 0 设备后结束这段扫描。
-
-对于每个使用 INTx 的 function，它读取：
-
-::
-
-   PCI_INTERRUPT_PIN
-   PCI_INTERRUPT_LINE
-
-前者是 INTA-D pin，后者是第九章已经写入的 legacy IRQ line。
-
-source bus IRQ 编码为：
-
-.. code-block:: c
-
-   (device << 2) | (pin - 1)
-
-目的端是 I/O APIC，``dstirq`` 就是 ``PCI_INTERRUPT_LINE``。
-
-同一个 device 的相同 pin 只生成一次 entry，避免多 function 设备重复描述同一条共享 pin。
-
-MP table 使用了前面章节的真实结果
---------------------------------
-
-这一层不是重新计算 PCI 路由。它把已经配置好的结果序列化：
-
-::
-
-   第九章：
-      PCI pin → q35 slot rotation → IRQ10/IRQ11
-      写入 PCI_INTERRUPT_LINE
-
-   本章：
-      读取 PCI_INTERRUPT_PIN / LINE
-      → 写成 MP interrupt source entry
-
-固件表因此是机器当前配置的描述，不是设备配置动作本身。
-
-ISA IRQ entry 与 IRQ0 override
------------------------------
-
-SeaBIOS 对 ISA IRQ0-15 建立 I/O APIC source entries，但跳过：
-
-::
-
-   BUILD_PCI_IRQS = IRQ5, IRQ9, IRQ10, IRQ11
-
-这些 IRQ 被预留给 PCI/ACPI 相关用途，避免再生成普通 ISA identity mapping。
-
-QEMU通过 fw_cfg 提供：
-
-::
-
-   etc/irq0-override
-
-当前 QEMU PC 路径发布值 1。启用时：
-
-* ISA IRQ0 被路由到 I/O APIC input 2；
-* ISA IRQ2 source entry 被省略。
-
-这是经典 PC 中 PIT IRQ0 与 8259A cascade IRQ2 在 I/O APIC 模式下的兼容处理。
-
-Local interrupt entries 与上一章 LINT 配置对应
--------------------------------------------
-
-MP table 最后添加两条 local interrupt assignment：
-
-``ExtINT``
-   ISA bus IRQ0 → BSP APIC ID 0 的 LINT0。
-
-``NMI``
-   ISA bus source → 所有 local APIC 的 LINT1。
-
-上一章已经实际把 BSP local APIC 配置为：
-
-::
-
-   LINT0 = ExtINT
-   LINT1 = NMI
-
-本章把同样的连接关系写进 MP table，供旧式多处理器软件读取。
-
-_MP_ floating pointer 怎样指向 PCMP table
----------------------------------------
-
-完成所有 entry 后，SeaBIOS 计算 configuration table 长度、entry count 和 checksum。
-
-然后构造 16 字节 floating pointer：
-
-::
-
-   signature = "_MP_"
-   physaddr  = temporary PCMP address
-   length    = 1             # 16-byte units
-   spec_rev  = 4
-
-``copy_mptable()`` 验证 signature、floating checksum 和 PCMP length，再把两部分一起复制到 F-segment。
-
-复制后必须修改 floating pointer 中的 ``physaddr``，让它指向新副本后面的 configuration table，并重新计算 checksum。
-
-为什么 MP table 可能因为过大而被丢弃
-----------------------------------
-
-SeaBIOS 规定：
-
-::
-
-   BUILD_MAX_MPTABLE_FSEG = 600 bytes
-
-如果 floating pointer 加 configuration table 超过 600 字节，``copy_mptable()`` 会打印跳过信息，不安装最终副本。
-
-所以外层 ``MaxCountCPUs <= 255`` 只是 APIC ID 表达能力限制，不保证最终表一定足够小。CPU entry 或 interrupt entry 太多时，
-旧表仍可能超过 F-segment 预算。
-
-现代 ACPI 表没有这个 600 字节兼容上限，因此大型系统更依赖 MADT 等现代结构。
-
-SMBIOS 与中断路由无关
+MP bus与IOAPIC entry
 --------------------
 
-PIRQ 和 MP table 主要描述中断与处理器连接。SMBIOS 的定位不同：它是一套带类型编号的机器信息结构。
-
-常见类型包括：
-
-::
-
-   Type 0    BIOS Information
-   Type 1    System Information
-   Type 3    System Enclosure
-   Type 4    Processor Information
-   Type 16   Physical Memory Array
-   Type 17   Memory Device
-   Type 19   Memory Array Mapped Address
-   Type 20   Memory Device Mapped Address
-   Type 32   System Boot Information
-   Type 127  End-of-Table
-
-操作系统和工具可以通过 SMBIOS 获得厂商、产品名、UUID、CPU socket、内存条式描述和 BIOS 版本等信息。
-
-smbios_setup 优先采用 QEMU 预生成表
----------------------------------
-
-``smbios_setup()`` 首先调用：
-
-.. code-block:: c
-
-   if (smbios_romfile_setup())
-       return;
-
-它查找两个 fw_cfg romfile：
+固定q35已经枚举到PCI设备，所以 ``PCIDevices`` 非空。SeaBIOS先写PCI bus 0，再写
+ISA bus 1；若列表为空，代码才会省略PCI并让ISA使用bus ID 0。然后写一个I/O APIC
+entry：
 
 ::
 
-   etc/smbios/smbios-anchor
-   etc/smbios/smbios-tables
+   id       = BUILD_IOAPIC_ID = 0
+   version  = 0x11
+   enabled  = yes
+   address  = 0xfec00000
 
-QEMU 可以依据 machine type、命令行 SMBIOS 参数、CPU 型号与内存布局提前生成 anchor 和 structure table blob，再通过
-fw_cfg 交给 SeaBIOS。
+这些值描述兼容MP视图。写entry不会访问 ``0xfec00000``，也不会改动第十二章已经建立
+的BSP LINT状态。
 
-这种分工让 QEMU 决定虚拟机向客户操作系统呈现的机器身份，SeaBIOS 负责把数据放到客户机内存并完成 entry point。
+PCI INTx entry怎样从已枚举设备生成
+-----------------------------------
 
-支持 SMBIOS 2.1 与 SMBIOS 3.0 entry point
----------------------------------------
+``mptable_setup()`` 遍历按BDF排序的 ``PCIDevices``，只处理bus 0；一遇到后续bus便
+结束循环。每个function读取 ``PCI_INTERRUPT_PIN`` 与 ``PCI_INTERRUPT_LINE``。
+没有INTx pin的设备跳过；同一device的同一pin只写一次，避免多function设备重复描述
+共享slot pin。
 
-SeaBIOS 根据 anchor 长度和 signature 区分：
+MP entry把source编码为PCI bus/device/pin，把destination APIC ID写成
+``BUILD_IOAPIC_ID``，并把刚读到的 ``PCI_INTERRUPT_LINE`` 原样用作destination
+input。第九章已经按q35 slot/pin映射计算并写好了这个配置字节，所以本章消费的是已
+提交结果，不再调用平台路由函数重新计算，也不触发任何中断。
 
-``SMBIOS 2.x``
-   signature 为 ``_SM_``，还包含 ``_DMI_`` intermediate anchor。
-
-``SMBIOS 3.x``
-   signature 为 ``_SM3_``。
-
-两条路径都会验证结构大小和 signature，再建立最终 table blob、修正地址与长度、计算 checksum，最后把 entry point 复制到
-F-segment。
-
-SMBIOS 2.x entry point 使用 32 位 structure table address；SMBIOS 3.x entry point支持更宽地址字段。当前 SeaBIOS 分配器仍把
-最终 blob 放在其可管理的低于 4 GiB 区域。
-
-为什么 SeaBIOS 可能补一个 Type 0
-------------------------------
-
-QEMU提供的 ``etc/smbios/smbios-tables`` 不一定包含 BIOS Information。SeaBIOS 扫描全部 structure：
-
-* 找到 Type 0：保持 QEMU 提供内容；
-* 没找到 Type 0：在最终 blob 前补入自己的 Type 0。
-
-补入的默认字符串包括：
-
-::
-
-   BIOS vendor  = SeaBIOS
-   BIOS version = SeaBIOS build VERSION
-   BIOS date    = 04/01/2014
-
-日期是源码中的兼容默认字符串，不代表当前编译或启动日期。
-
-SMBIOS table blob 放在 F-segment 还是高端内存
-------------------------------------------
-
-如果最终 structure table 长度不超过：
-
-::
-
-   BUILD_MAX_SMBIOS_FSEG = 600 bytes
-
-SeaBIOS 将 blob 放进 F-segment。超过 600 字节则放入高端内存。
-
-entry point 本身仍复制到 F-segment，传统扫描程序先找到 entry point，再通过其中的 physical address 定位真正 table blob。
-
-这允许 SMBIOS 包含较多 CPU 与内存结构，又不耗尽狭小的 F-segment。
-
-QEMU 没有提供完整 anchor/tables 时怎样回退
----------------------------------------
-
-如果两个 fw_cfg 文件不存在、大小不对或 signature 无效，``smbios_setup()`` 调用：
-
-.. code-block:: c
-
-   smbios_legacy_setup();
-
-legacy 生成器先申请 32 KiB temporary buffer，然后按类型依次构造表。
-
-它还支持更细粒度的 QEMU 输入：
-
-::
-
-   smbios/field<type>-<offset>
-   smbios/table<type>-<instance>
-
-外部 table 可以替换 SeaBIOS 对某个 type 的默认生成；外部 field 可以覆盖单个字段。
-
-legacy Type 4 为什么按 MaxCountCPUs 生成
+ISA源、IRQ0 override与local interrupt
 --------------------------------------
 
-处理器结构循环是：
+SeaBIOS再为传统ISA IRQ 0—15建立I/O interrupt entry。 ``BUILD_PCI_IRQS`` 把
+IRQ5、9、10、11保留给PCI兼容路由，这四项从ISA循环跳过。
 
-.. code-block:: c
+SeaBIOS在 ``etc/irq0-override`` 文件缺失时使用0；固定QEMU PC fw_cfg则无条件为
+``FW_CFG_IRQ0_OVERRIDE`` 发布值1，所以当前q35正常路径命中override。ISA timer的
+source仍是IRQ0，但destination改为I/O APIC input 2，同时不再为source IRQ2另建普通
+ISA项。若该fw_cfg输入为0，IRQ0才保持接到input 0。
 
-   for (cpu_num = 1;
-        cpu_num <= MaxCountCPUs;
-        cpu_num++)
-       add_struct(4, ...);
-
-所以 Type 4 数量按最大 CPU 容量，而不是仅按本次实际 ``CountCPUs``。
-
-这适合 CPU hotplug 模型：SMBIOS 可以提前描述潜在 socket/CPU 位置。但 legacy 默认 Type 4 的 status 直接写成“socket populated,
-CPU enabled”，无法精细表达现代复杂 hotplug 状态。这也是优先使用 QEMU 预生成 SMBIOS 的原因之一。
-
-内存设备为什么按 16 GiB 分块
---------------------------
-
-legacy 生成器计算：
-
-.. code-block:: c
-
-   ram_mb = (RamSize + RamSizeOver4G) >> 20;
-   nr_mem_devs = (ram_mb + 0x3fff) >> 14;
-
-``0x4000 MiB`` 是 16 GiB，因此它把总内存拆成最多 16 GiB 的 Type 17 Memory Device chunks。
-
-例如 40 GiB 内存会形成近似：
+最后两项不是I/O APIC source，而是local interrupt：
 
 ::
 
-   device 0: 16 GiB
-   device 1: 16 GiB
-   device 2:  8 GiB
+   ExtINT: ISA IRQ0 → APIC ID 0, LINT0
+   NMI:    source 0 → all APIC IDs (0xff), LINT1
 
-这些是 SMBIOS 逻辑 memory device，不一定对应宿主机真实 DIMM，也不表示 QEMU 内部一定创建了三根物理内存条。
+它们与第十二章对BSP LINT0/LINT1的实际编程相呼应，但这里只是在表中发布发现信息。
 
-Type 19 怎样绕过 4 GiB PCI hole
+为什么MP表可能构造成功却没有安装
+----------------------------------
+
+全部entry完成后，SeaBIOS填写header length、entry count与header checksum，再紧跟一份
+16字节 ``_MP_`` floating pointer并计算其checksum。 ``copy_mptable()`` 会检查floating
+signature、物理配置表指针和floating checksum，然后计算：
+
+::
+
+   total = floating length + PCMP base-table length
+
+FSEG中的固定上限是 ``BUILD_MAX_MPTABLE_FSEG = 600``。超过上限时复制被放弃；成功时
+它把floating structure与PCMP表连续复制到新FSEG空间，重写floating structure中的
+物理指针并重算其checksum。复制函数没有在这里重新验证PCMP signature或PCMP
+checksum。临时32 KiB区最后总会释放，所以是否留下一张可发现MP表取决于FSEG复制
+是否成功。
+
+SMBIOS的输入其实已经由QEMU准备
 ------------------------------
 
-SeaBIOS 为低端连续 RAM建立 Type 19：
+``smbios_setup()`` 不受255这个外层门限制。固定提交中的q35别名指向
+``pc-q35-11.1``；PC machine class默认：
 
 ::
 
-   start = 0
-   size  = RamSize
+   smbios_defaults          = true
+   default SMBIOS ep type   = AUTO
+   legacy mode              = false
 
-如果存在 4 GiB 以上 RAM，再建立第二个 Type 19：
-
-::
-
-   start = 4096 MiB
-   size  = RamSizeOver4G
-
-这不会把低于 4 GiB 的 PCI hole 当成系统 RAM。低端 memory range 到 ``RamSize`` 结束，高端 memory range 从 4 GiB重新开始。
-
-Type 20 再把每个逻辑 Type 17 device 映射到对应 Type 19 address range。
-
-Type 32 与 Type 127
-------------------
-
-legacy 生成器加入：
-
-``Type 32``
-   System Boot Information，默认 boot status 为“no errors detected”。
-
-``Type 127``
-   End-of-Table marker。
-
-Type 127 必须最后出现。SeaBIOS会在它之前加入所有尚未消费的外部 SMBIOS structures。
-
-legacy 路径最终生成 SMBIOS 2.4 entry point
----------------------------------------
-
-``smbios_21_entry_point_setup()`` 建立：
+QEMU在客户机执行固件之前已经按machine、CPU socket与E820 RAM布局生成结构blob。
+``AUTO`` 先尝试SMBIOS 2.x约束；若表长、结构数等不能满足2.x，才丢弃该次结果并尝试
+SMBIOS 3.x。生成成功后，fw_cfg发布：
 
 ::
 
-   signature       = "_SM_"
-   intermediate    = "_DMI_"
-   major.minor     = 2.4
-   BCD revision    = 0x24
+   etc/smbios/smbios-tables
+   etc/smbios/smbios-anchor
 
-它填写 structure table address、length、structure count、max structure size，并分别计算主 checksum 和 intermediate checksum。
+因此不能仅凭最新q35就断言入口一定是SMBIOS 3。固定条件没有规定RAM大小、socket数或
+``-smbios`` 覆盖，正确结论是按 ``AUTO`` 的2.x优先、3.x回退选择。
 
-然后 ``copy_smbios_21()`` 验证两段 checksum，再把 entry point 复制到 F-segment。
+SeaBIOS怎样接管QEMU的anchor
+---------------------------
 
-表已经生成，ACPI 仍未开始
-----------------------
+``smbios_romfile_setup()`` 必须同时找到anchor与tables。它只接受两种大小和签名组合：
 
-本章三类表完成后：
+* ``struct smbios_21_entry_point`` 与 ``_SM_``；
+* ``struct smbios_30_entry_point`` 与有效 ``_SM3_`` signature。
 
-* legacy PCI routing 可以通过 ``$PIR`` 被旧软件发现；
-* legacy SMP 软件可以通过 ``_MP_`` 找到 CPU、APIC、bus 与 IRQ 连接；
-* SMBIOS 软件可以通过 ``_SM_`` 或 ``_SM3_`` 找到系统、CPU 和内存清单。
+SeaBIOS先按anchor声明的table length核对fw_cfg文件大小，再把QEMU结构blob读入临时
+high memory扫描。若blob已经有Type 0，保持它；若缺少Type 0且16位总长度仍容纳得下，
+就在最终blob前置一项SeaBIOS Type 0，vendor为 ``SeaBIOS``、version为当前SeaBIOS
+``VERSION``、date为 ``04/01/2014``。
 
-仍然没有：
+最终结构blob不超过600字节时放入FSEG，否则放入high zone。2.x入口需要32位表地址、
+16位表长，并更新max structure size、structure count及两段checksum；3.x入口更新64位
+address字段、max size与checksum。入口本身经 ``copy_smbios_21()`` 或
+``copy_smbios_30()`` 复制到FSEG，成为后续软件可扫描对象。
 
-* ACPI RSDP、RSDT/XSDT 的当前装载确认；
-* MADT 中完整 CPU 与 I/O APIC 描述；
-* DSDT ``_PRT`` 中 q35 PCI routing；
-* FADT 电源管理接口描述；
-* 存储控制器驱动和磁盘读取；
-* GRUB。
+这一步建立的是新的固件表内存所有权：临时输入buffer释放，最终结构blob和FSEG入口
+保留。它没有创建SeaBIOS线程，也没有改变CPU mode或中断开关。
 
-第十三章结束时的机器状态
-----------------------
+legacy SMBIOS为何只能是失败回退
+--------------------------------
 
-控制权目前走过：
+只有romfile输入缺失、anchor无效、tables长度不匹配或最终分配失败时，
+``smbios_setup()`` 才调用 ``smbios_legacy_setup()``。该函数在32 KiB临时区自己生成
+Type 0、1、3、4、16、17、19、20、32、127，并接纳外部提供的替换项，最后安装一份
+SMBIOS 2.4入口。
 
-::
+legacy路径按 ``1..MaxCountCPUs`` 为每个编号生成Type 4，而且默认把每项status标成
+“socket populated, CPU enabled”；RAM则按最多16 GiB一个Type 17切块。这是旧接口的
+兼容行为，不等同于QEMU正常路径按实际socket和E820生成的内容，更不能用它证明当前
+有 ``MaxCountCPUs`` 颗在场CPU。
 
-   qemu_platform_setup()
-   → smp_setup() 返回
-   → 条件 MaxCountCPUs <= 255
-   → pirtable_setup()
-   → $PIR table checksum 与 F-segment copy
-   → mptable_setup()
-   → PCMP CPU/bus/IOAPIC/interrupt entries
-   → _MP_ floating pointer
-   → F-segment copy
-   → smbios_setup()
-   → 优先使用 QEMU fw_cfg anchor/tables
-   → 条件补入 SeaBIOS Type 0
-   → 或 legacy SMBIOS fallback
-   → 安装 SMBIOS entry point
-   → smbios_setup() 返回
+三类表完成后的精确边界
+------------------------
 
-此刻：
+正常固定q35默认路径下，BSP已经尝试安装静态PIR表、兼容MP表，并从QEMU fw_cfg接管
+SMBIOS结构。任一兼容表的具体存在仍受本节列出的门与分配结果约束；多CPU配置下的AP
+仍停在各自HLT循环，缺省单CPU路径仍没有AP。
 
-* 当前执行者：SeaBIOS ``qemu_platform_setup()``；
-* 当前主流程 CPU：BSP；
-* 模式：32 位保护模式；
-* 分页：关闭；
-* AP：已完成固件报到并停在 ``HLT``；
-* PIRQ table：在配置允许且 ``MaxCountCPUs <= 255`` 时已安装；
-* MP table：在配置允许、CPU 范围与 F-segment 大小允许时已安装；
-* SMBIOS：已通过 QEMU romfile 路径或 SeaBIOS legacy 路径安装；
-* legacy 表最终 entry/floating pointer：位于 F-segment；
-* SMBIOS structure blob：位于 F-segment 或高端内存；
-* ACPI table loader：尚未执行；
-* ACPI RSDP：尚未由当前阶段确认；
-* ATA、AHCI、NVMe、USB、virtio 与网络驱动：尚未探测介质；
-* ``BootList``：尚无具体启动设备；
-* GRUB：尚未被读取或执行；
-* Linux：尚未装入内存。
-
-``smbios_setup()`` 返回后，下一段是：
+``qemu_platform_setup()`` 的下一条语句不是启动设备，而是进入ACPI romfile loader：
 
 .. code-block:: c
 
    if (CONFIG_FW_ROMFILE_LOAD) {
+       int loader_err;
        loader_err = romfile_loader_execute("etc/table-loader");
-       RsdpAddr = find_acpi_rsdp();
        ...
    }
 
-下一章将进入 QEMU 的 ACPI ``table-loader``：它怎样分配 table blob、执行 pointer/length/checksum patch，怎样找到 RSDP，
-以及为什么现代 q35 的 CPU、APIC、PCI routing 和电源管理最终主要由 ACPI 表描述。
+本章停在调用 ``romfile_loader_execute()`` 之前。
+
+本章结束状态
+------------
+
+* current executor：BSP上的SeaBIOS ``MainThread``；
+* CPU/mode：32位保护模式，分页关闭，A20开启，IF=0，CMOS NMI屏蔽；
+* PIC mask：master仅IRQ2、slave仅IRQ13；
+* AP状态：缺省无AP；显式多CPU时，仅在场AP停在IF=0的HLT循环；
+* ``MaxCountCPUs``：APIC-ID上界，未改写；
+* ``PCIDevices``：保持，可供后续固件阶段使用；
+* PIR表：在 ``MaxCountCPUs <= 255``、开关开启且校验/分配成功时位于FSEG；
+* MP表：同一外层门下构造，且总复制长度不超过600并成功分配时位于FSEG；
+* QEMU SMBIOS输入：默认q35按 ``AUTO`` 生成，2.x优先、3.x回退；
+* SMBIOS最终blob/入口：romfile成功时已由SeaBIOS修补并安装；失败时才尝试legacy 2.4；
+* hardware routing/APIC/RAM state：未被三类表重新配置；
+* next entry： ``romfile_loader_execute("etc/table-loader")``。
+
+关键边界
+--------
+
+#. ``MaxCountCPUs <= 255`` 检查的是APIC-ID上界，不是在场CPU数。
+#. AP执行与HLT驻留是显式多CPU条件分支，不能写成缺省固定事实。
+#. PIR表是静态legacy兼容模板，不是q35 ICH9真实路由寄存器的镜像。
+#. ``copy_pir()`` 成功后才发布 ``PirAddr``；调用本身不保证表存在。
+#. MP CPU entry按CPUID推导的package跨度写入，enabled位来自present APIC-ID集合。
+#. MP表只处理bus 0 PCI设备，并对同device/pin去重。
+#. IRQ0 override、ExtINT与NMI entry只发布发现信息，不重新编程中断控制器。
+#. MP临时表可以成功构造，却因600字节FSEG上限而不被安装。
+#. 最新q35的SMBIOS ``AUTO`` 先尝试2.x，不等于无条件选择3.x。
+#. QEMU正常romfile路径与SeaBIOS legacy fallback是互斥选择，不能拼成一张实际表。
+#. legacy Type 4按 ``MaxCountCPUs`` 生成，不能反证相同数量CPU已经在场。
+#. 本章没有进入ACPI loader，也没有改变CPU执行上下文。
+
+下一入口
+--------
+
+下一章从：
+
+::
+
+   qemu_platform_setup
+   → romfile_loader_execute("etc/table-loader")
+   → load fixed-size linker command entries
+   → allocate ACPI blobs in HIGH/FSEG
+   → patch pointers and checksums
+   → find_acpi_rsdp()
+
+开始，并区分loader函数级失败、逐命令软失败与RSDP独立搜索结果。
 
 资料
 ----
 
-* `SeaBIOS src/fw/pirtable.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pirtable.c>`_；
-* `SeaBIOS src/fw/mptable.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/mptable.c>`_；
-* `SeaBIOS src/fw/smbios.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/smbios.c>`_；
-* `SeaBIOS src/fw/biostables.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/biostables.c>`_；
-* `SeaBIOS src/fw/paravirt.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/paravirt.c>`_；
-* `QEMU hw/i386/fw_cfg.c <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/fw_cfg.c>`_；
-* `PCI BIOS Specification and PCI Firmware Specification <https://pcisig.com/specifications>`_；
-* `System Management BIOS Reference Specification <https://www.dmtf.org/standards/smbios>`_；
-* `Intel MultiProcessor Specification <https://www.intel.com/design/pentium/datashts/242016.htm>`_。
+* `SeaBIOS固定提交：QEMU平台表调用顺序 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/paravirt.c#L282-L324>`_
+* `SeaBIOS固定提交：静态PIR表与复制入口 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/pirtable.c#L1-L103>`_
+* `SeaBIOS固定提交：MP表CPU、中断与floating pointer构造 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/mptable.c#L1-L197>`_
+* `SeaBIOS固定提交：PIR/MP复制验证与600字节边界 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/biostables.c#L1-L82>`_
+* `SeaBIOS固定提交：SMBIOS romfile输入与入口安装 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/biostables.c#L262-L639>`_
+* `SeaBIOS固定提交：legacy SMBIOS结构构造 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/smbios.c#L1-L590>`_
+* `QEMU固定提交：q35 latest与machine默认值 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/pc_q35.c#L349-L405>`_
+* `QEMU固定提交：SMBIOS fw_cfg发布 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/fw_cfg.c#L62-L115>`_
+* `QEMU固定提交：SMBIOS AUTO的2.x优先与3.x回退 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/smbios/smbios.c#L1096-L1248>`_
+* `QEMU固定提交：x86 fw_cfg发布IRQ0 override <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/fw_cfg.c#L119-L152>`_

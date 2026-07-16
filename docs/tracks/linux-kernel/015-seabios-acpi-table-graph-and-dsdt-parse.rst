@@ -1,514 +1,286 @@
-第十五章：SeaBIOS 怎样沿 RSDP 读懂 ACPI 表图并解析 DSDT？
-========================================================
+第十五章：SeaBIOS 怎样沿 RSDP 找到 FADT、受限解析 DSDT 并结束平台表阶段？
+============================================================================
 
-上一章结束时，QEMU 生成的 ACPI blobs 已经被 SeaBIOS 分配、链接和校验，``find_acpi_rsdp()`` 也已经在 F-segment 找到有效 RSDP。
-
-当前控制流是：
+第十四章已经把 ``find_acpi_rsdp()`` 的结果写入全局 ``RsdpAddr``。BSP仍在SeaBIOS
+``MainThread`` 上执行，CPU mode、中断状态与PIC mask均未改变。现在控制流第一次按
+RSDP搜索结果分叉：
 
 .. code-block:: c
-
-   RsdpAddr = find_acpi_rsdp();
 
    if (RsdpAddr) {
        acpi_dsdt_parse();
        virtio_mmio_setup_acpi();
        return;
    }
+   if (!loader_err)
+       warn_internalerror();
+   acpi_setup();
 
-本章不把 ACPI 简化成“几张硬件表”。它实际上由两类内容组成：
+固定q35默认ACPI build的正常结果是 ``RsdpAddr != NULL``。不过本章必须把found与
+not-found两个出口都闭合，因为loader逐命令失败不会汇总到 ``loader_err``，RSDP搜索
+也可能独立成功或失败。
 
-* 固定二进制结构，用地址、长度和标志描述 CPU、APIC、PCI ECAM、时钟、电源管理寄存器等；
-* AML 字节码，用 namespace、Device、Method、``_CRS``、``_PRT`` 等对象描述无法只靠固定表表达的平台关系。
+RSDP本身不是所有ACPI表的容器
+-----------------------------
 
-SeaBIOS 在这里不会实现完整 ACPI 操作系统。它只建立一张足够后续固件代码查询的轻量设备索引，然后返回 ``platform_hardware_setup()``。Linux 以后会用自己的 ACPICA 解释器重新发现和解释整套 ACPI namespace。
-
-RSDP 是表图入口，不是整张 ACPI 表
-------------------------------
-
-RSDP，全称 Root System Description Pointer，自己只保存少量根信息。ACPI 2.0 及以后版本的核心字段可以概括为：
-
-::
-
-   signature = "RSD PTR "
-   revision
-   rsdt_physical_address
-   length
-   xsdt_physical_address
-   checksum
-   extended_checksum
-
-它提供两条进入表图的路径：
-
-``RSDT``
-   Root System Description Table。表项是 32 位物理地址，每项 4 字节。
-
-``XSDT``
-   Extended System Description Table。表项是 64 位物理地址，每项 8 字节。
-
-两者保存的不是表类型枚举，而是一组其他 ACPI table header 的物理地址。软件必须逐项读取目标表头的 4 字节 signature，才能知道该项是 FADT、MADT、MCFG、HPET 还是其他表。
+RSDP只保存root table地址。ACPI 1.0使用32位RSDT，ACPI 2.0+还可以提供64位XSDT：
 
 ::
 
    RSDP
-   ├── RSDT ─┬── FADT
-   │          ├── MADT
-   │          ├── MCFG
-   │          └── ...
-   └── XSDT ─┬── FADT
-              ├── MADT
-              ├── MCFG
-              ├── HPET
-              ├── TPM2 / TCPA
-              └── 条件扩展表
+   ├── rsdt_physical_address  → RSDT → 32-bit child addresses
+   └── xsdt_physical_address  → XSDT → 64-bit child addresses
 
-RSDT 与 XSDT 不是两套互相矛盾的配置。XSDT 是能够携带 64 位表地址的新入口，RSDT 用于兼容只理解 ACPI 1.0 结构的软件。
-
-SeaBIOS 查表时优先使用 XSDT
--------------------------
-
-``find_acpi_table(signature)`` 先验证全局 ``RsdpAddr``，随后取得：
-
-.. code-block:: c
-
-   rsdt = RsdpAddr->rsdt_physical_address;
-   xsdt = RsdpAddr->xsdt_physical_address;
-
-它先遍历 XSDT，再遍历 RSDT。每个候选目标都必须满足：
+QEMU把FACS、DSDT、FADT、MADT以及其他条件表放进 ``etc/acpi/tables`` blob；table-loader
+已经把root entry和表间pointer改成最终客户机地址。SeaBIOS本章不是重新生成这张图，
+而是消费其中一条很窄的路径：
 
 ::
 
-   pointer != NULL
-   target->signature == requested_signature
+   RSDP → XSDT/RSDT → FADT → 32-bit DSDT → limited AML device cache
 
-SeaBIOS 当前主流程仍是 32 位 flat code，函数把超过 4 GiB 的 XSDT 地址和 XSDT 表项跳过：
+MADT、MCFG等表即使已经存在，也不是 ``acpi_dsdt_parse()`` 当前执行链上的访问对象。
+它们继续留给之后的操作系统按root table发现。
 
-.. code-block:: c
-
-   if (xsdt_address >= 0x100000000)
-       xsdt = NULL;
-
-   if (entry >= 0x100000000)
-       continue;
-
-这不是 ACPI 规范禁止表位于 4 GiB 以上，而是当前 SeaBIOS 查询实现只直接解引用能表示成 32 位 flat pointer 的目标。QEMU 因此会把 SeaBIOS 启动期需要访问的核心表分配在可达地址。
-
-FADT 把固定电源管理接口与 DSDT 接起来
---------------------------------
-
-FADT 的 signature 是 ``FACP``，全称 Fixed ACPI Description Table。它承担两种连接任务。
-
-第一种是指向其他结构：
-
-::
-
-   FADT → FACS
-   FADT → DSDT
-
-``FACS``
-   Firmware ACPI Control Structure。保存 firmware waking vector 等运行期状态，不使用普通 ACPI table checksum 格式。
-
-``DSDT``
-   Differentiated System Description Table。表头之后是 AML namespace 的主体。
-
-第二种是公布固定硬件接口。QEMU q35 从 ICH9 LPC 状态生成 FADT，包含：
-
-* SCI 中断号；
-* SMI command port；
-* ACPI enable/disable command；
-* PM1 event block；
-* PM1 control block；
-* PM timer；
-* GPE block；
-* reset register 与 reset value；
-* RTC century register；
-* 平台是否支持 S3/S4 等标志。
-
-当前 q35 路径中，SeaBIOS 先前已经把 ICH9 PMBASE 配置到真实 I/O 地址。FADT 再把同一组端口以标准 ACPI 结构公布给后续软件。因此：
-
-::
-
-   第九章写芯片组寄存器
-   → 当前 FADT 描述这些寄存器
-   → Linux 按 FADT 重新发现并使用它们
-
-硬件配置与固件表描述必须一致。只写 PMBASE 而不生成正确 FADT，操作系统不知道端口在哪里；只写 FADT 而芯片组没有解码对应端口，操作系统访问的只是空地址。
-
-MADT 把 CPU、local APIC、I/O APIC 和中断覆盖连起来
----------------------------------------------
-
-MADT 的 signature 是 ``APIC``，全称 Multiple APIC Description Table。它通常包含若干不同类型的 variable-length entries，例如：
-
-* Processor Local APIC；
-* Processor Local x2APIC；
-* I/O APIC；
-* Interrupt Source Override；
-* Local APIC NMI；
-* x2APIC NMI。
-
-上一章的 MP table 是旧式多处理器发现接口。MADT 是现代 ACPI 路径中的主要 CPU 与 APIC 描述。
-
-Processor entry 会把：
-
-::
-
-   ACPI processor UID
-   APIC ID
-   enabled / online-capable flags
-
-关联起来。I/O APIC entry 则公布：
-
-::
-
-   I/O APIC ID
-   MMIO address
-   GSI base
-
-Interrupt Source Override 用于表达 ISA IRQ 与 Global System Interrupt 不完全一一对应的情况。PC/q35 常见例子是 legacy IRQ0 被覆盖到 GSI 2。SeaBIOS 第十三章生成 MP table 时也读取了 QEMU 的 ``etc/irq0-override``；MADT 以 ACPI 标准结构表达同一个平台事实。
-
-Linux 以后不会因为 SeaBIOS 曾经唤醒过 AP，就直接沿用固件的临时 AP 状态。它会读取 MADT，建立自己的 CPU/APIC 拓扑，再按内核自己的 SMP 启动流程重新启动 AP。
-
-MCFG 公布 PCI Express 配置空间窗口
-------------------------------
-
-MCFG 的 signature 是 ``MCFG``。它告诉操作系统 PCI Express Enhanced Configuration Access Mechanism，简称 ECAM/MMCONFIG，位于哪里。
-
-每个 allocation structure 描述：
-
-::
-
-   base address
-   PCI segment group
-   start bus
-   end bus
-
-当前固定 q35 主线已经在第八章启用：
-
-::
-
-   MMCONFIG base = 0xb0000000
-   size          = 256 MiB
-
-MCFG 把这段硬件配置重新编码成操作系统可发现的标准描述。Linux 读取后，可以用：
-
-::
-
-   ecam_base
-   + (bus << 20)
-   + (device << 15)
-   + (function << 12)
-   + register
-
-访问每个 function 的 4 KiB PCIe configuration space，而不必继续使用 ``0xcf8 / 0xcfc`` 的旧式 256 字节窗口。
-
-HPET、TPM2 与其他表都是条件存在
+find_acpi_table为什么优先XSDT
 ----------------------------
 
-RSDT/XSDT 不是固定长度清单。QEMU 根据实际虚拟机配置选择附加表：
-
-``HPET``
-   存在 High Precision Event Timer 时，公布 HPET MMIO 地址和属性。
-
-``TPM2`` 或 ``TCPA``
-   存在 TPM 2.0 或 TPM 1.2 measured-boot 配置时，公布 TPM 接口以及 event log buffer 的地址和长度。
-
-``SRAT`` / ``SLIT`` / ``HMAT``
-   在 NUMA 或异构内存拓扑需要时描述内存亲和性和距离。
-
-``DMAR`` / ``IVRS``
-   条件描述 Intel VT-d 或 AMD IOMMU。
-
-``WAET``、``BGRT``、``HEST``、``ERST`` 等
-   由机器类型和启用设备决定。
-
-因此不能把“q35 一定存在某张扩展表”写死。可靠方法是从 RSDT/XSDT 实际枚举 signature。
-
-DSDT 与固定表的区别
-------------------
-
-固定表擅长描述数组和寄存器，DSDT 则携带 AML 字节码，用 namespace 表达设备和方法。例如：
-
-::
-
-   \_SB.PCI0
-   \_SB.PCI0.LPCB
-   \_SB.PCI0.SATA
-   \_SB.PCI0._PRT
-   \_SB.PCI0._CRS
-
-常见预定义对象包括：
-
-``_HID``
-   Hardware ID，标识设备类型，例如 PNP ID 或字符串 ID。
-
-``_CID``
-   Compatible ID。
-
-``_STA``
-   设备当前存在、启用、可显示和工作状态。
-
-``_CRS``
-   Current Resource Settings，返回 MMIO、I/O port、IRQ、DMA 和 bus number 等资源模板。
-
-``_PRT``
-   PCI Routing Table，把 device/pin 路由到 PIRQ link device 或 GSI。
-
-``_S3``、``_S4``、``_S5``
-   描述睡眠和关机状态编码。
-
-``_EJ0``、``_PS0``、``_PS3`` 等 Method
-   描述热拔出和电源状态转换动作。
-
-AML 不是 C 结构体。它包含 opcode、package length、namestring、整数、Buffer、Package、Method 和控制流。操作系统通常需要完整 AML interpreter 才能执行任意 Method。
-
-SeaBIOS 为什么解析 DSDT
----------------------
-
-SeaBIOS 在继续自身硬件初始化时，也可能需要发现只通过 ACPI 描述的设备。当前最直接的使用者是 ``virtio_mmio_setup_acpi()``。
-
-它需要知道：
-
-::
-
-   哪些 ACPI Device 的 _HID 是 "LNRO0005"
-   对应 _CRS 中的 MMIO 地址是什么
-   IRQ 是什么
-
-因此 SeaBIOS 在启动设备驱动前建立一个轻量 ``acpi_device`` 列表：
+``acpi_dsdt_parse()`` 首先调用：
 
 .. code-block:: c
 
-   struct acpi_device {
-       char name[16];
-       u8 *hid_aml;
-       u8 *sta_aml;
-       u8 *crs_data;
-       int crs_size;
-   };
+   find_acpi_table(FACP_SIGNATURE)
 
-这里保存的是指向已装载 DSDT AML 的位置，不是把所有 AML 对象转换成完整抽象语法树。
+``find_acpi_table()`` 确认 ``RsdpAddr`` 非空且signature仍为 ``RSD PTR ``，然后分别取得
+RSDT与XSDT地址。SeaBIOS当前是32位固件；如果RSDP中的XSDT地址达到或超过4 GiB，代码
+直接令 ``xsdt=NULL``，不会尝试临时映射64位物理地址。
 
-acpi_dsdt_parse 怎样找到 AML 主体
+若XSDT在4 GiB以下且signature为 ``XSDT``，BSP先遍历它的64位entry。每个child地址
+达到4 GiB便跳过；低于4 GiB的地址转为32位pointer，目标signature等于 ``FACP`` 时
+立即返回。XSDT不存在、signature不对或没有找到目标时，函数再遍历RSDT的32位entry。
+
+所以“优先XSDT”不是“只要有XSDT便永不看RSDT”。对同一个目标signature，RSDT仍是
+逐次查找的fallback。
+
+这次查找信任哪些字段
+--------------------
+
+第十四章已经完整验证RSDP的基本及条件扩展checksum。但 ``find_acpi_table()`` 当前只
+检查root signature与每个候选child signature，并信任root header中的 ``length`` 来
+决定entry迭代终点。它没有在这里重新验证：
+
+* RSDT/XSDT checksum；
+* root length是否至少覆盖header且按entry宽度对齐；
+* FADT checksum或FADT length；
+* 目标表所在内存是否属于某个已登记allocation。
+
+正常QEMU builder与table-loader协议保证这些输入相互匹配；SeaBIOS函数本身却不是通用
+的不可信ACPI validator。正文必须把“固定QEMU正常输入成立”与“函数做过哪些检查”分开。
+
+FADT为什么是本章唯一查找的子表
 -------------------------------
 
-函数先通过：
+FADT的signature是 ``FACP``。它把固定ACPI硬件接口与其他关键结构地址汇总在一个表中。
+对本章控制流真正重要的是 ``dsdt`` 字段：
 
 .. code-block:: c
 
-   fadt = find_acpi_table(FACP_SIGNATURE);
+   struct fadt_descriptor_rev1 *fadt = find_acpi_table(FACP_SIGNATURE);
+   if (!fadt)
+       return;
+   u8 *dsdt = (void *)(fadt->dsdt);
+   if (!dsdt)
+       return;
 
-取得 FADT，再读取它的 DSDT 物理地址。DSDT 自己仍有标准 ACPI table header：
+SeaBIOS这个解析器使用FADT中的32位 ``dsdt``，没有在此优先读取扩展 ``X_DSDT``。
+QEMU builder为固定PC路径修补32位DSDT字段，主ACPI blob也被要求放进HIGH但保持固件可用
+的低4 GiB地址范围，所以正常路径可以沿该字段进入DSDT。
+
+找不到FADT或 ``dsdt==0`` 时， ``acpi_dsdt_parse()`` 只是返回；它不会清掉已经验证的
+``RsdpAddr``，也不会宣告整套ACPI表无效。操作系统以后仍可自己遍历root table。
+
+DSDT入口还信任了什么
+-------------------
+
+取得非零pointer后，SeaBIOS直接读取：
 
 ::
 
-   signature
-   length
-   revision
-   checksum
-   OEM fields
-   AML bytes...
+   length = *(u32 *)(dsdt + 4)
+   AML start offset = 0x24
 
-SeaBIOS 从 offset ``0x24`` 开始解析，因为标准 ACPI table header 长 36 字节：
+然后以整个table ``length`` 作为term list终点调用 ``parse_termlist()``。当前入口没有
+先验证DSDT signature、checksum、最小36字节header长度或 ``length`` 对实际allocation
+的边界；这些仍由固定QEMU生成链保证。
 
-.. code-block:: c
+``CONFIG_ACPI_PARSE`` 在固定SeaBIOS默认配置中开启。若构建时关闭，函数在查FADT之前
+直接返回，随后 ``virtio_mmio_setup_acpi()`` 的查找接口也都返回空；已链接ACPI表仍留
+给OS，不会因为SeaBIOS不解析AML而消失。
 
-   length = *(u32 *)(dsdt + 4);
-   offset = 0x24;
-   parse_termlist(&state, dsdt, offset, length);
+这个AML parser为什么不是解释器
+-------------------------------
 
-前 36 字节是普通表头，真正 AML term list 从后面开始。
+``src/fw/dsdt_parser.c`` 只识别启动期设备发现所需的小子集。它能够沿Scope与Device
+package递归，处理Name、Buffer、有限整数/string、Alias，以及少量extended opcode；
+Method、Package、Field、Processor、PowerResource、ThermalZone等大多只按package length
+跳过。遇到未知opcode或层级达到16，会记录parse error并停止当前term list，而不是
+执行完整AML语义。
 
-这个 parser 不是完整 AML interpreter
---------------------------------
+每遇到Device，解析器从SeaBIOS临时zone申请一个 ``struct acpi_device`` 并加入全局
+``acpi_devices`` hlist。对象只缓存后续固件探测需要的摘要：
 
-SeaBIOS parser 只识别当前固件需求涉及的一部分语法，例如：
+::
 
-* Scope；
-* Device；
-* Name；
-* Buffer；
-* Package 的长度编码；
-* 常见整数常量；
-* ``_HID``、``_STA``、``_CRS``；
-* 一些可以安全跳过的 Method 和未知 package。
+   name[16]
+   pointer to _HID AML
+   pointer to _STA AML
+   pointer/size of _CRS buffer
 
-它不会执行通用 AML 控制流，也不会完整实现：
+这些pointer都指回已经保留的DSDT blob，不复制完整AML对象。 ``_STA`` 若是简单Name
+整数可判定present；若是Method则返回unknown，因为解析器不会执行方法。
 
-* If/Else/While 的运行期语义；
-* OperationRegion 和 Field 的全部读写规则；
-* Mutex、Event 和同步；
-* 任意 Method 调用；
-* namespace 名称解析的全部边界情况；
-* ACPI interpreter 的对象类型转换。
-
-当 ``_STA`` 是静态 Name 常量时，它可以直接判断设备是否存在；如果 ``_STA`` 是 Method，函数返回“unknown”，不会尝试执行该 Method。
-
-解析深度被限制为 16 层。遇到未知内容或长度越界时，parser 标记错误并跳出当前 term list，防止损坏 AML 导致无限递归或越界扫描。
-
-_CRS resource template 怎样被拆开
+_CRS资源解析到底支持哪些内容
 -----------------------------
 
-``_CRS`` 通常是 Buffer，内部由 ACPI resource descriptors 串联而成。SeaBIOS 支持当前需要的常见 descriptor：
+当Device内的 ``_CRS`` 是Buffer时，解析器缓存resource byte stream。公开查找函数只
+提取第一项匹配资源，并支持有限descriptor：
 
-small resource：
+* small IRQ、I/O与fixed I/O；
+* large 32-bit fixed memory；
+* WORD、DWORD、QWORD address space；
+* large IRQ；
+* end tag。
 
-* IRQ；
-* I/O range；
-* Fixed I/O；
-* End Tag。
+它不构建操作系统意义上的完整resource tree，也不解析DSDT里的 ``_PRT`` PCI routing
+package。本章因此不能说SeaBIOS已经通过AML重做q35 PCI中断路由；第九章生效的ICH9
+寄存器仍保持原状， ``_PRT`` 留给之后的ACPI interpreter。
 
-large resource：
+virtio_mmio_setup_acpi消费了什么
+--------------------------------
 
-* 32-bit Fixed Memory Range；
-* WORD Address Space；
-* DWORD Address Space；
-* QWORD Address Space；
-* Extended IRQ。
+受限解析返回后，BSP立即调用 ``virtio_mmio_setup_acpi()``。该函数遍历缓存中原始AML
+``_HID`` 为字符串 ``LNRO0005`` 的Device；每个候选必须同时能从 ``_CRS`` 取到memory
+range与IRQ，否则跳过。它没有在这个循环里调用 ``_STA`` present判断。
 
-``acpi_dsdt_find_mem()``、``acpi_dsdt_find_io()`` 和 ``acpi_dsdt_find_irq()`` 顺序扫描 descriptors，返回第一个匹配范围。
+对合格候选， ``virtio_mmio_setup_one()`` 还有硬边界：
 
-这套实现适合从简单静态 ``_CRS`` 中提取设备地址；如果资源由 AML Method 动态计算，SeaBIOS 不会像 Linux ACPICA 那样执行 Method 得到结果。
+#. MMIO base必须低于4 GiB；
+#. offset 0的magic必须为 ``0x74726976``；
+#. version只能是legacy 1或modern 2；
+#. 读取device ID后，当前代码只为virtio-blk与virtio-scsi启动初始化线程，其他ID只记录。
 
-virtio-mmio 怎样借 ACPI 发现设备
-------------------------------
+固定q35主线的磁盘是ICH9 AHCI SATA port 0，不是由这一函数创建的virtio-mmio block。
+普通q35 PCI设备也不会因为存在ACPI表就匹配 ``LNRO0005``。因此默认没有此类附加设备
+时，遍历为空并立即返回；只有显式加入ACPI描述的virtio-mmio设备，才进入上述条件
+初始化。
 
-``virtio_mmio_setup_acpi()`` 遍历所有：
+found分支怎样结束
+-----------------
 
-::
+无论DSDT解析是否找到FADT、是否遇到受限opcode、是否发现virtio-mmio，调用链最后都
+执行 ``return``，直接离开 ``qemu_platform_setup()``。 ``loader_err`` 即使是 ``-1``
+也不会在RSDP found分支触发告警；源码选择信任已经通过独立FSEG验证的RSDP。
 
-   _HID = "LNRO0005"
+此时ACPI表的最终HIGH/FSEG allocation继续存活， ``RsdpAddr`` 继续指向FSEG。解析缓存
+只服务SeaBIOS内部条件探测，OS以后仍从RSDP重新发现完整表图，两者不是同一套生命周期。
 
-的设备。对每个设备分别读取 ``_CRS`` 中的 memory range 和 IRQ：
+not-found分支为什么已经没有内建表回退
+------------------------------------
 
-.. code-block:: c
+若 ``RsdpAddr==NULL``，SeaBIOS先看 ``loader_err``：
 
-   acpi_dsdt_find_mem(dev, &mem, &unused);
-   acpi_dsdt_find_irq(dev, &irq);
+* loader返回0却没有RSDP，说明“命令流可遍历”没有产生应有入口，调用
+  ``warn_internalerror()``；
+* loader返回 ``-1`` 时，不再追加这一条内部错误告警。
 
-随后把 MMIO base 交给：
-
-.. code-block:: c
-
-   virtio_mmio_setup_one(mem);
-
-当前实现只直接访问 4 GiB 以下地址。它先读取：
-
-::
-
-   offset 0x00  magic
-   offset 0x04  version
-   offset 0x08  device id
-
-magic 必须是：
-
-::
-
-   0x74726976   ASCII little-endian "virt"
-
-version 接受：
-
-::
-
-   1  legacy virtio-mmio
-   2  virtio 1.0+
-
-当前 SeaBIOS 会为 device id 2 的 virtio-blk 和 device id 8 的 virtio-scsi 创建初始化线程。其他设备可以被识别和打印，但不在这里成为 BIOS block device。
-
-标准 q35 常把 virtio 设备挂在 PCI 总线上，所以本函数可能找不到任何 ``LNRO0005``，然后无操作返回。它仍然存在，是因为同一套 SeaBIOS/QEMU 代码还支持通过 ACPI 描述的 virtio-mmio 设备。
-
-q35 的 PCI _PRT 由 AML 留给后续操作系统
------------------------------------
-
-第九章已经把每个 PCI function 的 ``PCI_INTERRUPT_LINE`` 和 ICH9 PIRQA-H 寄存器配置好。DSDT 中的 ``_PRT`` 则从 ACPI namespace 的角度描述 PCI INTx routing。
-
-两者作用不同：
-
-::
-
-   芯片组配置寄存器
-      决定中断事务现在怎样实际传播
-
-   DSDT _PRT
-      告诉 ACPI-aware 操作系统这个传播关系是什么
-
-SeaBIOS 当前轻量 parser 不需要完整执行 ``_PRT``。Linux 以后会解析 PCI root bridge 的 ``_PRT``，把 device/pin 映射到 link device 或 GSI，再建立自己的 PCI IRQ routing domain。
-
-qemu_platform_setup 在这里结束
-----------------------------
-
-当 RSDP 存在时，SeaBIOS 完成：
+随后两种情况都落到 ``acpi_setup()``。当前固定SeaBIOS提交中的实现只有：
 
 .. code-block:: c
 
-   acpi_dsdt_parse();
-   virtio_mmio_setup_acpi();
-   return;
+   if (!CONFIG_ACPI)
+       return;
+   dprintf(1, "ACPI tables for qemu 1.6 and older are not supported any more.\n");
 
-这里的 ``return`` 结束的是 ``qemu_platform_setup()``，不是整个 SeaBIOS POST。
+它不申请表内存、不构造RSDP/RSDT/FADT/DSDT，也不修复前面局部链接结果。因此把这条
+路径称为“SeaBIOS内建兼容ACPI生成”是错误的；它只是报告旧QEMU表路径已不再支持并
+返回。若 ``CONFIG_ACPI`` 关闭，连该消息也跳过。
 
-如果 table-loader 不存在、执行失败或最终没有找到 RSDP，代码才会落入 ``acpi_setup()`` 的 SeaBIOS 内建兼容路径。当前固定 QEMU q35 主线采用成功的 fw_cfg table-loader 路径，不混写 fallback 的生成细节。
+平台表阶段怎样交给下一段硬件初始化
+----------------------------------
 
-第十五章结束时的机器状态
-----------------------
-
-控制权目前走过：
-
-::
-
-   qemu_platform_setup()
-   → find_acpi_rsdp() 返回 RsdpAddr
-   → 从 XSDT 优先、RSDT 兼容地查找 ACPI 表
-   → FADT 连接固定 PM 接口、FACS 与 DSDT
-   → MADT 描述 CPU、local APIC、I/O APIC 与 interrupt override
-   → MCFG 描述 q35 ECAM/MMCONFIG
-   → acpi_dsdt_parse()
-   → 从 DSDT offset 0x24 解析受限 AML term list
-   → 建立 acpi_device 索引
-   → 条件 virtio_mmio_setup_acpi()
-   → qemu_platform_setup() 返回
-
-此刻：
-
-* 当前执行者：SeaBIOS ``platform_hardware_setup()``；
-* 当前主流程 CPU：BSP；
-* 模式：32 位保护模式；
-* 分页：关闭；
-* AP：已完成固件报到并停在 ``HLT``；
-* RSDP、RSDT/XSDT 和核心 ACPI 表：已经安装；
-* FADT：已公布 ICH9 电源管理、SCI、PM timer 与 reset 接口；
-* MADT：已描述 CPU/APIC 拓扑；
-* MCFG：已描述 q35 MMCONFIG；
-* DSDT：已由 SeaBIOS 建立受限设备索引；
-* AML Method：没有被 SeaBIOS 通用执行；
-* 条件 virtio-mmio block/SCSI：可能已经启动探测线程；
-* qemu_platform_setup：已经返回；
-* ``timer_setup()``、``clock_setup()``：尚未执行；
-* TPM：尚未初始化；
-* 普通 PCI/ATA/AHCI/NVMe/USB block driver：尚未进入 ``device_hardware_setup()``；
-* ``BootList``：尚无完整启动设备集合；
-* GRUB：尚未被读取或执行；
-* Linux：尚未装入内存。
-
-``platform_hardware_setup()`` 接下来依次执行：
+found分支的显式 ``return`` 与not-found分支中 ``acpi_setup()`` 返回，最终都使
+``qemu_platform_setup()`` 结束。控制流回到：
 
 .. code-block:: c
 
-   coreboot_platform_setup();
-   timer_setup();
-   clock_setup();
-   tpm_setup();
+   platform_hardware_setup()
+   {
+       qemu_platform_setup();
+       coreboot_platform_setup();
+       timer_setup();
+       clock_setup();
+       tpm_setup();
+   }
 
-当前 QEMU/SeaBIOS 构建不会进入 coreboot 平台初始化主线。下一章将从 ``timer_setup()`` 开始，区分“SeaBIOS 内部延时使用的时间源”和“每秒约 18.2 次更新 BDA 的传统 PIT IRQ0”，最后处理 RTC、INT 1Ah 与条件 TPM measured boot 初始化。
+固定QEMU q35不会把 ``coreboot_platform_setup()`` 变成另一条平台主线；第十六章将从
+这一返回边界继续，区分SeaBIOS内部deadline timer、传统BIOS clock与条件TPM初始化。
+
+本章结束状态
+------------
+
+* current executor：BSP上的SeaBIOS ``MainThread``；
+* CPU/mode：32位保护模式，分页关闭，A20开启，IF=0，CMOS NMI屏蔽；
+* AP状态：缺省无AP；显式多CPU时在场AP仍停在IF=0的HLT循环；
+* normal q35 ``RsdpAddr``：指向FSEG中通过signature、范围与checksum验证的RSDP；
+* ACPI table allocations：linked blob保持在HIGH，RSDP保持在FSEG；
+* SeaBIOS当前table lookup：只按需要查FADT，XSDT优先、RSDT回退；
+* DSDT pointer：取自FADT的32位 ``dsdt`` 字段；
+* DSDT parse cache：保存已识别Device的name、 ``_HID``、 ``_STA`` 与 ``_CRS`` 摘要；
+* MADT/MCFG/ ``_PRT``：未被本章SeaBIOS控制流解释，继续留给后续OS；
+* virtio-mmio：仅条件匹配 ``LNRO0005`` 与资源；固定AHCI磁盘不走此路径；
+* no-RSDP fallback：不生成内建ACPI表，只条件打印旧QEMU不支持消息；
+* ``qemu_platform_setup()``：已经返回；
+* next entry： ``coreboot_platform_setup()``，随后 ``timer_setup()``。
+
+关键边界
+--------
+
+#. RSDP只指向root，ACPI子表不内嵌在RSDP中。
+#. ``find_acpi_table()`` 对同一目标先查低4 GiB XSDT，再回退RSDT。
+#. 当前查找只核对signature并信任length，不重新验证root或FADT checksum。
+#. ``acpi_dsdt_parse()`` 当前只查FADT，不遍历MADT、MCFG等整张ACPI图。
+#. SeaBIOS使用FADT的32位 ``dsdt``，本入口不优先使用 ``X_DSDT``。
+#. DSDT signature、checksum与allocation边界不由当前解析入口重新验证。
+#. AML parser只建立有限设备摘要，不能执行通用Method或替代OS ACPI interpreter。
+#. ``_CRS`` 的有限资源提取不等于解析 ``_PRT`` 或重新配置PCI路由。
+#. ``virtio_mmio_setup_acpi()`` 只消费 ``LNRO0005``；q35 AHCI磁盘不属于此路径。
+#. found分支不受 ``loader_err`` 否决，并在virtio-mmio探测后直接返回。
+#. 当前 ``acpi_setup()`` 已退化为提示，不是有效的内建表生成回退。
+#. ACPI表对象与SeaBIOS解析缓存保留给不同消费者，不能合并生命周期。
+
+下一入口
+--------
+
+下一章从：
+
+::
+
+   qemu_platform_setup returns
+   → coreboot_platform_setup()       # fixed QEMU path does not take over
+   → timer_setup()
+   → clock_setup()
+   → tpm_setup()
+
+开始，先确定SeaBIOS内部deadline timer是否已由KVM pvclock或ICH9 PM timer建立，再处理
+传统PIT/RTC BIOS时钟与条件TPM对象。
 
 资料
 ----
 
-* `SeaBIOS src/fw/paravirt.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/paravirt.c>`_；
-* `SeaBIOS src/fw/biostables.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/biostables.c>`_；
-* `SeaBIOS src/fw/dsdt_parser.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/dsdt_parser.c>`_；
-* `SeaBIOS src/hw/virtio-mmio.c <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/virtio-mmio.c>`_；
-* `SeaBIOS src/std/acpi.h <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/std/acpi.h>`_；
-* `QEMU hw/i386/acpi-build.c <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/acpi-build.c>`_；
-* `QEMU hw/acpi/aml-build.c <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/acpi/aml-build.c>`_；
-* `QEMU include/hw/acpi/aml-build.h <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/include/hw/acpi/aml-build.h>`_；
-* `ACPI Specification <https://uefi.org/specifications>`_；
-* `Virtio Specification <https://docs.oasis-open.org/virtio/virtio/v1.2/virtio-v1.2.html>`_。
+* `SeaBIOS固定提交：QEMU平台RSDP分支与返回边界 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/paravirt.c#L301-L324>`_
+* `SeaBIOS固定提交：XSDT优先、RSDT回退的表查找 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/biostables.c#L123-L177>`_
+* `SeaBIOS固定提交：受限DSDT解析与设备缓存 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/dsdt_parser.c#L1-L677>`_
+* `SeaBIOS固定提交：ACPI描述的virtio-mmio探测 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/hw/virtio-mmio.c#L1-L90>`_
+* `SeaBIOS固定提交：旧QEMU ACPI fallback现状 <https://github.com/coreboot/seabios/blob/c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf/src/fw/acpi.c#L1-L22>`_
+* `QEMU固定提交：FACS、DSDT、FADT、MADT构造顺序 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/i386/acpi-build.c#L2025-L2105>`_
+* `QEMU固定提交：FADT指针重定位 <https://github.com/qemu/qemu/blob/a759542a2c62f0fd3b65f5a66ad9868201014669/hw/acpi/aml-build.c#L2460-L2560>`_
