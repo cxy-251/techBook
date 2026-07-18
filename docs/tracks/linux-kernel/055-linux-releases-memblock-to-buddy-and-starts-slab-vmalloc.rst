@@ -1,9 +1,8 @@
-第五十五章：Linux 怎样把 memblock 空闲页交给 buddy，并建立 slab 与 vmalloc？
-=============================================================================
+第五十五章：Linux 怎样把 memblock RAM 交给 buddy 并建立运行期 MM？
+====================================================================
 
-第五十四章结束时，GRUB 提供的命令行已经完成内核参数和 init 参数分发。
-
-``start_kernel()`` 接下来执行：
+第五十四章结束时，CPU0仍在 ``start_kernel``、IF=0；command-line/init token dispatch已完成，zone与
+``struct page`` containers存在，但普通free RAM仍由memblock掌握。当前连续入口是：
 
 .. code-block:: c
 
@@ -14,587 +13,173 @@
    trap_init();
    mm_core_init();
 
-本章追踪到 ``mm_core_init()`` 返回。
+本章按fixed Linux 7.2-rc1追踪到 ``mm_core_init`` 返回。真正所有权交接发生在
+``memblock_free_all``；其前后还必须固定debug metadata、KHO、x86 IOMMU/traps，随后bootstrap SLUB、
+vmalloc、PTI与execmem。出口page/slab/vmap allocators已可用，但late SLUB、scheduler与IRQ仍未开始。
 
-这是启动过程中的一个重要边界。
+early RNG混入的是arch line而非saved/XBC完整文本
+---------------------------------------------
 
-此前 Linux 主要依靠 memblock 在已知物理内存中做单向、不可回收的早期分配。第五十章虽然建立了 node、zone、``struct page`` 和 buddy 的数据结构，普通 RAM 仍未真正进入 buddy free list。
+``random_init_early(command_line)`` 在timekeeping与IRQ前，先按build混入latent compile seed，再反复
+尝试 ``arch_get_random_seed_longs``、fallback ``arch_get_random_longs``，统计实际获得的arch bits；
+最后混入 ``init_utsname`` 与传入字符串。这里的pointer是041由 ``setup_arch`` 返回的arch effective
+``command_line``，不含051后来单独前置/附加的bootconfig extras。
 
-本章结束后：
+若CRNG已由更早阶段ready就reseed；否则只有 ``trust_cpu`` policy才credit arch bits。调用结束不保证
+CRNG ready，也不等于later ``random_init`` 已执行；没有hardware seed的slots只减少可credit bit count，
+不制造entropy。
 
-* memblock 描述的可用普通页已经释放给 buddy；
-* page allocator 可以提供按 order 分配的物理页；
-* slab allocator 已完成早期正式初始化；
-* vmalloc 地址空间管理已经建立；
-* 许多依赖普通动态内存分配的子系统终于可以继续启动。
+通用log call先发布per-CPU readiness再决定是否迁移ring
+---------------------------------------------------
 
-为什么先做 early random 初始化
-----------------------------
+``setup_log_buf(0)`` 首先 ``set_percpu_data_ready``，允许printk使用052正式per-CPU data。若049/arch
+early call已把 ``log_buf`` 切到dynamic buffer，本次立即return。仍使用static ring时，若没有explicit
+new length就按possible CPU数补算需求；size仍为0只打印一次usage stats。
 
-第一条调用是：
+需要扩展时从memblock依次分配text、descriptor与info arrays，任一步失败便释放本次已取对象并保留旧
+ring；全部成功才初始化dynamic ring，在IRQ-save区迁移static records、切换global pointer，再补copy
+可能来自NMI的尾部records。它不注册console，allocation failure也不是panic。
 
-.. code-block:: c
+VFS early call只建hash backing，不建inode/dentry caches
+-----------------------------------------------
 
-   random_init_early(command_line);
+``vfs_caches_init_early`` 先初始化fixed ``in_lookup_hashtable`` heads，再调用 ``dcache_init_early`` 与
+``inode_init_early``，按memory/hashdist policy通过large-system-hash early allocator建立dentry/inode
+hash backing。真正 ``KMEM_CACHE(dentry/inode)``、mount/bdev/chrdev等在later ``vfs_caches_init``；当前
+没有VFS object、root mount或initramfs extraction。
 
-此时完整 timekeeping、interrupt 和普通 allocator 都尚未建立，随机子系统不能依赖后面的中断噪声、设备事件或常规动态分配。
+exception table只在linker没有预排序时sort
+------------------------------------------
 
-该阶段收集架构能够早期提供的随机信息，并把启动命令行等当前可用状态混入早期随机池。
+``sort_main_extable`` 检查build tool留下的 ``main_extable_sort_needed`` 和非空
+``__start___ex_table..__stop___ex_table``；满足才按faulting instruction address排序vmlinux table。
+已经sorted或empty就是no-op。module/BPF exception tables有各自life cycle，本call不处理，也不触发
+fault。
 
-它的目标不是宣称系统熵已经充分，也不是向用户空间提供最终安全的随机输出，而是尽早避免所有启动都从完全相同的内部随机状态开始。
-
-完整的：
-
-.. code-block:: c
-
-   random_init();
-
-要等 timekeeping 建立后才会执行。
-
-为什么释放 memblock 前还要做几次大分配
-------------------------------------
-
-源码在下列调用前写明：
-
-.. code-block:: c
-
-   /*
-    * These use large bootmem allocations and must precede
-    * initialization of page allocator
-    */
-
-   setup_log_buf(0);
-   vfs_caches_init_early();
-
-这些结构希望根据机器内存规模一次性建立较大的启动期 backing。
-
-memblock 适合在物理地址图上寻找连续、对齐的区域，也能明确避开内核镜像、initramfs、ACPI 表、per-CPU first chunk 等 reserved ranges。
-
-若等 buddy 和 slab 初始化后再做，分配路径、失败语义和早期对象布局都会更复杂。
-
-``setup_log_buf(0)`` 做什么
---------------------------
-
-x86 ``setup_arch()`` 期间已经尝试扩大过 printk ring buffer。
-
-``start_kernel()`` 此处再次调用 ``setup_log_buf(0)``，确保命令行配置和当前内存条件要求的日志缓冲已经落实，并把必要的早期日志迁入最终 backing。
-
-参数 ``0`` 表示这是通用启动阶段的设置调用，不是架构阶段强制执行的那次 early setup。
-
-调用完成后，后续 buddy、slab、scheduler、IRQ 和设备初始化产生的大量日志有足够空间保存。
-
-它没有初始化真正的 console 驱动。日志此时主要进入 printk ring buffer，正式 ``console_init()`` 还在更后面。
-
-VFS 为什么在挂载文件系统前建立 cache 基础
---------------------------------------
-
-``vfs_caches_init_early()`` 建立 VFS 最早的 inode/dentry cache 基础，包括按系统规模准备相应 hash table。
-
-此时还没有：
-
-* 根文件系统挂载；
-* initramfs 解包；
-* 磁盘文件系统读取；
-* 用户进程打开文件。
-
-VFS cache 仍必须提前存在，因为后续 pseudo filesystem、namespace、设备节点、initramfs 和根挂载路径都会依赖 inode 与 dentry 的全局索引结构。
-
-这里建立的主要是底层表和早期 cache 条件，不代表完整 VFS 已经可供用户空间使用。
-
-为什么异常表要排序
-----------------
-
-内核包含 ``__ex_table``，记录某些可能触发 fault 的指令地址，以及 fault 发生后应跳转的修复地址。
-
-典型用途包括：
-
-* 安全访问用户地址；
-* 探测可能不存在的硬件或映射；
-* 在可恢复 fault 后返回错误码，而不是让整个内核崩溃。
-
-``sort_main_extable()`` 对主内核异常表排序，使后续 exception fixup 可以按地址快速查找。
-
-模块拥有各自的异常表，模块加载时另行处理。这里排序的是 vmlinux 自身链接进来的主表。
-
-``trap_init()`` 不等于打开中断
----------------------------
-
-``trap_init()`` 是架构 trap 基础的通用调用点。
-
-x86 在更早的汇编与架构入口中已经建立最低限度的 IDT 和异常入口，否则页表、CPU 探测和早期 C 代码发生 fault 时无法处理。
-
-此处完成架构希望放在正式内存初始化前的 trap 收尾。
-
-它不会把 ``IF`` 置 1，也不会让外部设备 IRQ 开始到达。当前仍满足：
-
-.. code-block:: text
-
-   early_boot_irqs_disabled = true
-   local IRQ disabled
-
-真正的 ``init_IRQ()`` 和 ``local_irq_enable()`` 还在后面。
-
-``mm_core_init()`` 与 ``mm_core_init_early()`` 的区别
+x86 trap收尾先建立CPU entry areas与正式exception state
 --------------------------------------------------
 
-第五十章执行的：
+``trap_init`` 依次 ``setup_cpu_entry_areas``、条件SEV-ES GHCB/VC handling、
+``cpu_init_exception_handling(true)``；非FRED CPU再 ``idt_setup_traps``，最后 ``cpu_init``。early IDT
+此前已支撑启动fault，这里建立per-CPU entry/TSS/IST与actual FRED-or-IDT runtime foundation。
 
-.. code-block:: c
+它不执行 ``init_IRQ``、不打开IF，也不让device IRQ到达；hypervisor/SEV/FRED branch由actual CPU/build
+决定。
 
-   mm_core_init_early();
+``mm_core_init`` 先完成仍依赖memblock的准备
+-------------------------------------------
 
-主要建立内存管理的描述结构：
+x86-64 ``arch_mm_preinit`` 调用 ``pci_iommu_alloc``，按detected IOMMU policy预留/建立early backing；
+结果不能仅凭q35写死。 ``init_zero_page_pfn`` 令arch选择 ``ZERO_PAGE(0)`` 并发布其PFN，给later shared
+read-only zero mappings使用，不创建user mapping。
 
-.. code-block:: text
+``build_all_zonelists(NULL)`` 在 ``SYSTEM_BOOTING`` 为所有nodes建立zone fallback lists，为possible CPUs
+初始化boot pageset/zonestat，并设置current mems-allowed；这只建立allocation search与bootstrap local
+caches，普通页尚未进入free lists。 ``page_alloc_init_cpuhp`` 以 ``cpuhp_setup_state_nocalls`` 注册
+page allocator online/dead callbacks，不为已online CPU0补调用callback。
 
-   node
-   zone
-   sparse memory sections
-   struct page metadata
-   free_area[] lists
+随后 ``alloc_tag_sec_init``、flatmem ``page_ext`` early backing、page poisoning/debug/
+``init_on_alloc/free`` static-key policy、KFENCE pool/metadata、meminit report、KMSAN shadow与stack-depot
+early backing都按build/options执行或no-op。这些必须在first ordinary allocation前确定；正文不把
+conditional facility写成fixed enabled。
 
-本章的：
+KHO是7.2-rc1新增的memblock-before-buddy边界
+--------------------------------------------
 
-.. code-block:: c
+``kho_memory_init`` 必须在memblock active且尽量靠近buddy handoff时处理kexec handover preserved/
+scratch memory；feature-disabled build是inline no-op。紧接着 ``memblock_free_all`` 先
+``free_unused_memmap``、归零zone managed counts并清KHO scratch-only reservation，再初始化reserved
+page metadata，遍历 ``memory - reserved`` free ranges按合法最大orders交给buddy。
 
-   mm_core_init();
+每个实际释放block更新zone managed/free state，返回pages总数再加到 ``totalram_pages``。kernel image、
+page tables、initrd、ACPI、per-CPU/log/VFS/debug backing等仍在reserved ranges，不被释放；E820 RAM也不
+等于全可分配。memblock records可暂存，但ordinary free-page ownership在这一call后属于buddy。
 
-开始建立真正可供内核普遍使用的 allocator，并完成从 boot-time allocator 到 runtime allocator 的交接。
-
-两个函数不能合并理解：
-
-.. code-block:: text
-
-   mm_core_init_early()
-       建立地图、账本和空链表
-
-   mm_core_init()
-       把可用页放入账本并启动正式分配器
-
-架构内存预初始化
---------------
-
-``mm_core_init()`` 首先调用：
-
-.. code-block:: c
-
-   arch_mm_preinit();
-
-固定 x86-64 实现进入：
-
-.. code-block:: c
-
-   pci_iommu_alloc();
-
-它为 x86 PCI/IOMMU 相关内存管理准备必要资源。
-
-这个调用必须早于普通 allocator 全面使用，又必须在前面的 CPU、NUMA 与内存图已经足够稳定后执行。
-
-零页为什么需要正式 PFN
---------------------
-
-随后执行：
-
-.. code-block:: c
-
-   init_zero_page_pfn();
-
-x86 的 ``empty_zero_page`` 在 BSS 清零时已经全为零。
-
-现在内核通过 ``virt_to_page()`` 和 ``page_to_pfn()`` 得到它对应的 ``struct page`` 与 PFN，并保存 ``zero_page_pfn``。
-
-匿名只读零映射可以让许多尚未写入的虚拟页共享同一物理零页。发生写入时，再通过缺页异常分配独立页面。
-
-在 ``struct page`` 和正式页模型建立前，仅知道有一块全零内存还不够；内存管理代码需要能把它纳入 PFN/page 体系。
-
-zonelist 把 zone 变成分配搜索顺序
---------------------------------
-
-第五十章已经建立每个 node 中的 zone。
-
-``build_all_zonelists(NULL)`` 进一步为每个 node 构造分配 fallback 顺序。
-
-一次 ``alloc_pages()`` 不只是查看“本 node 的 ZONE_NORMAL”。根据 GFP mask、NUMA policy 和内存压力，它可能依次考虑：
-
-* 本地 node 的目标 zone；
-* 本地其他兼容 zone；
-* 距离较近的远端 node；
-* 允许 fallback 的其他 zone。
-
-zonelist 把这些规则预先组织好，使热路径不必每次重新计算完整 node/zone 顺序。
-
-page allocator 注册 CPU hotplug 支持
-----------------------------------
-
-``page_alloc_init_cpuhp()`` 把 page allocator 的 per-CPU page list 生命周期接入 CPU hotplug 状态机。
-
-后面每个 CPU 上线时，需要准备自己的 page allocator 本地缓存；下线时，需要把缓存页排回全局 zone，避免空闲页滞留在已经停止的 CPU 上。
-
-此时 AP 尚未启动。这里建立 callback 关系和 CPU0 所需基础，不发送 INIT/SIPI。
-
-内存调试与硬化为什么要在释放页面前决定
+x86 ``mem_init`` 明确跨过bootmem时代
 ------------------------------------
 
-``mem_debugging_and_hardening_init()`` 根据构建配置和 early parameters 决定：
+紧随handoff，x86-64 ``mem_init`` 设置 ``after_bootmem=1``，执行actual hypervisor
+``init_after_bootmem`` hook；再为deferred/reserved boot pages登记信息，条件把vsyscall加入kcore list，
+并 ``preallocate_vmalloc_pages``。后者为所有process page tables必须共享的vmalloc upper levels预分配，
+失败panic；它还不是通用vmap-area allocator。
 
-* page poisoning；
-* debug page allocation；
-* ``init_on_alloc``；
-* ``init_on_free``；
-* page sanity checking。
-
-这些策略会改变页面第一次进入 allocator、被分配或释放时的处理方式。
-
-必须在大量普通 RAM 进入 buddy 前确定，否则一部分页面会按旧规则进入 allocator，另一部分按新规则处理，启动后的安全和调试语义不一致。
-
-函数还通过 static key 让关闭的调试功能在热路径上接近零开销。
-
-在 buddy 出现前预留调试 backing
-----------------------------
-
-随后若配置启用，内核准备：
-
-* page extension metadata；
-* KFENCE pool 与 metadata；
-* KMSAN shadow；
-* stack depot early backing；
-* KHO 相关内存。
-
-这些设施有的需要较大连续区域，有的必须覆盖从 allocator 启动开始发生的最早分配。
-
-所以它们在 ``memblock_free_all()`` 前完成预留和基础初始化。
-
-真正的交接点：``memblock_free_all()``
+SLUB bootstrap现在可以从buddy取得pages
 ------------------------------------
 
-核心调用是：
+``kmem_cache_init`` 建boot ``kmem_cache_node`` 与 ``kmem_cache``，把slab state推进到PARTIAL，bootstrap
+两者后建立kmalloc caches/sheaves、freelist randomization并以nocalls注册SLUB CPU-dead state。此后
+``kmalloc/kmem_cache_alloc`` 基础可用； ``kmem_cache_init_late`` 的workqueue等仍要later执行。
 
-.. code-block:: c
+buddy/slab ready后才完成page owner、leak与page-table caches
+--------------------------------------------------------
 
-   memblock_free_all();
+``page_ext_init_flatmem_late`` 让page-owner等需要stack depot/slab的flatmem client完成late work；随后
+``kmemleak_init``、 ``ptlock_cache_init``、arch ``pgtable_cache_init`` 与
+``debug_objects_mem_init`` 依次接管early objects。具体feature-disabled stubs保持no-op。
 
-源码对它的定义非常直接：
+``vmalloc_init`` 创建 ``vmap_area`` cache，初始化每个possible CPU的vmap block/deferred-free state与
+vmap nodes，导入earlier ``vmlist`` entries，再建立free virtual space并发布
+``vmap_initialized=true``。shrinker allocation失败只缺shrinker而不撤销已发布vmap allocator。
 
-.. code-block:: text
+最后的x86与MM尾部仍有严格顺序
+------------------------------
 
-   release free pages to the buddy allocator
+无deferred struct pages时现在执行generic ``page_ext_init``；随后 ``init_espfix_bsp`` 必须在第一个
+non-init thread前建立CPU0 espfix， ``pti_init`` 又必须在espfix之后。接着完成KMSAN runtime、
+``mm_cache_init`` 与 ``execmem_init``。这些calls按build/CPU policy可部分no-op，但
+``mm_core_init`` 的真实出口在 ``execmem_init`` 之后，不能提前截到vmalloc。
 
-这才是普通 RAM 真正进入 buddy 的时刻。
-
-此前 ``free_area[]`` 虽然已经存在，``nr_free_pages()`` 并不代表所有可用物理 RAM 都在 buddy 中。
-
-释放前先处理未使用 memmap
-------------------------
-
-``free_unused_memmap()`` 回收不需要的 memory map backing，并避开 SPARSEMEM 中不存在的 section。
-
-物理地址图可能包含洞：
-
-.. code-block:: text
-
-   RAM
-   MMIO hole
-   RAM
-
-不存在的 PFN 不需要永久保留有效 ``struct page`` backing。回收这些区域可减少 metadata 浪费。
-
-为什么重新清零 ``managed_pages``
--------------------------------
-
-``reset_all_zones_managed_pages()`` 先把各 zone 的 ``managed_pages`` 归零。
-
-随后每个真正释放给 buddy 的页面会重新计入 managed pages。
-
-这种做法避免把：
-
-* reserved 页面；
-* 不存在的洞；
-* NOMAP 区域；
-* 内核镜像和启动数据；
-* 尚不能管理的页面；
-
-错误统计成 allocator 可管理 RAM。
-
-reserved 页面先标记 ``PageReserved``
-----------------------------------
-
-``memmap_init_reserved_pages()`` 遍历 memblock reserved ranges，为对应 ``struct page`` 设置 node 信息，并标记 ``PageReserved``。
-
-这些页面包括前面明确保留的内核镜像、页表、固件表、initramfs、per-CPU backing 等。
-
-设置完成后，释放循环只处理 free mem ranges，不会把这些仍有用途的页加入 buddy。
-
-free range 是 ``memory - reserved``
----------------------------------
-
-``free_low_memory_core_early()`` 使用：
-
-.. code-block:: c
-
-   for_each_free_mem_range(...)
-
-它遍历的是 memblock ``memory`` 中扣除 ``reserved`` 后的区间。
-
-这正是早期 memblock 模型的核心：
-
-.. code-block:: text
-
-   discovered RAM
-   - kernel image
-   - page tables
-   - initramfs
-   - ACPI/firmware reserved
-   - per-CPU first chunk
-   - early allocator objects
-   - other explicit reservations
-   = pages that may enter buddy
-
-不是所有 E820 RAM 都会被无条件释放。
-
-为什么按最大对齐 order 释放
--------------------------
-
-``__free_pages_memory()`` 不逐页固定以 order 0 释放。
-
-它根据当前 PFN 对齐和剩余长度，选择尽可能大的合法 order：
-
-.. code-block:: c
-
-   order = min(MAX_PAGE_ORDER, __ffs(start));
-
-然后在区间边界内调用：
-
-.. code-block:: c
-
-   memblock_free_pages(start, order);
-
-例如一个对齐良好的大区间可以直接以较大块进入 buddy，而不是先插入数千个 order-0 页再不断合并。
-
-这既减少启动时间，也让 buddy 从一开始就拥有合理的大块布局。
-
-``totalram_pages`` 在这里获得真实值
---------------------------------
-
-释放循环返回加入 buddy 的页数：
-
-.. code-block:: c
-
-   pages = free_low_memory_core_early();
-   totalram_pages_add(pages);
-
-从这里开始，``totalram_pages()`` 反映正式 page allocator 管理的普通 RAM，而不是固件报告的原始物理 RAM 总量。
-
-两者之间的差值包含 reserved、固件、内核和其他不可分配区域。
-
-memblock 是否立刻消失
-------------------
-
-``memblock_free_all()`` 把 free RAM 的所有权交给 buddy，但不会在这一行把所有 memblock 描述结构立即抹除。
-
-后续少量启动代码仍可能查询保留区或内存布局，最终再根据配置 discard 可丢弃的 memblock metadata。
-
-正确理解是：
-
-.. code-block:: text
-
-   before memblock_free_all
-       memblock owns ordinary free RAM
-
-   after memblock_free_all
-       buddy owns ordinary free RAM
-       memblock records may still temporarily exist
-
-x86 ``mem_init()`` 标记 bootmem 时代结束
--------------------------------------
-
-接下来调用架构实现：
-
-.. code-block:: c
-
-   mem_init();
-
-固定 x86-64 实现首先设置：
-
-.. code-block:: c
-
-   after_bootmem = 1;
-
-这表示依赖 bootmem/memblock 特殊阶段的代码应切换到正式运行期语义。
-
-它随后调用 hypervisor 的 ``init_after_bootmem()`` hook，让虚拟化平台在普通页面已经进入 freelist 后完成相关收尾。
-
-注册 boot memory 页面信息
-------------------------
-
-``register_page_bootmem_info()`` 为需要保留的启动内存页面登记 metadata，特别是 NUMA 或 HugeTLB vmemmap 优化路径需要的信息。
-
-源码强调它必须在 ``memblock_free_all()`` 后执行，因为 deferred ``struct page`` 可能直到前一步才得到完整初始化。
-
-预分配 vmalloc 顶层页表
----------------------
-
-x86 ``mem_init()`` 还执行：
-
-.. code-block:: c
-
-   preallocate_vmalloc_pages();
-
-它遍历 ``VMALLOC_START`` 到 ``VMEMORY_END``，预分配所有进程页表之间必须同步的高层页表结构。
-
-vmalloc 的低层映射以后按需建立，但顶层同步层不能在任意时刻缺失，否则新进程页表可能看不到后来创建的 kernel vmalloc mapping。
-
-分配失败会 panic，因为继续运行会产生不一致的 kernel address space。
-
-``kmem_cache_init()`` 建立 slab 基础
-----------------------------------
-
-buddy 能分配整页或 ``2^order`` 连续页，但内核大量对象远小于一页：
-
-.. code-block:: text
-
-   task_struct
-   inode
-   dentry
-   file
-   vm_area_struct
-   kmalloc objects
-
-``kmem_cache_init()`` 在 buddy 之上建立 slab allocator 的核心 cache 和 ``kmalloc-*`` 体系。
-
-从这里开始，大量代码可以使用：
-
-.. code-block:: c
-
-   kmalloc()
-   kzalloc()
-   kmem_cache_alloc()
-
-而不必为每个小对象消耗完整页面。
-
-这仍不是 slab 的全部晚期收尾。``kmem_cache_init_late()`` 要在中断启用后继续执行，所以本章结束时应称为“slab 基础已经可用”，不能称为所有 slab 功能全部完成。
-
-为什么 page owner 要等 buddy 和 slab
-----------------------------------
-
-page owner 等调试设施需要：
-
-* 页面已经属于 buddy；
-* 能使用 slab 分配 stack depot 或辅助对象。
-
-因此 ``page_ext_init_flatmem_late()``、``kmemleak_init()`` 等放在 ``kmem_cache_init()`` 后。
-
-这体现了启动顺序的真实依赖：调试 allocator 的工具本身也依赖 allocator。
-
-页表锁和页表 cache
-----------------
-
-``ptlock_cache_init()`` 与 ``pgtable_cache_init()`` 建立页表相关的小对象 cache。
-
-后续创建进程地址空间时，大量页表页和页表锁需要高频分配。现在 buddy 与 slab 都可用，才适合建立这些运行期 cache。
-
-``vmalloc_init()`` 建立非连续物理页映射管理
----------------------------------------
-
-buddy 适合物理连续页，slab 适合小对象。
-
-内核还需要“虚拟地址连续、物理页可以分散”的大块空间，这由 vmalloc 提供：
-
-.. code-block:: text
-
-   contiguous kernel virtual range
-       → page A
-       → page F
-       → page C
-       → ...
-
-``vmalloc_init()`` 建立 vmalloc/vmap 区域的管理结构，使后续 ``vmalloc()``、``vmap()``、ioremap 辅助路径等能够分配和追踪 kernel virtual areas。
-
-x86 ``mem_init()`` 先预分配必要高层页表，通用 ``vmalloc_init()`` 再建立区域 allocator，两步共同完成运行基础。
-
-espfix 与 PTI 为什么在这里收尾
-----------------------------
-
-``init_espfix_bsp()`` 为 boot CPU 建立 x86-64 espfix 相关映射，处理某些从 16 位栈段返回时的历史硬件语义。
-
-随后 ``pti_init()`` 在 espfix 已准备后完成 Page Table Isolation 相关初始化。
-
-这些机制需要正式页分配和 vmalloc 基础，又必须在第一个非 init thread 创建前完成，因此位于 ``mm_core_init()`` 尾部。
-
-最后的内存 cache 与 executable memory
------------------------------------
-
-``mm_cache_init()`` 建立 ``mm_struct`` 等内存管理对象的 cache。
-
-``execmem_init()`` 建立内核可执行内存分配基础，供后续模块、BPF、trampoline 或架构动态代码路径使用。
-
-具体可执行内存策略受架构和构建配置影响，但它依赖前面正式 virtual memory allocator 已经存在。
-
-本章结束后的 allocator 层次
--------------------------
-
-此时可以把内存分配层次画成：
-
-.. code-block:: text
-
-   physical RAM
-       ↓
-   memblock discovered/reserved map
-       ↓ memblock_free_all()
-   buddy page allocator
-       ├─ order-0 pages
-       ├─ higher-order physically contiguous blocks
-       ↓
-   slab / kmalloc caches
-       └─ small kernel objects
-
-   scattered physical pages
-       ↓ page-table mappings
-   vmalloc / vmap virtual ranges
-
-memblock 的主导阶段结束，正式运行期 allocator 已接管。
-
-当前机器状态
+本章结束状态
 ------------
 
-本章结束时：
+* current executor：CPU0上的 ``start_kernel``； ``mm_core_init`` 已返回；
+* precise next： ``maple_tree_init()`` 尚未调用；
+* CPU/mode：CPU0，x86-64 CPL0，IF=0， ``init_task``，无schedule/AP；
+* RNG：arch/UTS/arch-command-line已mix；CRNG readiness只按actual seed/trust policy；
+* printk：per-CPU data ready，dynamic ring已存在或本次成功迁移/失败保留static；console未初始化；
+* VFS：early dentry/inode hash backing已建，object caches/filesystems未建；
+* exception/traps：main extable条件排序，x86 CPU entry/TSS/IST与FRED-or-IDT trap foundation完成；
+* zonelists/boot pagesets/page-allocator CPUHP callbacks：已建立/初始化/nocalls注册；
+* ordinary free RAM：已从memblock交给buddy，reserved ranges仍保留；
+* ``after_bootmem/totalram_pages``：已发布/按actual released pages更新；
+* slab：bootstrap/kmalloc基础可用，late init未执行；
+* vmalloc：early entries已导入且free vmap space已发布；
+* espfix/PTI/KMSAN/MM caches/execmem：按build/actual policy完成；
+* scheduler/IRQ/console/initramfs/PID1：均未初始化、启用、解包或创建。
 
-* 当前执行者：Linux 6.12.95 ``init/main.c:start_kernel()``；
-* 精确位置：``mm_core_init()`` 已返回，``maple_tree_init()`` 尚未调用；
-* CPU：仍只有 CPU0 online；
-* mode：64 位 long mode；
-* current task：``init_task``；
-* interrupts：仍关闭；
-* GRUB 命令行：已完成内核参数与 init 参数分发；
-* node/zone/``struct page``：已建立；
-* memblock free RAM：已释放给 buddy；
-* buddy allocator：已拥有普通可分配页；
-* ``totalram_pages``：已按真正释放的页数更新；
-* x86 bootmem 阶段：``after_bootmem = 1``；
-* slab：``kmem_cache_init()`` 已完成，基础分配可用，late 阶段尚未执行；
-* vmalloc：管理结构已建立；
-* page-table、``mm_struct`` 与 executable-memory cache：已建立基础；
-* scheduler：尚未初始化；
-* external IRQ：尚未启用；
-* AP：尚未收到 INIT/SIPI；
-* console：正式初始化尚未执行；
-* initramfs：尚未解包；
-* PID 1：尚未创建。
+关键边界
+--------
 
-下一条控制流是：
+#. early RNG mix的 ``command_line`` 不含late bootconfig extras，也不保证CRNG ready。
+#. log buffer migration可失败并保留static ring； ``setup_log_buf(0)`` 仍先发布per-CPU readiness。
+#. VFS early hash、VFS slab object caches与filesystem mount是三个阶段。
+#. trap foundation不等于device IRQ init或IF enable。
+#. zonelists/pagesets存在不等于free RAM已交付；handoff点严格是 ``memblock_free_all``。
+#. free range是memblock memory减reserved，不是所有E820 RAM。
+#. KHO处理在memblock active时完成；feature disabled才是no-op。
+#. ``mem_init`` 的vmalloc page-table preallocation与 ``vmalloc_init`` area allocator不同。
+#. SLUB基础可用不等于 ``kmem_cache_init_late`` 已完成。
+#. ``mm_core_init`` 出口在espfix→PTI→KMSAN/MM cache→execmem之后。
+
+下一入口
+--------
+
+第056章从：
 
 .. code-block:: c
 
    maple_tree_init();
 
-随后 ``start_kernel()`` 将继续 poking、ftrace、early trace，并进入 ``sched_init()``。
+开始，随后建立x86 text-poke mm、dynamic ftrace records与early trace buffers； ``sched_init`` 留到057。
 
 资料
 ----
 
-* `Linux 6.12.95 init/main.c：random、bootmem 分配与 mm_core_init 调用顺序 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c>`_
-* `Linux 6.12.95 mm/mm_init.c：mm_core_init 完整初始化顺序 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/mm/mm_init.c>`_
-* `Linux 6.12.95 mm/memblock.c：memblock_free_all 与 free_low_memory_core_early <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/mm/memblock.c>`_
-* `Linux 6.12.95 arch/x86/mm/init_64.c：x86 mem_init 与 vmalloc 页表预分配 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/mm/init_64.c>`_
-* `Linux 6.12.95 mm/slub.c：SLUB/kmem_cache_init <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/mm/slub.c>`_
-* `Linux 6.12.95 mm/vmalloc.c：vmalloc_init 与 vmap area 管理 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/mm/vmalloc.c>`_
-* `Linux 6.12.95 fs/dcache.c：VFS early cache 初始化 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/fs/dcache.c>`_
+* `Linux 7.2-rc1固定提交：random到mm_core_init的start_kernel顺序 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c#L1023-L1041>`_；
+* `Linux 7.2-rc1固定提交：early RNG实际mix与credit规则 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/drivers/char/random.c#L849-L888>`_；
+* `Linux 7.2-rc1固定提交：mm_core_init完整顺序 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/mm/mm_init.c#L2696-L2749>`_；
+* `Linux 7.2-rc1固定提交：memblock到buddy的交接 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/mm/memblock.c#L2351-L2409>`_；
+* `Linux 7.2-rc1固定提交：x86 trap runtime foundation <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/traps.c#L1661-L1677>`_；
+* `Linux 7.2-rc1固定提交：x86-64 mem_init与vmalloc page-table preallocation <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/mm/init_64.c#L1376-L1401>`_；
+* `Linux 7.2-rc1固定提交：SLUB bootstrap <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/mm/slub.c#L8559-L8617>`_；
+* `Linux 7.2-rc1固定提交：vmap area allocator publication <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/mm/vmalloc.c#L5510-L5569>`_。

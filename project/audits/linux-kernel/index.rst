@@ -10,10 +10,10 @@ Linux Kernel回溯审查账本
 
    mode             = retrospective-audit
    production       = paused
-   verified_through = 054
+   verified_through = 057
    current_batch    = none
-   next_batch       = 055-057
-   current_status   = ready
+   next_batch       = 058-060
+   current_status   = paused-by-user
 
 状态语义遵守 ``project/LINUX_KERNEL_CONTRACT.rst``。
 
@@ -42,14 +42,16 @@ Linux Kernel回溯审查账本
   early LSM/bootconfig/命令行副本边界核验完成，无阻塞。
 * `052-054 <052-054.rst>`_：``repaired``；CPU ID/per-CPU first chunk、boot CPU NUMA/hotplug ledger与
   kernel/init parameter dispatch边界核验完成，无阻塞。
+* `055-057 <055-057.rst>`_：``repaired``；memblock→buddy/runtime MM、Maple/text-poke/early tracing与
+  scheduler/CPU0 boot-idle边界核验完成，无阻塞。
 
 已知但尚未轮到的结构债务
 ------------------------
 
-* 第055章起的历史启动正文仍引用旧版本标签或未经固定源码复核的artifact/数值；
+* 第058章起的历史启动正文仍引用旧版本标签或未经固定源码复核的artifact/数值；
 * 第065章存在两个正文文件；
 * 第066章存在两个正文文件；
 * 既有boot章节没有逐章登记到当前track manifest；
 * 历史正文与通用学习设计规则长期并存，适用关系曾不明确；现由Linux Kernel专用合同消除歧义。
 
-结构债务在顺序审查到对应编号时处理；不会因此把001—064跳过。
+结构债务在用户恢复目标、顺序审查到对应编号时处理；不会因此跳过058—064。
