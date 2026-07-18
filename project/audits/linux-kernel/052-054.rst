@@ -1,0 +1,150 @@
+Linux Kernel第052—054章回溯审查
+================================
+
+批次状态
+--------
+
+::
+
+   range            = 052-054
+   status           = repaired
+   verified_before  = 051
+   verified_after   = 054
+   mode             = retrospective-audit
+   blocking_issue   = none
+
+审查范围
+--------
+
+* ``052-linux-builds-percpu-area-and-migrates-cpu0.rst``；
+* ``053-linux-initializes-boot-cpu-numa-and-hotplug-state.rst``；
+* ``054-linux-dispatches-kernel-command-line-and-init-arguments.rst``；
+* 相邻回补 ``051`` 与 ``049-051`` 报告中saved init display order和runtime argv order的区别；
+* 入口为 ``setup_command_line(command_line)`` 已返回、即将调用 ``setup_nr_cpu_ids()``；
+* 出口为 ``extra_init_args`` 条件parse已完成，下一条
+  ``random_init_early(command_line)`` 尚未执行。
+
+固定源码
+--------
+
+Linux release 7.2-rc1、gregkh/linux commit
+``7404ce51637231382873d0b55edabc2f3b841a9d``：
+
+* ``init/main.c`` 的CPU/per-CPU/NUMA/hotplug/parameter dispatch调用顺序；
+* ``kernel/smp.c`` 的 ``setup_nr_cpu_ids`` 与early SMP limits；
+* ``arch/x86/kernel/setup_percpu.c`` 的first chunk、offset、explicit early-map copies与CPU0 switch；
+* ``mm/percpu.c`` 的embed/page/generic UP allocator paths；
+* x86 direct GDT/GS-base switch、 ``smp_ops`` native/hypervisor boot hooks；
+* ``kernel/cpu.c`` 的boot CPU masks、per-CPU hotplug state与sync ledger；
+* ``kernel/params.c`` 与 ``init/main.c`` 的direct parameters、 ``__setup`` fallback、unknown/init args。
+
+``/Volumes/LinuxKernel/{seabios,qemu,grub,linux-7.2-rc1}`` 保持fixed HEAD、clean、完整、非shallow、
+无active sparse checkout。最终 ``.config``、SMP/NUMA、QEMU vCPU/accelerator/hypervisor、builtin command
+line与bootconfig extras未提供，涉及compile/actual hook的结果均保留条件。
+
+整批成功路径
+------------
+
+``第052章``
+   ``SMP setup_nr_cpu_ids计算highest possible ID+1并按runtime/FORCE规则set/UP stub → SMP x86按percpu_alloc选择embed或page
+   first chunk，失败fallback或panic/UP generic single-unit allocator → possible units写offset、
+   this_cpu_off、cpu_number与条件APIC/ACPI/NUMA copies → CPU0 load direct GDT并写MSR_GS_BASE → early
+   pointers撤销 → 条件分配node cpumasks和sibling setup mask → x86-64 page-table sync no-op → actual
+   smp_ops boot-CPU hook或UP weak no-op → stop before early_numa_node_init``。
+
+``第053章``
+   ``early_numa_node_init按USE_PERCPU_NUMA_NODE_ID与cpu_to_node macro guards skip，或为possible CPUs
+   幂等写generic node → SMP把CPU0加入cpus_booted_once_mask并写ap_sync_state ONLINE → 所有build把
+   current cpuhp state/target直接写CPUHP_ONLINE → stop before command-line print``。
+
+``第054章``
+   ``打印unmodified saved line → parse_early_param因x86 setup_arch done guard返回 → parse_args原地扫描
+   static line：direct __param setter或unknown_bootoption分类 → BOOT_IMAGE ignore、root/ro/console走
+   ordinary __setup → 条件打印kernel-side unknown argv/env → 无error时把原 -- tail append argv → 最后把
+   bootconfig extra init append argv → stop before random_init_early``。
+
+CPU ID、first chunk与hook边界
+----------------------------
+
+* ordinary runtime ``nr_cpu_ids`` 是highest possible ID的exclusive bound； ``CONFIG_FORCE_NR_CPUS``
+  保持NR_CPUS constant并在不一致时WARN；二者都不是mask weight或online count；
+* UP call site使用no-op ``setup_nr_cpu_ids``，generic UP per-CPU allocator与SMP x86 path不同；
+* first chunk包含static template、module reserved与dynamic region；embed/page是actual alternatives；
+* x86-64 embed atom为PMD_SIZE，NUMA node/distance只影响layout选择，不产生固定地址；
+* helper复制static template，x86 loop只显式迁移APIC/ACPI/NUMA fields；未列出的early per-CPU mutations
+  不保证保留；
+* CPU0 direct GDT/GS-base switch不切task/stack/CR3，也不让AP执行；
+* ``setup_node_to_cpumask_map`` 只分配backing； ``setup_cpu_local_masks`` 在7.2-rc1只分配
+  ``cpu_sibling_setup_mask``；
+* x86-64 ``sync_initial_page_table`` 仍为no-op；
+* QEMU q35不决定accelerator， ``smp_ops`` 可为native/KVM/Xen/Hyper-V/VMware wrapper；
+* UP不链接x86 smpboot path，使用generic per-CPU/weak boot hook。
+
+NUMA与hotplug ledger边界
+-----------------------
+
+* x86 NUMA在052已写generic node；053 loop按compile guards skip或幂等重写，不重读SRAT/MADT；
+* CPU masks在040/048已建立， ``boot_cpu_hotplug_init`` 不修改possible/present/online/active；
+* ``cpus_booted_once_mask`` 是历史集合，不等于online mask；
+* CPU0直接写 ``SYNC_STATE_ONLINE`` 和 ``state=target=CPUHP_ONLINE``，不逐级调用startup callbacks；
+* ap-sync write由 ``CONFIG_SMP`` guard，不只属于 ``CONFIG_HOTPLUG_CORE_SYNC``；
+* only ``this_cpu`` state被推进，AP units只有template/storage；
+* ``cpuhp_threads_init``、completion handshake与AP INIT/SIPI均在later paths。
+
+parameter与init array边界
+------------------------
+
+* saved line只打印不修改；static line才由 ``next_arg`` 原地切分；
+* x86 early pass已在041完成，051 bootconfig kernel extras不能倒流产生early effects；
+* ``__param`` direct table、early ``__setup`` already-done marker与ordinary ``__setup`` handler分开；
+* sysctl aliases与dotted unused module params被consume但留给later mechanisms；
+* ``BOOT_IMAGE=/boot/bzImage`` 被忽略， ``root`` 只存name， ``ro`` 设flag， ``console`` 只登记preferred
+  spec；
+* remaining unknown ``name=value`` 进入init env，无value进入init argv；
+* unknown-options notice发生在explicit init-side parse前，只列kernel-side unknowns；
+* ``-- name=value`` 也进入argv，不进入environment；
+* runtime append顺序为kernel-side unknown argv → original ``--`` tail → bootconfig extra init；
+* 051 saved display text刻意把extra init放在original tail前，两种顺序不得混同；
+* direct setter error可让after-dashes返回error而跳过tail；array overflow只登记
+  ``panic_later``，later console init后panic。
+
+发现并修复
+----------
+
+#. 三章从历史6.12.95标签与百科式结构重写为fixed 7.2-rc1，补统一章末四节。
+#. 修正 ``setup_nr_cpu_ids``：ordinary build使用ID upper bound而非possible count，并补FORCE/UP paths。
+#. 把x86 SMP first chunk与generic UP allocator拆开，不再假设build一定SMP。
+#. 固定 ``percpu_alloc=`` 选择、embed→page fallback、failure panic与NUMA layout条件。
+#. 修正“迁移CPU0全部early state”的错误：只有template与显式topology fields有copy保证。
+#. 固定CPU0 direct GDT/GS-base transition，不把它写成task/context switch。
+#. 修正node-to-cpumask：此处只分配空backing；CPU membership later添加。
+#. 修正 ``setup_cpu_local_masks``：当前只分配sibling setup mask，不创建旧稿声称的callin/callout组。
+#. 修正boot hook写死native的问题，保留actual hypervisor ``smp_ops`` override。
+#. 固定early NUMA的双compile guard和x86 already-migrated关系。
+#. 固定CPU masks、booted-once、AP sync、cpuhp state/target四份账本。
+#. 删除“CPU0逐级上线/hotplug runtime完成”的暗示，明确直接ledger reconciliation。
+#. 恢复fixed raw ``BOOT_IMAGE=/boot/bzImage`` 与7.2-rc1新增unknown-options notice顺序。
+#. 修正sysctl alias为later application、dotted module param为later consumption。
+#. 固定parser error、IRQ warning、 ``--`` 与capacity delayed-panic semantics。
+#. 回补051：saved init display order不是runtime ``argv_init`` append order。
+
+失败与未发生
+------------
+
+* first-chunk allocation两种path都失败会panic，不能标成可继续的degraded state；
+* direct parameter errors被记录并继续扫描，可能阻止after-dashes tail；overflow保留later panic；
+* unknown builtin/bootconfig tokens可能改变parameters/argv/env，正文不将arrays写死为defaults；
+* 没有AP bring-up、hotplug callback transaction、scheduler、ordinary buddy release或slab；
+* 没有root mount、serial driver probe、PID 1 creation或initramfs unpack；
+* 055正文仍pending，相邻读取不提升验证状态。
+
+连续性与验证
+------------
+
+* 051出口与052 ``setup_nr_cpu_ids`` call前一致；
+* 052出口为actual boot-CPU hook已返回、 ``early_numa_node_init`` call前，与053一致；
+* 053出口为CPU0 hotplug ledger ONLINE、command-line print前，与054一致；
+* 054出口为kernel/init token dispatch结束、 ``random_init_early(command_line)`` call前，与pending 055一致；
+* 三章均有本章结束状态、关键边界、下一入口、资料，且001—054无旧6.12.95标签；
+* ``tools/check-linux-kernel-track.sh 54``、TOML、 ``git diff --check`` 与旧版本guard通过，仅保留
+  既有065/066 duplicate debt；无阻塞；下一批055—057。

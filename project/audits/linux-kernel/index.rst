@@ -10,9 +10,9 @@ Linux Kernel回溯审查账本
 
    mode             = retrospective-audit
    production       = paused
-   verified_through = 051
+   verified_through = 054
    current_batch    = none
-   next_batch       = 052-054
+   next_batch       = 055-057
    current_status   = ready
 
 状态语义遵守 ``project/LINUX_KERNEL_CONTRACT.rst``。
@@ -40,11 +40,13 @@ Linux Kernel回溯审查账本
   MADT/possible CPU/IOAPIC映射边界核验完成，无阻塞。
 * `049-051 <049-051.rst>`_：``repaired``；E820/resource与setup_arch出口、early MM骨架、静态修补/
   early LSM/bootconfig/命令行副本边界核验完成，无阻塞。
+* `052-054 <052-054.rst>`_：``repaired``；CPU ID/per-CPU first chunk、boot CPU NUMA/hotplug ledger与
+  kernel/init parameter dispatch边界核验完成，无阻塞。
 
 已知但尚未轮到的结构债务
 ------------------------
 
-* 第052章起的历史启动正文仍引用旧版本标签或未经固定源码复核的artifact/数值；
+* 第055章起的历史启动正文仍引用旧版本标签或未经固定源码复核的artifact/数值；
 * 第065章存在两个正文文件；
 * 第066章存在两个正文文件；
 * 既有boot章节没有逐章登记到当前track manifest；

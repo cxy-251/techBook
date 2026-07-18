@@ -102,7 +102,8 @@ static patch、LSM与命令行边界
 * valid bootconfig trailer从initrd logical end切除，与是否有token/FORCE而接受XBC分开；
 * fixed GRUB raw line是
   ``BOOT_IMAGE=/boot/bzImage root=/dev/sda1 ro console=ttyS0``，但builtin append/override未知；
-* bootconfig ``kernel`` extras放在boot line前； ``init`` extras放在 ``--`` 后且排在原init args前；
+* bootconfig ``kernel`` extras放在boot line前；saved文本把 ``init`` extras放在原init args前，但
+  runtime ``argv_init`` 的append顺序留给054，不能由saved display order推断；
 * ``saved_command_line`` 保存完整observable line， ``static_command_line`` 是later kernel parser的
   mutable副本；本批不执行普通kernel parameters或init argv；
 * 两份副本来自memblock，不表示slab/buddy已可用。

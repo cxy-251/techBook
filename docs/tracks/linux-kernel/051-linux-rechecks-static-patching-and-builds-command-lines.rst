@@ -118,9 +118,10 @@ extra kernel string必须前置，再复制 ``boot_command_line``。前置而非
 * 原boot line已有 ``--`` 时，把bootconfig init参数插在原command-line init参数之前；
 * 原line没有 ``--`` 时，在saved末尾补 ``" -- "`` 后附加bootconfig init参数。
 
-所以init侧顺序固定为bootconfig init参数在前、command-line init参数在后。最终
-``saved_command_line_len`` 记录字符串长度。这份副本供打印、 ``/proc/cmdline`` 等later observers
-保留完整语义，不作为本章的就地parameter tokenization对象。
+所以 ``saved_command_line`` 文本中的init侧顺序固定为bootconfig init参数在前、command-line init
+参数在后。最终 ``saved_command_line_len`` 记录字符串长度。这份副本供打印、 ``/proc/cmdline`` 等
+later observers保留完整语义，不作为本章的就地parameter tokenization对象。该展示顺序不等于
+``argv_init`` 的append顺序：054实际先解析原 ``--`` tail，随后才解析独立 ``extra_init_args``。
 
 static副本只承载待解析的kernel line
 -------------------------------------
@@ -166,7 +167,7 @@ mask来自048，但generic ``nr_cpu_ids`` 尚未按最后possible bit收缩；pe
 #. ``early_security_init`` 只处理early LSM group，不代表完整security/policy初始化。
 #. 有效bootconfig trailer的切除与是否接受/解析bootconfig是两个边界。
 #. fixed raw GRUB line已知，但builtin append/override、bootconfig extras与build config未知。
-#. extra kernel参数前置；extra init参数位于 ``--`` 后且排在原init参数之前。
+#. extra kernel参数前置；saved文本把extra init放在原init参数前，但054实际argv append顺序相反。
 #. ``saved_command_line`` 保存完整可观察文本； ``static_command_line`` 留给later就地kernel parse。
 #. 本章分配字符串但不分发参数，也不因此执行 ``root=``、 ``console=`` 或init argv效果。
 #. ``setup_nr_cpu_ids``、per-CPU areas和CPU0迁移均属于下一章。

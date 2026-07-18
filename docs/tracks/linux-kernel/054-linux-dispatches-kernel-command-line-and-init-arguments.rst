@@ -1,431 +1,205 @@
-第五十四章：Linux 怎样把 GRUB 命令行分发给内核参数和 init？
-================================================================
+第五十四章：Linux 怎样把正式命令行分发给内核与 init？
+========================================================
 
-第五十三章结束时，CPU0 已经拥有完整的 per-CPU NUMA 与 hotplug 初始状态。
-
-``start_kernel()`` 接下来执行：
+第五十三章结束时，CPU0已经使用正式per-CPU base并在hotplug ledger中标为ONLINE；IF=0，
+``saved_command_line`` 与mutable ``static_command_line`` 仍未ordinary parse。当前连续入口是：
 
 .. code-block:: c
 
    print_kernel_cmdline(saved_command_line);
    parse_early_param();
-   after_dashes = parse_args("Booting kernel", ...);
+   after_dashes = parse_args("Booting kernel", static_command_line, ...);
    print_unknown_bootoptions();
-   parse_args("Setting init args", after_dashes, ...);
-   parse_args("Setting extra init args", extra_init_args, ...);
+   if (!IS_ERR_OR_NULL(after_dashes))
+       parse_args("Setting init args", after_dashes, ..., set_init_arg);
+   if (extra_init_args)
+       parse_args("Setting extra init args", extra_init_args, ..., set_init_arg);
 
-本章追踪到所有 kernel command line 与 init arguments 分发完成，``random_init_early()`` 尚未调用。
+本章追踪到最后一项返回，停在 ``random_init_early(command_line)`` call前。它把 ``__param``、传统
+``__setup``、bootloader markers、unknown kernel tokens与 ``--`` 后init tokens按不同规则分流；只
+建立后续policy/argv/env state，不挂载root、不打开serial console，也不创建PID 1。
 
-命令行最初是谁提供的
-------------------
+先打印保存副本，不触碰mutable parser buffer
+---------------------------------------------
 
-固定启动路径中的 ``grub.cfg`` 包含：
+``print_kernel_cmdline`` 读取051建立的 ``saved_command_line``。wrap config为0或ideal length覆盖整个
+``COMMAND_LINE_SIZE`` 时一次打印；否则寻找空格分段，每行加 ``Kernel command line:`` prefix，非末行
+加反斜杠suffix。算法按raw spaces切割、刻意不理解quotes，所以长quoted value也可能仅在日志显示上被
+分行；源字符串没有被修改。
 
-.. code-block:: cfg
+saved副本可含bootconfig kernel/init extras及arch effective boot line。打印它只提供observable record，
+不表示其中token已生效。真正parser操作另一份 ``static_command_line``，所以日志不会因in-place NUL
+切分而丢失后半段。
 
-   linux /boot/bzImage-6.12.95 root=/dev/sda1 ro console=ttyS0
-   initrd /boot/initramfs-6.12.95.img
-
-GRUB 的 ``linux`` 命令把：
+fixed GRUB交给Linux的raw contribution为：
 
 .. code-block:: text
 
-   root=/dev/sda1 ro console=ttyS0
+   BOOT_IMAGE=/boot/bzImage root=/dev/sda1 ro console=ttyS0
 
-写入 Linux boot protocol 的 command-line buffer，并在 ``boot_params.hdr.cmd_line_ptr`` 等字段中告诉内核该字符串位于哪里。
+但builtin append/override与bootconfig extras未固定，最终打印文本不能简化为只含这四项。
 
-Linux 进入 ``setup_arch()`` 后已经把字符串复制进 ``boot_command_line``，处理 bootconfig 后又建立：
+generic early-parameter call在x86上由 ``done`` guard返回
+------------------------------------------------------
 
-``saved_command_line``
-   保留一份完整、可供日志和后续 ``/proc/cmdline`` 使用的命令行。
+041的x86 ``setup_arch`` 已在E820后、其余大部分arch setup前调用 ``parse_early_param``。首次call把
+``boot_command_line`` 复制到temporary buffer，扫描所有 ``early_param`` entries，随后设置static
+``done=1``。本章generic call一进入就return，不复制字符串，也不再次调用handlers。
 
-``static_command_line``
-   供参数解析器原地切分和修改的工作副本。
+这有一个bootconfig边界： ``extra_command_line`` 是051才生成的，不在041首次early parse输入中。
+若它包含只注册为early的名字，本章不会补执行；ordinary unknown path会把同名early ``__setup`` entry
+认作already-done并consume。bootconfig因此不能倒流改变 ``mem=``、early topology等已经闭合的时间
+边界。
 
-现在 ``start_kernel()`` 才开始把其中每个 token 交给对应子系统。
-
-为什么先打印 ``saved_command_line``
----------------------------------
-
-调用为：
-
-.. code-block:: c
-
-   print_kernel_cmdline(saved_command_line);
-
-打印的是保存副本，而不是即将被解析器修改的 ``static_command_line``。
-
-参数解析器会把空格、等号和引号处理成独立的 ``param``、``val`` 字符串，部分字符会被临时替换为 ``NUL``。若直接打印工作副本，日志可能只能看到第一段或已经被切碎的内容。
-
-``print_kernel_cmdline()`` 还会按照 ``CONFIG_CMDLINE_LOG_WRAP_IDEAL_LEN`` 尝试在空格处分行，使很长的启动参数不会形成一条难以阅读的日志。
-
-日志中的命令行不表示参数已经生效。打印完成后，分发才真正开始。
-
-为什么又调用一次 ``parse_early_param()``
+``parse_args`` 的工作副本与直接参数表
 --------------------------------------
 
-``early_param()`` 注册的参数必须在内存、CPU 拓扑和其他早期初始化前生效，例如：
+main call在 ``static_command_line`` 上原地运行；它包含可选extra kernel prefix与arch传回的effective
+line，不含独立 ``extra_init_args``。 ``next_arg`` 处理空白、 ``=`` 与quotes，返回mutable
+``param/val`` pointers； ``-`` 与 ``_`` 在parameter name比较中视为等价。
 
-.. code-block:: text
+``parse_one`` 先扫描 ``__start___param..__stop___param`` 的built-in ``struct kernel_param``。level
+范围 ``-1..-1`` 选择boot-level parameters；match后检查no-argument flag，在module parameter lock下
+执行setter。hardware parameter可能被lockdown拒绝，unsafe flag会taint；bool可无value，其他ops按
+类型/范围返回error。handler也可能改变051已经可用的static keys。
 
-   mem=
-   numa=
-   nosmp
-   nr_cpus=
-   maxcpus=
-   loglevel=
-   quiet
-   mitigations=
-   init_on_alloc=
+每个token前若IRQ disabled，返回后却发现IRQ enabled，parser会warning但不自动关回。fixed raw四项的
+actual handlers不打开IRQ，正常出口仍IF=0；这个check是防止有问题的unknown builtin parameter handler
+悄悄破坏early-boot invariant。
 
-x86 ``setup_arch()`` 已经在更早阶段调用过 ``parse_early_param()``。
+direct setter error会记录但parser继续扫描
+-----------------------------------------
 
-该函数内部有静态 ``done`` 标志：
+``parse_args`` 遇到 ``-ENOENT/-ENOSPC/other error`` 分别打印unknown/too-large/invalid，并把最后error
+保存为 ``ERR_PTR``，但不会立刻停止其余tokens。若later遇到 ``--``，有既存error时返回error pointer
+而不是tail；因此 ``start_kernel`` 的 ``!IS_ERR_OR_NULL`` guard会跳过command-line init tail。正常无错
+时，没有 ``--`` 返回NULL；有 ``--`` 则返回其后地址。
 
-.. code-block:: c
+unknown callback不是“全部交给init”
+----------------------------------
 
-   if (done)
-       return;
+direct ``__param`` 未match时进入 ``unknown_bootoption``。它先保存parameter-name长度，再恢复原地被
+``next_arg`` 切开的 ``param=value`` 字符串，然后按顺序分类：
 
-所以固定路径中，``start_kernel()`` 此处的调用主要是跨架构保险点，不会再次执行所有 early parameter handler。
+* sysctl compatibility alias只在这里被recognize并consume，later ``do_sysctl_args`` 才从命令行正式
+  应用；
+* ``BOOT_IMAGE=...`` 与 ``kexec`` bootloader identifiers直接忽略；
+* ``obsolete_checksetup`` 遍历 ``__setup`` section：early entry只标already handled，non-early entry
+  调用其 ``setup_func``，obsolete NULL handler打印并consume；
+* parameter name在 ``=`` 前含dot时视为unused module parameter，保留在 ``/proc/cmdline`` 供later
+  built-in/module handling，不放进init arrays；
+* 剩余 ``name=value`` 写入 ``envp_init``，同名已有environment会被替换；
+* 剩余无value token追加 ``argv_init``。
 
-这与前面的 ``jump_label_init()``、``static_call_init()`` 类似：通用代码保证调用顺序成立，具体架构若已经提前完成，幂等检查直接返回。
+所以“unknown”是最后分类结果，而非报错同义词。 ``unknown_bootoption`` 自身返回0，让main parse继续。
 
-三类参数注册机制必须分开
-----------------------
-
-Linux 启动参数并非全部进入同一张表。
-
-``early_param("name", fn)``
-   极早参数。由 ``parse_early_param()`` 扫描 ``__setup`` section 中标记为 early 的项目。
-
-``__setup("name=", fn)``
-   传统启动参数。它们通过 ``unknown_bootoption()`` 内的 ``obsolete_checksetup()`` 匹配并执行。
-
-``core_param``、``module_param`` 等
-   编译时生成 ``struct kernel_param``，链接进 ``__param`` section。通用 ``parse_args()`` 会直接在这张表中查找。
-
-同一个命令行从左到右扫描时，参数可能由上述任一机制消费。
-
-不能把“没有在 ``__param`` 表中找到”直接理解为“未知参数”，因为它仍可能是合法的 ``__setup`` 参数。
-
-``parse_args()`` 收到什么
-------------------------
-
-主调用为：
-
-.. code-block:: c
-
-   after_dashes = parse_args("Booting kernel",
-                             static_command_line,
-                             __start___param,
-                             __stop___param - __start___param,
-                             -1, -1, NULL,
-                             &unknown_bootoption);
-
-关键输入包括：
-
-* ``static_command_line``：允许原地修改的参数字符串；
-* ``__start___param`` 至 ``__stop___param``：内建 kernel parameters 表；
-* level 范围 ``-1`` 至 ``-1``：处理普通 boot-time 内建参数；
-* ``unknown_bootoption``：直接参数表没有匹配时的后备处理函数。
-
-``next_arg()`` 怎样切分 token
----------------------------
-
-``parse_args()`` 循环调用：
-
-.. code-block:: c
-
-   args = next_arg(args, &param, &val);
-
-典型输入：
-
-.. code-block:: text
-
-   root=/dev/sda1 ro console=ttyS0
-
-会依次得到近似结果：
-
-.. code-block:: text
-
-   param="root"     val="/dev/sda1"
-   param="ro"       val=NULL
-   param="console"  val="ttyS0"
-
-解析器支持引号，因此值中包含空格时不会简单地按每个空格截断。
-
-切分是原地完成的，这也是 ``static_command_line`` 必须长期保留的原因之一。某些早期 ``charp`` 参数在 slab 尚不可用时不会复制字符串，只保存指向该工作 buffer 的指针。
-
-直接匹配 ``struct kernel_param``
---------------------------------
-
-``parse_one()`` 首先遍历 ``__param`` 表：
-
-.. code-block:: c
-
-   if (parameq(param, params[i].name))
-       params[i].ops->set(val, &params[i]);
-
-匹配成功后，对应 ``param_ops`` 把文本转换成目标类型，例如：
-
-* ``bool``；
-* ``int``、``uint``、``ulong``；
-* 字符串；
-* 子系统自定义 setter。
-
-参数 setter 在这里可以修改全局变量、static key 或启动策略。
-
-源码因此在调用前注明：
-
-.. code-block:: c
-
-   /* parameters may set static keys */
-
-static key 基础必须已经初始化，否则参数 handler 无法安全启用或关闭相应快速路径。
-
-参数为什么可能没有值
-------------------
-
-``ro`` 这样的 token 没有 ``=``，所以 ``val == NULL``。
-
-某些布尔参数允许无值形式，并把它解释为启用；另一些参数必须提供值。``parse_one()`` 会检查参数操作是否带有 ``KERNEL_PARAM_OPS_FL_NOARG``，缺少必需值时返回 ``-EINVAL``。
-
-因此：
-
-.. code-block:: text
-
-   feature
-
-可能对布尔开关合法，而：
-
-.. code-block:: text
-
-   log_buf_len
-
-若要求数值却没有 ``=value``，会被判定为无效。
-
-``unknown_bootoption()`` 不是简单报错
+fixed四个raw tokens各自落到明确分支
 -----------------------------------
 
-若 ``__param`` 表没有匹配，``parse_one()`` 调用：
+``BOOT_IMAGE=/boot/bzImage`` 命中bootloader prefix后丢弃，不进入PID 1 environment。
+``root=/dev/sda1`` 命中 ``__setup("root=",root_dev_setup)``，只把文本复制进64-byte
+``saved_root_name``；设备尚未解析/打开/挂载。 ``ro`` 命中readonly handler并设置
+``root_mountflags`` 的 ``MS_RDONLY`` bit（它本来就是default，故fixed path为幂等）。
 
-.. code-block:: c
+``console=ttyS0`` 在041 early pass还可能命中earlycon console alias，但 ``ttyS0`` 不是raw
+``uart...`` earlycon spec，找不到early driver会被容忍；本章ordinary ``console_setup`` 再把tty name、
+index与options送入preferred-console table。它不probe 8250、不注册正式console，也不保证字符已输出；
+真正 ``console_init`` 在later IRQ enable之后。
 
-   unknown_bootoption(param, val, ...);
+仅从known raw tokens看，没有unknown argv/env contribution，也没有 ``--`` tail；但unknown builtin line、
+bootconfig kernel/init roots未固定，所以不能把最终 ``argv_init/envp_init`` 写死为defaults。
 
-它按顺序进行多类判断。
+unknown-options notice发生在explicit init args之前
+-----------------------------------------------
 
-内核 sysctl 别名
-^^^^^^^^^^^^^^^
+kernel-side parse返回后， ``print_unknown_bootoptions`` 检查已由unknown callback加入的
+``argv_init[1..]`` 与 ``envp_init[2..]``。没有新增项或已触发capacity ``panic_later`` 就return；否则
+从memblock临时分配string，打印“将传给user space”的合并列表，再free该临时block。它不撤销arrays中
+的pointers。
 
-若参数是某个 sysctl 的命令行别名，由对应机制处理，不再传给用户空间。
+该call位于 ``--`` tail与 ``extra_init_args`` 解析之前，因此notice只覆盖kernel-side unknown tokens，
+不把用户明确放在init side的tokens误报为unknown kernel options。allocation失败只丢notice，参数仍
+保存在arrays。
 
-bootloader 标识
-^^^^^^^^^^^^^^^
+``--`` tail的每个token都成为argv，不再区分environment
+-----------------------------------------------------
 
-``BOOT_IMAGE=...`` 和 ``kexec`` 等 bootloader 标识被识别后忽略。
+无error且有 ``--`` 时，第二次 ``parse_args`` 不传parameter table，扫描到的tokens进入
+``set_init_arg``。callback恢复 ``name=value`` 的完整字符串并一律append到 ``argv_init``；所以
+``-- FOO=bar`` 是PID 1 argument，不是 ``envp_init`` entry。若tail又含bare ``--``，parser会再次停止，
+其返回tail未被caller继续消费。 ``argv_init[0]`` 初始为 ``"init"``，future selected init program会
+接收已追加entries。
 
-它们可用于记录启动来源，不应成为 PID 1 的参数或环境变量。
-
-传统 ``__setup`` 参数
-^^^^^^^^^^^^^^^^^^^^
-
-``obsolete_checksetup()`` 遍历 ``__setup`` section。
-
-若找到非 early handler，调用其 ``setup_func``。固定命令行中的 ``root=``、``ro``、``console=`` 等选项会由相应的内核启动处理器消费，建立根文件系统策略、只读挂载状态和控制台选择，而不是原样交给 ``init``。
-
-函数名字带有 ``obsolete`` 是历史遗留，不能据此认为所有 ``__setup`` 参数都已废弃。大量核心启动选项仍使用该机制。
-
-模块参数形式
-^^^^^^^^^^^^
-
-若参数名中包含点号，例如：
-
-.. code-block:: text
-
-   driver.option=value
-
-而对应驱动尚未初始化，当前代码通常保留它，后续模块或内建模块初始化阶段再处理。这里不会立即把它塞入 PID 1 参数。
-
-真正未知的 ``name=value``
-^^^^^^^^^^^^^^^^^^^^^^^^
-
-若仍无人消费且带有值，它被放入：
-
-.. code-block:: c
-
-   envp_init[]
-
-也就是未来 PID 1 的环境变量。
-
-例如：
+最后才单独解析 ``extra_init_args``，其中被扫描的tokens也走 ``set_init_arg``（bare ``--`` 同样会让
+本次parser停止）。通常的实际append顺序因此是：
 
 .. code-block:: text
 
-   MYMODE=maintenance
+   kernel-side unknown no-value argv entries
+   → original command-line tokens after --
+   → bootconfig extra_init_args
 
-可能最终以环境变量形式传给 init。
+这与051为了显示而构造的saved文本顺序不同：saved text把bootconfig init tokens插在原 ``--`` tail前，
+runtime ``argv_init`` 却在tail之后追加它们。display order不能代替执行顺序。
 
-真正未知的无值 token
-^^^^^^^^^^^^^^^^^^^
+容量超限只登记later panic
+-------------------------
 
-若没有值，则进入：
+``argv_init/envp_init`` 上限来自 ``CONFIG_INIT_ENV_ARG_LIMIT``。unknown callback或 ``set_init_arg`` 超限
+时设置 ``panic_later`` 与 ``panic_param``，后续append停止；当前不立刻panic。later ``console_init``
+之后 ``start_kernel`` 才以 ``Too many boot ... vars`` panic，使诊断有正式console机会可见。本章出口
+因此可能携带pending fatal state，但fixed known raw tokens本身不会触发容量。
 
-.. code-block:: c
-
-   argv_init[]
-
-它将成为 PID 1 的命令行参数。
-
-参数数量为何只记录延迟 panic
---------------------------
-
-``argv_init`` 和 ``envp_init`` 容量由 ``CONFIG_INIT_ENV_ARG_LIMIT`` 限制。
-
-超过限制时，代码记录：
-
-.. code-block:: c
-
-   panic_later = "init";  /* 或 "env" */
-   panic_param = param;
-
-当前阶段未必立刻 panic，因为早期控制台和日志设施仍未完整建立。``console_init()`` 之后，``start_kernel()`` 会检查 ``panic_later``，届时给出更可见的错误。
-
-``--`` 是内核与 init 的明确分界
---------------------------------
-
-``parse_args()`` 遇到：
-
-.. code-block:: text
-
-   --
-
-会停止当前解析并返回其后字符串的地址：
-
-.. code-block:: c
-
-   if (!val && strcmp(param, "--") == 0)
-       return err ?: args;
-
-所以命令行：
-
-.. code-block:: text
-
-   root=/dev/sda1 ro -- single rescue
-
-被分成：
-
-.. code-block:: text
-
-   kernel side:
-       root=/dev/sda1
-       ro
-
-   init side:
-       single
-       rescue
-
-``--`` 后面的 token 不再尝试匹配 kernel parameter 或 ``__setup`` handler。
-
-``set_init_arg()`` 怎样建立 PID 1 argv
------------------------------------
-
-若 ``after_dashes`` 非空，``start_kernel()`` 调用：
-
-.. code-block:: c
-
-   parse_args("Setting init args", after_dashes,
-              NULL, 0, -1, -1, NULL, set_init_arg);
-
-这里参数表为空，每个 token 都进入 ``set_init_arg()``。
-
-``argv_init`` 初始为：
-
-.. code-block:: c
-
-   { "init", NULL }
-
-后续 token 从索引 1 开始追加。
-
-最终启动 PID 1 时，内核选择 ``/init``、``init=`` 指定路径或系统默认 init 程序，并把这个数组作为 ``argv`` 传入。
-
-bootconfig 的 ``init.*`` 参数排在哪里
-------------------------------------
-
-第五十一章已经说明，bootconfig 可以产生：
-
-``extra_command_line``
-   来自 ``kernel.*`` 节点，拼到内核命令行前部。
-
-``extra_init_args``
-   来自 ``init.*`` 节点，专门交给 PID 1。
-
-普通 ``--`` 后参数处理完后，``start_kernel()`` 再执行：
-
-.. code-block:: c
-
-   if (extra_init_args)
-       parse_args("Setting extra init args", extra_init_args,
-                  NULL, 0, -1, -1, NULL, set_init_arg);
-
-所以 bootconfig 中的 init arguments 与 GRUB 命令行 ``--`` 后的参数都会进入 ``argv_init``，但来源和拼接位置是明确控制的。
-
-固定命令行最终形成什么
---------------------
-
-本书固定命令行没有 ``--``，也没有额外 bootconfig init 参数：
-
-.. code-block:: text
-
-   root=/dev/sda1 ro console=ttyS0
-
-因此当前阶段的主要结果是：
-
-* 根设备选择信息被内核保存；
-* 初始根文件系统按只读方式挂载；
-* 串口控制台参数被控制台子系统保存；
-* 没有新增 PID 1 命令行参数；
-* ``argv_init`` 仍以默认 ``"init"`` 开头；
-* ``envp_init`` 仍至少包含 ``HOME=/`` 和 ``TERM=linux``。
-
-这里尚未挂载 ``/dev/sda1``，也尚未打开串口驱动。
-
-参数解析只是把字符串转换为后续子系统要使用的状态。真正挂载根文件系统和初始化控制台发生在更晚阶段。
-
-当前机器状态
+本章结束状态
 ------------
 
-本章结束时：
+* current executor：CPU0上的 ``start_kernel``；下一条是 ``random_init_early(command_line)``；
+* CPU/mode：logical CPU0，x86-64 CPL0，normal fixed handlers后IF仍为0；
+* printed line： ``saved_command_line`` 已按wrap policy输出且未修改；
+* early parameters：041首次pass结果保持，本章generic call幂等返回；
+* ``static_command_line``：ordinary parse已原地切分，charp等setter pointers可继续引用它；
+* direct kernel params/ ``__setup``：actual matches已执行，errors按parser state保留；
+* fixed ``BOOT_IMAGE``：已忽略； ``root``/``ro``/``console`` state已记录但未落实设备操作；
+* kernel-side unknowns：按sysctl/module/argv/env规则分类，notice已条件打印；
+* original ``--`` tail：无parse error时已追加 ``argv_init``；fixed raw line没有tail；
+* bootconfig extra init：若存在，已最后追加 ``argv_init``；
+* capacity failure：若发生仅登记 ``panic_later``，later console init后panic；
+* root filesystem/serial driver/PID1：均未挂载、打开或创建；
+* ordinary buddy RAM/slab/scheduler/initramfs：仍未完成。
 
-* 当前执行者：Linux 6.12.95 ``init/main.c:start_kernel()``；
-* 精确位置：``extra_init_args`` 条件解析已完成，``random_init_early(command_line)`` 尚未调用；
-* CPU：仍只有 CPU0 online；
-* interrupts：关闭；
-* GRUB 提供的 command line：已打印并完成内核侧分发；
-* early parameters：固定 x86 路径此前已执行，本处幂等返回；
-* kernel parameters：已通过 ``__param`` 表和 setter 处理；
-* ``__setup`` 参数：已通过 ``unknown_bootoption()`` 后备路径处理；
-* 真正未知参数：已按有值/无值分别准备进入 PID 1 环境和参数；
-* ``--`` 后参数：若存在，已进入 ``argv_init``；
-* ``root=/dev/sda1``：已保存为后续根挂载策略，根文件系统尚未挂载；
-* ``console=ttyS0``：已保存为控制台选择，正式 console 尚未初始化；
-* buddy：尚未接收全部普通 RAM；
-* slab、scheduler：尚未初始化；
-* initramfs：尚未解包；
-* 用户空间：尚未创建。
+关键边界
+--------
 
-下一条控制流是：
+#. saved副本只用于观察；static副本才被ordinary parser原地修改。
+#. x86 early pass已经done，051新增bootconfig kernel extras不能补做early effects。
+#. ``__param`` direct setter、early ``__setup`` marker与ordinary ``__setup`` handler是三种路径。
+#. sysctl alias与dotted module parameter在这里consume但留给later机制，并非立即应用。
+#. ``BOOT_IMAGE`` 被忽略；unknown有值/无值才分别进入init env/argv。
+#. ``--`` 后 ``name=value`` 也是argv，不是environment。
+#. runtime argv顺序是原 ``--`` tail先、bootconfig extra init后；saved display顺序相反。
+#. parse error可阻止 ``--`` tail dispatch；capacity error延迟到console init后panic。
+#. ``root=``、 ``ro``、 ``console=`` 只建立policy/spec，不完成mount或driver registration。
+
+下一入口
+--------
+
+第055章从：
 
 .. code-block:: c
 
    random_init_early(command_line);
 
+开始。注意传入的是arch ``command_line`` pointer，不是已经拼入所有bootconfig extras的saved副本；随后
+large bootmem allocations与 ``mm_core_init`` 才把ordinary RAM交给buddy并启动slab/vmalloc阶段。
+
 资料
 ----
 
-* `Linux 6.12.95 init/main.c：命令行打印、early 参数和 init 参数分发 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c>`_
-* `Linux 6.12.95 kernel/params.c：parse_args 与 parse_one <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/params.c>`_
-* `Linux 6.12.95 include/linux/moduleparam.h：kernel parameter 描述结构与注册宏 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/include/linux/moduleparam.h>`_
-* `Linux 6.12.95 init/do_mounts.c：root 与只读根挂载启动参数 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/do_mounts.c>`_
-* `Linux 6.12.95 kernel/printk/printk.c：console 启动参数处理 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/printk/printk.c>`_
+* `Linux 7.2-rc1固定提交：start_kernel命令行与init args dispatch顺序 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c#L1008-L1024>`_；
+* `Linux 7.2-rc1固定提交：print_kernel_cmdline wrapping <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c#L876-L969>`_；
+* `Linux 7.2-rc1固定提交：parse_early_param one-shot guard <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c#L720-L755>`_；
+* `Linux 7.2-rc1固定提交：init arg与unknown bootoption分类 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c#L462-L561>`_；
+* `Linux 7.2-rc1固定提交：unknown-options notice <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c#L820-L861>`_；
+* `Linux 7.2-rc1固定提交：parse_one与parse_args error/-- semantics <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/params.c#L117-L212>`_；
+* `Linux 7.2-rc1固定提交：root/ro setup handlers <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/do_mounts.c#L31-L62>`_；
+* `Linux 7.2-rc1固定提交：ordinary console setup只登记preferred spec <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/printk/printk.c#L2621-L2689>`_。

@@ -14,32 +14,31 @@
    mode                 = retrospective-audit
    forward production   = paused
    content present      = 001-193
-   audit verified       = 001-051
-   verified_through     = 051
+   audit verified       = 001-054
+   verified_through     = 054
    blocked batches      = none
-   next batch           = 052-054
+   next batch           = 055-057
    next batch status    = ready
 
-052—193中文件存在不等于技术已验证；当前pending范围是052—193。第193章审查闭合前不生产新章。
+055—193中文件存在不等于技术已验证；当前pending范围是055—193。第193章审查闭合前不生产新章。
 
 最近完成批次
 ------------
 
-`049—051审查报告 <audits/linux-kernel/049-051.rst>`_：状态 ``repaired``。
+`052—054审查报告 <audits/linux-kernel/052-054.rst>`_：状态 ``repaired``。
 
 本批修复了：
 
-* working E820 current resources与 ``e820_table_kexec`` firmware-map view分开；
-* high device-like E820和IOAPIC resource insertion都移回later PCI survey；
-* standard resource hook只登记legacy I/O ports，PCI gap也只是later allocation hint；
-* wallclock、thermal LVT、MCE、refined jiffies与ORC按真实build/runtime边界收紧；
-* ``setup_arch`` 真实return后， ``mm_core_init_early`` 的HugeTLB条件路径和
-  ``free_area_init`` 三阶段固定；
-* zone span/present/managed/free、sparse metadata、possible node与 ``N_MEMORY`` 分开；
-* x86 generic jump-label/static-call calls固定为041 arch-early初始化后的幂等返回；
-* early LSM集合保持build-dependent；bootconfig trailer切除与XBC接受分开；
-* fixed raw line恢复 ``BOOT_IMAGE=/boot/bzImage``，saved/static副本与extra ordering固定；
-* 051只建立字符串，不提前执行第054章的普通参数分发。
+* ``nr_cpu_ids`` 拆开ordinary runtime upper bound、FORCE constant与UP compile paths；
+* x86 first chunk的embed/page选择、fallback/panic、offset与CPU0 GDT/GS-base switch按源码固定；
+* early per-CPU state只承诺template与显式APIC/ACPI/NUMA fields，不再声称整体迁移；
+* node cpumask只分配backing，x86 local mask当前只分配sibling setup mask；
+* boot-CPU hook按actual ``smp_ops`` 保留native/hypervisor条件；
+* early NUMA checkpoint固定为skip或幂等重写，boot CPU hotplug直接补ONLINE ledger；
+* possible/present/online/active、booted-once、AP sync与cpuhp state分开；
+* 命令行按saved print、one-shot early guard、direct param、 ``__setup``、unknown和init arrays分流；
+* fixed raw ``BOOT_IMAGE`` 恢复，root/ro/console只建立policy/spec，不执行设备动作；
+* 051 saved init display order与054 runtime argv append order的差异已回补。
 
 当前符号
 --------
@@ -54,64 +53,61 @@
    O   = actual physical kernel output base / formal phys_base
    V   = relocation virtual position value
 
-actual initrd relocation branch、HugeTLB reservations、memory model、zone sizes、early LSM set、bootconfig
-extras与CPU count受未固定build/effective CLI/runtime inputs影响。STATE只保存源码边界，不制造数值。
+actual initrd relocation、SMP/UP、per-CPU allocator、NUMA、hypervisor hook、builtin/bootconfig tokens与
+CPU/node counts受未固定build/runtime inputs影响。STATE只保存源码边界，不制造数值。
 
-第051章结束状态
+第054章结束状态
 ---------------
 
 ::
 
-   current executor          = start_kernel(), setup_command_line returned
-   next call                 = setup_nr_cpu_ids()
-   CPU mode                  = x86-64 long mode
-   IF / DF                   = 0 / 0
+   current executor          = start_kernel(), command-line/init dispatch returned
+   next call                 = random_init_early(command_line)
+   CPU mode                  = x86-64 long mode, CPL0
+   IF                        = 0 on known fixed handlers; parser warns on handler violation
    current task              = init_task
    CPU possible/present      = finalized by chapter 048
    CPU online/active         = CPU0 only
-   nr_cpu_ids                = architecture value; generic compacting call still pending
-   per-CPU areas             = not established; CPU0 migration pending
-   active CR3                = swapper_pg_dir = init_top_pgt
-   memblock.memory           = working-E820 RAM with NUMA node identities
-   E820 current resources    = system ranges inserted; high device-like ranges delayed
-   firmware-map early view  = registered from e820_table_kexec
-   hibernation nosave holes  = registered
-   legacy I/O resources     = busy in ioport tree
-   IOAPIC resources          = objects only; not inserted into iomem tree
-   pci_mem_start             = gap/fallback hint; no BAR assigned
-   setup_arch                = returned
-   HugeTLB early reserve     = conditional by build/effective options
-   zone/node bounds          = initialized from memblock
-   sparse/subsection map     = initialized per configured memory model
-   struct page metadata      = required early initialization done; deferred part conditional
-   buddy containers          = initialized
-   buddy managed/free RAM    = ordinary memblock RAM not yet released
-   jump labels/static calls  = arch-early state retained; generic calls returned idempotently
-   early LSM                 = linked early entries initialized
-   bootconfig                = trailer cut if valid; XBC extras conditional
-   saved_command_line        = complete observable memblock copy
-   static_command_line       = mutable kernel-parse memblock copy
-   fixed raw GRUB line       = BOOT_IMAGE=/boot/bzImage root=/dev/sda1 ro console=ttyS0
-   ordinary parameter parse  = pending chapter 054
+   nr_cpu_ids                = ordinary SMP highest possible ID + 1; FORCE constant; UP single CPU
+   per-CPU first chunk       = SMP x86 embed/page success or UP generic single-unit path
+   CPU0 per-CPU base         = runtime unit; SMP x86 direct GDT and MSR_GS_BASE loaded
+   AP per-CPU units          = allocated on SMP, never executed
+   early topology pointers   = corresponding APIC/ACPI/NUMA pointers retired on SMP x86
+   node cpumasks             = backing allocated when NUMA; membership not batch-filled here
+   sibling setup mask        = backing allocated on SMP x86
+   boot CPU hook             = actual detected smp_ops returned, or UP weak no-op
+   CPU0 booted-once          = set on SMP
+   CPU0 AP sync              = SYNC_STATE_ONLINE on SMP
+   CPU0 cpuhp state/target   = CPUHP_ONLINE / CPUHP_ONLINE
+   AP hotplug/thread state   = template only / threads not initialized
+   saved_command_line        = printed and unmodified
+   static_command_line       = ordinary parsed/mangled; retained for any charp setter pointers
+   early parameter pass      = chapter 041 result; generic chapter 054 call returned by done guard
+   fixed BOOT_IMAGE          = ignored as bootloader marker
+   fixed root/ro/console     = policy/name/spec stored; no mount or driver registration
+   unknown kernel tokens     = conditionally classified into later sysctl/module or init env/argv
+   original -- tail          = appended to argv if present and no prior parse error
+   bootconfig extra init     = appended after original tail if present
+   panic_later               = conditional on init env/argv capacity; fixed known tokens do not set it
+   ordinary buddy RAM        = still held by memblock; free_area containers only
    slab/scheduler/AP         = not initialized / not initialized / not started
-   initramfs                 = not ordinarily unpacked
+   initramfs/PID1            = not unpacked / not created
 
-已验证的049—051关系
+已验证的052—054关系
 -----------------
 
-* resource ownership、memblock ownership与page-table mapping互不等同；
-* working E820发布current resources，kexec snapshot发布firmware-map view；
-* high device-like E820与IOAPIC resource objects都延后到PCI survey插入；
-* nosave holes不reserve/unmap，standard I/O request不编程legacy devices；
-* ``pci_mem_start`` 不是已分配BAR，arch最后的software/candidate init也不启动对应runtime；
-* ``mm_core_init_early`` 只调用HugeTLB CMA、HugeTLB boot allocation与 ``free_area_init``；
-* zone span、present RAM、managed pages与free buddy pages是四个边界；
-* ``free_area[]`` 与 ``struct page`` 已建不表示ordinary RAM已经free-to-buddy；
-* x86在041已完成两种static patch init，051 generic calls由guard直接返回；
-* early LSM只完成early group，ordinary security init仍在后面；
-* bootconfig trailer切除、XBC接受和extra command-line生成是分开的条件；
-* extra kernel line前置，extra init args排在 ``--`` 后且先于原init args；
-* saved副本保留观察文本，static副本留给later原地解析。
+* ordinary ``nr_cpu_ids`` 是ID bound，FORCE build保持NR_CPUS， ``num_possible_cpus`` 是weight；
+* SMP x86 first chunk与UP generic chunk是独立compile paths；
+* per-CPU unit/offset ready不等于AP started，CPU0 GS-base switch也不是task switch；
+* 未显式copy的early per-CPU mutations不能假定保留；
+* node cpumask allocation、CPU membership与sibling topology建立是不同阶段；
+* actual ``smp_ops`` 由hypervisor detection决定，QEMU q35不等于KVM；
+* early NUMA只补generic storage，CPU0 hotplug init只补ledger；
+* CPU0直接ONLINE不代表运行过hotplug startup callbacks或创建hotplug threads；
+* saved line与static parser line职责不同，early-only options不能由late bootconfig倒流执行；
+* sysctl alias/dotted module parameter、ordinary ``__setup`` 与init env/argv是不同unknown branches；
+* saved文本显示extra init在原tail前，runtime argv却先原tail、后extra init；
+* root/console parameter state不等于root mount/console driver runtime。
 
 固定磁盘约定
 ------------
@@ -130,28 +126,31 @@ runtime addresses、builtin command line、initramfs内容/bootconfig与microcod
 下一入口
 --------
 
-第052章从fixed ``init/main.c``：
+第055章从fixed ``init/main.c``：
 
 .. code-block:: c
 
-   setup_nr_cpu_ids();
-   setup_per_cpu_areas();
-   smp_prepare_boot_cpu();
+   random_init_early(command_line);
+   setup_log_buf(0);
+   vfs_caches_init_early();
+   sort_main_extable();
+   trap_init();
+   mm_core_init();
 
-开始，审查到 ``smp_prepare_boot_cpu`` 返回。第053章预期从 ``early_numa_node_init`` 接续，第054章
-处理 ``print_kernel_cmdline/parse_early_param/parse_args``；以fixed 7.2-rc1实际源码重新确认边界，不能
-继承历史6.12.95叙述。
+开始。055旧标题/边界需按7.2-rc1重新确认： ``mm_core_init`` 的memblock→buddy、slab、vmalloc与
+page-ext/init-on-*实际顺序可能已不同于历史稿。第056预期接Maple Tree/text poking/ftrace，第057接
+``sched_init``，均以fixed source自然边界为准。
 
-052—054批次读取清单
+055—057批次读取清单
 -------------------
 
-#. ``AGENTS.md``、合同、本文件与 ``049-051`` 报告；
-#. 第051章末尾、052—054全文、055开头；
-#. fixed ``start_kernel`` 从 ``setup_nr_cpu_ids`` 到ordinary parameter dispatch结束；
-#. generic ``setup_nr_cpu_ids``、percpu allocator与x86 ``smp_prepare_boot_cpu`` actual helpers；
-#. ``early_numa_node_init``、 ``boot_cpu_hotplug_init`` 与CPUHP state；
-#. ``parse_early_param`` one-shot state、 ``parse_args``、unknown boot option与init args ordering；
-#. 两份manifest游标；旧052—054的6.12.95版本、CPU mask/per-CPU/parameter effect claims全部重核。
+#. ``AGENTS.md``、合同、本文件与 ``052-054`` 报告；
+#. 第054章末尾、055—057全文、058开头；
+#. fixed ``start_kernel`` 从 ``random_init_early`` 到 ``sched_init`` 后真实出口；
+#. random/log/vfs early alloc、exception table、x86 trap与 ``mm_core_init`` actual helpers；
+#. memblock free、buddy managed counts、slab/vmalloc/page_ext/init-on-alloc/free顺序；
+#. Maple Tree、poking、ftrace/early trace与scheduler runqueue/init_task actual state；
+#. 两份manifest游标；旧055—057的6.12.95标签和allocator/scheduler claims全部重核。
 
 固定源码工作树
 --------------
@@ -169,10 +168,10 @@ evidence；项目 ``.sources/`` 不承担缓存。
 已知债务
 --------
 
-* 第052章起历史正文仍有旧版本、旧结构或未经fixed源码核验的断言；
+* 第055章起历史正文仍有旧版本、旧结构或未经fixed源码核验的断言；
 * 第065、066章各有重复正文文件；
 * 001—073尚未逐章进入track machine-readable catalog；
-* 052—193必须继续顺序审查，不能批量机械标verified。
+* 055—193必须继续顺序审查，不能批量机械标verified。
 
 历史前向终点
 ------------

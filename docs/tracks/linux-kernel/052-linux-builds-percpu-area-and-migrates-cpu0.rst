@@ -1,9 +1,8 @@
-第五十二章：Linux 怎样确定 CPU 编号上限并把 CPU0 迁入正式 per-CPU area？
-===========================================================================
+第五十二章：Linux 怎样收紧 CPU 编号并建立正式 per-CPU 寻址？
+================================================================
 
-第五十一章结束时，Linux 已经得到两份持久命令行，但当前 CPU0 仍在使用启动早期的 per-CPU 基础。
-
-``start_kernel()`` 接下来执行：
+第五十一章结束时，CPU0仍在 ``start_kernel``、IF=0；possible/present masks已经由048冻结，两份正式
+命令行也已建立，但generic CPU ID upper bound与runtime per-CPU first chunk尚未完成。当前连续入口是：
 
 .. code-block:: c
 
@@ -11,423 +10,178 @@
    setup_per_cpu_areas();
    smp_prepare_boot_cpu();
 
-本章追踪到 ``smp_prepare_boot_cpu()`` 返回。
+本章按fixed Linux 7.2-rc1追踪三项返回。SMP build会把possible mask压成 ``nr_cpu_ids`` 上界，为每个
+possible CPU建立per-CPU unit，并把正在执行的CPU0从early mapping切到direct GDT/runtime GS base；
+最后调用actual ``smp_ops`` boot-CPU hook。这里只准备CPU-local storage与BSP hook，不发送INIT/SIPI，
+AP仍未执行Linux代码。
 
-这一阶段不会唤醒 AP。它先解决另一个问题：内核源码里大量 ``DEFINE_PER_CPU`` 变量，怎样为每个 possible CPU 变成彼此独立、可通过固定偏移访问的真实内存。
+``nr_cpu_ids`` 是编号上界而不是CPU数量
+----------------------------------------
 
-四种 CPU mask 不是一回事
------------------------
+``CONFIG_SMP`` build中的 ``setup_nr_cpu_ids`` 找 ``cpu_possible_mask`` 在 ``NR_CPUS`` 范围内最后一个
+set bit，再加1并交给 ``set_nr_cpu_ids``。ordinary runtime-sized build中，例如possible IDs为0和3，
+结果是4而不是2：以后按CPU ID索引的arrays必须能访问ID 3；holes不被重新编号。
 
-Linux 同时维护多种 CPU 集合：
+``NR_CPUS`` 是build ceiling，runtime ``nr_cpu_ids`` 是本次boot需要覆盖的exclusive upper bound，
+``num_possible_cpus`` 才是mask weight；它们都不等于online CPU数。若启用 ``CONFIG_FORCE_NR_CPUS``，
+``nr_cpu_ids`` 是compile-time ``NR_CPUS`` constant， ``set_nr_cpu_ids`` 只在computed bound不同时报
+``WARN_ON`` 而不收缩。040的 ``boot_cpu_init`` 保证CPU0 possible，048才加入其他firmware-backed
+possible IDs，所以find-last不会面对empty mask。
 
-``possible``
-   这个 CPU 编号在本次内核生命周期中可能存在。per-CPU area、cpumask 和许多数组按 possible CPU 准备。
+此前 ``nr_cpus=``、 ``possible_cpus=``、 ``nosmp`` 与topology capacity已经影响能进入possible mask的
+IDs；本函数不重读MADT，也不唤醒CPU。positive ``maxcpus=N`` 主要限制later bring-up，不自动等同于
+possible upper bound， ``maxcpus=0`` 才在early handler关闭SMP support。fixed raw GRUB line不含这些
+options，但unknown builtin line仍禁止写死最终数值。
 
-``present``
-   固件当前描述为物理存在，或者可以参与本次启动的 CPU。
+若build没有 ``CONFIG_SMP``， ``init/main.c`` 在本call site使用local inline stub，
+``setup_nr_cpu_ids`` 什么也不做；UP build的single CPU identity来自compile-time path，不能把SMP的
+find-last实现套过来。
 
-``online``
-   已完成启动、可以执行普通内核任务和处理中断的 CPU。
+SMP x86先为static与dynamic per-CPU需求规划first chunk
+--------------------------------------------------------
 
-``active``
-   调度器可以向其放置普通任务的 CPU。CPU online/offline 过程中，active 状态可能晚于 online 建立或早于 online 清除。
+``CONFIG_SMP`` x86链接 ``arch/x86/kernel/setup_percpu.c`` 的 ``setup_per_cpu_areas``。它打印
+``NR_CPUS/nr_cpumask_bits/nr_cpu_ids/nr_node_ids`` 后选择first-chunk allocator。first chunk每个unit
+包含vmlinux ``__per_cpu_start..__per_cpu_end`` 模板、reserved区与early dynamic区；x86-64还以
+``PERCPU_MODULE_RESERVE`` 为module static per-CPU relocations预留可达空间。
 
-当前只有 CPU0 online。MADT 阶段发现的其他逻辑 CPU 已可能进入 possible/present mask，但还没有收到 Linux 的 INIT/SIPI。
+``percpu_alloc=embed|page`` 已在041的early parameter pass决定 ``pcpu_chosen_fc``。没有强制page时先
+调用 ``pcpu_embed_first_chunk``；x86-64传 ``PMD_SIZE`` atom alignment，并以
+``early_cpu_to_node``/local-or-remote distance回调给allocator分组。NUMA-disabled build所有CPU都映到
+node 0/local distance；NUMA topology或QEMU vCPU count未固定，故不制造unit地址、group或占用量。
 
-``NR_CPUS`` 为什么不是当前机器 CPU 数量
+embed失败会警告并回退 ``pcpu_page_first_chunk``；显式page直接走page-remapped路径。page helper按
+possible CPU逐页取得backing、登记early vmalloc area、补PTE、复制static template，再commit first
+chunk。两条路径都失败则panic，因为后续current CPU、scheduler、interrupt与statistics都依赖
+per-CPU addressing，无法安全降级成共享变量。
+
+first-chunk commit同时启动dynamic per-CPU allocator metadata，但不表示slab或ordinary buddy RAM已经
+初始化。本批backing仍来自early allocator/memblock路径； ``memblock_free_all`` 仍在055。
+
+offset让同一个link-time symbol落到不同unit
+--------------------------------------------
+
+allocator成功后，x86计算：
+
+.. code-block:: c
+
+   delta = (unsigned long)pcpu_base_addr - (unsigned long)__per_cpu_start;
+
+并对每个possible CPU写：
+
+.. code-block:: c
+
+   per_cpu_offset(cpu)       = delta + pcpu_unit_offsets[cpu];
+   per_cpu(this_cpu_off,cpu) = per_cpu_offset(cpu);
+   per_cpu(cpu_number,cpu)   = cpu;
+
+因此link-time per-CPU symbol加对应 ``__per_cpu_offset[cpu]`` 才得到该CPU副本； ``this_cpu`` access则
+依赖当前CPU的segment/base。offset建立不让AP运行，只使其unit可以由CPU ID预先寻址。
+
+x86只显式迁移三类early topology arrays
+----------------------------------------
+
+正式offset可用后，loop按build把early ``x86_cpu_to_apicid``、 ``x86_cpu_to_acpiid`` 与
+``x86_cpu_to_node_map`` 复制到每个unit；NUMA path还调用 ``set_cpu_numa_node``，让generic per-CPU
+``numa_node`` 对boot CPU和future AP都可用。随后对应 ``early_per_cpu_ptr`` 被置NULL，宣告init arrays
+即将失效，later access必须走正式mapping。
+
+这不是把整个early per-CPU area自动复制过去。源码只保证template初值和上述显式fields；
+``switch_gdt_and_percpu_base`` 的注释明确说，未专门复制的early per-CPU mutations会丢失。正文因此不能
+虚构“CPU0全部local state无损迁移”。
+
+CPU0切换direct GDT与 ``MSR_GS_BASE``
 ------------------------------------
 
-``NR_CPUS`` 是构建时允许支持的最大 CPU 数量。
+loop遇到logical CPU 0时调用 ``switch_gdt_and_percpu_base(0)``。x86-64先 ``load_direct_gdt``，保持
+``%gs`` selector不写（写selector会清GS base），再把 ``MSR_GS_BASE`` 写成
+``cpu_kernelmode_gs_base(0)``。在MSR write之前early mapping仍有效；之后kernel GS-relative per-CPU
+access落到first-chunk unit 0。
 
-例如一个内核可能以较大的 ``CONFIG_NR_CPUS`` 编译，以便同一二进制在不同机器上运行。若本次 QEMU 只提供少量 vCPU，为每个算法都遍历完整 ``NR_CPUS`` 会浪费空间和时间。
+当前C stack、 ``init_task``、CR3、CPL与控制流不变，也没有context switch；变化的是descriptor table与
+per-CPU address base。其他possible CPU已有unit和offset，但要到各自AP low-level entry才加载自己的
+runtime base。
 
-运行时变量 ``nr_cpu_ids`` 给出当前内核需要考虑的 CPU 编号上界。
+NUMA反向mask与sibling-setup mask此时只建立容器
+-----------------------------------------------
 
-它也不是 online CPU 数量。
+NUMA build的 ``setup_node_to_cpumask_map`` 必要时收紧 ``nr_node_ids``，随后为每个node分配一个
+cpumask；它只使 ``cpumask_of_node`` backing可用，本函数没有把所有CPU bits填入这些masks。CPU membership
+由later ``numa_add_cpu`` 等入口更新。non-NUMA build是inline no-op。
 
-``setup_nr_cpu_ids()`` 怎样收缩上界
----------------------------------
+``setup_cpu_local_masks`` 在fixed 7.2-rc1只为 ``cpu_sibling_setup_mask`` 分配正确尺寸的boot cpumask，
+供later topology sibling construction记录已处理CPU。旧稿所称“一次建立initialized/callin/callout
+masks”不符合当前函数。
 
-函数实现只有一行核心逻辑：
+最后 ``sync_initial_page_table`` 是cross-x86公共call；fixed x86-64实现仍为空，不复制或重建
+``init_top_pgt``。first-chunk mappings已位于当前kernel mapping中。
 
-.. code-block:: c
+boot-CPU hook由实际检测到的 ``smp_ops`` 决定
+----------------------------------------------
 
-   set_nr_cpu_ids(find_last_bit(cpumask_bits(cpu_possible_mask), NR_CPUS) + 1);
+SMP x86的 ``smp_prepare_boot_cpu`` 只dispatch ``smp_ops.smp_prepare_boot_cpu()``。native default读取
+当前CPU ID并调用 ``native_pv_lock_init``； ``CONFIG_PARAVIRT`` implementation在boot CPU带
+``X86_FEATURE_HYPERVISOR`` 时enable ``virt_spin_lock_key``，non-paravirt build则是inline no-op。
 
-它找到 ``cpu_possible_mask`` 中最高的置位编号，再加一。
+但QEMU accelerator/hypervisor未固定：KVM、Xen、Hyper-V、VMware等detector可在更早阶段替换hook；
+例如KVM hook先处理SEV per-CPU mapping与KVM guest CPU state，再调用native hook并初始化KVM spinlock。
+所以本章只能记录actual detected hook已返回，不能把fixed q35写死为native或KVM。
 
-假设 possible CPU 是：
+UP build不链接x86 ``setup_percpu.c/smpboot.c``：generic ``setup_per_cpu_areas`` 为一个CPU建立dynamic
+first chunk而static per-CPU保持identity mapping， ``init/main.c`` weak boot-CPU hook为no-op。这是
+独立compile path，不经过上述SMP x86 loop。
 
-.. code-block:: text
-
-   CPU 0, 1, 2, 3
-
-那么：
-
-.. code-block:: text
-
-   nr_cpu_ids = 4
-
-若 possible mask 只有 CPU0，则 ``nr_cpu_ids = 1``。
-
-之前的 ``nr_cpus=``、``possible_cpus=``、``nosmp``、``maxcpus=`` 和架构拓扑限制已经影响 possible mask 或允许启动的 CPU 数量。这里不重新读取 MADT，只把已形成的 mask 转换成紧凑运行时上界。
-
-``nr_cpus`` 与 ``maxcpus`` 的限制对象不同
----------------------------------------
-
-``nr_cpus=N`` 是硬上限，会收缩 ``nr_cpu_ids``，影响 possible CPU 编号空间和 per-CPU 资源规模。
-
-``maxcpus=N`` 主要限制启动阶段实际 bring-up 的 CPU 数量。某些被保留为 possible/present 的 CPU 后面仍可能通过 hotplug 上线。
-
-``maxcpus=0`` 或 ``nosmp`` 还会触发架构关闭 SMP 支持的路径。
-
-固定命令行没有这些限制参数，因此 ``nr_cpu_ids`` 来自前面 ACPI/APIC 枚举得到的 possible mask。
-
-per-CPU 变量解决什么问题
------------------------
-
-内核中常见：
-
-.. code-block:: c
-
-   DEFINE_PER_CPU(unsigned long, irq_count);
-
-这不表示全系统只有一个 ``irq_count``。最终每个 possible CPU 都有自己的副本：
-
-.. code-block:: text
-
-   CPU0 irq_count
-   CPU1 irq_count
-   CPU2 irq_count
-   ...
-
-每个 CPU 高频修改自己的副本，可以减少共享 cache line 争用，也能让中断、调度、统计和当前任务指针天然绑定到本地 CPU。
-
-链接时只有一份模板
-----------------
-
-编译器和链接器先把静态 per-CPU 变量集中到：
-
-.. code-block:: text
-
-   __per_cpu_start
-   ...
-   __per_cpu_end
-
-这是一份模板，不是所有 CPU 的最终副本。
-
-模板中保存变量的初始值和相对布局。例如：
-
-.. code-block:: text
-
-   offset +0x0000  current_task
-   offset +0x0040  cpu_number
-   offset +0x0080  numa_node
-   ...
-
-``setup_per_cpu_areas()`` 要为每个 possible CPU 分配一个 unit，并把模板复制进去。
-
-first chunk 是什么
------------------
-
-per-CPU allocator 后面可以动态分配 ``alloc_percpu()`` 对象，但在 allocator 本身出现前，必须先有一块最早的静态区域。
-
-这就是 per-CPU first chunk。它同时容纳：
-
-* vmlinux 静态 per-CPU 模板；
-* 架构保留空间；
-* 模块静态 per-CPU 变量的预留；
-* 一部分早期动态 per-CPU 空间。
-
-x86-64 还必须为模块预留 first-chunk 空间，因为内核 text 对 per-CPU 符号通常使用 32 位重定位，需要让这些地址保持在可达范围内。
-
-为什么优先使用 embedded first chunk
----------------------------------
-
-x86 的 ``setup_per_cpu_areas()`` 优先调用：
-
-.. code-block:: c
-
-   pcpu_embed_first_chunk(...)
-
-embedded allocator 会从启动期物理内存中取得较大的连续 backing，再把各 CPU unit 和必要空洞排布在其中。
-
-它的优点包括：
-
-* unit 映射紧凑；
-* 页表数量较少；
-* 静态 per-CPU 地址关系简单；
-* 后续动态分配可直接使用 first chunk 剩余空间。
-
-x86-64 把 ``atom_size`` 设为 ``PMD_SIZE``，使大块布局按 PMD 粒度对齐，为更高效映射留下空间。
-
-若 embedded allocator 因内存布局、NUMA 距离或地址空间约束失败，源码回退到：
-
-.. code-block:: c
-
-   pcpu_page_first_chunk(...)
-
-按 page 为各 unit 建立 backing。
-
-两种方式都失败时，内核无法继续，因为大量基础设施依赖 per-CPU 变量，函数会 panic。
-
-per-CPU unit 尽量靠近对应 NUMA node
-----------------------------------
-
-分配器接收两个 x86 回调：
-
-.. code-block:: text
-
-   pcpu_cpu_to_node(cpu)
-   pcpu_cpu_distance(from, to)
-
-前者返回第四十五至四十八章建立的 CPU-to-node 结果，后者区分 local/remote node 距离。
-
-因此多 node 机器可以让 CPU 的 per-CPU unit 尽量落在本地 node 内存中。
-
-固定 QEMU 未配置 NUMA 时通常全部归 node 0，所有 unit 从同一 memory node 获取。
-
-``__per_cpu_offset`` 怎样把同一个符号变成不同副本
-------------------------------------------------
-
-first chunk 建立后，内核计算：
-
-.. code-block:: c
-
-   delta = pcpu_base_addr - __per_cpu_start;
-
-然后为每个 possible CPU 写入：
-
-.. code-block:: c
-
-   per_cpu_offset(cpu) = delta + pcpu_unit_offsets[cpu];
-
-所以一个 per-CPU 符号的 CPU N 地址近似是：
-
-.. code-block:: text
-
-   address(symbol for CPU N)
-   = link-time symbol address
-   + __per_cpu_offset[N]
-
-``per_cpu(var, cpu)`` 使用指定 CPU 的 offset。
-
-``this_cpu_*`` 操作访问当前 CPU 的 base，避免每次显式索引数组。
-
-三个最早写入的 per-CPU 值
-------------------------
-
-x86 为每个 possible CPU 设置：
-
-.. code-block:: c
-
-   per_cpu_offset(cpu)
-   per_cpu(this_cpu_off, cpu)
-   per_cpu(cpu_number, cpu)
-
-``this_cpu_off`` 保存当前 unit 偏移，``cpu_number`` 保存逻辑 CPU 编号。
-
-这些值使早期汇编和 C 代码能够从当前 CPU 的 base 反推出自己的编号和其他 per-CPU 对象。
-
-早期 APIC、ACPI、NUMA 数组为什么要迁移
-------------------------------------
-
-在正式 per-CPU area 出现前，内核不能使用普通动态 per-CPU backing，所以早期拓扑阶段把数据暂存在静态 early arrays 中，例如：
-
-.. code-block:: text
-
-   x86_cpu_to_apicid
-   x86_cpu_to_acpiid
-   x86_cpu_to_node_map
-
-现在函数逐 CPU 把这些值复制到真实 per-CPU unit：
-
-.. code-block:: c
-
-   per_cpu(x86_cpu_to_apicid, cpu) = early value;
-   per_cpu(x86_cpu_to_acpiid, cpu) = early value;
-   per_cpu(x86_cpu_to_node_map, cpu) = early value;
-
-并调用：
-
-.. code-block:: c
-
-   set_cpu_numa_node(cpu, early_cpu_to_node(cpu));
-
-完成后，early pointer 被置为 ``NULL``，表示后续代码必须使用正式 per-CPU 数据，不能继续依赖将来会被回收的 init arrays。
-
-CPU0 为什么必须在循环中切换 base
-------------------------------
-
-AP 尚未启动，所以只有 CPU0 正在执行。
-
-此前 CPU0 使用的是 ``.init.data`` 中的早期 per-CPU 区。它在启动过程中已经修改过一些本地状态，这些状态不能在切换到新 unit 时丢失。
-
-源码完成复制后，对 CPU0 调用：
-
-.. code-block:: c
-
-   switch_gdt_and_percpu_base(0);
-
-在 x86-64 上，这一步把 CPU0 切到正式 per-CPU unit，并重新建立与该 CPU 对应的 GDT/per-CPU base。之后 ``%gs`` 相对的内核 per-CPU 访问会落到新的 CPU0 unit。
-
-这是运行环境的真实变化：
-
-.. code-block:: text
-
-   before
-   CPU0 → early static per-CPU area
-
-   after
-   CPU0 → allocated first-chunk unit 0
-
-函数调用栈和当前任务没有切换，变化的是 per-CPU 寻址基址。
-
-为什么 AP 现在还不需要执行切换
----------------------------
-
-每个 AP 的 unit 已经分配，offset 和拓扑数据也已填好。
-
-AP 后面从 trampoline 启动时，会在自己的低级 CPU 初始化路径中加载对应 GDT、stack 和 per-CPU base，然后进入 ``start_secondary()``。
-
-当前阶段只为它们准备内存，不发送任何启动 IPI。
-
-node-to-cpumask 与本地 CPU mask
------------------------------
-
-早期数据迁移后，函数调用：
-
-.. code-block:: c
-
-   setup_node_to_cpumask_map();
-   setup_cpu_local_masks();
-
-前者建立 node 到 CPU 集合的反向关系，让代码可以查询“这个 NUMA node 上有哪些 CPU”。
-
-后者准备 CPU initialized/callin/callout 等 x86 SMP 启动 mask 的基础状态。
-
-这些 mask 会在后续 AP bring-up handshake 中跟踪：
-
-* AP 是否进入启动代码；
-* BSP 是否允许它继续；
-* AP 是否完成 call-in；
-* CPU 是否完成架构初始化。
-
-现在这些数据结构已经存在，仍只有 CPU0 完成启动。
-
-再次出现的 ``sync_initial_page_table()``
--------------------------------------
-
-``setup_per_cpu_areas()`` 最后调用：
-
-.. code-block:: c
-
-   sync_initial_page_table();
-
-注释说明 per-CPU 映射必须能被 SMP boot assembly 使用。
-
-在 x86-32 上可能需要把 kernel address range 同步回 initial page table。
-
-固定 x86-64 路径中，前文已经确认：
-
-.. code-block:: c
-
-   #define swapper_pg_dir init_top_pgt
-   static inline void sync_initial_page_table(void) { }
-
-所以这里仍是公共调用点，在当前架构编译为空操作。per-CPU first chunk 的映射已经存在于正式 ``init_top_pgt`` 中。
-
-``smp_prepare_boot_cpu()`` 为什么名字容易误解
-------------------------------------------
-
-下一条调用：
-
-.. code-block:: c
-
-   smp_prepare_boot_cpu();
-
-它只是通过：
-
-.. code-block:: c
-
-   smp_ops.smp_prepare_boot_cpu();
-
-进入当前平台提供的 boot-CPU hook。
-
-普通 x86 native 实现是：
-
-.. code-block:: c
-
-   void __init native_smp_prepare_boot_cpu(void)
-   {
-       int me = smp_processor_id();
-
-       if (!IS_ENABLED(CONFIG_SMP))
-           switch_gdt_and_percpu_base(me);
-
-       native_pv_lock_init();
-   }
-
-在 SMP x86-64 固定路径中，CPU0 已经由 ``setup_per_cpu_areas()`` 切换 GDT/per-CPU base，因此不会再次切换。
-
-主要剩余动作是 ``native_pv_lock_init()``，让 native/paravirtualized queued spinlock 基础按当前环境就绪。
-
-若构建的是非 SMP 内核，则没有前面 SMP per-CPU 切换路径，这个 hook 会在此为 boot CPU 完成 base 切换。
-
-“prepare boot CPU” 不等于启动其他 CPU
-----------------------------------
-
-此时没有执行：
-
-.. code-block:: text
-
-   smp_prepare_cpus()
-   smp_init()
-   bringup_nonboot_cpus()
-   wakeup_secondary_cpu_via_init()
-
-因此没有 INIT IPI、SIPI、AP trampoline 或 ``start_secondary()``。
-
-函数只是让已经运行的 BSP 使用正式 per-CPU 环境，并准备后续 SMP/locking 基础。
-
-当前机器状态
+本章结束状态
 ------------
 
-本章结束时：
+* current executor：CPU0上的 ``start_kernel``，actual ``smp_prepare_boot_cpu`` hook已返回；
+* precise next： ``early_numa_node_init()`` 尚未调用；
+* CPU/mode：BSP/logical CPU0，x86-64 long mode，IF=0， ``init_task``；
+* ``nr_cpu_ids``：ordinary SMP按highest possible ID+1收紧，FORCE build保持NR_CPUS；UP call为no-op；
+* SMP per-CPU first chunk：embed/page实际成功路径已commit，失败则已panic而无出口；
+* possible CPU units：offset、 ``this_cpu_off``、 ``cpu_number`` 与条件topology copies已写；
+* CPU0：direct GDT/runtime ``MSR_GS_BASE`` 已装入，GS-relative access指向unit 0；
+* early APIC/ACPI/NUMA pointers：对应build下已置NULL；
+* node cpumasks：NUMA backing已分配但CPU membership不在此批量填充；
+* sibling setup mask：backing已分配；
+* boot-CPU hook：actual native/hypervisor implementation已执行，具体branch未固定；
+* AP：只有storage，未收INIT/SIPI、未online/active；
+* buddy ordinary RAM/slab/scheduler：仍未完成；command-line普通dispatch尚未开始。
 
-* 当前执行者：Linux 6.12.95 ``init/main.c:start_kernel()``；
-* 精确位置：``smp_prepare_boot_cpu()`` 已返回，``early_numa_node_init()`` 尚未调用；
-* CPU：只有 BSP / Linux CPU 0 online；
-* interrupts：关闭；
-* ``nr_cpu_ids``：已根据 ``cpu_possible_mask`` 的最高编号最终收缩；
-* possible/present CPU：来自前面的 ACPI/APIC 拓扑；
-* per-CPU first chunk：已建立；
-* 每个 possible CPU：已有 unit offset、CPU number 和拓扑副本；
-* CPU0：已切换到正式 GDT/per-CPU base；
-* early APIC/ACPI/NUMA arrays：数据已迁移，early pointers 已撤销；
-* node-to-cpumask 与 x86 SMP local masks：已建立；
-* ``smp_prepare_boot_cpu()``：native boot-CPU hook 已执行；
-* AP：尚未收到 INIT/SIPI，仍未运行 Linux；
-* CPU hotplug state：尚未在下一入口完成 boot CPU 初始化；
-* 普通命令行参数：尚未开始通用 ``parse_args()``；
-* buddy/slab/scheduler：仍未完成；
-* initramfs：尚未解包。
+关键边界
+--------
 
-下一条控制流是：
+#. ordinary runtime ``nr_cpu_ids`` 是highest possible ID的exclusive bound；FORCE build保持constant。
+#. SMP与UP是不同compile paths；不能把SMP find-last/x86 first-chunk loop套到UP。
+#. embed/page是actual allocator alternatives；first chunk既含static template也承载reserved/dynamic区。
+#. unit/offset ready不等于对应AP已运行。
+#. CPU0 switch改变GDT/GS base，不改变task、stack、CR3或调度状态。
+#. 只有源码显式列出的early topology fields被迁移，其他early per-CPU mutation不保证保留。
+#. node-to-cpumask allocation不等于membership填充；local-mask helper当前只分配sibling setup mask。
+#. x86-64 ``sync_initial_page_table`` no-op；不应制造第二次page-table sync。
+#. ``smp_ops`` 受hypervisor detection影响，QEMU q35不足以选定native/KVM hook。
+#. 本章不启动AP，也不初始化boot CPU hotplug ledger。
+
+下一入口
+--------
+
+第053章从：
 
 .. code-block:: c
 
    early_numa_node_init();
+   boot_cpu_hotplug_init();
 
-随后才是 ``boot_cpu_hotplug_init()``、命令行打印和通用参数解析。
+开始。进入前CPU0已使用正式per-CPU base，但 ``cpuhp_state`` 尚未被登记为boot CPU的ONLINE账本。
 
 资料
 ----
 
-* `Linux 6.12.95 init/main.c：CPU 数量、per-CPU 与 boot CPU 调用顺序 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c>`_
-* `Linux 6.12.95 kernel/smp.c：setup_nr_cpu_ids 与 SMP 启动参数 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/smp.c>`_
-* `Linux 6.12.95 x86 setup_percpu.c：first chunk、offset 和 early map 迁移 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/setup_percpu.c>`_
-* `Linux 6.12.95 percpu.c：embedded/page first-chunk allocator <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/mm/percpu.c>`_
-* `Linux 6.12.95 x86 smpboot.c：smp_prepare_boot_cpu 与 native boot-CPU hook <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/smpboot.c>`_
-* `Linux 6.12.95 x86 percpu.h：GS-relative per-CPU 寻址基础 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/include/asm/percpu.h>`_
-* `Linux CPU hotplug 文档：possible、present、online 与 hotplug 状态 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/Documentation/core-api/cpu_hotplug.rst>`_
+* `Linux 7.2-rc1固定提交：start_kernel的CPU ID/per-CPU/boot hook顺序 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c#L994-L1008>`_；
+* `Linux 7.2-rc1固定提交：setup_nr_cpu_ids与early SMP limits <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/smp.c#L970-L1002>`_；
+* `Linux 7.2-rc1固定提交：x86 first chunk、offset、early maps与CPU0 switch <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/setup_percpu.c#L111-L226>`_；
+* `Linux 7.2-rc1固定提交：percpu allocator选择与generic UP path <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/mm/percpu.c#L2735-L2765>`_；
+* `Linux 7.2-rc1固定提交：direct GDT与x86-64 GS base switch <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/cpu/common.c#L784-L823>`_；
+* `Linux 7.2-rc1固定提交：x86 boot-CPU smp_ops dispatch <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/smpboot.c#L1198-L1201>`_；
+* `Linux 7.2-rc1固定提交：native boot-CPU hook <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/smpboot.c#L1267-L1279>`_；
+* `Linux 7.2-rc1固定提交：KVM对boot-CPU hook的替换示例 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/kvm.c#L708-L719>`_。
