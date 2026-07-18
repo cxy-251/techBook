@@ -1,0 +1,145 @@
+Linux Kernel第049—051章回溯审查
+================================
+
+批次状态
+--------
+
+::
+
+   range            = 049-051
+   status           = repaired
+   verified_before  = 048
+   verified_after   = 051
+   mode             = retrospective-audit
+   blocking_issue   = none
+
+审查范围
+--------
+
+* ``049-linux-registers-resources-and-finishes-setup-arch.rst``；
+* ``050-linux-builds-zones-and-struct-page-map.rst``；
+* ``051-linux-rechecks-static-patching-and-builds-command-lines.rst``；
+* 入口为 ``x86_init.hyper.guest_late_init()`` 已返回、即将调用
+  ``e820__reserve_resources()``；
+* 出口为 ``setup_command_line(command_line)`` 已返回，下一条
+  ``setup_nr_cpu_ids()`` 尚未执行。
+
+固定源码
+--------
+
+Linux release 7.2-rc1、gregkh/linux commit
+``7404ce51637231382873d0b55edabc2f3b841a9d``：
+
+* ``arch/x86/kernel/setup.c`` 的 ``setup_arch`` 最后resource/arch-hook顺序及return；
+* ``arch/x86/kernel/e820.c`` 的current resources、late device resources、nosave holes与PCI gap；
+* ``mm/mm_init.c`` 的 ``mm_core_init_early/free_area_init``；
+* ``kernel/jump_label.c`` 与 ``kernel/static_call_inline.c`` 的幂等guards；
+* ``security/lsm_init.c`` 的early LSM loop；
+* ``init/main.c`` 的bootconfig trailer、XBC extras与两份command-line copies。
+
+``/Volumes/LinuxKernel/{seabios,qemu,grub,linux-7.2-rc1}`` 仍为fixed HEAD、clean、完整、非shallow、
+无active sparse checkout；项目 ``.sources`` 未使用。最终 ``.config``、RAM/NUMA/SMP/QEMU完整CLI、
+builtin command line、initramfs bootconfig trailer与embedded XBC未提供，所有受其影响的branch均保持
+conditional。
+
+整批成功路径
+------------
+
+``第049章``
+   ``working E820为每条range建立resource object并立即插入RAM/低地址/非device-like ownership →
+   high device-like ranges延后PCI survey → e820_table_kexec登记firmware map → working E820 holes登记
+   hibernation nosave → default x86 resource hook只占legacy I/O ports → 选择32-bit PCI gap hint →
+   条件VGA/OEM/wallclock/thermal/MCE/refined-jiffies/EFI/ORC → setup_arch return``。
+
+``第050章``
+   ``mm_core_init_early → 条件HugeTLB CMA reserve → 条件HugeTLB boot allocation → free_area_init按arch
+   zone limits建立sparse/subsection maps与MOVABLE starts → 为possible nodes准备pg_data_t → 计算
+   spanned/present pages并设置N_MEMORY → 初始化zones/pageblocks/free_area containers与struct page →
+   修hash policy/high_memory → return before jump_label_init``。
+
+``第051章``
+   ``generic jump_label/static_call因041 x86 arch-early完成而幂等return → early LSM linked entries依次
+   prepare/init → setup_boot_config先检查并切除valid initrd trailer、再按bootconfig token/FORCE解析
+   XBC → kernel/init roots生成可选extra strings → setup_command_line用memblock建立saved完整副本与
+   static mutable kernel副本 → stop before setup_nr_cpu_ids``。
+
+resource与 ``setup_arch`` 出口边界
+----------------------------------
+
+* resource tree ownership、memblock allocation ownership与page-table mapping是三套机制；
+* current resource objects来自working E820，firmware-map early view来自 ``e820_table_kexec``；
+* 1 MiB以上RESERVED/SOFT_RESERVED/PRAM/PMEM objects延后
+  ``pcibios_resource_survey → e820__reserve_resources_late`` 插入；
+* IOAPIC resource objects也不在本批standard-I/O hook插入，真正入口是later
+  ``pcibios_resource_survey → ioapic_insert_resources``；
+* hibernation nosave holes不reserve/unmap RAM，ACPI NVS另有special registration；
+* default ``reserve_standard_io_resources`` 只request legacy ports，不初始化设备；
+* ``pci_mem_start`` 是allocation hint，不代表BAR/window已分配；
+* wallclock hook不读当前RTC；thermal LVT保存、MCE work/notifier与refined-jiffies registration均不等于
+  对应interrupt/runtime已启动；
+* BIOS path跳过EFI memmap quirks，ORC由build/table validation决定； ``setup_arch`` return仍是CPU0、
+  IF=0、同一 ``init_task``。
+
+early MM边界
+------------
+
+* HugeTLB CMA、boot-time gigantic pages、ordinary buddy pages与THP是不同对象；
+* zone是address/allocation constraint，不是E820 memory type；holes不会因落在zone span变成RAM；
+* possible PFN span、present RAM与managed/free buddy pages分开统计；
+* memory model由build决定， ``sparse_init`` 不保证一定使用SPARSEMEM_VMEMMAP；
+* possible node可有offline ``pg_data_t``， ``N_MEMORY`` 只给present node设置；
+* ``free_area_init`` 建 ``free_area[]``、locks、pageblocks与 ``struct page`` metadata，但没有调用
+  ``memblock_free_all``；
+* deferred struct-page init保持条件； ``high_memory`` 在x86-64只是linear-map RAM end的历史命名；
+* 050出口slab、per-CPU、scheduler和AP均未初始化。
+
+static patch、LSM与命令行边界
+----------------------------
+
+* x86在041已经首次完成jump label/static call；本章generic calls由状态guard直接返回；
+* static key是conditional NOP/JMP sites，static call是可变direct-call targets；
+* early LSM集合由link/build决定，且不等于later ordinary LSM/security policy初始化；
+* valid bootconfig trailer从initrd logical end切除，与是否有token/FORCE而接受XBC分开；
+* fixed GRUB raw line是
+  ``BOOT_IMAGE=/boot/bzImage root=/dev/sda1 ro console=ttyS0``，但builtin append/override未知；
+* bootconfig ``kernel`` extras放在boot line前； ``init`` extras放在 ``--`` 后且排在原init args前；
+* ``saved_command_line`` 保存完整observable line， ``static_command_line`` 是later kernel parser的
+  mutable副本；本批不执行普通kernel parameters或init argv；
+* 两份副本来自memblock，不表示slab/buddy已可用。
+
+发现并修复
+----------
+
+#. 三章从历史6.12.95标签和百科式结构整章重写为fixed Linux 7.2-rc1，补齐统一章末四节。
+#. 修正E820 resource table来源，把working current resources与kexec firmware-map view分开。
+#. 修正high device-like E820和IOAPIC resources的发布时点，不再归入049 standard-I/O hook。
+#. 把nosave、NVS、memblock、resource与PTE职责拆开，避免“登记即分配/映射”的错误。
+#. 收紧PCI gap、wallclock、thermal、MCE、clocksource和ORC结论，不把候选/软件对象当runtime完成。
+#. 把 ``mm_core_init_early`` 固定为7.2-rc1的三条calls，并区分zone span/present/managed/free。
+#. 修正 ``free_area_init`` 的出口：containers/metadata已建，普通RAM尚未 ``memblock_free_all``。
+#. 把jump label/static call由“再次初始化”修为x86 fixed path的幂等复查。
+#. 按actual early LSM loop保留build-dependent集合，不制造固定module名单。
+#. 补bootconfig trailer即使未启用token也先切除的边界，以及disabled-build stub行为。
+#. 修复fixed raw命令行遗漏的 ``BOOT_IMAGE=/boot/bzImage``，并保留unknown builtin policy。
+#. 固定saved/static两份副本的不同source、extra ordering、owner与later parse边界。
+
+失败与未发生
+------------
+
+* resource overlap、HugeTLB reservation、bootconfig/XBC与memblock allocation failures均按源码各自
+  insert/return/error/panic语义保留，正文未制造runtime address或capacity；
+* 没有ordinary PCI enumeration、BAR assignment、final IRQ vector/programming或AP bring-up；
+* 没有 ``memblock_free_all``、slab、zonelists completion或ordinary page allocation；
+* 没有普通kernel parameter/init argument dispatch， ``root=`` 与 ``console=`` 尚未落实；
+* 第052章正文仍pending，相邻读取不提升其验证状态。
+
+连续性与验证
+------------
+
+* 048出口与049 ``e820__reserve_resources`` call前一致；
+* 049出口为 ``setup_arch`` 已返回、 ``mm_core_init_early`` call前，与050一致；
+* 050出口为 ``mm_core_init_early`` 已返回、 ``jump_label_init`` call前，与051一致；
+* 051出口为两份command-line copies已建、 ``setup_nr_cpu_ids`` call前，与pending 052真实入口一致；
+* 三章均有本章结束状态、关键边界、下一入口、资料，且无旧6.12.95标签；
+* ``tools/check-linux-kernel-track.sh 51``、TOML、 ``git diff --check`` 与旧版本guard通过，仅保留
+  既有065/066 duplicate debt；无阻塞；下一批052—054。

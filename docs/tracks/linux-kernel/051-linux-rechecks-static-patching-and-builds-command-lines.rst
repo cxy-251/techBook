@@ -1,9 +1,8 @@
-第五十一章：Linux 为什么再次检查 static key/static call，并怎样生成正式命令行？
-================================================================================
+第五十一章：Linux 为什么复查静态修补并建立两份正式命令行？
+================================================================
 
-第五十章结束时，``mm_core_init_early()`` 已经建立 node、zone、``struct page`` 和 ``free_area[]`` 等物理内存管理骨架。
-
-``start_kernel()`` 接下来依次调用：
+第五十章结束时，CPU0仍在 ``start_kernel``、IF=0；node、zone、 ``struct page`` 与buddy containers
+已经建立，但普通RAM尚未由memblock交给buddy。当前连续入口是：
 
 .. code-block:: c
 
@@ -13,455 +12,184 @@
    setup_boot_config();
    setup_command_line(command_line);
 
-这段流程把三个看似无关的问题连在一起：
+fixed x86路径在041的 ``setup_arch`` 前段已经执行过前两项。本章的generic calls因此是幂等复查，随后
+early LSM才安装其早期hooks；bootconfig可能产生额外kernel/init参数，最后以memblock分配一份保留
+原貌的 ``saved_command_line`` 和一份供later就地解析的 ``static_command_line``。本章只建立字符串，
+尚不执行普通kernel parameter或init argument dispatch。
 
-* 运行时可修改的分支和调用点必须先可用；
-* early LSM 注册 hook 时会使用 static key/static call；
-* bootconfig 可能给内核和 ``init`` 增加参数，最终命令行必须在解析前固定下来。
+generic jump-label call在fixed x86上立即返回
+----------------------------------------------
 
-固定 x86 主线还有一个容易遗漏的事实：``setup_arch()`` 早先已经调用过 ``jump_label_init()`` 和 ``static_call_init()``。因此本章开头的两个调用主要是通用 ``start_kernel()`` 顺序中的幂等确认，而不是第二次重写全部 call site。
+首次 ``jump_label_init`` 会在CPU hotplug读锁和jump-label锁下排序built-in ``__jump_table``，把需要
+disabled形态的sites改写为NOP，标记init-section sites，并让每个 ``static_key`` 指向自己的首条
+``jump_entry``；完成后发布 ``static_key_initialized=true``。
 
-static key 要解决什么问题
-------------------------
+这里的“修改key”不是普通变量分支：site是kernel text中的NOP/JMP patch point，低频切换承担text
+rewrite成本，让高频disabled path不必反复load一个boolean。具体instruction sequence与同步规则由x86
+arch transform实现。
 
-内核中存在大量运行时开关，例如：
+但fixed路径在 ``setup_arch`` 中已经完成上述首次初始化。本次function entry先读取
+``static_key_initialized``，见true便直接return；不取得两把锁，不重新排序table，也不再次改写text。
+generic ``start_kernel`` 保留这个call，是为了同一初始化顺序覆盖没有arch-early call的架构。
 
-* tracing 是否启用；
-* 调试或安全检查是否启用；
-* 某种优化路径是否激活；
-* 某类 LSM hook 当前是否有人注册。
-
-普通写法可能是：
-
-.. code-block:: c
-
-   if (feature_enabled)
-       slow_path();
-
-即使 ``feature_enabled`` 几乎永远为 false，CPU 仍要反复读取变量并预测分支。
-
-static key 把这种低频改变、高频执行的条件变成可修补机器指令：
-
-.. code-block:: text
-
-   disabled state → hot path 上是一段 NOP
-   enabled state  → 把 NOP 改写成 JMP
-
-开关改变时修改一次内核 text，之后每次执行几乎没有普通条件判断成本。
-
-``jump_entry`` 怎样描述一个可修补分支
-------------------------------------
-
-链接器把所有 static branch site 收集到：
-
-.. code-block:: text
-
-   __start___jump_table
-   ...
-   __stop___jump_table
-
-每个 ``struct jump_entry`` 记录：
-
-* 需要修补的指令地址；
-* 分支目标；
-* 对应 ``struct static_key``；
-* 当前 site 是 branch 语义还是 NOP 语义；
-* site 是否位于 ``.init`` 区域。
-
-``jump_label_init()`` 会先按 key 排序这些 entry，使同一个 static key 控制的所有 site 连续排列。
-
-首次初始化真正做了什么
---------------------
-
-第一次执行 ``jump_label_init()`` 时，源码会：
-
-#. 锁住 CPU hotplug 读侧和 jump-label 全局锁；
-#. 排序 built-in jump table；
-#. 对应为 NOP 的 entry 调用架构 text transform；
-#. 标记位于 init section 的 site；
-#. 让每个 ``static_key`` 指向自己的第一条 ``jump_entry``；
-#. 设置 ``static_key_initialized = true``。
-
-在 x86 上，``arch_jump_label_transform_*()`` 会把目标 text 改写成架构定义的 NOP 或跳转指令，并处理 instruction patching 所需的同步。
-
-这不是修改数据变量，而是修改已经加载到内存中的内核机器码。
-
-为什么本章中的 ``jump_label_init()`` 很快返回
--------------------------------------------
-
-固定 x86 路径在 ``setup_arch()`` 前段已经执行：
-
-.. code-block:: c
-
-   jump_label_init();
-   static_call_init();
-
-原因是 x86 架构初始化本身可能很早就需要 static key/static call。
-
-现在回到通用 ``start_kernel()`` 再次调用时，``jump_label_init()`` 首先检查：
-
-.. code-block:: c
-
-   if (static_key_initialized)
-       return;
-
-所以本章当前位置不会重新排序 jump table，也不会再次遍历和重写全部 NOP/JMP。
-
-通用入口仍保留这次调用，因为并非所有架构都像 x86 一样在 ``setup_arch()`` 内提前初始化。
-
-static call 与 static key 的区别
-------------------------------
-
-static key 优化的是条件分支。
-
-static call 优化的是目标函数可变的调用点。
-
-普通函数指针调用：
-
-.. code-block:: c
-
-   ops->func(arg);
-
-需要从内存读取目标地址，再执行间接 ``call``。间接分支会影响预测，也可能受到 retpoline 或其他间接调用缓解机制的额外开销。
-
-static call 把 call site 直接修补成：
-
-.. code-block:: text
-
-   call current_target
-
-当目标函数改变时，再统一改写所有相关 call site。
-
-它适合目标偶尔变化、调用非常频繁的接口，例如架构操作、调度或安全 hook 快路径。
-
-static call table 怎样关联 key 与 call site
+generic static-call call也只确认既有状态
 -----------------------------------------
 
-链接器收集：
+static call解决的是高频可变函数目标：链接器记录call sites，初始化时把indirect-style dispatch修补为
+当前direct target；目标低频变化时再批量patch。它与static key的conditional branch不是一回事。
 
-.. code-block:: text
+首次 ``static_call_init`` 会锁住CPU hotplug与static-call global state，对built-in
+``__start_static_call_sites..__stop_static_call_sites`` 执行 ``__static_call_init``；modules build还注册
+notifier，使later module sites能加入/撤销。失败不是可忽略降级：它打印错误并 ``BUG()``，成功后把
+``static_call_initialized`` 置1。
 
-   __start_static_call_sites
-   ...
-   __stop_static_call_sites
+fixed x86同样已在041做完首次call；本次入口检查值恰为1便返回0。 ``start_kernel`` 忽略其int return，
+但在此路径返回值为成功；也没有调用会强制reinit的 ``static_call_force_reinit``，所以不能描述成第二轮
+site patching。
 
-每个 ``static_call_site`` 保存相对编码的：
-
-* call instruction 地址；
-* ``static_call_key``；
-* tail-call 标志；
-* init-section 标志。
-
-首次 ``static_call_init()`` 会：
-
-#. 按 key 排序 site；
-#. 标记 init text 中的调用点；
-#. 把 built-in key 与它的第一条 site 关联；
-#. 调用 ``arch_static_call_transform()``，把 call site 指向 key 当前目标；
-#. 注册 module notifier，使以后装卸模块时能加入或移除模块 call site；
-#. 设置 ``static_call_initialized = 1``。
-
-为什么 built-in 初始化不依赖 slab
+early LSM在静态修补基础之后登记
 --------------------------------
 
-当前 slab allocator 尚未建立。
+``early_security_init`` 遍历链接器登记的early LSM infos。每个entry依次被enable，名字追加到
+``lsm_order`` 的 ``early`` 组，经过 ``lsm_prepare`` 后由 ``lsm_init_single`` 调用模块init，最后
+``lsm_count_early`` 加一。LSM添加hooks时可借助已经可用的static call/branch slots优化security hot
+paths，这正是源码把两种patching明确放在early security之前的原因。
 
-``__static_call_init()`` 对 vmlinux 内建 site 不分配额外链表对象，而是直接把第一条 site 指针编码到 key 中。模块出现以后，slab 已可用，才为 module site 分配 ``struct static_call_mod``。
+具体early LSM集合取决于 ``.config`` 与link result，不能凭固定源码写死模块名单；没有entry时loop可
+为空。function当前总是return 0， ``start_kernel`` 也没有检查返回值；这只完成early group，不是后面
+``security_init`` 对ordinary LSMs、policy/userspace loading的完整安全子系统初始化。
 
-这使 x86 可以在非常早期初始化 static call，而不需要 ``kmalloc()``。
+bootconfig trailer先从initrd逻辑末端切走
+-----------------------------------------
 
-本章中的 ``static_call_init()`` 同样是幂等确认
+``setup_boot_config`` 的首要边界不只是“是否启用参数”。在 ``CONFIG_BOOT_CONFIG`` build中，它先调用
+``get_boot_config_from_initrd(&size)``；若initrd存在，就从 ``initrd_end`` 前寻找bootconfig magic，并
+额外检查前3字节以容忍GRUB 4-byte alignment。找到后读取magic前的little-endian size/checksum，验证
+数据仍在 ``initrd_start..initrd_end`` 内且checksum相符，最后把 ``initrd_end`` 截到data开头。
+
+这一步把有效bootconfig trailer从later initramfs payload范围剥离，甚至command line没有
+``bootconfig`` 时也会做。若magic/header/checksum无效，函数报告相应错误或返回NULL，不改变payload
+末端。 ``CONFIG_BLK_DEV_INITRD`` 未启用时helper恒为NULL； ``CONFIG_BOOT_CONFIG`` 未启用时的stub仍
+调用helper以切除可能存在的有效trailer，却不解析树。
+
+initrd没有trailer时，enabled build再尝试builtin embedded bootconfig。选择数据来源只决定候选data，
+不等于已经接受它。
+
+是否解析由bootconfig开关或force build决定
 --------------------------------------------
 
-函数开头检查：
+enabled build把 ``boot_command_line`` 复制到固定大小temporary buffer，用一次local ``parse_args`` 只
+寻找 ``bootconfig`` token。若parse在 ``--`` 停下，还保存对应 ``initargs_offs``；没有该token且build
+也未启用 ``CONFIG_BOOT_CONFIG_FORCE``，便直接return，即使trailer已经从initrd末端切走。
 
-.. code-block:: c
+要求解析但没有data时只报告并return。有data时还要小于 ``XBC_DATA_MAX`` 且通过 ``xbc_init``；成功
+才从 ``kernel`` root生成 ``extra_command_line``，从 ``init`` root生成 ``extra_init_args``。二者由
+memblock分配，可能各自为NULL（相应root不存在、输出为空或分配/格式化失败）。
 
-   if (static_call_initialized == 1)
-       return 0;
+fixed GRUB原始命令行没有 ``bootconfig``，但kernel ``.config``、embedded data和initramfs trailer
+contents没有固定，因此不能把此场景写死为no-op，也不能臆造extra参数。此时initramfs仍未ordinary
+unpack；只可能调整它的logical end并解析附加的XBC data。
 
-固定 x86 主线早已完成首次初始化，因此这里直接返回。
-
-一个特殊接口 ``static_call_force_reinit()`` 可以把状态递增，使后续初始化重新执行；当前主线没有调用它。
-
-为什么 LSM 必须排在这两个入口之后
---------------------------------
-
-接下来：
-
-.. code-block:: c
-
-   early_security_init();
-
-LSM（Linux Security Modules）让多个安全模块向统一 hook 点注册回调，例如文件打开、凭据变更、进程执行或 BPF 操作。
-
-Linux 6.12 的 LSM hook 快路径使用 static call 与 static branch：
-
-.. code-block:: text
-
-   没有 hook 使用某槽位
-   → static branch 关闭
-   → 热路径跳过调用
-
-   LSM 注册 hook
-   → static call 指向该 hook
-   → static branch 开启
-
-因此 static key/static call 基础必须先完成，否则 early LSM 无法安全安装优化后的 hook。
-
-``early_security_init()`` 不是完整安全系统初始化
----------------------------------------------
-
-函数只遍历链接器区间：
-
-.. code-block:: text
-
-   __start_early_lsm_info
-   ...
-   __end_early_lsm_info
-
-对每个 early LSM，它依次：
-
-#. 标记为 enabled；
-#. 加入 LSM order；
-#. 计算该 LSM 请求的 security blob 大小和偏移；
-#. 执行该 LSM 的 early init；
-#. 增加 early LSM 计数。
-
-这里还没有完成：
-
-* 普通 LSM 的最终排序与初始化；
-* SELinux policy 文件加载；
-* AppArmor profile 加载；
-* root filesystem 上的安全标签读取；
-* 用户空间安全服务启动。
-
-普通 ``security_init()`` 和各 LSM 后续 initcall 仍在更后面。
-
-security blob 为什么要提前计算布局
---------------------------------
-
-多个 LSM 可能都需要在同一个内核对象后附加私有安全数据，例如：
-
-.. code-block:: text
-
-   cred security blob
-   inode security blob
-   file security blob
-   task security blob
-   socket security blob
-
-内核不会为每个 LSM 在对象中固定添加一根独立指针。LSM framework 汇总各模块请求的大小，按指针对齐计算偏移，最终分配一个组合 blob。
-
-``lsm_prepare()`` 在对象 cache 建立前确定这些尺寸，后续 slab cache 才能按正确对象大小创建。
-
-``security_add_hooks()`` 怎样使用 static call
--------------------------------------------
-
-early LSM 的 init 若注册 hook，``security_add_hooks()`` 会为每条 hook 找到一个未使用的 static-call 槽位：
-
-.. code-block:: c
-
-   __static_call_update(key, trampoline, hook_function);
-   static_branch_enable(active_key);
-
-这样安全 hook 从通用链表间接遍历，转成可预测的 static branch 加直接 call。
-
-每个 hook 类型的槽位数量有限；全部耗尽时内核会 panic，因为继续运行会丢失声明需要启用的安全检查。
-
-``setup_boot_config()`` 为什么要读取 initramfs 尾部
-------------------------------------------------
-
-安全早期基础完成后：
-
-.. code-block:: c
-
-   setup_boot_config();
-
-bootconfig 是比传统单行 kernel command line 更适合表达层次化配置的 XBC 数据。
-
-bootloader 可以把 bootconfig 附加在 initramfs 末尾，布局近似：
-
-.. code-block:: text
-
-   [original initramfs]
-   [bootconfig data]
-   [u32 data size]
-   [u32 checksum]
-   [BOOTCONFIG magic]
-
-GRUB 可能把 initrd 大小对齐到 4 字节，所以 Linux 会从 ``initrd_end`` 前最后四个候选位置搜索 magic。
-
-bootconfig 不属于 cpio payload
+两种输入命令行已有不同语义
 ----------------------------
 
-找到合法 trailer 后，内核校验：
+041从 ``setup_arch(&command_line)`` 带回的 ``command_line`` 指向arch选择并复制好的effective kernel
+line；global ``boot_command_line`` 保留供未来引用的boot line。fixed GRUB交给Linux的原始字符串是：
 
-* size 没有越过 ``initrd_start``；
-* checksum 与数据一致；
-* 数据不超过 XBC 最大尺寸。
+.. code-block:: text
 
-随后最关键的一步是：
+   BOOT_IMAGE=/boot/bzImage root=/dev/sda1 ro console=ttyS0
 
-.. code-block:: c
+若build含 ``CONFIG_CMDLINE``，041已经按append或override policy改变effective结果，所以本章不能只凭
+GRUB字符串写死两者的最终内容。 ``setup_command_line`` 也不再次执行该policy，只消费现成的两个
+inputs与可选bootconfig extras。
 
-   initrd_end = (unsigned long)bootconfig_data;
-
-也就是把 bootconfig 从 initramfs 的逻辑末端裁掉。
-
-以后解包 initramfs 时，cpio 解包器只看到原始归档，不会把 bootconfig trailer 当作损坏的归档内容。
-
-即使内核未启用 ``CONFIG_BOOT_CONFIG``，它仍会尝试识别并移除 trailer；只是不会解析 XBC 内容。
-
-什么时候真正采用 bootconfig 参数
+saved副本保留完整可观察命令行
 --------------------------------
 
-启用 ``CONFIG_BOOT_CONFIG`` 时，内核还会检查命令行是否包含：
+``setup_command_line`` 先计算extra kernel string长度 ``xlen``。若有extra init string，则先
+``strim`` 去除尾空白，并为可能需要的 ``" -- "`` 额外计四字节。它按cache-line alignment从memblock
+用 ``memblock_alloc_or_panic`` 分配 ``saved_command_line``；allocation失败会panic，不存在继续使用
+NULL的路径。
 
-.. code-block:: text
+extra kernel string必须前置，再复制 ``boot_command_line``。前置而非附加，是为了其中若存在
+``--``，不会被原命令行更早的separator遮蔽。若有extra init args：
 
-   bootconfig
+* 原boot line已有 ``--`` 时，把bootconfig init参数插在原command-line init参数之前；
+* 原line没有 ``--`` 时，在saved末尾补 ``" -- "`` 后附加bootconfig init参数。
 
-或者构建是否启用强制 bootconfig。
+所以init侧顺序固定为bootconfig init参数在前、command-line init参数在后。最终
+``saved_command_line_len`` 记录字符串长度。这份副本供打印、 ``/proc/cmdline`` 等later observers
+保留完整语义，不作为本章的就地parameter tokenization对象。
 
-满足条件后，``xbc_init()`` 解析树形配置，并把两个命名空间转换成普通字符串：
+static副本只承载待解析的kernel line
+-------------------------------------
 
-.. code-block:: text
+第二份 ``static_command_line`` 以 ``xlen + strlen(command_line) + 1`` 单独memblock分配，同样失败即
+panic；内容是 ``extra_command_line`` 前缀加arch传回的 ``command_line``。它没有把
+``extra_init_args`` 拼进去，因为后者later通过独立 ``parse_args("Setting extra init args", ...)``
+送给init argv。
 
-   kernel.* → extra_command_line
-   init.*   → extra_init_args
+两份allocation也没有让字符串进入slab：memblock仍是owner。当前 ``setup_command_line`` return后，
+``static_command_line`` 仍未被破坏；later第054章的 ``parse_args("Booting kernel", ...)`` 才会原地切
+name/value，并把 ``--`` 后部分送给init argument parser。更早的 ``parse_early_param`` 也是later call，
+尽管041/042已有arch-triggered one-shot early parse。
 
-固定主线命令行是：
-
-.. code-block:: text
-
-   root=/dev/sda1 ro console=ttyS0
-
-其中没有 ``bootconfig``。同时本书没有规定 initramfs 尾部附带 bootconfig，因此固定控制流不会假定存在额外 kernel/init 参数。
-
-``setup_command_line()`` 为什么需要两份命令行
-------------------------------------------
-
-随后调用：
-
-.. code-block:: c
-
-   setup_command_line(command_line);
-
-此前存在的 ``boot_command_line`` 和架构传回的 ``command_line`` 位于启动期静态缓冲，后面的参数解析会原地写入 NUL、拆分 name/value，并可能保留指向字符串内部的指针。
-
-内核因此使用 memblock 分配两份持久副本：
-
-.. code-block:: text
-
-   saved_command_line
-   static_command_line
-
-``saved_command_line`` 保存可供日志、``/proc/cmdline`` 和诊断使用的完整原貌。
-
-``static_command_line`` 是允许 ``parse_args()`` 原地修改的工作副本。
-
-为什么不能只解析原始缓冲
-----------------------
-
-参数解析通常会把：
-
-.. code-block:: text
-
-   root=/dev/sda1
-
-临时变成：
-
-.. code-block:: text
-
-   root\0/dev/sda1\0
-
-并让 setup handler 接收 ``param`` 与 ``val`` 指针。
-
-若只保留这一份，之后无法可靠显示用户实际传入的完整命令行；某些 handler 保存的指针也可能在 init memory 回收后失效。
-
-所以内核在 memblock 仍可用时，为命令行申请不会被早期静态缓冲覆盖的存储。
-
-bootconfig 参数如何并入最终顺序
------------------------------
-
-若存在 ``extra_command_line``，它被放在 bootloader command line 前面：
-
-.. code-block:: text
-
-   [bootconfig kernel parameters][bootloader kernel parameters]
-
-这样 bootloader 命令行中用于分隔 init 参数的 ``--`` 不会提前截断 bootconfig kernel 参数。
-
-若存在 ``extra_init_args``，则以：
-
-.. code-block:: text
-
-   " -- "
-
-加入保存命令行的 init 参数部分，并维护 bootconfig init 参数与命令行 init 参数的正确先后关系。
-
-当前固定主线最终得到的核心内容仍是：
-
-.. code-block:: text
-
-   root=/dev/sda1 ro console=ttyS0
-
-具体内存地址由 memblock 在当次启动的物理布局中选择，本书不虚构固定地址。
-
-此时仍没有正式解析普通参数
+出口停在CPU数量收缩之前
 ------------------------
 
-``setup_command_line()`` 只建立最终字符串和副本。
+``setup_command_line`` return后， ``start_kernel`` 的下一条是 ``setup_nr_cpu_ids``。当前possible CPU
+mask来自048，但generic ``nr_cpu_ids`` 尚未按最后possible bit收缩；per-CPU areas尚未分配，CPU0也
+尚未迁移到正式per-CPU base。CPU0仍是唯一online/active executor，IF仍为0，没有schedule或AP启动。
 
-下一阶段才会执行：
-
-.. code-block:: text
-
-   print_kernel_cmdline(saved_command_line)
-   parse_early_param()
-   parse_args("Booting kernel", static_command_line, ...)
-
-所以此刻 ``root=``、``ro`` 等普通参数尚未在通用 parser 中全部分发。
-
-部分 early parameter 已在 ``setup_arch()`` 阶段解析过；后面的 ``parse_early_param()`` 是幂等入口，不会重复执行已完成的 early parse。
-
-当前机器状态
+本章结束状态
 ------------
 
-本章结束时：
+* current executor：CPU0上的 ``start_kernel``；
+* precise next： ``setup_nr_cpu_ids()`` 尚未调用；
+* CPU/mode：logical CPU0，x86-64 long mode，IF=0，只有CPU0 online/active；
+* jump labels/static calls：arch-early初始化仍有效，generic calls均幂等返回；
+* early LSM：linked early entries已按顺序初始化，具体集合由build决定；
+* bootconfig trailer：若有效则已从initrd logical end切除；是否解析/生成extras按config与token决定；
+* fixed raw GRUB line：含 ``BOOT_IMAGE=/boot/bzImage root=/dev/sda1 ro console=ttyS0``；
+* ``saved_command_line``：extra kernel前缀、boot line及可选init extras的完整副本已建立；
+* ``static_command_line``：extra kernel前缀与arch effective line的mutable副本已建立；
+* command-line dispatch：ordinary kernel parameters与init args均未解析；
+* memory owner：两份字符串和可选extras仍由memblock承载；普通RAM尚未free-to-buddy；
+* per-CPU/scheduler/AP：尚未初始化或启动；initramfs尚未ordinary unpack。
 
-* 当前执行者：Linux 6.12.95 ``init/main.c:start_kernel()``；
-* 精确位置：``setup_command_line(command_line)`` 已返回，``setup_nr_cpu_ids()`` 尚未调用；
-* CPU：BSP / Linux CPU 0；
-* interrupts：关闭；
-* static key：固定 x86 主线早已初始化，本章调用完成幂等确认；
-* static call：固定 x86 主线早已初始化，本章调用完成幂等确认；
-* early LSM：已遍历、准备 blob 布局并执行 early init；
-* 普通 LSM/policy：尚未完成；
-* bootconfig：已完成 trailer 搜索与条件解析；
-* initramfs：若尾部带 bootconfig，``initrd_end`` 已裁掉该 trailer；归档仍未解包；
-* ``saved_command_line``：已建立不可供 parser 破坏的完整副本；
-* ``static_command_line``：已建立可原地解析的工作副本；
-* memblock：仍为上述副本提供启动期分配；
-* per-CPU area：尚未建立；
-* scheduler：尚未初始化；
-* AP：尚未唤醒。
+关键边界
+--------
 
-下一条控制流是：
+#. fixed x86本章的两项static初始化是状态复查，不是第二轮text patch。
+#. static key优化条件分支，static call优化可变函数目标；二者不能合并描述。
+#. ``early_security_init`` 只处理early LSM group，不代表完整security/policy初始化。
+#. 有效bootconfig trailer的切除与是否接受/解析bootconfig是两个边界。
+#. fixed raw GRUB line已知，但builtin append/override、bootconfig extras与build config未知。
+#. extra kernel参数前置；extra init参数位于 ``--`` 后且排在原init参数之前。
+#. ``saved_command_line`` 保存完整可观察文本； ``static_command_line`` 留给later就地kernel parse。
+#. 本章分配字符串但不分发参数，也不因此执行 ``root=``、 ``console=`` 或init argv效果。
+#. ``setup_nr_cpu_ids``、per-CPU areas和CPU0迁移均属于下一章。
+
+下一入口
+--------
+
+第052章从：
 
 .. code-block:: c
 
    setup_nr_cpu_ids();
 
+开始，随后建立per-CPU areas并由 ``smp_prepare_boot_cpu`` 把CPU0接入正式per-CPU环境；参数dispatch继续
+留到第054章。
+
 资料
 ----
 
-* `Linux 6.12.95 init/main.c：static key、LSM、bootconfig 与命令行调用顺序 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c>`_
-* `Linux 6.12.95 jump_label.c：jump table 排序、NOP 修补与幂等状态 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/jump_label.c>`_
-* `Linux 6.12.95 static_call_inline.c：built-in call-site 关联与 static_call_init <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/static_call_inline.c>`_
-* `Linux 6.12.95 x86 setup.c：setup_arch 中更早的 jump_label_init/static_call_init <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/setup.c>`_
-* `Linux 6.12.95 lsm_init.c：early LSM、blob 布局与 static-call hook <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/security/lsm_init.c>`_
-* `Linux bootconfig 文档 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/Documentation/admin-guide/bootconfig.rst>`_
-* `Linux static keys 文档 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/Documentation/staging/static-keys.rst>`_
-* `Linux static calls 文档 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/Documentation/staging/static-calls.rst>`_
+* `Linux 7.2-rc1固定提交：start_kernel从静态修补到命令行副本的顺序 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c#L971-L1005>`_；
+* `Linux 7.2-rc1固定提交：x86 setup_arch提前初始化jump label与static call <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/setup.c#L927-L941>`_；
+* `Linux 7.2-rc1固定提交：jump_label_init幂等guard与首次table处理 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/jump_label.c#L525-L560>`_；
+* `Linux 7.2-rc1固定提交：static_call_init状态与module notifier <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/static_call_inline.c#L495-L523>`_；
+* `Linux 7.2-rc1固定提交：early LSM遍历与初始化 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/security/lsm_init.c#L382-L400>`_；
+* `Linux 7.2-rc1固定提交：bootconfig trailer与XBC command-line生成 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c#L271-L430>`_；
+* `Linux 7.2-rc1固定提交：saved/static command-line allocation与ordering <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c#L598-L658>`_。
