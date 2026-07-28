@@ -1,0 +1,203 @@
+Linux Kernel第064—066章回溯审查
+================================
+
+批次状态
+--------
+
+::
+
+   range            = 064-066
+   status           = repaired
+   verified_before  = 063
+   verified_after   = 066
+   mode             = retrospective-audit
+   blocking_issue   = none
+
+审查范围
+--------
+
+* 第064章从 ``if (late_time_init)`` 开始，到 ``arch_cpu_finalize_init()`` 返回；
+* 第065章从 ``pid_idr_init()`` 开始，到 ``proc_caches_init()`` 返回；
+* 第066章从 ``uts_ns_init()`` 开始，到 ``pidfs_init()`` 返回；
+* 第063章出口和第067章开头只用于核对相邻交接，不修改相邻章节，也不提升第067章的审查状态；
+* 第065、066章各有两个历史正文文件，本批在源码核验后保留与真实边界、读者入口和章节连续性
+  一致的文件，并删除同编号重复文件。
+
+权威源码核对
+------------
+
+开始本批前，只核对并使用以下四个工作树：
+
+::
+
+   SeaBIOS  /Volumes/LinuxKernel/seabios
+            c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
+   QEMU     /Volumes/LinuxKernel/qemu
+            a759542a2c62f0fd3b65f5a66ad9868201014669
+   GRUB     /Volumes/LinuxKernel/grub
+            d38d6a1a9b79427848976f53d474392cd29c2a71
+   Linux    /Volumes/LinuxKernel/linux-7.2-rc1
+            7404ce51637231382873d0b55edabc2f3b841a9d
+
+SeaBIOS、QEMU和GRUB的 ``origin`` 分别指向合同约定的固定仓库；Linux存在指向
+``gregkh/linux`` 的 ``gregkh`` 远程仓库。四个工作树的 ``HEAD`` 精确匹配固定提交，工作树均
+无修改、不是浅克隆，也没有启用稀疏检出。本批没有使用其他源码副本，也没有下载、拉取或补齐
+源码。
+
+批次开始状态
+------------
+
+第063章结束时，CPU0上的 ``start_kernel()`` 仍由 ``init_task`` 执行，处于x86-64长模式、
+CPL0，RFLAGS.IF为1。通用计时器已经发布，但x86延后时间初始化尚未执行；HPET、PIT、最终中断
+模式、TSC晚期初始化、调度时钟切换和延时校准均未完成。应用处理器、普通工作线程、PID 1与
+PID 2均尚未创建。下一条语句是 ``if (late_time_init) late_time_init();``。
+
+初始源码边界
+------------
+
+固定 ``start_kernel()`` 调用顺序把本批分为三个连续区间：
+
+::
+
+   064  late_time_init → sched_clock_init → calibrate_delay
+        → arch_cpu_finalize_init
+   065  pid_idr_init → anon_vma_init → thread_stack_cache_init
+        → cred_init → fork_init → proc_caches_init
+   066  uts_ns_init → time_ns_init → key_init → security_init
+        → dbg_late_init → net_ns_init → vfs_caches_init → pagecache_init
+        → signals_init → seq_file_init → proc_root_init → nsfs_init
+        → pidfs_init
+
+第067章从 ``cpuset_init()`` 开始。当前批次只以该入口核对第066章出口，不进入控制组、内存
+控制组、任务统计或 ``rest_init()``。
+
+第064章源码证据
+---------------
+
+延后时间入口
+   固定x86的 ``time_init()`` 已把 ``late_time_init`` 指向 ``x86_late_time_init()``。该函数
+   按“选择中断模式、选择HPET或PIT、完成中断模式、初始化TSC、按WAITPKG能力选择延时实现”的
+   顺序执行。标准PC函数表分别指向 ``apic_intr_mode_select()``、
+   ``hpet_time_init()`` 和 ``apic_intr_mode_init()``，但前序平台代码仍可替换函数指针。
+
+HPET、PIT和IRQ0
+   ``hpet_enable()`` 只有在HPET可用且具有旧式替代路由时返回1；可用但没有旧式路由时，它已
+   登记 ``clocksource_hpet`` 却仍返回0。此后 ``pit_timer_init()`` 按TSC能力和
+   ``apic_needs_pit()`` 决定建立 ``i8253_clockevent``，或停用PIT并返回假。因此
+   ``setup_default_timer_irq()`` 只在HPET旧式事件或PIT需要IRQ0时执行； ``request_irq()``
+   失败只打印信息，不阻止启动。
+
+TSC和调度时钟
+   ``tsc_init()`` 可能因没有TSC、无法取得频率或检测到不同步而清除能力或标记不稳定；只有
+   通过相应检查才登记早期TSC时钟源。x86的 ``sched_clock_init()`` 暂时关闭CPU0中断，计算
+   通用时间偏移后重新打开中断，再推进 ``sched_clock_running``，所以本章出口IF仍为1。
+
+延时校准
+   ``calibrate_delay()`` 依次尝试逐CPU既有值、启动参数值、 ``lpj_fine``、体系结构已知值、
+   定时器直接校准和收敛校准。最终同时写入CPU0逐CPU字段和全局
+   ``loops_per_jiffy``，不应被写成必然执行传统循环测量。
+
+启动CPU收尾
+   ``arch_cpu_finalize_init()`` 重新识别启动CPU、选择空闲例程、发布SMT信息和缓解措施，初始化
+   FPU，复制最终 ``boot_cpu_data``，执行指令替代，并在x86-64分支发布用户地址上限与按条件
+   拆分低端大页，最后处理内存加密。SeaBIOS与GRUB ``i386-pc`` 路径没有EFI运行时服务，不进入
+   ``efi_enter_virtual_mode()``。
+
+第065章源码证据
+---------------
+
+PID分配基础
+   ``init_struct_pid`` 与 ``init_pid_ns`` 是PID 0使用的静态对象。 ``pid_idr_init()`` 根据
+   可能CPU数调整 ``pid_max``，初始化初始名字空间IDR，并创建层级0所需的 ``pid`` 缓存；
+   它不分配PID。以后 ``alloc_pid()`` 在 ``PIDNS_ADDING`` 状态下把游标置零，并以1作为首次
+   自动分配下限，PID 1仍要等任务复制路径实际运行。
+
+匿名映射、线程栈与凭据
+   ``anon_vma_init()`` 创建 ``anon_vma`` 和 ``anon_vma_chain`` 缓存。当前x86-64的
+   ``THREAD_SIZE`` 不小于页大小，因此 ``thread_stack_cache_init()`` 采用
+   ``init/main.c`` 的弱空实现；另一构建条件下的同名强定义不能套入本路径。
+   ``cred_init()`` 只创建凭据缓存，不替换 ``init_task`` 的静态凭据。
+
+任务对象与限制
+   ``fork_init()`` 创建 ``task_struct`` 用户复制缓存，用估计可用内存计算
+   ``max_threads``，设置初始任务和初始用户名字空间限制，并按配置登记虚拟映射栈回收状态；
+   随后处理影子调用栈、 ``init_task`` 的锁检查状态和uprobes。整个函数没有调用
+   ``copy_process()``。
+
+进程共享对象
+   ``proc_caches_init()`` 创建 ``sighand``、 ``signal``、 ``files`` 与 ``fs`` 缓存，并执行
+   ``exec_state_init()``、 ``mmap_init()`` 和 ``nsproxy_cache_init()``。它不初始化
+   ``procfs``，也不创建已经在更早内存初始化中建立的 ``mm_struct`` 缓存。
+
+第066章源码证据
+---------------
+
+可选名字空间、密钥与安全框架
+   UTS和时间名字空间入口分别按配置创建缓存或登记初始对象；禁用时均为空。密钥入口按
+   ``CONFIG_KEYS`` 建立对象缓存、特殊类型和根用户记账。 ``security_init()`` 按内建或启动
+   参数顺序准备所选LSM，为当前凭据和任务分配私有区，再初始化尚未运行的模块；未启用安全
+   框架时直接返回0。
+
+调试与网络
+   ``dbg_late_init()`` 只属于可选KGDB/KDB晚期切换，不是通用调试对象初始化。网络启用时，
+   ``net_ns_init()`` 分配初始网络名字空间通用数据，按 ``CONFIG_NET_NS`` 创建缓存和清理
+   工作队列，再执行已登记的逐网络名字空间操作；关键分配或设置失败会停止启动。
+
+VFS与内部根挂载
+   ``vfs_caches_init()`` 依次初始化文件名、目录项、inode、文件对象、挂载、块设备和字符
+   设备。其 ``mnt_init()`` 还建立挂载缓存与哈希、 ``kernfs``、 ``sysfs``、共享内存和
+   ``rootfs``。 ``init_mount_tree()`` 以 ``nullfs`` 为初始名字空间根，在其上叠加可变
+   ``rootfs``，并把当前任务的根目录和工作目录指向后者；这不是最终ext4磁盘根。
+
+页缓存、信号与伪文件系统
+   ``pagecache_init()`` 建立folio等待队列表和回写基础； ``signals_init()`` 与
+   ``seq_file_init()`` 分别创建信号队列和顺序文件缓存。 ``proc_root_init()`` 按配置建立
+   proc目录结构并登记文件系统类型，但不挂载procfs。 ``nsfs_init()`` 和 ``pidfs_init()``
+   则立即建立各自的内部挂载，pidfs还初始化inode散列表和属性缓存。
+
+发现并修复
+----------
+
+#. 三章旧正文普遍使用普通英文叙述、中英混杂短句和沿前章继续压缩的表达，已按每章独立源码
+   边界重写为完整中文叙事，并保留函数、类型、字段和配置标识。
+#. 第064章把 ``hpet_enable()`` 结果压缩为成功或失败，误写PIT分支的返回含义；改为区分HPET
+   旧式事件、只有HPET时钟源、需要PIT和无需IRQ0四项状态。
+#. 第064章把IRQ0登记、硬件事件到达、TSC可靠和周期时钟滴答写成连续必然结果；改为分别保留
+   请求失败、硬件路由、TSC校准与同步检测条件。
+#. 第064章遗漏 ``sched_clock_init()`` 内部IF变化、延时校准完整选择顺序和x86-64用户地址
+   上限、低端映射分支；已按固定源码补齐。
+#. 第065章把 ``thread_stack_cache_init()`` 写成当前路径必然创建缓存；改为x86-64采用弱空
+   入口，并把虚拟映射栈回收状态放回 ``fork_init()`` 的配置分支。
+#. 第065章曾混淆 ``proc_caches_init()``、 ``mm_cache_init()`` 和 ``procfs``；已按实际
+   调用拆分进程共享缓存、VMA与名字空间代理基础，并明确procfs尚未初始化。
+#. 第066章把 ``dbg_late_init()`` 当成通用调试基础；改为KGDB/KDB专用且可为空的入口。
+#. 第066章旧正文没有稳定区分VFS缓存、初始内部 ``rootfs``、最终磁盘根和procfs登记；现已
+   写清 ``mnt_init()`` 建立的双层挂载树，以及procfs、nsfs和pidfs三种不同结果。
+#. 第065、066章各有两个文件，读者目录通配规则会同时展示。已保留后加入且命名较短的
+   ``065-linux-builds-pid-and-fork-object-foundations.rst`` 与
+   ``066-linux-builds-namespaces-security-and-vfs-foundations.rst``，删除较早的同编号重复
+   文件；保留文件已完全按固定源码重写，不依赖旧文件内容作为技术证据。
+
+连续性
+------
+
+第063章出口的下一条语句是 ``if (late_time_init) late_time_init();``，与第064章入口一致。
+第064章完成x86延后时间、调度时钟、延时校准和启动CPU收尾，出口正好停在
+``pid_idr_init()``。第065章顺序完成PID、匿名映射、凭据、任务和进程共享对象基础，出口停在
+``uts_ns_init()``。第066章完成可选名字空间、安全框架、网络、VFS、内部根挂载和伪文件系统，
+其下一条语句是第067章开头的 ``cpuset_init()``。
+
+验证
+----
+
+* ``tools/check-linux-kernel-track.sh 66`` 通过第001—066章结构检查，同编号重复文件债务已经
+  消除；
+* 两份TOML manifest解析通过，审查游标一致指向已验证至066、下一批067—069，并按用户指令
+  在本批完成后把审查执行状态设为暂停；
+* 第064—066章普通叙述中的禁用英文词、旧版本标签和无固定提交资料链接检查通过；源码代码块
+  中保留的 ``return`` 是原始控制流，不是英文叙述；
+* 三章全部使用固定Linux提交的精确行锚点资料，章节标题下划线、章末四节和相邻入口检查通过；
+* ``git diff --check`` 通过，完整差异只包含第064—066章、两个同编号重复文件的删除、当前批
+  报告、审计索引、 ``STATE.rst`` 和两份manifest；
+* 固定源码复查、配置与失败分支、对象状态、第063章出口和第067章入口的交叉检查没有遗留阻塞
+  问题。

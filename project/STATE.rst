@@ -13,91 +13,98 @@
 
    mode                 = retrospective-audit
    forward production   = paused
-   audit execution      = active
+   audit execution      = paused
    content present      = 001-193
-   audit verified       = 001-063
-   verified_through     = 063
+   audit verified       = 001-066
+   verified_through     = 066
    blocked batches      = none
    current batch        = none
-   next batch           = 064-066
-   next batch status    = pending
+   next batch           = 067-069
+   next batch status    = paused by user
 
-第064—193章已有文件只表示历史正文存在，不表示技术事实已经验证。第193章审查闭合前不得生产
-新章；下一批必须从064开始，不得跳过或机械提高游标。
+第067—193章已有文件只表示历史正文存在，不表示技术事实已经验证。第193章审查闭合前不得生产
+新章；下一批必须从067开始，不得跳过或机械提高游标。用户要求第064—066章完成后暂停审查，
+恢复前不得启动第067—069章。
 
 最近完成批次
 ------------
 
-`061—063审查报告 <audits/linux-kernel/061-063.rst>`_：状态 ``repaired``。
+`064—066审查报告 <audits/linux-kernel/064-066.rst>`_：状态 ``repaired``。
 
 本批完成：
 
-* 第061章按Linux 7.2-rc1重新建立VDSO数据页、持久时钟、启动偏移、
-  ``clocksource_jiffies``、核心计时器同步发布和x86延后函数边界；
-* 第062章区分随机数生成器的条件状态、KFENCE、栈保护、性能事件与传统性能分析构建分支，并
-  纠正所有可能CPU队列头和仅CPU0发送端资源之间的差异；
-* 第062章确认 ``early_boot_irqs_disabled`` 与RFLAGS.IF依次变化，并保留FRED或IDT入口、最终
-  中断模式和具体中断源之间的边界；
-* 第063章把 ``kmem_cache_init_late()`` 限定为SLUB清理工作队列与可选随机状态，纠正
-  ``lockdep_init()`` 的报告语义；
-* 第063章补齐 ``panic_later``、初始内存盘低端禁用、逐CPU页面集、当前启动任务临时NUMA交错
-  策略，以及ACPICA禁用、失败关闭和正常初始化三类结果。
+* 第064章按固定源码重建x86延后时间初始化，区分HPET时钟源、HPET旧式时钟事件、PIT和无需
+  IRQ0的路径，并保留IRQ登记失败与TSC不可靠分支；
+* 第064章补齐 ``sched_clock_init()`` 内部IF变化、延时校准选择顺序，以及启动CPU的FPU、
+  最终特性、指令替代、用户地址上限、低端映射和内存加密收尾；
+* 第065章区分静态PID 0对象与动态PID分配基础，确认当前x86-64的
+  ``thread_stack_cache_init()`` 是弱空入口，并还原 ``fork_init()`` 与
+  ``proc_caches_init()`` 的真实对象边界；
+* 第066章按构建条件处理名字空间、密钥、安全框架、KGDB/KDB和网络，补齐
+  ``vfs_caches_init()`` 内建立的初始挂载树、内部 ``rootfs`` 与三个伪文件系统的不同结果；
+* 删除第065、066章各一份同编号重复文件，读者目录现在每个编号只收录一份正文。
 
-第063章结束状态
+第066章结束状态
 ---------------
 
 ::
 
-   当前执行者          = CPU0上的start_kernel()；acpi_early_init()已返回
-   下一入口            = if (late_time_init) late_time_init()
+   当前执行者          = CPU0上的start_kernel()；pidfs_init()已返回
+   下一入口            = cpuset_init()
    CPU模式             = x86-64长模式，CPL0
    IF                  = 1
-   启动期IRQ软件标志   = early_boot_irqs_disabled为假
    当前任务            = init_task / swapper/0 / PID 0
    CPU在线且活动       = 仅CPU0
-   应用处理器          = 尚未执行
-   VDSO数据            = 正式数据页已经分配；用户VMA尚不存在
-   通用计时            = 核心timekeeper已发布；当前时钟源为clocksource_jiffies
-   x86硬件时间         = late_time_init已登记但尚未调用
-   周期时钟滴答        = 尚未由最终硬件时钟事件驱动
-   随机数              = random_init()已执行；可用状态取决于较早熵累计
-   KFENCE              = 按配置、采样间隔和池初始化结果处理
-   栈保护              = 按配置为init_task与CPU0设置，或为空入口
-   性能事件/传统分析   = 分别按配置、参数和分配结果处理
-   跨CPU函数调用       = 所有可能CPU队列头已初始化；CPU0发送端资源只保证已尝试申请
-   SLUB                = slub_flushwq已尝试申请；失败只警告
-   控制台              = 默认行规程和控制台初始化区间已执行；具体终端登记取决于配置与结果
-   锁检查              = lockdep报告与锁接口自检按配置和调试状态处理
-   初始内存盘          = 起始地址按低端检查保留或清零；归档尚未解包
-   逐CPU页面集         = 已填充内存区覆盖所有可能CPU的正式页面集已经建立
-   NUMA策略            = 启用且设置成功时，init_task暂时采用启动期交错策略
-   ACPI                = 保持禁用、失败后关闭，或已建立早期ACPICA基础
-   普通AML/ACPI设备    = 尚不能执行 / 尚未扫描
+   应用处理器          = 尚未启动
+   中断模式            = 按运行检测选择并完成启动CPU设置
+   HPET/PIT            = 按能力、配置和中断模式选择；IRQ0只在需要时尝试登记
+   TSC                 = 按能力、频率与同步结果使用或标记不稳定
+   调度时钟            = 启动基准已经切换
+   延时循环            = CPU0与全局loops_per_jiffy已经写入
+   启动CPU             = 最终信息已经复制，指令替代已经执行
+   初始PID名字空间     = IDR与动态pid缓存已经建立；PID 1尚未分配
+   任务创建基础        = task_struct、凭据、信号、文件和名字空间代理等缓存已经建立
+   UTS/时间名字空间    = 分别按构建配置登记或采用空入口
+   密钥/安全框架       = 分别按构建与启动选择初始化或采用空入口
+   KGDB/KDB            = 按配置完成晚期切换或采用空入口
+   初始网络名字空间    = CONFIG_NET启用时已经设置；完整协议与设备尚未初始化
+   VFS                 = 文件名、目录项、inode、文件、挂载、块设备和字符设备基础已建立
+   初始挂载名字空间    = nullfs与可变rootfs已经挂载并接入init_task
+   当前根与工作目录    = 指向可变rootfs
+   最终磁盘根          = 尚未挂载
+   初始内存盘          = 尚未解包
+   页缓存等待/回写     = 基础已经初始化
+   procfs              = 按配置登记但尚未挂载
+   nsfs/pidfs          = 内部挂载已经建立
    普通工作线程        = 尚未启动
    任务切换            = 尚未发生
    PID1/PID2           = 尚未创建
-   根文件系统          = 尚未挂载
 
-已验证的第061—063章关系
+已验证的第064—066章关系
 -----------------------
 
-* ``vdso_setup_data_pages()`` 只准备内核侧正式页面，不创建用户VDSO或VVAR映射；
-* x86墙上时间经 ``x86_platform.get_wallclock`` 读取，启动偏移的通用值来自
-  ``local_clock()``，二者不能合并为一次硬件读取；
-* x86没有覆盖启动默认时钟源，当前使用 ``clocksource_jiffies``；没有最终硬件时钟事件时不能
-  声称周期性 ``jiffies`` 增长已经开始；
-* ``time_init()`` 只把 ``late_time_init`` 指向 ``x86_late_time_init``，不执行HPET、PIT、
-  TSC或最终中断模式初始化；
-* ``random_init()`` 已执行不等于随机数生成器在所有运行条件下都已达到可用阈值；
-* KFENCE延迟工作已经排队时，普通工作线程仍未开始；栈保护和性能事件都可能是空入口；
-* ``call_function_init()`` 为所有可能CPU初始化队列头，只为CPU0尝试申请发送端数据，并忽略
-  该申请函数的错误值；
-* ``local_irq_enable()`` 允许普通可屏蔽中断进入，不会主动制造中断、登记处理动作或触发调度；
-* ``kmem_cache_init_late()`` 不重建SLUB，只申请清理工作队列并初始化可选伪随机状态；
-* ``lockdep_init()`` 在启用时报告静态容量，不在此首次创建锁依赖图；
-* 初始内存盘低端检查可以把 ``initrd_start`` 清零，运行期地址未固定，不能把保留写成必然；
-* 正式逐CPU页面集不改变页面所属内存区；NUMA初始化可能改变当前 ``init_task`` 的后续分配策略；
-* ``acpi_early_init()`` 正常返回也不允许普通AML执行；初始化失败会关闭ACPI后继续启动。
+* ``x86_late_time_init()`` 先选择中断模式，再初始化HPET或PIT，随后完成模式设置并处理TSC；
+* ``hpet_enable()`` 返回0可能表示HPET完全不可用，也可能表示时钟源已登记但没有旧式替代
+  路由；只有HPET旧式事件或PIT需要IRQ0时才执行 ``setup_default_timer_irq()``；
+* IRQ0登记失败只打印信息；越过入口不证明处理动作存在，也不证明硬件时钟事件已经到达；
+* ``tsc_init()`` 可能清除能力或标记TSC不稳定；固定QEMU平台未限定CPU模型和加速器，不能预判
+  TSC可靠；
+* ``sched_clock_init()`` 短暂关闭并重新打开CPU0中断以切换调度时钟基准，正常出口IF仍为1；
+* ``calibrate_delay()`` 从六类既有值或校准路径中选择，不必然执行传统收敛循环；
+* ``arch_cpu_finalize_init()`` 完成启动CPU收尾，不会启动应用处理器、创建任务或进入空闲循环；
+* PID 0使用静态 ``init_struct_pid``； ``pid_idr_init()`` 只建立动态分配能力，PID 1要等
+  ``alloc_pid()`` 在任务复制路径中实际执行；
+* 当前x86-64的 ``thread_stack_cache_init()`` 是弱空入口；启用虚拟映射栈时，回收状态由
+  ``fork_init()`` 按配置登记；
+* ``fork_init()`` 建立任务缓存与限制， ``proc_caches_init()`` 建立进程共享对象、VMA和
+  ``nsproxy`` 基础；二者都不创建新任务；
+* ``proc_caches_init()`` 不是procfs初始化，也不创建已经在更早内存阶段建立的
+  ``mm_struct`` 缓存；
+* UTS、时间、密钥、安全、KGDB、网络和proc入口均受构建或启动选择控制；
+* ``mnt_init()`` 在VFS缓存入口内部建立初始挂载名字空间，以 ``nullfs`` 为名字空间根并在
+  上面挂载可变 ``rootfs``；它不是最终ext4磁盘根；
+* ``proc_root_init()`` 只按配置登记procfs， ``nsfs_init()`` 与 ``pidfs_init()`` 则建立
+  内核内部挂载。
 
 固定平台约定
 ------------
@@ -115,29 +122,27 @@
 下一入口
 --------
 
-第064章从固定Linux源码中的：
+第067章从固定Linux源码中的：
 
 .. code-block:: c
 
-   if (late_time_init)
-       late_time_init();
+   cpuset_init();
 
-开始。x86当前函数指针指向 ``x86_late_time_init()``，随后才进入 ``sched_clock_init()``、
-``calibrate_delay()`` 和 ``arch_cpu_finalize_init()``。旧第064—066章标题、两个第065章文件和
-两个第066章文件均未按固定源码验证；下一批必须从真实调用边界确定保留文件，不能从旧文件名
-反推事实或跳过重复项。
+开始。随后才是 ``mem_cgroup_init()``、 ``cgroup_init()``、任务统计、延迟记账、ACPI子系统、
+KCSAN条件入口和 ``rest_init()``。旧第067—069章尚未按固定源码验证；下一批必须重新确定
+``rest_init()``、PID 1/PID 2、应用处理器、工作队列与SMP调度器的真实章节边界。
 
-第064—066章读取清单
+第067—069章读取清单
 -------------------
 
 #. ``AGENTS.md``、 ``project/LINUX_KERNEL_CONTRACT.rst``、本文件和
-   ``audits/linux-kernel/061-063.rst``；
-#. 第063章末尾、第064章全文、两个第065章文件、两个第066章文件和第067章开头；
-#. 固定 ``init/main.c`` 从 ``late_time_init`` 条件调用到第066章自然出口的真实顺序；
-#. x86中断模式、HPET/PIT、TSC、调度时钟、延时校准、启动CPU最终处理、PID分配器、匿名VMA、
-   线程栈、凭据、 ``fork_init()``、名字空间、安全框架和VFS缓存所需源码；
-#. 重复文件的读者入口与链接情况；只在完成逐个源码核验后决定保留哪一份；
-#. 两份manifest游标、条件分支、失败语义和第067章真实入口。
+   ``audits/linux-kernel/064-066.rst``；
+#. 第066章末尾、第067—069章全文和第070章开头；
+#. 固定 ``init/main.c`` 从 ``cpuset_init()`` 到第069章自然出口的真实调用顺序；
+#. CPU集合、内存控制组、控制组核心、任务统计、延迟记账、ACPI子系统、KCSAN、
+   ``rest_init()``、 ``kernel_init()``、 ``kthreadd``、应用处理器、工作队列和调度器所需
+   源码；
+#. 两份manifest游标、条件分支、失败语义、第066章出口和第070章真实入口。
 
 权威源码工作树
 --------------
@@ -150,16 +155,15 @@
    /Volumes/LinuxKernel/linux-7.2-rc1 HEAD = 7404ce51637231382873d0b55edabc2f3b841a9d
 
 本批开始时，四个工作树的远程仓库均符合合同；Linux存在指向 ``gregkh/linux`` 的远程仓库；
-四者工作树干净、完整、不是浅克隆且未启用稀疏检出。不得使用其他源码副本取证，也不得自动
+四者工作树干净、不是浅克隆且未启用稀疏检出。不得使用其他源码副本取证，也不得自动
 下载、拉取或补齐源码。
 
 已知债务
 --------
 
-* 第064章起历史正文仍有旧版本、旧结构或未经固定源码核验的断言；
-* 第065、066章各有两个正文文件，必须在下一批逐一核验并解决重复项；
+* 第067章起历史正文仍有旧版本、旧结构或未经固定源码核验的断言；
 * 第001—073章尚未逐章进入主线机器可读章节目录；
-* 第064—193章必须继续按编号顺序审查，不能批量机械标记为已验证。
+* 第067—193章必须继续按编号顺序审查，不能批量机械标记为已验证。
 
 历史前向终点
 ------------

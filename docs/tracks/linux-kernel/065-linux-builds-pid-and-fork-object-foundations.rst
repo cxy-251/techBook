@@ -1,309 +1,211 @@
-第六十五章：Linux 怎样建立 PID 分配器与 fork 对象基础？
-====================================================
+第六十五章：Linux怎样建立PID与任务创建对象？
+===========================================
 
-第六十四章结束时，boot CPU 的 feature、FPU、alternative instructions、真实定时器和延时校准已经完成。当前仍由 ``init_task`` / ``swapper/0`` / PID 0 在 ``start_kernel()`` 中同步执行。
+第六十四章结束时，CPU0已经完成时间和体系结构收尾，但当前执行者仍是静态创建的
+``init_task``，其PID为0。内核还没有可供新任务使用的PID分配器、 ``task_struct`` 缓存和
+成组进程资源缓存。本章从 ``pid_idr_init()`` 开始，依次经过匿名映射、线程栈、凭据和任务
+创建基础，到 ``proc_caches_init()`` 返回，并停在 ``uts_ns_init()`` 之前。
 
-接下来的控制流是：
+PID 0为何不需要本章现建
+----------------------
 
-.. code-block:: c
+启动任务使用编译期对象 ``init_struct_pid``。该对象的引用计数初值为1，层级为0，
+``numbers[0].nr`` 为0，并指向 ``init_pid_ns``；初始PID名字空间本身也已经静态存在，其
+``child_reaper`` 指向 ``init_task``。所以CPU0能够以PID 0运行到这里，并不依赖动态PID分配。
 
-   pid_idr_init();
-   anon_vma_init();
-   thread_stack_cache_init();
-   cred_init();
-   fork_init();
-   proc_caches_init();
+本章建立的是以后创建任务所需的动态路径。 ``pid_idr_init()`` 不会为 ``init_task`` 再分配
+一次PID，也不会在执行期间生成PID 1。
 
-本章追踪到 ``proc_caches_init()`` 返回，停在 ``uts_ns_init()`` 之前。这一段建立“内核已经具备创建任务所需对象”的条件，不会直接调用 ``copy_process()``，也不会产生 PID 1。
+初始PID名字空间怎样取得分配器
+----------------------------
 
-PID 0 为什么早于 PID allocator 存在
---------------------------------
+``pid_idr_init()`` 先以编译期断言保证 ``PID_MAX_LIMIT`` 不会与
+``PIDNS_ADDING`` 状态位重叠。随后它按照 ``num_possible_cpus()`` 调整
+``init_pid_ns.pid_max`` 和系统允许的最小 ``pid_max``：默认上限至少达到每个可能CPU对应的
+建议值，但不会超过 ``pid_max_max``；最小值也随可能CPU数量增长。
 
-当前执行者早已显示为 PID 0，但 ``pid_idr_init()`` 现在才运行，两者并不冲突。
+函数接着重新初始化 ``init_pid_ns.idr``，并创建名为 ``pid`` 的SLUB缓存。对象大小使用
+``struct_size_t(struct pid, numbers, 1)``，正好覆盖初始PID名字空间层级0所需的一项
+``upid``； ``SLAB_PANIC`` 表示缓存创建失败会停止启动，而不是把错误交给后续调用者。
 
-``init_task`` 和 ``init_struct_pid`` 是链接进内核映像的静态对象。``init_struct_pid`` 已经把数字 0、初始 PID namespace 和 ``init_task`` 的特殊启动身份固定下来。它不是通过普通动态 PID 分配路径产生的。
+此处没有登记 ``pid_max`` 的 ``sysctl``。 ``pid_namespace_sysctl_init()`` 属于稍后的
+``subsys_initcall`` 阶段；本章只准备分配器和对象缓存。
 
-即将建立的 allocator 服务于后续新任务：
+为什么下一次自动分配会从1开始
+----------------------------
 
-.. code-block:: text
+``init_pid_ns`` 的静态状态包含 ``pid_allocated=PIDNS_ADDING``。以后
+``alloc_pid()`` 首次为该名字空间分配PID时，会在 ``pidmap_lock`` 下把IDR游标设为0；没有
+指定PID时，分配下限先取1，只有游标已经越过 ``RESERVED_PIDS`` 后，循环分配的下限才改为
+``RESERVED_PIDS``。
 
-   PID 1  kernel_init
-   PID 2  kthreadd
-   后续用户进程与内核线程
+这段代码为将来的第一个动态任务保留PID 1语义，但它在本章尚未执行。真正的
+``alloc_pid()`` 要等任务复制路径被调用；当前IDR中没有因为 ``pid_idr_init()`` 而出现PID 1
+对象。
 
-因此，``PID 0 已存在`` 与 ``动态 PID allocator 尚未初始化`` 是两个不同事实。
-
-``pid_idr_init()`` 调整初始 PID 空间
-----------------------------------
-
-固定源码首先检查：
-
-.. code-block:: c
-
-   BUILD_BUG_ON(PID_MAX_LIMIT >= PIDNS_ADDING);
-
-``pid_allocated`` 的高位还承载 ``PIDNS_ADDING`` 状态，PID 数值上限不能与该状态位重叠。这里使用构建期检查，错误配置不能生成内核映像。
-
-随后根据 possible CPU 数量调整：
-
-.. code-block:: text
-
-   init_pid_ns.pid_max
-   pid_max_min
-
-CPU 越多，可并发存在的任务通常越多。内核使用 ``PIDS_PER_CPU_DEFAULT`` 与 ``PIDS_PER_CPU_MIN`` 给默认值和最小值提供随 CPU 数量增长的下限，同时仍受 ``PID_MAX_LIMIT`` 限制。
-
-这一步依据的是 possible CPU，不是当前 online CPU。当前仍只有 CPU0 online，但固件和早期拓扑已经告诉 Linux 未来可能启动多少 AP，因此 PID 空间可以提前按完整机器规模准备。
-
-初始化 IDR 不等于分配 PID
------------------------
-
-``pid_idr_init()`` 接着执行：
-
-.. code-block:: c
-
-   idr_init(&init_pid_ns.idr);
-
-IDR（ID Radix Tree）提供整数 ID 到对象指针的映射和空闲 ID 分配能力。PID allocator 后续通过 ``idr_alloc_cyclic()`` 在 namespace 的 PID 范围中寻找数字，再把完整 ``struct pid`` 放进 IDR。
-
-此刻 IDR 只是进入可用状态：
-
-* 没有调用 ``alloc_pid()``；
-* 没有占用数字 1；
-* 没有把新 ``task_struct`` 加入 task list；
-* 没有触发调度。
-
-``struct pid`` 为什么需要专用 cache
-----------------------------------
-
-函数最后创建名为 ``pid`` 的 slab cache。对象大小按照初始 PID namespace 的一级 ``numbers[]`` 数组计算。
-
-``struct pid`` 不是 ``task_struct`` 中一个普通整数。它负责把同一个数字身份连接到：
-
-* PID/TID；
-* thread-group ID；
-* process-group ID；
-* session ID；
-* 不同层级 PID namespace 中的 ``upid``；
-* pidfd 与等待队列；
-* 查找该 ID 对应任务的 hlist。
-
-普通初始 namespace 的对象只需要一级编号。嵌套 PID namespace 会创建尺寸更大的 cache，以容纳每一层 namespace 中的数字。
-
-第一份动态 PID 为什么必须是 1
+匿名映射对象先准备两类缓存
 --------------------------
 
-``alloc_pid()`` 中存在明确约束：若某个 PID namespace 尚未建立 ``child_reaper``，第一次成功分配的编号必须是 1。
+``anon_vma_init()`` 创建 ``anon_vma`` 与 ``anon_vma_chain`` 两个缓存。前者带有构造函数
+``anon_vma_ctor()``，每次构造时初始化 ``rwsem``、把引用计数设为0，并建立空的缓存红黑树；
+后者保存匿名VMA与映射关系之间的链节点。
 
-后面的 ``rest_init()`` 会先创建 ``kernel_init``，它成为初始 PID namespace 的 PID 1 和 child reaper。只有这一步成功后，PID 2 及其他编号才允许正常出现。
+这一步只使匿名反向映射对象能够按需分配。它没有创建用户VMA、页表或匿名页，也没有给
+``init_task`` 建立用户地址空间。第055章已经建立的通用内存分配基础为这些SLUB缓存提供对象
+内存，本章在其上增加用途明确的对象类型。
 
-当前 ``pid_idr_init()`` 只为这次分配准备 IDR 和 cache，没有执行第一次分配。
-
-``anon_vma_init()`` 为匿名页建立反向关系对象
----------------------------------------
-
-进程创建不仅需要 ``task_struct``，还要处理地址空间复制。父进程中的匿名内存通常通过 fork 建立 copy-on-write 关系：父子先共享物理页，任一方写入时再复制。
-
-页回收、迁移、写保护和解除映射需要回答：
-
-.. code-block:: text
-
-   这个匿名 folio 被哪些 VMA 映射？
-   应该到哪些进程页表中修改 PTE？
-
-``anon_vma`` 提供匿名内存反向映射的共同根，``anon_vma_chain`` 把一个 VMA 连接到相关 ``anon_vma`` 层级。
-
-``anon_vma_init()`` 为这两类高频对象建立专用 slab cache。它不会为 ``init_task`` 创建用户匿名地址空间，也不会发生 COW fault；它只是保证未来 ``anon_vma_prepare()`` 和 ``anon_vma_fork()`` 能分配连接对象。
-
-反向映射和页表不是同一个结构
---------------------------
-
-页表回答虚拟地址怎样找到物理页：
-
-.. code-block:: text
-
-   virtual address → PTE/PMD → physical folio
-
-reverse mapping 回答相反方向：
-
-.. code-block:: text
-
-   physical folio → anon_vma/mapping → VMA → page table entries
-
-fork、migration、memory reclaim 和 ``try_to_unmap()`` 都需要第二条路径。``anon_vma_init()`` 建立对象分配基础，不修改当前页表。
-
-``thread_stack_cache_init()`` 是配置相关入口
------------------------------------------
-
-每个任务都需要内核栈，但具体分配方式取决于架构和配置：
-
-* ``CONFIG_VMAP_STACK``：通过 vmalloc 虚拟区建立带 guard page 的栈，并使用 per-CPU cache 减少反复 ``vmap``/``vfree``；
-* ``THREAD_SIZE >= PAGE_SIZE``：可以直接从 page allocator 分配整页或高阶页；
-* 更小的独立 stack：使用 ``thread_stack`` slab cache。
-
-固定 x86-64 内核通常启用 ``CONFIG_VMAP_STACK``，此时 ``thread_stack_cache_init()`` 可能落到通用空实现；真正的 vmapped-stack cache 已由 ``kernel/fork.c`` 中的 per-CPU ``cached_stacks`` 路径定义。
-
-因此不能看到函数名就断言“这里创建了 thread_stack slab”。准确结论是：内核执行了架构/配置规定的线程栈 cache 初始化入口。
-
-``cred_init()`` 建立 credential 对象 cache
----------------------------------------
-
-Linux 把任务身份放在 ``struct cred`` 中，包括：
-
-* real/effective/saved UID 与 GID；
-* filesystem UID/GID；
-* supplementary groups；
-* capability sets；
-* user namespace；
-* keyring 引用；
-* LSM security blob；
-* ucounts。
-
-``cred_init()`` 创建带硬件 cache 对齐、内存记账和 panic-on-failure 属性的 ``cred`` slab cache。
-
-当前 ``init_task`` 已经引用静态 ``init_cred``。这里不会重新生成 PID 0 的身份，而是让后面的 ``prepare_creds()``、``copy_creds()`` 和 kernel service credential 创建能够分配动态对象。
-
-credential 为什么采用复制后提交
+线程栈入口在当前x86-64路径为空
 -----------------------------
 
-运行中的任务不会随意原地修改一份被多个读者共享的 credential。常见路径是：
+``start_kernel()`` 无条件写出 ``thread_stack_cache_init()``，但定义取决于
+``THREAD_SIZE``。当 ``THREAD_SIZE`` 不小于 ``PAGE_SIZE`` 时， ``init/main.c`` 提供一个弱
+空实现；只有线程栈小于一页且未使用 ``CONFIG_VMAP_STACK`` 的构建， ``kernel/fork.c`` 才以
+同名强定义创建 ``thread_stack`` 用户复制缓存。
 
-.. code-block:: text
+当前主线沿x86-64路径， ``THREAD_SIZE`` 不小于页大小，因此这里执行空入口。若启用了
+``CONFIG_VMAP_STACK``，虚拟映射栈的逐CPU回收机制不是在该空入口建立，而是在后面的
+``fork_init()`` 登记CPU热插拔状态。旧正文若把本行写成必然创建线程栈缓存，就把另一种构建
+条件误写进了当前执行路径。
 
-   prepare_creds()
-   → copy old cred
-   → modify private copy
-   → security hooks validate
-   → commit_creds()
-   → RCU release old cred
+凭据缓存只准备新对象存放位置
+----------------------------
 
-专用 cache 和引用计数使这种不可变快照模型可行。``cred_init()`` 只是建立分配池，不执行用户身份切换。
+``cred_init()`` 以 ``KMEM_CACHE(cred, ...)`` 创建 ``cred_jar``，并使用
+``SLAB_HWCACHE_ALIGN``、 ``SLAB_PANIC`` 和 ``SLAB_ACCOUNT``。以后复制任务或内核服务准备
+凭据时，才会从这个缓存取得 ``struct cred``。
 
-``fork_init()`` 创建 ``task_struct`` cache
----------------------------------------
+当前 ``init_task`` 的凭据仍来自静态初始对象，函数不会替换 ``current->cred``，也不会改变
+UID、GID、能力集合或安全标记。安全模块附加在当前凭据上的私有数据，要等第066章
+``security_init()`` 根据启用的LSM分配。
 
-``fork_init()`` 的第一项主体工作是创建 ``task_struct`` slab cache。
+fork_init怎样准备task_struct
+----------------------------
 
-对象按 L1 cache line 和架构最小对齐要求排列，并带：
+``fork_init()`` 先让 ``task_struct_whitelist()`` 取得体系结构允许用户复制的
+``thread_struct`` 区间，再按L1缓存行和体系结构最小对齐要求创建 ``task_struct`` 用户复制
+缓存。缓存使用 ``SLAB_PANIC|SLAB_ACCOUNT``；创建失败不会留下一个可继续但无法复制任务的
+内核。
 
-* ``SLAB_PANIC``：启动期无法建立核心任务 cache 时直接停止；
-* ``SLAB_ACCOUNT``：支持 kernel-memory cgroup accounting；
-* usercopy whitelist：只允许架构明确声明的 ``thread_struct`` 范围参与受控 usercopy。
+随后调用弱定义的 ``arch_task_cache_init()``，让需要额外任务缓存的体系结构覆盖；固定x86
+没有在此提供强定义，因此采用空实现。至此只是可以分配 ``task_struct``，尚未执行
+``dup_task_struct()``，也没有为任何新任务分配内核栈。
 
-后面的 ``dup_task_struct()`` 才会从该 cache 分配新任务。当前函数返回时 cache 已存在，里面还没有 PID 1 对象。
+任务数量上限来自可用内存估计
+----------------------------
 
-``max_threads`` 来自可用内存，而不是 PID 上限
-------------------------------------------
+``set_max_threads(MAX_THREADS)`` 读取 ``memblock_estimated_nr_free_pages()``，按“线程栈结构
+最多消耗估计可用内存的八分之一”计算建议数量，再限制到传入上限和
+``MIN_THREADS``、 ``MAX_THREADS`` 之间。由此得到的 ``max_threads`` 取决于内存规模和构建
+常量，不能从固定机器模型推导为某个数字。
 
-``fork_init()`` 调用 ``set_max_threads()``，根据估计的空闲物理页、``PAGE_SIZE`` 和 ``THREAD_SIZE`` 计算任务数量上限，使所有线程栈和任务结构不会轻易吃掉过大比例的内存。
+``fork_init()`` 随后把 ``init_task.signal`` 中的 ``RLIMIT_NPROC`` 软硬限制都设为
+``max_threads/2``，并让 ``RLIMIT_SIGPENDING`` 使用同一上限；初始用户名字空间的各类
+``ucount_max`` 也先取 ``max_threads/2``。指定的用户名字空间资源限制上界再按源码设为
+``RLIM_INFINITY``。这些是后续创建和计数对象的限制，不是已经存在的任务数量。
 
-需要区分：
-
-.. code-block:: text
-
-   pid_max      可分配 PID 数字范围
-   max_threads  系统允许同时存在的任务数量上限
-
-PID 数字空间很大，并不代表内存足以同时容纳同样数量的任务。
-
-初始 rlimit 与 ucount 上限
------------------------
-
-``fork_init()`` 使用 ``max_threads / 2`` 初始化 ``init_task`` 的：
-
-* ``RLIMIT_NPROC``；
-* ``RLIMIT_SIGPENDING``；
-* 初始 user namespace 的多类 ucount 默认上限。
-
-同时为若干 user-namespace rlimit category 设置内部最大值。这些限制稍后参与 ``copy_process()`` 的资源检查。
-
-这里没有用户 shell，也没有 ``ulimit`` 命令；只是内核先给初始 namespace 建立可执行的限制模型。
-
-VMAP stack、SCS、lockdep 与 uprobes 收尾
+可选栈回收、影子调用栈和启动任务检查
 ------------------------------------
 
-根据构建配置，``fork_init()`` 还会：
+启用 ``CONFIG_VMAP_STACK`` 时，函数登记 ``CPUHP_BP_PREPARE_DYN`` 状态，使CPU离线准备阶段
+能够释放其虚拟映射栈缓存。随后 ``scs_init()`` 按影子调用栈配置执行，再对现有
+``init_task`` 调用 ``lockdep_init_task()``，最后执行 ``uprobes_init()``。
 
-* 为 VMAP stack cache 注册 CPU hotplug 清理回调；
-* 初始化 shadow call stack 支持；
-* 把 ``init_task`` 接入 task-level lockdep 状态；
-* 初始化 uprobes 的进程复制基础。
+这些操作仍由CPU0同步完成。CPU热插拔状态登记不等于其他CPU已经上线，
+``lockdep_init_task()`` 也不是创建新任务；它只把已经存在的启动任务接入相应检查状态。
 
-注册 CPU hotplug callback 不会启动 AP。它只规定某个 CPU 离线时怎样释放该 CPU 缓存的 vmapped stacks。
-
-``proc_caches_init()`` 准备任务共享子对象
--------------------------------------
-
-一个新进程不只有 ``task_struct``。``copy_process()`` 还需要创建或共享：
-
-* ``signal_struct``：thread group 共享的信号、rlimit 和进程级状态；
-* ``sighand_struct``：signal handler 表；
-* ``files_struct``：文件描述符表；
-* ``fs_struct``：root、pwd 和 umask 等 filesystem context；
-* ``mm_struct``：用户地址空间；
-* 其他 fork/proc 路径中的高频辅助对象。
-
-``proc_caches_init()`` 为这些对象建立专用 slab caches。函数名中的 ``proc`` 指进程对象基础，不代表 ``/proc`` filesystem 已经挂载。真正的 procfs 根结构要到后面的 ``proc_root_init()``。
-
-到这里内核“能分配进程对象”，仍未创建进程
+proc_caches_init不是proc文件系统初始化
 --------------------------------------
 
-现在已经具备：
+名称中的 ``proc`` 指进程创建基础，而不是 ``procfs``。 ``proc_caches_init()`` 依次创建：
 
-.. code-block:: text
+* 带 ``sighand_ctor()`` 的 ``sighand_cache``，构造时初始化 ``siglock`` 和
+  ``signalfd_wqh``；
+* 保存 ``struct signal_struct`` 的 ``signal_cache``；
+* 保存 ``struct files_struct`` 的 ``files_cache``；
+* 保存 ``struct fs_struct`` 的 ``fs_cache``。
 
-   PID namespace IDR 与 struct pid cache
-   anon_vma / anon_vma_chain caches
-   线程内核栈分配路径
-   cred cache
-   task_struct cache
-   signal/files/fs/mm 等 caches
-   max_threads 与初始 resource limits
+在信号缓存之后，函数还执行 ``exec_state_init()``；在文件和文件系统状态缓存之后，执行
+``mmap_init()`` 和 ``nsproxy_cache_init()``。 ``mmap_init()`` 建立
+``vm_committed_as`` 逐CPU计数器、可选的虚拟内存 ``sysctl`` 和VMA状态；后者创建
+``nsproxy`` 缓存。
 
-仍未发生：
+``mm_struct`` 缓存不在这里创建。它已由更早的内存初始化路径调用 ``mm_cache_init()`` 建立。
+同样， ``proc_root_init()`` 还要到第066章后半段才建立 ``/proc`` 根结构并登记文件系统。
 
-* ``copy_process()``；
-* ``alloc_pid()``；
-* ``wake_up_new_task()``；
-* 第一次 ``schedule()``；
-* PID 1/PID 2 创建；
-* 用户地址空间建立；
-* initramfs 解包。
+对象缓存就绪仍不等于任务已经存在
+-------------------------------
 
-当前机器状态
+截至本章结束，动态PID、匿名映射关系、凭据、 ``task_struct``、信号处理、共享信号、文件表、
+文件系统上下文和名字空间代理都已经有了分配基础。但是没有代码调用 ``kernel_clone()``、
+``copy_process()`` 或 ``alloc_pid()``；运行队列中仍只有启动阶段原有的CPU0空闲任务。
+
+这种区分决定了连续性：本章准备“怎样创建”，第067章接近结尾的 ``rest_init()`` 才真正创建
+PID 1和PID 2。
+
+本章结束状态
 ------------
 
-本章结束时：
+::
 
-* 当前执行者：Linux 7.2-rc1 ``init/main.c:start_kernel()``；
-* 精确位置：``proc_caches_init()`` 已返回，``uts_ns_init()`` 尚未调用；
-* CPU：只有 CPU0 online；
-* current：``init_task`` / ``swapper/0`` / PID 0；
-* interrupts：CPU0 IF=1；
-* PID allocator：初始 namespace IDR、范围和 ``struct pid`` cache 已建立；
-* dynamic PID：尚未分配；
-* anonymous rmap：对象 caches 已建立；
-* thread stack：配置对应的分配/cache 入口已准备；
-* credentials：``cred`` cache 已建立，PID 0 仍使用静态 ``init_cred``；
-* fork：``task_struct`` 与进程子对象 caches、资源上限已准备；
-* namespaces：UTS/time/network 初始化尚未执行；
-* VFS/proc：正式 caches 和 pseudo-filesystem 基础尚未建立；
-* PID 1 / PID 2：尚未创建。
+   当前执行者          = CPU0上的start_kernel()；proc_caches_init()已返回
+   下一入口            = uts_ns_init()
+   当前任务            = init_task / swapper/0 / PID 0
+   CPU在线且活动       = 仅CPU0
+   初始PID名字空间     = IDR已初始化，动态pid缓存已经建立
+   动态PID             = 尚未分配；PID 1尚不存在
+   匿名映射对象        = anon_vma与anon_vma_chain缓存已经建立
+   线程栈入口          = 当前x86-64路径为空；可选VMAP栈回收状态在fork_init()登记
+   凭据                = cred缓存已经建立；init_task仍使用原有静态凭据
+   任务对象            = task_struct缓存已经建立
+   任务限制            = max_threads及初始任务和用户名字空间限制已经设置
+   进程共享对象        = sighand、signal、files、fs与nsproxy缓存已经建立
+   VMA基础             = vm_committed_as与VMA状态已经初始化
+   proc文件系统        = 尚未初始化
+   新任务              = 尚未创建
+   任务切换            = 尚未发生
+   PID1/PID2           = 尚未创建
 
-下一条控制流是：
+关键边界
+--------
 
-.. code-block:: c
+* ``init_task`` 与PID 0使用静态对象； ``pid_idr_init()`` 建立的是后续动态分配能力；
+* IDR首次自动分配从1开始，使PID 1可由后续首个动态任务取得，但本章没有执行分配；
+* 当前x86-64的 ``thread_stack_cache_init()`` 是弱空实现，不能写成必然创建SLUB缓存；
+* ``fork_init()`` 创建任务对象缓存并设置资源上限，不会自行调用任务复制路径；
+* ``proc_caches_init()`` 准备进程共享对象，不是 ``procfs`` 根目录初始化，也不创建
+  ``mm_struct`` 缓存。
 
-   uts_ns_init();
+下一入口
+--------
 
-接下来将建立 namespace、安全框架、VFS/page cache、signal 和 proc/nsfs/pidfs 基础。
+``start_kernel()`` 下一条语句是 ``uts_ns_init()``。第066章将从已经存在的初始名字空间对象
+出发，建立可选名字空间、密钥与安全框架，再初始化网络名字空间、VFS、页缓存等待队列、信号
+队列和三个伪文件系统；第067章的 ``cpuset_init()`` 在这些基础之后才会开始。
 
 资料
 ----
 
-* `Linux 7.2-rc1 init/main.c：PID、fork 与进程对象初始化顺序 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c>`_
-* `Linux 7.2-rc1 kernel/pid.c：pid_idr_init、PID IDR 与 struct pid cache <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/pid.c>`_
-* `Linux 7.2-rc1 mm/rmap.c：anon_vma 与 anon_vma_chain <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/mm/rmap.c>`_
-* `Linux 7.2-rc1 kernel/fork.c：thread stack、fork_init、task caches 与 copy_process 基础 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/fork.c>`_
-* `Linux 7.2-rc1 kernel/cred.c：cred_init 与 credential 生命周期 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/cred.c>`_
-* `Linux credentials documentation：credential 模型 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/Documentation/security/credentials.rst>`_
+* `start_kernel()中的PID与任务对象调用区间
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c#L1143-L1152>`_
+* `初始PID对象和初始PID名字空间
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/pid.c#L49-L84>`_
+* `alloc_pid()首次从PID 1开始的条件
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/pid.c#L159-L266>`_
+* `pid_idr_init()的上限、IDR和对象缓存
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/pid.c#L848-L867>`_
+* `anon_vma_init()创建的两类缓存
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/mm/rmap.c#L543-L559>`_
+* `线程栈缓存的条件实现
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/fork.c#L390-L468>`_
+* `THREAD_SIZE不小于页大小时的弱空入口
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c#L759-L771>`_
+* `cred_init()建立凭据缓存
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/cred.c#L533-L541>`_
+* `fork_init()的任务缓存、上限和现有启动任务处理
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/fork.c#L808-L897>`_
+* `proc_caches_init()建立的共享对象与后续入口
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/fork.c#L3089-L3137>`_
+* `mmap_init()建立提交计数与VMA状态
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/mm/mmap.c#L1564-L1577>`_
+* `nsproxy_cache_init()建立名字空间代理缓存
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/nsproxy.c#L609-L613>`_
