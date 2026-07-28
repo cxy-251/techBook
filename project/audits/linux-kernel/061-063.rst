@@ -1,0 +1,197 @@
+Linux Kernel第061—063章回溯审查
+================================
+
+批次状态
+--------
+
+::
+
+   range            = 061-063
+   status           = repaired
+   verified_before  = 060
+   verified_after   = 063
+   mode             = retrospective-audit
+   blocking_issue   = none
+
+审查范围
+--------
+
+* 第061章从 ``vdso_setup_data_pages()`` 开始，到 ``time_init()`` 返回；
+* 第062章从 ``random_init()`` 开始，到 ``local_irq_enable()`` 执行；
+* 第063章从 ``kmem_cache_init_late()`` 开始，到 ``acpi_early_init()`` 返回；
+* 第060章出口和第064章开头只用于核对相邻交接，不修改相邻章节，也不提升第064章的审查状态。
+
+权威源码核对
+------------
+
+开始本批前，只核对并使用以下四个工作树：
+
+::
+
+   SeaBIOS  /Volumes/LinuxKernel/seabios
+            c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
+   QEMU     /Volumes/LinuxKernel/qemu
+            a759542a2c62f0fd3b65f5a66ad9868201014669
+   GRUB     /Volumes/LinuxKernel/grub
+            d38d6a1a9b79427848976f53d474392cd29c2a71
+   Linux    /Volumes/LinuxKernel/linux-7.2-rc1
+            7404ce51637231382873d0b55edabc2f3b841a9d
+
+SeaBIOS、QEMU和GRUB的 ``origin`` 分别指向合同约定的固定仓库；Linux存在指向
+``gregkh/linux`` 的 ``gregkh`` 远程仓库。四个工作树的 ``HEAD`` 精确匹配固定提交，工作树均
+无修改、不是浅克隆，也没有启用稀疏检出。本批没有使用其他源码副本，也没有下载、拉取或补齐
+源码。
+
+批次开始状态
+------------
+
+第060章结束时，CPU0上的 ``start_kernel()`` 仍由 ``init_task`` 执行，处于x86-64长模式、
+CPL0，IF位为0。普通定时器基已经覆盖所有可能CPU，CPU0的高精度定时器基已经上线，相关软中断
+动作已经登记；通用计时、x86硬件时间初始化、普通工作线程、应用处理器、PID 1与PID 2均尚未
+开始。下一条语句是 ``vdso_setup_data_pages()``。
+
+第061章源码证据
+---------------
+
+``vdso_setup_data_pages()``
+   函数按 ``VDSO_NR_PAGES`` 申请连续页；失败会触发 ``panic()``。正常路径把高阶页拆成可单独
+   计数的 ``struct page``，复制 ``vdso_initdata``，再按构建配置切换
+   ``vdso_k_time_data``、 ``vdso_k_rng_data`` 和 ``vdso_k_arch_data``。此处没有创建用户
+   ``mm`` 或VMA。
+
+``timekeeping_init()``
+   函数初始化 ``tk_core`` 的原始自旋锁与序列计数器，读取持久时钟和启动偏移，校验
+   ``wall_time``，计算 ``wall_to_mono``，再取得默认时钟源。x86没有覆盖通用默认时钟源，因此
+   当前使用并登记 ``clocksource_jiffies``。
+
+持久时钟
+   通用 ``read_persistent_wall_and_boot_offset()`` 调用x86
+   ``read_persistent_clock64()`` 取得墙上时间，并用 ``local_clock()`` 估计启动偏移。普通PC
+   默认的 ``x86_platform.get_wallclock`` 指向 ``mach_get_cmos_time()``；平台或虚拟化代码仍
+   可替换该函数指针。无效的非零墙上时间会被清零，墙上时间小于启动偏移时启动偏移也会被清零。
+
+计时器对象与同步
+   ``tk_setup_internals()`` 把时钟源、掩码、最后周期值、乘数、位移和NTP间隔写入影子
+   ``timekeeper``。在 ``tk_core.lock`` 保护下，
+   ``timekeeping_update_from_shadow()`` 用 ``tk_core.seq`` 阻止读取者混用两代数据，更新
+   VDSO、快速计时器和半虚拟化时间数据，最后复制为公开的 ``timekeeper``。
+
+``time_init()``
+   x86实现只把 ``late_time_init`` 指向 ``x86_late_time_init``。HPET、PIT、最终中断模式、
+   TSC以及可选 ``WAITPKG`` 延时方式都要等第064章调用该函数指针时处理。
+
+第062章源码证据
+---------------
+
+``random_init()``
+   函数在通用计时可读后，把 ``ktime_get_real()`` 和 ``random_get_entropy()`` 的结果混入输入
+   池，再加入潜在熵。只有较早阶段已经把 ``crng_init`` 推进到 ``CRNG_READY`` 时，函数才会
+   公布 ``crng_is_ready``；随后仅在随机数生成器已经可用时重新播种。它还登记电源管理通知器，
+   周期计数来源缺失时只发出警告，不会伪造可用状态。
+
+``kfence_init()`` 与 ``boot_init_stack_canary()``
+   未启用 ``CONFIG_KFENCE`` 时前者为空函数；启用后仍可因采样间隔为零或池初始化失败而结束。
+   正常路径取得 ``stack_hash_seed``，初始化受延迟工作驱动的分配门，并把工作排入第058章已经
+   创建但尚无普通工作线程执行的系统工作队列。栈保护未启用时
+   ``boot_init_stack_canary()`` 为空；启用时才把随机值写入当前 ``init_task`` 和CPU0的
+   ``__stack_chk_guard``。
+
+``perf_event_init()`` 与 ``profile_init()``
+   未启用 ``CONFIG_PERF_EVENTS`` 时前者为空；启用时初始化逐CPU性能事件上下文，登记软件、
+   CPU时钟、任务时钟和追踪点性能监控单元，使CPU0上下文上线，并尝试初始化硬件断点。该入口
+   不会创建用户性能事件。传统性能分析还受 ``CONFIG_PROFILING`` 和 ``profile=`` 控制；未启用
+   或未给参数时不分配计数缓冲区，三种分配方式全部失败时返回 ``-ENOMEM``，调用者不检查该
+   返回值。
+
+``call_function_init()``
+   函数为每个可能CPU初始化 ``call_single_queue``，然后只为当前CPU0申请跨CPU函数调用所需的
+   两个CPU掩码和逐CPU ``call_single_data_t``。 ``smpcfd_prepare_cpu()`` 的失败值没有被本
+   入口传播；其他CPU的资源要在各自上线阶段准备。当前没有向应用处理器发送函数调用中断。
+
+首次允许普通中断
+   ``WARN(!irqs_disabled(), ...)`` 先检查前序代码没有提前打开中断。随后
+   ``early_boot_irqs_disabled`` 被清为假，x86原生路径的 ``local_irq_enable()`` 最终执行
+   ``sti``；若启用了中断标志追踪，还会先登记硬中断开启状态。该操作只允许未屏蔽中断进入，
+   不会主动产生中断、建立处理动作或触发任务切换。
+
+第063章源码证据
+---------------
+
+``kmem_cache_init_late()``
+   Linux 7.2-rc1只使用SLUB。该入口申请每CPU的 ``slub_flushwq``；失败只触发警告。启用
+   ``CONFIG_SLAB_FREELIST_RANDOM`` 时，它还初始化晚期伪随机状态。SLUB缓存、每CPU快速路径和
+   通用 ``kmalloc`` 缓存已经在第055章建立，本函数不会重新创建分配器，也不建立SLUB的
+   ``sysfs`` 文件。
+
+``console_init()``
+   函数先初始化 ``n_tty`` 行规程，再顺序执行链接在控制台初始化区间中的函数。固定命令行的
+   ``console=ttyS0`` 只表达首选终端；串口控制台能否在此登记仍取决于构建配置和初始化函数
+   结果。各初始化函数的返回值只进入追踪记录，不阻止后续控制台初始化函数执行。
+
+``panic_later``、 ``lockdep_init()`` 与 ``locking_selftest()``
+   控制台初始化后若 ``panic_later`` 非空，内核立即停止，后续函数不再执行；固定GRUB命令行
+   本身很短，但内建命令行与启动配置未固定，因此正文保留该失败分支。未启用
+   ``CONFIG_LOCKDEP`` 时 ``lockdep_init()`` 为空；启用时该函数只报告静态锁依赖表的容量和
+   内存占用，不在此重新创建依赖图。锁接口自检还受
+   ``CONFIG_DEBUG_LOCKING_API_SELFTESTS`` 控制；启用时才在中断已经允许的条件下构造预期成功
+   与预期失败的锁场景。
+
+初始内存盘检查
+   启用 ``CONFIG_BLK_DEV_INITRD`` 后，如果初始内存盘存在、不允许位于低端，而且其起始页帧低于
+   ``min_low_pfn``，内核把 ``initrd_start`` 清零。运行期地址未固定，因此正常返回不能写成
+   初始内存盘必然保留；无论哪条分支，此处都没有解包归档。
+
+``setup_per_cpu_pageset()``
+   函数为每个已填充内存区申请正式逐CPU页面集，并对所有可能CPU初始化本地页链表、锁和统计，
+   再计算高水位与批量阈值；它还为每个在线内存节点申请逐CPU节点统计。未填充内存区继续使用
+   启动期页面集。
+
+``numa_policy_init()``
+   未启用 ``CONFIG_NUMA`` 时入口为空。启用时函数以 ``SLAB_PANIC`` 创建内存策略和共享策略
+   节点缓存，为各节点建立首选策略，并把当前 ``init_task`` 临时设为在容量至少16 MiB的内存
+   节点间交错分配；若没有节点达到阈值，则只选容量最大的节点。设置失败会记录错误但继续启动，
+   现有页面不会因此迁移。
+
+``acpi_early_init()``
+   未启用ACPI或 ``acpi_disabled`` 已置位时入口不做工作。正常路径启用永久映射，应用x86 DMI
+   兼容处理，重新分配ACPI根表，初始化ACPICA子系统，并按PIC或IOAPIC分支更新SCI信息。根表或
+   ACPICA初始化失败会调用 ``disable_acpi()``。即使正常返回，事件处理和全局锁仍不可用，普通
+   AML方法、完整对象初始化和设备扫描均未开始。
+
+发现并修复
+----------
+
+#. 三章旧正文仍有错误的Linux版本标签、普通英文叙述和中英混杂短句，不符合固定版本与当前语言
+   规则。
+#. 第061章把启动偏移写成持久时钟直接提供，并把多个派生时钟状态写得超过
+   ``timekeeping_init()`` 的当前证据；改为固定源码中的墙上时间、 ``local_clock()`` 偏移、
+   默认时钟源和受锁发布过程。
+#. 第062章把随机数、KFENCE、栈保护和性能事件写成统一成功状态；改为分别保留构建、启动参数、
+   初始化失败和随机数可用条件。
+#. 第062章把所有可能CPU的跨CPU调用资源写成已经完成；改为区分所有可能CPU的队列头与仅CPU0
+   尝试申请的发送端资源。
+#. 第063章把 ``kmem_cache_init_late()`` 泛化为多种分配器的大规模收尾；改为固定源码中的
+   SLUB清理工作队列和可选随机状态。
+#. 第063章把 ``lockdep_init()`` 写成依赖图建立点，把初始内存盘保留、NUMA策略和ACPICA成功写成
+   必然结果；改为各自真实条件、失败动作和成功路径状态。
+
+连续性
+------
+
+第060章出口的下一条语句是 ``vdso_setup_data_pages()``，与第061章入口一致。第061章在
+``time_init()`` 只登记延后函数后结束；第062章从 ``random_init()`` 开始，并在CPU0允许普通
+中断后结束；第063章继续执行SLUB晚期入口、控制台、可选锁自检、页面集、NUMA策略和早期ACPI。
+第064章真实入口是 ``if (late_time_init) late_time_init();``，与第063章预定出口一致。
+
+验证
+----
+
+* ``tools/check-linux-kernel-track.sh 63`` 通过第001—063章结构检查，只报告下一批必须处理的
+  第065、066章重复文件债务；
+* 两份TOML manifest解析通过，审查游标一致指向已验证至063、下一批064—066；
+* 第061—063章普通叙述中的禁用英文词、旧版本标签和无固定提交资料链接检查通过；
+* 三章共使用固定Linux提交的精确行锚点资料；章节标题下划线、章末四节与相邻入口检查通过；
+* ``git diff --check`` 通过，完整差异只包含第061—063章、当前批报告、审计索引、
+  ``STATE.rst`` 和两份manifest；
+* 固定源码复查、配置与失败分支、对象状态以及第060章出口和第064章入口的交叉检查没有遗留
+  阻塞问题。
