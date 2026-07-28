@@ -58,9 +58,28 @@ Linux Kernel 的审查、修订与后续生产统一遵守
    first partition   = LBA 2048, ext4
    storage           = q35 ICH9 AHCI SATA port 0
 
-项目内源码缓存位于 ``.sources/``，整个目录由 ``.gitignore`` 排除。缓存只用于本地
-检索，正文事实仍必须绑定上面的仓库与提交。使用缓存前先核对 ``git rev-parse HEAD``；
-缺少哪个仓库时按当前批次增量下载，不为未来章节预读全部源码。
+权威源码工作树
+==============
+
+正文取证只允许使用以下四个工作树：
+
+::
+
+   /Volumes/LinuxKernel/seabios
+   /Volumes/LinuxKernel/qemu
+   /Volumes/LinuxKernel/grub
+   /Volumes/LinuxKernel/linux-7.2-rc1
+
+不得使用项目内 ``.sources/``、 ``/Volumes/LinuxKernel/linux`` 或其他副本作为正文证据，
+也不得自动克隆、下载、拉取或补齐源码。开始每批工作前必须逐个确认：
+
+* remote与对应固定仓库一致；Linux工作树必须存在指向 ``gregkh/linux`` 的remote；
+* ``HEAD`` 与“固定实现”列出的commit完全一致；
+* ``git status --short`` 没有输出；
+* ``git rev-parse --is-shallow-repository`` 返回 ``false``；
+* sparse checkout未启用，也没有活动的sparse规则。
+
+任何一项不满足时停止正文生产并报告，不得改用其他源码树绕过。
 
 每批事务
 ========
@@ -81,6 +100,19 @@ Linux Kernel 的审查、修订与后续生产统一遵守
 正文按源码时间线连续展开。每段交代与当前判断相关的执行者、CPU/mode、关键对象、
 锁或引用、状态变化和下一入口。篇幅服从源码边界，不设字数目标，也不以压缩篇幅为
 进度指标。
+
+每章必须根据本章当前源码边界独立组织叙事，不得继承前一章的压缩句式、段落模板或
+表达习惯。函数名、类型名、字段名、宏、配置项和其他源码标识保留英文并使用行内代码；
+普通叙述、条件、状态、动作和因果关系使用完整中文句子。
+
+不得用 ``fixed``、 ``actual``、 ``later``、 ``ready``、 ``policy``、 ``backing``、
+``container``、 ``call``、 ``return`` 等普通英文词替代中文叙述。源码标识、源码原文、
+命令和资料链接中的同名文本不受此限制。正文不得使用中英混杂的电报式短句，也不得
+把审计报告的压缩记法直接搬入章节。
+
+当前批次中已经写入和尚在修订的正文，都必须按上述规则重新检查；检查时保持已经核实
+的技术事实、源码边界和相邻章节连续性，不借文字修订扩大章节范围。reStructuredText
+标题下划线必须覆盖完整标题，不能依赖宽松渲染器容忍格式错误。
 
 章末依次使用：
 

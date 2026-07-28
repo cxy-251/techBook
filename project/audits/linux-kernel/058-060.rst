@@ -1,0 +1,196 @@
+Linux Kernel第058—060章回溯审查
+================================
+
+批次状态
+--------
+
+::
+
+   range            = 058-060
+   status           = repaired
+   verified_before  = 057
+   verified_after   = 060
+   mode             = retrospective-audit
+   blocking_issue   = none
+
+审查范围
+--------
+
+* 第058章从 ``radix_tree_init()`` 开始，到 ``context_tracking_init()`` 返回；
+* 第059章从 ``early_irq_init()`` 开始，到 ``init_IRQ()`` 返回；
+* 第060章从 ``tick_init()`` 开始，到 ``softirq_init()`` 返回；
+* 第057章出口和第061章开头只用于核对相邻交接，不修改第061章，也不提升其审查状态；
+* 按用户要求同时重新检查第055—057章已修正文，并把确认的事实修订写回正文和原批报告。
+
+权威源码核对
+------------
+
+开始本批前，只核对并使用以下四个工作树：
+
+::
+
+   SeaBIOS  /Volumes/LinuxKernel/seabios
+            c2a33ad9ad1452e23b41c4ac44a3bc6be8ebc4cf
+   QEMU     /Volumes/LinuxKernel/qemu
+            a759542a2c62f0fd3b65f5a66ad9868201014669
+   GRUB     /Volumes/LinuxKernel/grub
+            d38d6a1a9b79427848976f53d474392cd29c2a71
+   Linux    /Volumes/LinuxKernel/linux-7.2-rc1
+            7404ce51637231382873d0b55edabc2f3b841a9d
+
+四个工作树的remote与固定仓库一致；Linux存在指向 ``gregkh/linux`` 的remote；四者
+``HEAD`` 精确匹配，工作树无修改，均不是浅克隆，也没有启用稀疏检出。本批没有使用
+``.sources/`` 或 ``/Volumes/LinuxKernel/linux``，也没有下载、拉取或补齐源码。
+
+第058章源码证据
+---------------
+
+``radix_tree_init()``
+   检查节点位宽约束，创建带 ``SLAB_PANIC | SLAB_RECLAIM_ACCOUNT`` 的
+   ``radix_tree_node_cachep``，并登记CPU下线时清理逐CPU预留节点的回调。该函数不向页缓存加入
+   文件页。
+
+``housekeeping_init()``
+   ``housekeeping.flags`` 为零时直接结束；非零时启用静态分支，按类别把memblock保存的CPU掩码
+   复制到普通分配器对象，再释放旧对象。 ``HK_FLAG_KERNEL_NOISE`` 还会进入调度时钟滴答卸载
+   初始化。固定GRUB参数没有CPU隔离设置，但内建命令行和 ``bootconfig`` 未固定，因此两条分支
+   都保留。
+
+``workqueue_init_early()``
+   申请在线、无绑定、请求和隔离CPU掩码；根据 ``HK_TYPE_DOMAIN`` 与
+   ``workqueue.unbound_cpus`` 限制无绑定集合；为每个可能CPU建立底半部及普通CPU工作池；最后
+   创建各类系统工作队列。正常返回允许创建、排队和取消工作项，普通工作线程仍要等
+   ``workqueue_init()``。
+
+``rcu_init()``
+   Tree RCU分支计算 ``rcu_node`` 层级、建立全局与逐CPU状态、按配置登记 ``RCU_SOFTIRQ``、
+   使CPU0进入RCU在线状态，并创建 ``rcu_gp_wq`` 与 ``sync_wq``。Tiny RCU走不同实现，正文没有
+   把Tree RCU对象写成全部构建共有。
+
+``kvfree_rcu_init()``
+   未启用 ``CONFIG_KVFREE_RCU_BATCHED`` 时为空函数；启用时创建回收工作队列，初始化每个可能
+   CPU的批处理链表和延迟工作，并尝试登记内存收缩器。
+
+``trace_init()``
+   只执行 ``trace_event_init()`` 和可选的 ``enable_instances()``。追踪缓冲区分配已在第056章的
+   ``early_trace_init()`` 中尝试，本章不会再次调用 ``tracer_alloc_buffers()``。
+   ``trace_event_init()`` 建立事件字段缓存，初始化系统调用事件、早期事件、触发命令与公共字段。
+
+``initcall_debug_enable()`` 与 ``context_tracking_init()``
+   前者只在 ``initcall_debug`` 为真时登记初始化函数追踪回调；后者只有启用
+   ``CONFIG_CONTEXT_TRACKING_USER_FORCE`` 时才遍历可能CPU，否则为空函数。
+
+第059章源码证据
+---------------
+
+``early_irq_init()``
+   先建立默认IRQ亲和掩码，再由x86 ``arch_probe_nr_irqs()`` 根据GSI、传统IRQ、CPU数量和MSI配置
+   调整数量。 ``CONFIG_SPARSE_IRQ`` 分支动态申请 ``irq_desc`` 并存入
+   ``sparse_irqs`` Maple Tree；非稀疏分支初始化静态数组。新描述符以
+   ``no_irq_chip``、 ``handle_bad_irq``、禁用且屏蔽的状态开始。
+
+``arch_early_irq_init()``
+   创建名称为 ``VECTOR`` 的默认IRQ域、 ``vector_searchmask`` 和只允许普通外部向量范围的
+   ``vector_matrix``。早期IOAPIC函数只尝试为已枚举IOAPIC分配寄存器保存区，不会设置设备路由。
+
+``init_IRQ()``
+   把传统IRQ描述符写入CPU0的 ``vector_irq``，并为CPU0建立硬中断栈。其他可能CPU要在各自启动
+   路径中单独准备。
+
+``native_init_IRQ()``
+   默认先进入 ``init_ISA_irqs()``，初始化启动CPU的本地APIC基础和当前传统PIC，为传统IRQ设置
+   初始芯片与 ``handle_level_irq``。这不是q35最终IOAPIC模式的完成点。
+
+FRED与IDT
+   ``CONFIG_X86_FRED`` 构建先完成FRED系统向量表；只有CPU没有
+   ``X86_FEATURE_FRED`` 时才调用 ``idt_setup_apic_and_irq_gates()``。IDT分支安装APIC与普通外部
+   中断门、意外中断入口，并把IDT映射为只读；FRED有效时跳过该IDT步骤。最终CPU模型和构建配置
+   未固定，正文保持互斥分支。
+
+向量保留
+   ``lapic_assign_system_vectors()`` 无论入口形式如何都会把系统向量和预分配传统向量写入向量
+   矩阵，并使启动CPU对应的矩阵状态在线。没有ACPI或设备树IOAPIC时，源码才尝试为IRQ2登记传统
+   级联动作。
+
+第060章源码证据
+---------------
+
+``tick_init()``
+   ``tick_broadcast_init()`` 申请广播、单次和临时CPU掩码，但不选择时钟事件设备；
+   ``tick_nohz_init()`` 只处理 ``nohz_full``，未设置时直接结束。架构不支持自身中断驱动
+   ``irq_work`` 时，全动态集合会被清空。
+
+``rcu_init_nohz()``
+   Tree RCU按 ``nohz_full``、 ``rcu_nocbs=`` 和
+   ``CONFIG_RCU_NOCB_CPU_DEFAULT_ALL`` 建立回调卸载集合，标记相应 ``rcu_segcblist``，并组织
+   后续 ``rcuo`` 线程分组；本章不会创建这些线程。Tiny RCU中的入口为空。
+
+``timers_init()``
+   遍历每个可能CPU，初始化普通定时器基的CPU编号、锁、 ``clk`` 与下次到期状态；为当前
+   ``init_task`` 初始化POSIX CPU定时器工作；最后登记 ``TIMER_SOFTIRQ``。
+   ``CONFIG_NO_HZ_COMMON`` 决定每CPU使用三种定时器基还是单一基。
+
+``srcu_init()``
+   Tree SRCU确定尺寸策略，把 ``srcu_init_done`` 置为真，并将 ``srcu_boot_list`` 中积累的工作
+   排入第058章创建的 ``rcu_gp_wq``。排队不等于普通工作线程已经执行。
+
+``hrtimers_init()``
+   只为当前CPU0准备各 ``hrtimer_clock_base``，清除遗留状态，把CPU0的
+   ``hrtimer_cpu_base.online`` 置为真，并登记 ``HRTIMER_SOFTIRQ``。其他可能CPU在各自启动路径
+   中准备。
+
+``softirq_init()``
+   为每个可能CPU建立普通和高优先级小任务链表尾指针，登记 ``TASKLET_SOFTIRQ`` 与
+   ``HI_SOFTIRQ``。低精度定时器、高精度定时器和条件RCU软中断已由各自函数先行登记。
+   ``ksoftirqd/0`` 尚未创建。
+
+发现并修复
+----------
+
+#. 三章原文仍以Linux 6.12.95称呼固定提交，现统一按Linux 7.2-rc1重新取证和改写。
+#. 第058章原文把 ``trace_init()`` 写成追踪实例、事件设施和缓冲区的统一建立点；现按源码拆开
+   第056章的缓冲区分配与本章的事件登记。
+#. 第058章原文无条件描述Tree RCU、批量 ``kvfree_rcu`` 与用户上下文追踪；现补齐Tiny RCU、
+   ``CONFIG_KVFREE_RCU_BATCHED`` 和 ``CONFIG_CONTEXT_TRACKING_USER_FORCE`` 分支。
+#. 第058章原文仅凭GRUB命令行断言 ``housekeeping.flags`` 为零；现因内建命令行与
+   ``bootconfig`` 未固定而保留非零路径。
+#. 第059章原文无条件声称稀疏IRQ使用Maple Tree、外部IRQ门写入IDT；现补齐静态IRQ数组和FRED
+   分支。
+#. 第059章把早期传统PIC、IDT或FRED入口与q35最终IOAPIC路由混写；现明确最终中断模式仍由后续
+   ``late_time_init()`` 完成。
+#. 第060章原文把 ``tick_nohz_init()`` 泛化为全部无周期管理；现限定为
+   ``nohz_full`` 初始化，并明确当前没有时钟事件设备。
+#. 第060章补齐普通定时器基数量的构建分支、RCU回调卸载失败路径、Tree与Tiny SRCU分支，以及
+   普通定时器覆盖所有可能CPU而高精度定时器本次只准备CPU0的差异。
+#. 第055—060章全部按新增语言规则复查：源码标识保留英文，普通条件、状态、动作和因果关系使用
+   完整中文；移除中英混杂的压缩短句并修正标题下划线。
+
+失败与未发生
+------------
+
+* 节点缓存、工作队列、向量域、向量矩阵和IRQ栈等由 ``SLAB_PANIC`` 或 ``BUG_ON()`` 保护的失败
+  路径没有正常出口；
+* housekeeping掩码交接、追踪事件字段、批量RCU内存收缩器、IOAPIC保存区和全动态时钟滴答CPU
+  热插拔登记存在只警告、提前结束或局部降级路径；
+* 没有工作线程、RCU卸载线程、 ``ksoftirqd``、PID 1或PID 2；
+* 没有设备IRQ处理动作的大规模登记、最终IOAPIC路由、时钟事件设备、通用计时初始化或IF位置1；
+* 没有时钟中断、定时器到期回调、任务切换、应用处理器执行或初始内存盘解包。
+
+连续性
+------
+
+第057章出口为调度器核心已公布、CPU0运行队列在线且IF位为0，下一条
+``radix_tree_init()`` 与第058章一致。第058章结束于上下文追踪条件处理完成；第059章结束于
+x86 IRQ入口与向量账本完成；第060章结束于小任务软中断入口登记。第061章从
+``vdso_setup_data_pages()`` 开始，与第060章的下一入口一致；第061章仍为待审状态。
+
+验证
+----
+
+* ``tools/check-linux-kernel-track.sh 60`` 通过第001—060章结构检查，只报告既有第065、066章
+  重复文件债务；
+* 两份TOML manifest解析通过，审查游标一致指向已验证至060、下一批061—063；
+* 第055—060章禁用普通英文词检查、旧6.12.95标签检查和reStructuredText标题长度检查通过；
+* ``git diff --check`` 通过，完整差异只包含稳定规则、第055—060章、两批报告、审计索引、
+  ``STATE.rst`` 和两份manifest；
+* 固定源码复查、章节入口与出口交叉检查没有遗留阻塞问题。

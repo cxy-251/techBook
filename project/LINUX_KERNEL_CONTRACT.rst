@@ -59,8 +59,8 @@ Linux Kernel稳定生产与回溯审查合同
 “了解全书”一次性读取全部正文、完整manifest和全部历史审计报告。需要历史事实时，
 沿审计索引精确打开对应报告或章节。
 
-固定源码与本地缓存
-------------------
+固定源码工作树
+--------------
 
 源码版本以 ``AGENTS.md`` 的commit为准。当前固定源码使用大小写敏感卷上的完整工作树：
 
@@ -71,15 +71,18 @@ Linux Kernel稳定生产与回溯审查合同
    /Volumes/LinuxKernel/grub
    /Volumes/LinuxKernel/linux-7.2-rc1
 
-``/Volumes/LinuxKernel/linux`` 是用户原有master工作树，不作为固定正文证据；
-``linux-7.2-rc1`` 是从该仓库固定commit建立的独立worktree。项目内被忽略的 ``.sources/``
-只允许作为临时fallback，不再是当前权威缓存，也不得提交其内容。使用任一源码工作树时必须确认：
+只允许以上四个工作树作为正文证据。不得使用项目内 ``.sources/``、
+``/Volumes/LinuxKernel/linux`` 或其他副本，也不得自动克隆、下载、拉取或补齐源码。使用任一
+源码工作树前必须确认：
 
-* remote对应固定仓库；
+* remote与固定仓库一致；Linux工作树必须存在指向 ``gregkh/linux`` 的remote；
 * ``HEAD`` 等于固定commit；
-* 当前核验文件没有本地修改；
-* 工作树是完整checkout而非sparse checkout；搜索不到符号时仍要核对仓库、commit和生成条件，
-  不以一次搜索结果推断源码不存在。
+* 整个工作树没有本地修改；
+* ``git rev-parse --is-shallow-repository`` 返回 ``false``；
+* sparse checkout未启用，也没有活动的sparse规则。
+
+任一条件不满足时停止正文生产并报告，不得切换到其他源码副本绕过。搜索不到符号时仍要核对
+仓库、commit和生成条件，不以一次搜索结果推断源码不存在。
 
 源码核验优先使用本地 ``rg``、 ``git show`` 和带行号视图。正文资料链接指向固定commit，
 关键路径优先带 ``#Lx-Ly`` 行锚点。架构行为使用处理器手册或规范；平台行为使用固定

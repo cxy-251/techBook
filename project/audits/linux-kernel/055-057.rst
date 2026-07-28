@@ -6,146 +6,136 @@ Linux Kernel第055—057章回溯审查
 
 ::
 
-   range            = 055-057
-   status           = repaired
-   verified_before  = 054
-   verified_after   = 057
-   mode             = retrospective-audit
-   blocking_issue   = none
+   range               = 055-057
+   status              = repaired
+   verified_before     = 054
+   verified_after      = 057
+   mode                = retrospective-audit
+   blocking_issue      = none
+   language_recheck    = 2026-07-28
+
+本报告最初随第055—057章完成；开始第058—060章时，正文按照新增写作规则重新检查，并对三处
+源码语义重新取证。复查没有回退 ``verified_through=057``，修正后的结果仍作为第058章的唯一
+入口状态。
 
 审查范围
 --------
 
-* ``055-linux-releases-memblock-to-buddy-and-starts-slab-vmalloc.rst``；
-* ``056-linux-prepares-maple-tree-text-poking-and-ftrace.rst``；
-* ``057-linux-initializes-runqueues-and-boot-idle-task.rst``；
-* 入口为kernel/init token dispatch已返回、即将调用
-  ``random_init_early(command_line)``；
-* 出口包含 ``sched_init`` 返回后的IRQ sanity repair，下一条
-  ``radix_tree_init()`` 尚未执行；
-* 相邻第058章开头只用于核对入口，不提升其验证状态。
+* 第055章从 ``random_init_early(command_line)`` 开始，到 ``mm_core_init()`` 返回；
+* 第056章从 ``maple_tree_init()`` 开始，到 ``early_trace_init()`` 返回；
+* 第057章从 ``sched_init()`` 开始，并包含其后的中断状态检查，停在
+  ``radix_tree_init()`` 之前；
+* 第054章出口与第058章入口只用于核对相邻交接，不提升相邻章节的审查状态。
 
 固定源码
 --------
 
-Linux release 7.2-rc1、gregkh/linux commit
-``7404ce51637231382873d0b55edabc2f3b841a9d``：
+Linux源码为gregkh/linux提交
+``7404ce51637231382873d0b55edabc2f3b841a9d``，版本为7.2-rc1。本批使用
+``/Volumes/LinuxKernel/linux-7.2-rc1``；同时按项目规则核对四个权威工作树的remote、
+``HEAD``、完整性、工作树状态和稀疏检出状态，均符合要求。
 
-* ``init/main.c`` 从early random、MM到scheduler及IRQ repair的完整调用顺序；
-* ``drivers/char/random.c`` 的early input、credit与reseed条件；
-* printk、VFS early hash、main exception table与x86 trap初始化实现；
-* ``mm/mm_init.c``、 ``mm/memblock.c``、x86 ``mem_init``、SLUB与vmalloc实现；
-* Maple Tree node cache和x86 text-poking专用 ``mm_struct``/PTE实现；
-* dynamic ftrace及early tracing成功、失败和build-disabled paths；
-* ``kernel/sched/core.c`` 的class order、root group/domain、possible-CPU rq、
-  ``init_task`` 与 ``init_idle`` publication。
+正文保留构建配置、CPU特性、NUMA拓扑、内建命令行和 ``bootconfig`` 引起的条件分支，不把
+未固定的输入写成当前机器的必然结果。
 
-``/Volumes/LinuxKernel/{seabios,qemu,grub,linux-7.2-rc1}`` 保持fixed HEAD、clean、完整、非shallow、
-无active sparse checkout。最终 ``.config``、CPU features、SMP/NUMA、hypervisor、KASLR、debug/MM、
-ftrace/tracing与preemption policy未提供，正文保留源码规定的条件分支，不把build option写成当前
-机器必然状态。
+第055章证据
+-----------
 
-整批成功路径
-------------
+``random_init_early()``
+   混入编译期潜在熵、架构随机数据、UTS信息以及 ``setup_arch()`` 交回的架构命令行；
+   ``bootconfig`` 后加文本不属于该参数。混入数据不自动等于随机数生成器已经就绪。
 
-``第055章``
-   ``early RNG混入arch seed/UTS/arch command line → printk发布per-CPU readiness并条件迁移ring →
-   VFS只建立early dentry/inode hash backing → 条件排序main extable → x86 trap runtime foundation →
-   mm_core_init完成zonelists/debug/KHO准备 → memblock_free_all把memory-reserved交给buddy → x86
-   mem_init跨过bootmem → SLUB bootstrap → page-ext/leak/PT caches → vmalloc发布free space →
-   espfix→PTI→KMSAN/MM cache→execmem → stop before maple_tree_init``。
+``setup_log_buf(0)``
+   先公布正式每CPU数据。动态日志缓冲区已经存在时不重复分配；从静态缓冲区迁移的任一分配
+   失败都会释放本次对象并继续使用静态缓冲区。
 
-``第056章``
-   ``maple_tree_init建立SLAB_PANIC maple_node cache → poking_init分配专用mm、选择双页地址并预分配
-   page tables而不映射text → dynamic ftrace在IRQ-save区初始化arch并处理built-in locations，成功
-   enable或失败disable → early_trace_init条件建立tracepoint-printk iterator，尝试buffers并初始化
-   events → stop before sched_init``。
+``vfs_caches_init_early()``
+   固定初始化 ``in_lookup_hashtable``。 ``hashdist=false`` 时，
+   ``dcache_init_early()`` 和 ``inode_init_early()`` 在此分配目录项与索引节点哈希表；
+   ``hashdist=true`` 时，两者直接结束，把分配推迟到 ``vfs_caches_init()``。两条路径都不会
+   在这里创建运行期目录项或索引节点对象缓存，也不会挂载文件系统。
 
-``第057章``
-   ``验证linker scheduling-class order并建立bit wait table → 初始化root task group/default root domain →
-   遍历possible CPUs初始化rq与CFS/RT/DL/conditional state并attach root → 为init_task建立load、lazy-TLB
-   和kthread metadata → __sched_fork重置current scheduler state → init_idle在pi/rq locks下发布CPU0
-   rq curr/idle与on-rq/on-cpu → 初始化剩余class/PSI/uclamp/preemption → scheduler_running=1 →
-   start_kernel检查并修复very-early IRQ状态 → stop before radix_tree_init``。
+``sort_main_extable()`` 与 ``trap_init()``
+   主异常表仅在需要且非空时排序。x86陷阱路径完成CPU入口区域、TSS、IST以及FRED或IDT条件，
+   不初始化设备IRQ，也不打开IF位。
 
-early allocator与MM交接边界
----------------------------
+``mm_core_init()``
+   先完成IOMMU早期内存、零页PFN、内存区域回退表、页面分配器热插拔回调和可选调试设施；
+   KHO仍在memblock有效时处理。 ``memblock_free_all()`` 只把
+   ``memblock.memory - memblock.reserved`` 覆盖的页面交给伙伴系统，并据实际释放量更新
+   ``totalram_pages``。随后，x86 ``mem_init()``、SLUB自举、页面扩展、调试缓存、
+   ``vmalloc_init()``、 ``espfix``、PTI、KMSAN、MM缓存和 ``execmem_init()`` 依次完成。
 
-* ``random_init_early`` 收到的是 ``setup_arch`` 返回的arch command line，不含后来bootconfig单独追加的
-  extra init/kernel文本；mix也不自动证明CRNG ready；
-* ``setup_log_buf(0)`` 先发布per-CPU readiness；dynamic buffer已存在则返回，迁移任一步失败则释放本次
-  对象并保留static ring；
-* ``vfs_caches_init_early`` 只建立lookup heads与dentry/inode hash backing，不创建later SLUB object
-  caches、文件系统或mount；
-* ``trap_init`` 完成x86 CPU entry/TSS/IST与FRED-or-IDT foundation，不等于 ``init_IRQ`` 或打开IF；
-* zonelists、boot pagesets和page-allocator CPUHP callback存在时，普通free RAM仍未交给buddy；
-* KHO处理必须在memblock active、紧邻handoff处完成，disabled build才是no-op；
-* ``memblock_free_all`` 释放的是memblock ``memory - reserved``，而不是全部E820 RAM；
-* x86 ``mem_init`` 的共享vmalloc page-table预分配与later ``vmalloc_init`` 的vmap-area allocator不同；
-* ``kmem_cache_init`` 只完成SLUB bootstrap， ``kmem_cache_init_late`` 尚未执行；
-* ``mm_core_init`` 不能在vmalloc后提前截断，真实尾部还包括espfix、PTI、KMSAN runtime、MM cache与
-  execmem initialization。
+第056章证据
+-----------
 
-Maple、text-poke与tracing边界
-----------------------------
+``maple_tree_init()``
+   用 ``SLAB_PANIC`` 创建 ``maple_node`` 缓存；不创建用户 ``mm_struct``、VMA或具体地址树。
 
-* Maple call只创建node cache，不创建user ``mm_struct``、VMA或实际Maple tree；
-* text-poke专用mm预分配page tables，PTE尚未映入kernel text，也没有常驻RWX alias；
-* later patcher的临时alias/patch/synchronization不能倒写为 ``poking_init`` 已经执行；
-* ftrace location records、enabled infrastructure和actual trace recording是三种不同状态；
-* empty/invalid locations或allocation failure会设置 ``ftrace_disabled``；build-disabled path可为stub；
-* Maple node cache使用 ``SLAB_PANIC``，其failure语义与ftrace降级不同；
-* ``tracer_alloc_buffers`` 的返回值在此call site未用于阻止 ``init_events``，失败状态不能写成必然
-  建成完整global tracing；
-* ordinary printk ring与 ``tracepoint_printk`` iterator/buffer不是同一对象；tracefs尚未mount。
+``poking_init()``
+   创建 ``text_poke_mm``，选择同一PMD内的连续双页地址并预建页表。当前PTE为空，内核正文页
+   没有映入临时地址。真正修补时才建立短暂别名、写入并刷新TLB。
 
-scheduler与boot idle边界
------------------------
+``ftrace_init()``
+   动态函数追踪构建先处理 ``__start_mcount_loc`` 到 ``__stop_mcount_loc``。值为0或不属于内核
+   正文段的位置被逐项跳过，不会因此禁用全部函数追踪；空表或记录页申请失败才进入禁用路径。
+   记录建立后， ``ftrace_process_locs()`` 会在本章调用 ``ftrace_update_code()``，所以这里可能
+   已经按架构约定改写内置函数追踪位置。
 
-* possible CPU的runqueue container存在不等于CPU online；初始化loop还将 ``rq->online`` 置0；
-* root task group/default root domain不等于cgroupfs已挂载或SMP scheduling domains已建立；
-* ``__sched_fork(0,current)`` 只重置scheduler state，不分配task/PID或创建child；
-* ``init_task`` 是PID 0 ``swapper/0``，不是later PID 1 ``kernel_init``；
-* ``init_idle`` 在task ``pi_lock`` 与rq lock下发布 ``rq->idle``、 ``rq->curr``、 ``on_rq`` 和
-  ``on_cpu``，但不调用 ``schedule`` 或进入idle loop；
-* ``scheduler_running=1`` 只表示scheduler core ready，不表示tick、full topology、AP或context switch
-  已发生；
-* return后的 ``WARN(!irqs_disabled())`` 与 ``local_irq_disable`` 属于本批出口，使第058章入口IF确定为0。
+``early_trace_init()``
+   ``tracepoint_printk`` 迭代器与普通日志缓冲区分离。 ``tracer_alloc_buffers()`` 失败会按阶段
+   清理并保持追踪禁用，但其返回值不会阻止随后执行 ``init_events()``；不能把事件类型登记与
+   全局追踪缓冲区可用合并为同一状态。
 
-发现并修复
-----------
+第057章证据
+-----------
 
-#. 三章从历史6.12.95标签和百科式展开重写为fixed 7.2-rc1连续时间线，补齐统一章末四节。
-#. 修正early RNG输入边界：不把saved/XBC完整命令行或CRNG ready写成必然结果。
-#. 固定printk ring的already-dynamic、no-resize、成功迁移和失败保留static四类结果。
-#. 修正VFS early call：只建hash backing，不提前声称inode/dentry object caches已完成。
-#. 补x86 trap的CPU entry、SEV-ES/FRED条件与不打开device IRQ边界。
-#. 按7.2-rc1恢复 ``mm_core_init`` 的KHO、alloc-tag/page-ext/debug、完整handoff和tail顺序。
-#. 将memblock ``memory - reserved``、buddy ownership、 ``totalram_pages`` 与保留metadata分开。
-#. 将x86 vmalloc page-table preallocation、SLUB bootstrap和vmap-area publication分成三处边界。
-#. 固定Maple cache的对象参数与 ``SLAB_PANIC`` failure，而不虚构user tree。
-#. 固定text-poke专用mm、two-page address与PTE backing，不把机制准备写成已修改kernel text。
-#. 恢复ftrace empty/failure disable、build stubs、early buffer failure与actual recording条件。
-#. 按源码恢复scheduler class order、root objects、per-possible-CPU rq字段和scratch mask。
-#. 固定 ``init_task`` lazy-TLB/kthread/idle publication的locks与字段，不把它写成PID 1或context switch。
-#. 将 ``sched_init`` 后的IRQ sanity repair纳入057出口，保证058的IF继承值无歧义。
+``sched_init()``
+   检查调度类链接顺序，建立位等待表、 ``root_task_group`` 和
+   ``def_root_domain``。 ``def_root_domain`` 先持有基础引用1；每个可能CPU的 ``rq`` 连接根域时
+   再增加一份引用，并加入 ``span``。
+
+逐CPU运行队列
+   初始化循环先把每个 ``rq->online`` 置为0。 ``rq_attach_root()`` 随后检查
+   ``cpu_active_mask``：CPU0已经活动，因此 ``set_rq_online(rq0)`` 把 ``rq0.online`` 置为1，
+   并把CPU0加入 ``def_root_domain.online``；尚未活动的应用处理器仍保持0。循环最后申请
+   ``scratch_mask``，栈外CPU掩码构建中的申请结果未被调用者检查。
+
+``init_task`` 与 ``init_idle()``
+   当前任务取得惰性TLB引用和内核线程元数据， ``__sched_fork(0, current)`` 只重置调度状态，
+   不创建子任务。 ``init_idle(current, 0)`` 在 ``pi_lock`` 与运行队列锁保护下公布
+   ``rq0.curr``、 ``rq0.idle``、 ``on_rq`` 和 ``on_cpu``，把任务改为CPU0的空闲调度类，但不
+   进入空闲循环，也不调用 ``schedule()``。
+
+调度器公布与出口
+   完成调度类全局初始化、PSI、利用率钳制和条件抢占模式后，
+   ``scheduler_running`` 置为1。紧随其后的 ``WARN(!irqs_disabled())`` 会在异常打开中断时重新
+   执行 ``local_irq_disable()``，所以第058章入口处IF位确定为0。
+
+复查发现并修正
+--------------
+
+#. 纠正第055章VFS结论： ``hashdist=true`` 会同时推迟目录项和索引节点哈希表分配，不再写成
+   无条件早期分配。
+#. 纠正第056章函数追踪失败语义：无效位置逐项跳过，不会使整体失败；同时补明
+   ``ftrace_process_locs()`` 在本章实际进入 ``ftrace_update_code()``。
+#. 补齐第057章CPU0出口状态： ``rq_attach_root()`` 因CPU0已经活动而执行
+   ``set_rq_online()``，根域在线掩码包含CPU0，引用数包含基础引用和每个已连接运行队列的引用。
+#. 六十章当前工作范围内，对第055—057章重新检查普通英文叙述、压缩短句和标题长度；源码标识
+   保持英文，条件、状态、动作和因果关系改用完整中文。
 
 失败与未发生
 ------------
 
-* Maple/SLUB_PANIC、text-poke ``BUG_ON`` 与若干MM fatal allocation路径没有正常返回；正文不伪造降级；
-* ftrace/tracing、debug/KMSAN/KFENCE/KHO/PTI等按build与allocation成功分别enable、disable或no-op；
-* 没有console driver、root mount、initramfs unpack、PID 1/PID 2或普通用户VMA；
-* 没有device IRQ enable、scheduler tick、task switch、AP bring-up或full SMP scheduling domains；
-* 058正文仍pending，相邻入口读取不提升验证状态。
+* ``SLAB_PANIC``、文本修补 ``BUG_ON()`` 以及若干内存管理致命分配路径没有正常返回分支；
+* 函数追踪、早期追踪、KMSAN、KFENCE、KHO和PTI等设施受构建与分配结果控制；
+* 没有控制台驱动、根文件系统挂载、初始内存盘解包、PID 1或PID 2；
+* 没有设备中断启用、调度器时钟滴答、任务切换、应用处理器启动或完整SMP调度域。
 
-连续性与验证
-------------
+连续性结论
+----------
 
-* 054出口为parameter/init token dispatch结束、early RNG前，与055一致；
-* 055出口为runtime MM建立完成、 ``maple_tree_init`` 前，与056一致；
-* 056出口为early tracing返回、 ``sched_init`` 前，与057一致；
-* 057出口为scheduler core ready且IRQ sanity repair完成、 ``radix_tree_init`` 前，与pending 058一致；
-* 三章均有本章结束状态、关键边界、下一入口、资料，且001—057无旧6.12.95标签；
-* ``tools/check-linux-kernel-track.sh 57``、TOML、 ``git diff --check`` 与旧版本guard通过，仅保留
-  既有065/066 duplicate debt；无阻塞；下一批058—060按用户指令暂停。
+第054章结束于初始化参数分派完成、早期随机初始化之前；第055章结束于
+``mm_core_init()`` 返回；第056章结束于 ``early_trace_init()`` 返回；第057章结束于调度器核心
+公布和中断状态修复完成。下一条调用是 ``radix_tree_init()``，与第058章入口一致。三章没有
+遗留阻塞问题，修正后继续保持 ``repaired``。

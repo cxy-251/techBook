@@ -1,311 +1,178 @@
-第五十九章：Linux 怎样建立 IRQ descriptor 并把外部中断入口写入 IDT？
-======================================================================
+第五十九章：Linux怎样建立IRQ描述符与x86中断入口？
+===============================================
 
-第五十八章结束时，RCU、trace event 与 context tracking 已经具备基础状态，但 Linux 还没有建立通用 IRQ descriptor，也没有把普通外部中断入口完整安装到 x86 IDT。
-
-``start_kernel()`` 接下来执行：
+第五十八章结束时，工作队列、RCU和追踪事件已经取得早期对象，CPU0仍以IF位为0的状态执行
+``start_kernel()``。接下来的两次调用分别进入通用IRQ层和x86架构层：
 
 .. code-block:: c
 
    early_irq_init();
    init_IRQ();
 
-本章追踪到 ``init_IRQ()`` 返回，停在 ``tick_init()`` 之前。
+本章追踪到 ``init_IRQ()`` 返回，下一章从 ``tick_init()`` 开始。这里会建立逻辑IRQ、x86向量
+以及CPU入口之间的联系；但是 ``local_irq_enable()`` 仍在更后面，因此入口可用不等于CPU0已经
+接受普通可屏蔽中断。
 
-这一段要完成两类不同工作：
-
-* 通用 IRQ 层建立 Linux 逻辑中断号对应的 ``struct irq_desc``；
-* x86 架构层建立 IRQ domain、向量分配器，并把 APIC 与普通外部中断入口写入 IDT。
-
-这仍然不等于 CPU 已经开始接收外部中断。``local_irq_enable()`` 还在更后面。
-
-IRQ、向量和 IDT entry 不是同一个对象
+逻辑IRQ、x86向量与CPU入口承担不同职责
 ------------------------------------
 
-在 x86 上，一次设备中断至少涉及三套编号或对象：
-
-.. code-block:: text
-
-   hardware interrupt source
-       → Linux logical IRQ number
-       → x86 interrupt vector
-       → IDT gate / assembly entry
-
-其中：
-
-* hardware interrupt source 可能来自 8259A PIC、IOAPIC、Local APIC、MSI 或 MSI-X；
-* Linux logical IRQ 是内核通用 IRQ 子系统使用的编号；
-* x86 vector 是 CPU 接收中断时放入 IDT 索引的 8 位向量；
-* IDT gate 保存真正进入汇编入口代码的位置和门属性。
-
-``irq_desc`` 管理的是 Linux IRQ 的软件状态。``vector_irq`` 负责从某个 CPU 的 vector 找回 ``irq_desc``。IDT entry 只负责把 CPU 引到正确的低级入口。
-
-``early_irq_init()`` 先建立默认 affinity
----------------------------------------
-
-第一条调用位于 ``kernel/irq/irqdesc.c``：
-
-.. code-block:: c
-
-   int __init early_irq_init(void)
-   {
-       init_irq_default_affinity();
-       initcnt = arch_probe_nr_irqs();
-       ...
-   }
-
-默认 affinity 描述一个 IRQ 在没有被驱动或用户重新限制前可以投递到哪些 CPU。
-
-当前只有 CPU0 online，但 possible CPU 集合已经建立。IRQ 子系统必须从一开始就使用正式 cpumask，而不能把当前单 CPU 状态误认为整台机器永远只有一个 CPU。
-
-``arch_probe_nr_irqs()`` 允许架构调整可支持的 IRQ 数量，并返回启动阶段需要预先分配的 IRQ descriptor 数量。
-
-Sparse IRQ 为什么使用 Maple Tree
--------------------------------
-
-在启用 ``CONFIG_SPARSE_IRQ`` 时，内核不会静态创建完整的 ``irq_desc[NR_IRQS]`` 大数组，而是只为实际需要的 IRQ 分配对象。
-
-Linux 6.12.95 使用：
-
-.. code-block:: c
-
-   static struct maple_tree sparse_irqs =
-       MTREE_INIT_EXT(sparse_irqs, ...);
-
-把逻辑 IRQ number 映射到动态分配的 ``struct irq_desc``。
-
-第五十六章建立的 Maple Tree 节点 cache 因而已经开始被后续核心子系统使用。这里不是保存虚拟地址范围，而是把离散 IRQ number 作为 Maple Tree index。
-
-对每个预分配 IRQ，``early_irq_init()`` 执行：
-
-.. code-block:: c
-
-   desc = alloc_desc(i, node, 0, NULL, NULL);
-   irq_insert_desc(i, desc);
-
-``alloc_desc()`` 会分配 descriptor 本体、per-CPU 统计对象和 affinity mask，然后把它插入 ``sparse_irqs``。
-
-新建的 ``irq_desc`` 默认不能处理真实中断
---------------------------------------
-
-``desc_set_defaults()`` 为新 descriptor 设置保守状态：
-
-.. code-block:: text
-
-   irq_data.irq       = logical IRQ number
-   irq_data.chip      = no_irq_chip
-   handle_irq         = handle_bad_irq
-   IRQD_IRQ_DISABLED  = set
-   IRQD_IRQ_MASKED    = set
-   depth              = 1
-
-同时初始化：
-
-* raw spinlock；
-* request mutex；
-* threaded IRQ waitqueue；
-* per-CPU interrupt counters；
-* affinity 与 pending affinity mask；
-* RCU、reference count 和 resend 状态。
-
-所以 descriptor 建立只表示“内核已经有地方记录这个 IRQ”。它尚未绑定真实 ``irq_chip``，没有驱动的 ``irqaction``，默认处理器仍是 ``handle_bad_irq``，并且处于 disabled、masked 状态。
-
-x86 ``arch_early_irq_init()`` 建立 vector IRQ domain
---------------------------------------------------
-
-通用 descriptor 创建完成后，``early_irq_init()`` 调用：
-
-.. code-block:: c
-
-   arch_early_irq_init();
-
-x86 路径位于 ``arch/x86/kernel/apic/vector.c``。它首先创建名为 ``VECTOR`` 的 IRQ domain：
-
-.. code-block:: c
-
-   x86_vector_domain = irq_domain_create_tree(...);
-   irq_set_default_domain(x86_vector_domain);
-
-IRQ domain 负责把 Linux logical IRQ 与架构硬件编号、x86 vector 和中断控制器层级联系起来。
-
-随后建立 vector matrix：
-
-.. code-block:: c
-
-   vector_matrix = irq_alloc_matrix(
-       NR_VECTORS,
-       FIRST_EXTERNAL_VECTOR,
-       FIRST_SYSTEM_VECTOR);
-
-低向量保留给 CPU exceptions，较高的一段保留给 APIC system vectors。普通设备 IRQ 只能从中间允许的 external-vector 区间分配。
-
-此时 vector matrix 只是分配器状态。大量设备 IRQ 尚未创建，MSI/MSI-X 也尚未配置。
-
-``init_IRQ()`` 先建立 CPU0 的 legacy vector 映射
----------------------------------------------
-
-下一条调用进入 ``arch/x86/kernel/irqinit.c:init_IRQ()``。
-
-它先为 legacy IRQ 建立 CPU0 上的反向映射：
-
-.. code-block:: c
-
-   for (i = 0; i < nr_legacy_irqs(); i++)
-       per_cpu(vector_irq, 0)[ISA_IRQ_VECTOR(i)] = irq_to_desc(i);
-
-这表示 CPU0 若将来收到传统 ISA vector，可以通过当前 CPU 的 ``vector_irq`` 表找到对应 ``irq_desc``。
-
-当前只是填表。IF 位仍为 0，CPU 不会因为普通 maskable external interrupt 跳入这些入口。
-
-为什么还要准备专用 IRQ stack
---------------------------
-
-``init_IRQ()`` 接着调用：
-
-.. code-block:: c
-
-   irq_init_percpu_irqstack(smp_processor_id());
-
-x86-64 的中断入口需要为当前 CPU 准备 IRQ stack 状态，避免普通任务栈在嵌套中断或深调用链中被持续消耗。
-
-现在只为 CPU0 执行。其他 CPU 的 per-CPU IRQ stack 会在 AP bring-up 时分别初始化。
-
-``native_init_IRQ()`` 先初始化传统 ISA IRQ
-----------------------------------------
-
-默认 ``x86_init.irqs.intr_init`` 指向 ``native_init_IRQ()``，而它的 ``pre_vector_init`` 默认指向 ``init_ISA_irqs()``。
-
-因此执行顺序是：
-
-.. code-block:: text
-
-   init_IRQ()
-   → native_init_IRQ()
-   → init_ISA_irqs()
-
-``init_ISA_irqs()`` 会：
-
-#. 初始化 boot CPU 的 Local APIC 基础；
-#. 初始化 legacy PIC；
-#. 为 legacy IRQ 绑定当前 legacy ``irq_chip``；
-#. 将 flow handler 设为 ``handle_level_irq``；
-#. 标记这些 IRQ 使用 level 语义。
-
-这一步把最早预分配的 descriptor 从 ``no_irq_chip`` 推进到传统中断控制器可识别的状态。
-
-QEMU q35 后面通常使用 IOAPIC 承担实际 legacy IRQ 路由。当前先建立兼容 PIC/ISA 基础，最终中断模式还要等 x86 late time initialization 重新选择和完成。
-
-异常 IDT 与普通外部 IRQ gate 分阶段建立
+设备或中断控制器提供硬件中断源；通用IRQ层用逻辑IRQ编号查找 ``struct irq_desc``；x86再为
+可投递的中断选择8位向量。CPU收到向量后，FRED事件入口或IDT门把执行引入架构汇编入口，后者
+再根据当前CPU的 ``vector_irq`` 找回描述符。
+
+因此， ``irq_desc`` 保存中断的软件状态和处理动作， ``vector_irq`` 保存逐CPU的反向映射，
+FRED或IDT负责进入内核。创建其中一个对象不会自动完成另外两个对象，也不会替设备驱动登记
+``irqaction``。
+
+``early_irq_init()`` 先确定默认亲和掩码
 -------------------------------------
 
-Linux 在更早阶段已经建立过 early IDT，并在 ``trap_init()`` 附近完成 CPU exception handlers。
+在SMP构建中， ``init_irq_default_affinity()`` 检查启动参数阶段建立的
+``irq_default_affinity``。如果掩码尚不可用，它用 ``GFP_NOWAIT`` 尝试申请；如果最终掩码为空，
+则把 ``cpu_possible_mask`` 中的所有CPU加入掩码。 ``irqaffinity=`` 参数的解析还会强制加入启动CPU，避免错误
+参数把CPU0排除。非SMP构建中的该函数为空。
 
-当前 ``idt_setup_apic_and_irq_gates()`` 处理的是：
+这里的亲和掩码表示尚未被驱动或用户另行限制时允许选择的CPU，不表示这些CPU已经在线。当前
+``cpu_online_mask`` 仍只有CPU0， ``cpu_possible_mask`` 中的其他CPU尚未执行。
 
-* APIC system-vector gates；
-* 普通 external interrupt vector gates；
-* 未分配 system vector 的 spurious entry；
-* 最终 IDT 的只读映射与重新加载。
+x86 ``arch_probe_nr_irqs()`` 依据当前 ``gsi_top``、传统IRQ数量、 ``nr_cpu_ids`` 以及
+``CONFIG_PCI_MSI`` 调整 ``total_nr_irqs``，并通过 ``legacy_pic->probe()`` 给出启动阶段要预先
+准备的传统IRQ数量。正文没有固定构建配置和CPU数量，所以不写死描述符总数。
 
-它先写入 APIC 专用入口表，然后遍历可用 external vectors：
+稀疏IRQ构建把描述符存入Maple Tree
+--------------------------------
+
+启用 ``CONFIG_SPARSE_IRQ`` 时， ``sparse_irqs`` 是带外部互斥锁、范围分配和RCU读取标志的
+``struct maple_tree``。 ``early_irq_init()`` 对每个预分配编号调用 ``alloc_desc()``，
+再通过 ``mas_store_gfp()`` 把返回的指针写入该树。第五十六章创建的Maple Tree节点缓存由此
+开始服务于核心子系统，但这棵树保存的是离散逻辑IRQ编号，不是进程虚拟地址范围。
+
+``alloc_desc()`` 为每个编号申请描述符、逐CPU统计对象以及构建配置要求的亲和掩码，并初始化
+自旋锁、请求互斥锁、等待队列、重发状态、引用和RCU字段。 ``desc_set_defaults()`` 设置：
 
 .. code-block:: c
 
-   entry = irq_entries_start +
-           IDT_ALIGN * (vector - FIRST_EXTERNAL_VECTOR);
-   set_intr_gate(vector, entry);
+   desc->irq_data.irq  = irq;
+   desc->irq_data.chip = &no_irq_chip;
+   desc->handle_irq    = handle_bad_irq;
+   desc->depth         = 1;
 
-每个 vector 指向一段按固定间隔排列的汇编 stub。stub 保存寄存器和 vector 信息，再进入统一 x86 IRQ dispatch 路径，通过 ``vector_irq`` 找到 logical IRQ descriptor。
+同时， ``IRQD_IRQ_DISABLED`` 与 ``IRQD_IRQ_MASKED`` 均被置位。正常返回的描述符因此只有安全
+的占位状态：它还没有真实 ``irq_chip``、设备处理动作或可投递状态。
 
-为什么还要为未分配 vector 安装 spurious entry
---------------------------------------------
+未启用 ``CONFIG_SPARSE_IRQ`` 时，内核改为遍历静态 ``irq_desc[NR_IRQS]``，对每个元素执行
+``init_desc()``。这一分支不使用 ``sparse_irqs``。章节结论只要求相应构建分支中的描述符完成
+初始化，不把Maple Tree写成所有构建的共同事实。
 
-Local APIC 或异常硬件状态可能让 CPU 收到一个当前没有分配给设备的 vector。
+``arch_early_irq_init()`` 创建x86向量域
+-------------------------------------
 
-若 IDT 中完全没有入口，CPU 会把一个可诊断的异常中断扩大成更严重的故障。Linux 因此为未分配的 system-vector 区间安装 spurious entries，使它能够记录并安全处理意外 vector。
+通用描述符处理完成后， ``early_irq_init()`` 把控制权交给
+``arch_early_irq_init()``。x86实现先为名称 ``VECTOR`` 创建固件节点和
+``x86_vector_domain``，再把它设为默认IRQ域；随后申请 ``vector_searchmask``，并创建只在
+``FIRST_EXTERNAL_VECTOR`` 到 ``FIRST_SYSTEM_VECTOR`` 之间搜索的 ``vector_matrix``。必需对象
+缺失由 ``BUG_ON()`` 处理，正常路径不会带着空向量域继续。
 
-IDT 被映射到 CPU entry area
--------------------------
+低编号向量留给CPU异常，高编号向量留给架构系统事件，普通设备中断只能使用中间范围。向量矩阵
+此时只是分配和保留账本，大部分IOAPIC、MSI与MSI-X中断仍未申请具体向量。
 
-完整 gate 写入后，内核执行：
+函数最后执行 ``arch_early_ioapic_init()``。在启用IOAPIC的实现中，它为已经枚举到的每个
+IOAPIC尝试分配保存路由寄存器的内存；分配失败只打印错误并使该IOAPIC不能完成挂起、恢复状态
+保存，不阻止本次函数返回0。这一步同样没有编程设备路由。
 
-.. code-block:: text
-
-   map IDT into CPU entry area
-   → reload IDTR
-   → mark IDT page read-only
-   → idt_setup_done = true
-
-固定的 CPU entry area 地址减少 ``sidt`` 泄露内核随机地址的风险，也让入口路径使用稳定映射。将 IDT 页设为只读则限制普通内核写错误直接篡改中断入口。
-
-system vectors 还要在 vector matrix 中保留
+``init_IRQ()`` 先连接CPU0的传统向量和IRQ栈
 ----------------------------------------
 
-IDT gate 描述“某个 vector 到哪里执行”，vector matrix 描述“哪些 vector 可以分配给设备”。
+``init_IRQ()`` 先把每个传统IRQ的 ``irq_to_desc(i)`` 写入CPU0的
+``vector_irq[ISA_IRQ_VECTOR(i)]``。这只是为以后从传统向量反查描述符，不能让中断越过当前
+关闭的IF位。
 
-``lapic_assign_system_vectors()`` 会把已经标记的 system vectors 在 matrix 中保留，并预占 legacy ISA vectors。
+随后， ``irq_init_percpu_irqstack(0)`` 为CPU0取得硬中断栈顶。启用相应虚拟映射方案时，它
+建立带保护页的IRQ栈映射；不能使用该方案时，它采用逐CPU后备存储。若映射失败，
+``init_IRQ()`` 的 ``BUG_ON()`` 终止正常路径。其他可能CPU要在各自启动时单独完成这一步。
 
-这可以避免后续 MSI 或 IOAPIC 动态分配误用：
+``native_init_IRQ()`` 建立传统控制器基础
+--------------------------------------
 
-* Local APIC timer vector；
-* reschedule IPI；
-* call-function IPI；
-* error、spurious 等系统向量；
-* 已保留的 ISA vector。
+默认的 ``x86_init.irqs.intr_init`` 指向 ``native_init_IRQ()``，其第一步调用
+``x86_init.irqs.pre_vector_init``；默认实现是 ``init_ISA_irqs()``。该函数执行
+``init_bsp_APIC()``，初始化当前选择的 ``legacy_pic``，再把每个传统IRQ的芯片设为
+``legacy_pic->chip``、流处理函数设为 ``handle_level_irq``，并加上 ``IRQ_LEVEL`` 状态。
 
-建立 gate 不代表有设备 handler
+这会把相应描述符从 ``no_irq_chip`` 占位状态推进到传统中断控制器的初始状态。固定平台为QEMU
+q35，但最终CPU、构建配置和完整设备参数未固定；后续 ``late_time_init()`` 仍要选择并建立最终
+中断模式，当前不能把传统PIC初始化写成IOAPIC路由已经完成。
+
+FRED与IDT是互斥的入口完成分支
 ----------------------------
 
-本章结束时已经形成：
+``native_init_IRQ()`` 接着根据构建和CPU特性选择入口形式。若构建包含
+``CONFIG_X86_FRED``，它先调用 ``fred_complete_exception_setup()``：低于
+``FIRST_EXTERNAL_VECTOR`` 的向量被标记为系统向量，已有FRED系统向量处理函数得到保留，未登记
+的系统向量槽改指向FRED意外中断处理函数。
 
-.. code-block:: text
+只有当前CPU没有 ``X86_FEATURE_FRED`` 时，源码才调用
+``idt_setup_apic_and_irq_gates()``。该函数先把 ``apic_idts`` 中的系统入口写入IDT；再为普通
+外部向量写入按 ``IDT_ALIGN`` 间隔排列的汇编入口；启用Local APIC时，还为未分配的高位系统
+向量安装意外中断入口。完成后，它把IDT页以只读属性映射到CPU入口区域，重新加载
+``idt_descr``，把原表页设为只读，并将 ``idt_setup_done`` 置为真。
 
-   external hardware vector
-   → IDT assembly entry
-   → per-CPU vector_irq lookup
-   → struct irq_desc
+如果CPU实际启用FRED，该IDT函数不会执行，外部中断通过FRED入口处理。由于最终CPU模型和构建
+配置没有固定，本章保留两条路径，不再把“完整外部IDT门已经写入”当作无条件事实。
 
-仍然缺少大量后续工作：
+系统向量和传统向量进入分配账本
+----------------------------
 
-* 设备驱动尚未调用 ``request_irq()``；
-* 大部分 IOAPIC/MSI IRQ 尚未分配；
-* Local APIC timer 尚未注册为 clock-event device；
-* tick、timer、softirq 与 timekeeping 尚未建立完整连接；
-* CPU IF 位仍关闭。
+无论采用FRED还是IDT， ``native_init_IRQ()`` 都执行
+``lapic_assign_system_vectors()``。它先把 ``system_vectors`` 中已有的向量标成系统占用；传统
+IRQ多于一个时单独保留PIC级联向量；随后把向量矩阵的启动CPU状态置为在线，并把其余预分配的
+传统向量记为已分配。这样，后续的动态IOAPIC或MSI分配不会占用这些入口。
 
-当前机器状态
+若既没有ACPI枚举的IOAPIC，也没有设备树IOAPIC，并且存在传统IRQ，
+``native_init_IRQ()`` 还尝试用 ``request_irq()`` 为IRQ2登记 ``no_action`` 级联动作。q35的
+正常ACPI IOAPIC路径会跳过这个条件分支；正文仍按源码条件记录，避免把未固定输入推断为实际
+登记结果。
+
+本章结束状态
 ------------
 
-本章结束时：
+``init_IRQ()`` 返回后，选定构建方式下的通用IRQ描述符已经初始化，x86
+``x86_vector_domain``、向量搜索掩码和向量矩阵已经建立。CPU0具有传统向量反向映射和硬中断
+栈；传统IRQ描述符已连接初始芯片与流处理函数。CPU入口采用FRED完成表或采用已完成并只读映射
+的IDT，取决于构建和CPU特性。CPU0的IF位仍为0，应用处理器、普通设备驱动以及调度时钟均未
+开始。
 
-* 当前执行者：Linux 6.12.95 ``init/main.c:start_kernel()``；
-* 精确位置：``init_IRQ()`` 已返回，``tick_init()`` 尚未调用；
-* CPU：只有 CPU0 online；
-* current：``init_task`` / ``swapper/0`` / PID 0；
-* IRQ descriptors：启动所需 descriptor 已分配并放入 sparse IRQ Maple Tree；
-* x86 IRQ domain：``VECTOR`` domain 与 vector matrix 已建立；
-* legacy IRQ：CPU0 vector 映射、PIC/ISA chip 和 level handler 基础已建立；
-* IDT：exception、APIC system vector 与普通 external IRQ gates 已安装；
-* IDT storage：已映射到 CPU entry area 并设为只读；
-* device irqaction：绝大多数尚不存在；
-* interrupts：IF 位仍关闭，``early_boot_irqs_disabled`` 仍为 true；
-* scheduler tick：尚未启动；
-* AP、initramfs、PID 1：均未开始。
+关键边界
+--------
 
-下一条控制流是：
+* ``irq_desc``、x86向量和FRED或IDT入口是三类对象，不能合并成一个“中断已经工作”的状态。
+* ``CONFIG_SPARSE_IRQ`` 决定描述符使用Maple Tree还是静态数组。
+* 新描述符初始处于禁用、屏蔽状态，并以 ``no_irq_chip`` 和 ``handle_bad_irq`` 占位。
+* ``arch_early_ioapic_init()`` 保存IOAPIC寄存器空间，不会完成IOAPIC路由编程。
+* ``X86_FEATURE_FRED`` 决定是否跳过 ``idt_setup_apic_and_irq_gates()``。
+* 传统PIC基础和向量保留不等于q35的最终IOAPIC模式已经选定。
+* 本章没有执行 ``local_irq_enable()``，所以不存在由普通外部中断引起的异步控制流。
+
+下一入口
+--------
+
+``start_kernel()`` 的下一条语句是：
 
 .. code-block:: c
 
    tick_init();
 
-下一章进入 tick、RCU no-CB、timer wheel、SRCU、hrtimer 和 softirq 软件基础。中断入口已经存在，但 CPU0 仍不会接受普通外部 IRQ。
+第60章将建立时钟滴答管理掩码、定时器队列、SRCU正常排队路径、高精度定时器以及小任务软中断
+入口，但仍不会在本章打开IF位。
 
 资料
 ----
 
-* `Linux 6.12.95 init/main.c：early_irq_init、init_IRQ 与 tick_init 顺序 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c>`_
-* `Linux 6.12.95 kernel/irq/irqdesc.c：IRQ descriptor 默认状态与 sparse IRQ Maple Tree <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/irq/irqdesc.c>`_
-* `Linux 6.12.95 arch/x86/kernel/apic/vector.c：VECTOR domain 与 vector matrix <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/apic/vector.c>`_
-* `Linux 6.12.95 arch/x86/kernel/irqinit.c：legacy IRQ、init_IRQ 与 native_init_IRQ <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/irqinit.c>`_
-* `Linux 6.12.95 arch/x86/kernel/idt.c：APIC、external IRQ gates 与只读 IDT <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/idt.c>`_
-* `Linux generic IRQ 文档 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/Documentation/core-api/genericirq.rst>`_
+* `Linux 7.2-rc1 init/main.c：通用IRQ与架构IRQ调用顺序 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c#L1076-L1083>`_
+* `Linux 7.2-rc1 kernel/irq/irqdesc.c：描述符初始化与稀疏IRQ分支 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/irq/irqdesc.c#L120-L195>`_
+* `Linux 7.2-rc1 kernel/irq/irqdesc.c：early_irq_init实现 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/irq/irqdesc.c#L552-L618>`_
+* `Linux 7.2-rc1 arch/x86/kernel/apic/vector.c：IRQ数量、向量域与矩阵 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/apic/vector.c#L717-L820>`_
+* `Linux 7.2-rc1 arch/x86/kernel/irqinit.c：CPU0传统向量、IRQ栈与入口分支 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/irqinit.c#L54-L113>`_
+* `Linux 7.2-rc1 arch/x86/kernel/idt.c：APIC和普通中断门 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/idt.c#L278-L325>`_
+* `Linux 7.2-rc1 arch/x86/entry/entry_fred.c：FRED入口完成步骤 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/entry/entry_fred.c#L125-L167>`_
+* `Linux 7.2-rc1 arch/x86/kernel/apic/io_apic.c：早期IOAPIC保存区 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/apic/io_apic.c#L218-L248>`_
