@@ -1,255 +1,226 @@
-第六十八章：Linux 怎样创建 PID 1、PID 2，并让 PID 0 进入 idle loop？
-====================================================================
+第六十八章：Linux 怎样创建 PID 1、PID 2，并让 PID 0 进入空闲循环？
+========================================================================
 
-第六十七章结束时，``start_kernel()`` 的同步初始化已经完成。CPU0 仍由 ``init_task`` / ``swapper/0`` / PID 0 占用，PID allocator、task cache、scheduler runqueue、timer、RCU、VFS 和 cgroup 等基础都已存在，但系统中还没有普通新任务，也没有发生第一次正常调度。
-
-下一条控制流是：
+第六十七章结束时，CPU0仍由 ``init_task``、 ``swapper/0``、PID 0执行
+``start_kernel()``。控制组、任务统计和延迟记账已经按配置建立早期对象，ACPI只完成了当前
+阶段允许的模式切换，系统中仍没有动态任务。下一条语句进入：
 
 .. code-block:: c
 
    rest_init();
 
-``rest_init()`` 是启动链中第一次真正改变执行环境的入口。它创建 PID 1 和 PID 2，允许 scheduler 开始正常工作，并让 PID 0 从“一直执行启动代码的任务”转变为 CPU0 的永久 idle task。
+``rest_init()`` 首次把一条启动执行流分成三个任务：PID 0退出初始化主线并成为CPU0空闲任务，
+PID 1接续可释放的内核初始化，PID 2成为内核线程创建者。三个任务何时首次取得CPU由调度决定，
+所以本章按同步关系说明交接，不虚构固定的运行次序。
 
-``rest_init()`` 为什么不是普通 ``__init`` 函数
---------------------------------------------
+``rest_init()`` 必须成为独立且不返回的入口
+-------------------------------------------
 
-源码把它声明为：
+函数声明同时带有 ``noinline``、 ``__ref`` 和 ``__noreturn``：
 
 .. code-block:: c
 
    static noinline void __ref __noreturn rest_init(void)
 
-这里有三个重要属性：
+PID 1以后会释放初始化内存。若编译器把这个函数内联回 ``start_kernel()``，PID 1释放相关代码
+时，PID 0可能还没有沿独立路径进入空闲循环。源码因此禁止内联，并明确PID 0不会从
+``rest_init()`` 返回。 ``__ref`` 允许这段非初始化节代码引用启动期对象，同时接受这里刻意
+安排的生命周期关系。
 
-* ``noinline``：防止编译器把代码内联回 ``start_kernel()``；
-* ``__ref``：允许它引用启动期代码，同时避免 section mismatch；
-* ``__noreturn``：PID 0 进入 idle loop 后不会返回 ``start_kernel()``。
+RCU先离开单任务启动特例
+-----------------------
 
-PID 1 会继续执行并最终释放 ``__init`` 内存。如果 PID 0 的 idle 路径仍依赖可能被释放的 ``start_kernel()`` 栈上返回链，就会产生竞态。因此 ``rest_init()`` 必须成为独立、不会返回的控制入口。
+PID 0首先调用 ``rcu_scheduler_starting()``。函数检查当前是否仍只有一个在线CPU，以及是否
+尚未发生上下文切换；异常状态只触发警告。它随后暂时保存并关闭本地中断，遍历RCU树，把每个
+``rcu_node.gp_seq_needed`` 与 ``gp_seq`` 修正到全局序号，再恢复原来的中断状态。
 
-RCU 从启动特例切入 scheduler 阶段
---------------------------------
+最后，函数把 ``rcu_scheduler_active`` 从早期启动状态推进到
+``RCU_SCHEDULER_INIT``。从这里开始，同步宽限期操作不再是启动期空操作，而采用由请求任务
+推动的加速路径。这仍不是完整运行期RCU；稍后的 ``rcu_set_runtime_mode()`` 才完成下一次
+阶段转换，也还没有因为本调用自动创建RCU线程。
 
-``rest_init()`` 首先调用：
+第一个动态任务取得PID 1
+-----------------------
 
-.. code-block:: c
-
-   rcu_scheduler_starting();
-
-在此之前，RCU 已有层级、per-CPU 数据和 callback 基础，但系统始终只有 PID 0 沿单条启动路径运行。``rcu_scheduler_starting()`` 告诉 RCU：正常 scheduler、context switch 和 idle quiescent state 即将出现。
-
-它不是创建 RCU kthread，也不是立刻完成一个 grace period。它完成的是状态切换：后续 RCU 可以把任务切换、CPU idle 和用户态边界纳入正常 quiescent-state 判断。
-
-``user_mode_thread(kernel_init)`` 创建 PID 1
------------------------------------------
-
-源码必须先创建 init task：
+PID 0接着执行：
 
 .. code-block:: c
 
    pid = user_mode_thread(kernel_init, NULL, CLONE_FS);
 
-``user_mode_thread()`` 最终构造 ``kernel_clone_args``：
+``user_mode_thread()`` 把入口保存为 ``kernel_init``，并在调用者给出的 ``CLONE_FS`` 之外
+加入 ``CLONE_VM | CLONE_UNTRACED``。它没有设置 ``kernel_thread()`` 使用的内核线程标志：
+这个任务虽从内核函数开始运行，身份却是将来装入用户空间初始化程序的初始任务。
+
+``kernel_clone()`` 调用 ``copy_process()`` 分配并连接任务对象。第六十五章已经确认动态PID
+分配游标从1开始，当前又没有其他动态任务，所以持续启动路径中的第一个任务获得PID 1。函数在
+返回数字PID之前调用 ``wake_up_new_task()``，PID 1从这一刻起已经可以被调度。
+
+这里有一个必须保留的失败边界： ``user_mode_thread()`` 可以返回负错误值，但
+``rest_init()`` 没有检查它。后面的 ``find_task_by_pid_ns()`` 结果被直接解引用，因此源码的
+继续路径依赖PID 1创建成功这一启动不变量；不存在可以补写成正文的降级或重试分支。
+
+PID 1暂时只能在CPU0运行
+-----------------------
+
+PID 0在RCU读侧临界区按刚得到的PID找到 ``task_struct``，设置
+``PF_NO_SETAFFINITY``，再调用：
 
 .. code-block:: c
 
-   flags = CLONE_FS | CLONE_VM | CLONE_UNTRACED
-   fn = kernel_init
-   fn_arg = NULL
-
-随后进入：
-
-.. code-block:: text
-
-   user_mode_thread()
-   → kernel_clone()
-   → copy_process()
-   → alloc_pid()
-   → wake_up_new_task()
-
-初始 PID namespace 尚未分配过普通 PID，``alloc_pid()`` 从 1 开始，因此这个任务取得 PID 1。
-
-为什么函数名带 ``user_mode``，任务却先执行内核函数
--------------------------------------------------
-
-PID 1 此刻还没有用户态指令、用户栈和 ELF 映像。新任务第一次获得 CPU 时，从内核入口 ``kernel_init()`` 开始执行。
-
-``user_mode_thread`` 表示这个任务不是永久 ``PF_KTHREAD`` 内核线程；它被设计为稍后通过 ``kernel_execve()`` 装入 ``/init``、``/sbin/init`` 等用户程序。真正切入用户态发生在成功 exec 之后，不发生在 ``user_mode_thread()`` 返回时。
-
-PID 1 为什么暂时只能运行在 CPU0
------------------------------
-
-``user_mode_thread()`` 会把新任务放入 runqueue。此时 AP 尚未 online，SMP scheduler topology 也没有完成。``rest_init()`` 随即找到 PID 1 的 ``task_struct``：
-
-.. code-block:: c
-
-   tsk->flags |= PF_NO_SETAFFINITY;
    set_cpus_allowed_ptr(tsk, cpumask_of(smp_processor_id()));
 
-因此 PID 1 暂时只能运行在当前 boot CPU。
+此时 ``smp_processor_id()`` 是0，因此PID 1的允许CPU集合暂时只有CPU0。应用处理器尚未启动，
+SMP调度域也没有建立；这项限制防止初始化任务在相关迁移机制完整以前改变CPU。第六十九章的
+``sched_init_smp()`` 会根据非隔离维护CPU重新设置范围并清除该标志。
 
-这个限制不是永久 CPU affinity 策略。后面的 ``sched_init_smp()`` 完成 non-isolated CPU mask 和 scheduler domains 后，会重新设置 init task 的可运行 CPU 集合。
+设置亲和性不代表PID 1现在立刻运行。 ``wake_up_new_task()`` 只使它具备被选择的条件；PID 0
+尚未执行本函数末尾的显式调度，而且构建的抢占方式仍可能影响PID 1是否更早获得CPU。
 
-``numa_default_policy()`` 清理 PID 0 的启动期策略
-----------------------------------------------
+PID 0恢复自己的默认NUMA内存策略
+-------------------------------
 
-创建 PID 2 之前，PID 0 调用 ``numa_default_policy()``。前面的 NUMA 初始化可能让启动任务暂时携带显式 memory policy；这里恢复默认策略，避免后续内核线程无意继承只为 early boot 服务的 policy 对象。
+创建PID 2之前，当前执行者仍是PID 0。 ``numa_default_policy()`` 对 ``current`` 调用
+``do_set_mempolicy(MPOL_DEFAULT, 0, NULL)``，撤销更早启动阶段为了初始化内存而使用的临时交错
+策略。这个操作改变的是PID 0当前内存策略，不是为PID 1迁移既有页面；禁用NUMA时，对应入口
+不产生实质变化。
 
-这不会把内存重新搬迁，也不会改变已分配页所在 node。它改变的是以后分配和继承时使用的 policy 基线。
+第二个动态任务取得PID 2并成为 ``kthreadd``
+------------------------------------------
 
-``kernel_thread(kthreadd)`` 创建 PID 2
------------------------------------
-
-接下来执行：
-
-.. code-block:: c
-
-   pid = kernel_thread(kthreadd, NULL, NULL,
-                       CLONE_FS | CLONE_FILES);
-
-``kernel_thread()`` 同样进入 ``kernel_clone()``，并额外设置：
-
-.. code-block:: text
-
-   CLONE_VM
-   CLONE_UNTRACED
-   kthread = 1
-
-PID 1 已占用编号 1，因此新的 ``struct pid`` 取得编号 2。随后 ``rest_init()`` 通过 ``find_task_by_pid_ns()`` 保存：
+随后，PID 0执行：
 
 .. code-block:: c
 
-   kthreadd_task = ...;
+   pid = kernel_thread(kthreadd, NULL, NULL, CLONE_FS | CLONE_FILES);
 
-PID 2 是正式的 ``kthreadd``。它进入循环，等待 ``kthread_create_list`` 中的请求，并代表内核创建后续 worker、watchdog 和其他 kthread。
+``kernel_thread()`` 在给出的文件系统上下文和文件表共享标志之外加入
+``CLONE_VM | CLONE_UNTRACED``，把入口设为 ``kthreadd``，并明确设置内核线程标志。因为PID 1
+已经占用第一个动态编号，持续路径中的第二次分配得到PID 2。
 
-PID 1 为什么必须先创建，PID 2 又必须先准备好
-----------------------------------------
+``kernel_clone()`` 同样在返回前唤醒PID 2。PID 0随后在RCU读侧临界区找到它，并把指针发布到
+全局 ``kthreadd_task``。源码对第二次创建也没有检查负返回值；后续路径同样把成功创建PID 2
+作为启动不变量。
 
-顺序必须满足两个约束：
+PID 2何时真正进入 ``kthreadd()`` 并不由这几行决定。它取得CPU后才会把任务名改成
+``kthreadd``、忽略信号、设置所有有内存节点、建立控制组内核线程关系，然后在
+``kthread_create_list`` 为空时睡眠。当前可以确定的是任务与全局指针已经发布，不能断言上述
+循环一定已经执行。
 
-#. init task 必须成为初始 PID namespace 的 PID 1；
-#. PID 1 后续 initcall 可能请求创建 kthread，届时 ``kthreadd`` 必须已经存在。
+完成量封住PID 1与PID 2之间的依赖
+--------------------------------
 
-所以 Linux 先创建 PID 1，再创建 PID 2。同时 PID 1 的 ``kernel_init()`` 一开始执行：
-
-.. code-block:: c
-
-   wait_for_completion(&kthreadd_done);
-
-即使 scheduler 在 PID 2 完全登记前先运行了 PID 1，PID 1 也只能睡在 completion 上，不会提前进入依赖 kthreadd 的初始化路径。
-
-``SYSTEM_SCHEDULING`` 表示什么
-----------------------------
-
-PID 1、PID 2 都已创建后，PID 0 设置：
+两个任务都创建后，PID 0把：
 
 .. code-block:: c
 
    system_state = SYSTEM_SCHEDULING;
-
-从此 ``might_sleep()``、``smp_processor_id()`` 等调试检查可以按正常调度环境工作。
-
-它不表示所有 CPU 已启动，也不表示 scheduler topology 已完成。当前仍只有 CPU0 online。这个状态只说明系统已经越过“只有 boot task、不能按正常规则睡眠和调度”的最早阶段。
-
-completion 放行 PID 1
----------------------
-
-随后执行：
-
-.. code-block:: c
-
    complete(&kthreadd_done);
 
-如果 PID 1 已在 ``wait_for_completion()`` 睡眠，这里会把它唤醒；如果 PID 1 尚未运行，completion 计数会保留，使它以后调用 wait 时立即通过。
+依次写入。新的系统状态允许启用 ``might_sleep()`` 和 ``smp_processor_id()`` 等运行期检查。
+``complete()`` 则发布“PID 2已经创建且 ``kthreadd_task`` 已可见”这一事实。
 
-completion 只保证 kthreadd 的 task 已创建并可被引用。PID 2 是否已经运行到自己的无限循环，取决于 scheduler 的实际选择。
+PID 1的入口 ``kernel_init()`` 第一件事就是
+``wait_for_completion(&kthreadd_done)``。若自愿抢占配置使PID 1提前运行，它会停在完成量上；
+若它在完成量发布以后才首次运行，等待会直接通过。两条时序都保证PID 1进入
+``kernel_init_freeable()`` 前能够请求创建内核线程。
 
-PID 0 第一次主动进入 scheduler
-----------------------------
+完成量只证明PID 2对象和全局指针已经建立，不证明PID 2已经运行到主循环。内核线程创建请求
+可以先进入队列，再由PID 2取得CPU后处理。
 
-``rest_init()`` 接下来执行：
+第一次显式调度没有规定PID 1和PID 2的先后
+----------------------------------------
 
-.. code-block:: c
+PID 0接着调用 ``schedule_preempt_disabled()``。该辅助函数在进入时要求抢占计数为1；它先允许
+抢占而不立即检查重新调度，调用 ``schedule()``，调度返回后重新禁止抢占。源码注释要求启动
+空闲任务至少执行一次调度，以便新任务真正开始推进。
 
-   schedule_preempt_disabled();
+此时运行队列中可以同时存在PID 1和PID 2。优先级、唤醒位置和构建选择共同影响调度结果，
+``rest_init()`` 没有指定谁必须先运行。可以确定的只有同步关系：
 
-这是 boot idle task 第一次主动调用正常 scheduler。runqueue 上已有 PID 1 和 PID 2，scheduler 可以选择其中一个运行。
+* PID 1在完成量发布前不能越过 ``kernel_init()`` 的等待；
+* PID 2可以在PID 1之前或之后首次运行；
+* PID 0从第一次调度恢复后，不再继续执行普通启动初始化。
 
-这里不能声称固定先运行 PID 1 或 PID 2。优先级、wake-up 时序和配置会影响第一次选择；源码只保证二者已创建，并通过 ``kthreadd_done`` 保证 PID 1 不会越过依赖边界。
+PID 0永久进入CPU0空闲循环
+-------------------------
 
-PID 0 进入永久 idle loop
------------------------
-
-当 PID 0 再次获得 CPU 后，``rest_init()`` 继续：
+第一次显式调度返回PID 0时，抢占再次处于禁止状态。它立即调用：
 
 .. code-block:: c
 
    cpu_startup_entry(CPUHP_ONLINE);
 
-``cpu_startup_entry()``：
+该函数为当前任务设置 ``PF_IDLE``，执行体系结构空闲准备，把CPU0推进到
+``CPUHP_ONLINE`` 对应的空闲热插拔状态，然后永久循环 ``do_idle()``。空闲循环根据
+``need_resched()``、无滴答状态和CPU空闲驱动决定轮询或进入硬件空闲；需要切换任务时，它在
+RCU读侧临界区之外执行 ``schedule_idle()``。
 
-* 给当前任务设置 ``PF_IDLE``；
-* 执行 architecture idle prepare；
-* 把 CPU0 的 hotplug 状态推进到 online idle；
-* 永久循环调用 ``do_idle()``。
+因此，PID 0不是“完成 ``rest_init()`` 后返回调用者”，而是把自己的永久角色从启动执行者
+切换成CPU0空闲任务。初始化主线从此属于PID 1。
 
-``do_idle()`` 在没有 runnable task 时进入 poll、``hlt``、``mwait`` 或 cpuidle state；出现 timer interrupt、IPI 或新的 runnable task 时退出 idle 并调用 ``schedule_idle()``。
-
-PID 0 没有退出
+本章结束状态
 ------------
 
-PID 0 进入 idle 不等于它结束。每个 online CPU 都需要一个 idle task。当没有其他任务可运行时，scheduler 把 CPU 切回对应 idle task；有任务需要运行时，idle task 再让出 CPU。
+::
 
-因此 PID 0 从此仍永久存在，只是不再负责继续执行 Linux 初始化主线。
+   初始化主线执行者    = PID 1；已越过kthreadd_done并到达kernel_init_freeable()
+   下一入口            = kernel_init_freeable()
+   CPU模式             = x86-64长模式，CPL0
+   system_state        = SYSTEM_SCHEDULING
+   CPU在线且活动       = 仅CPU0
+   PID 0               = swapper/0；永久位于CPU0空闲路径
+   PID 1               = kernel_init；暂时限制在CPU0，尚未装入用户空间程序
+   PID 2               = kthreadd对象已经创建并发布；首次运行时刻不固定
+   kthreadd_done       = 已完成
+   kthreadd_task       = 指向PID 2
+   RCU                 = RCU_SCHEDULER_INIT；尚未进入完整运行期模式
+   首次显式调度        = 已执行
+   应用处理器          = 尚未启动
+   SMP调度域           = 尚未建立
+   普通工作线程        = 尚未由第069章的workqueue_init()成批建立
+   当前根              = 仍为可变rootfs；最终ext4磁盘根尚未挂载
+   初始内存盘          = 尚未解包
 
-本章结束后的执行环境
-------------------
+关键边界
+--------
 
-本章结束时可以确认：
+* ``rcu_scheduler_starting()`` 进入 ``RCU_SCHEDULER_INIT``，不是完整运行期RCU；
+* ``user_mode_thread()`` 与 ``kernel_thread()`` 都通过任务复制路径分配并唤醒任务，持续路径
+  依次得到PID 1和PID 2；
+* 两次创建结果均未由 ``rest_init()`` 检查，继续执行依赖创建成功，源码没有恢复路径；
+* PID 1在SMP调度域建立前带有 ``PF_NO_SETAFFINITY``，允许CPU集合只有CPU0；
+* ``kthreadd_done`` 保证PID 1继续前能看到PID 2已经发布，不保证PID 2已经进入主循环；
+* 第一次显式调度不规定PID 1和PID 2谁先运行；
+* ``rest_init()`` 不返回，PID 0永久成为CPU0空闲任务，PID 1接续初始化主线。
 
-.. code-block:: text
+下一入口
+--------
 
-   PID 0  swapper/0
-          → 已完成第一次 schedule
-          → 进入 cpu_startup_entry()/do_idle()
-
-   PID 1  kernel_init
-          → 已创建
-          → 等待或已经通过 kthreadd_done
-          → 将继续 kernel_init_freeable()
-
-   PID 2  kthreadd
-          → 已创建
-          → 处理内核线程创建请求
-
-当前机器状态：
-
-* CPU0 是唯一 online CPU；
-* PID 0 已成为 CPU0 的正常 idle task；
-* PID 1 与 PID 2 已真实存在；
-* scheduler 已开始正常选择 runnable task；
-* ``system_state = SYSTEM_SCHEDULING``；
-* RCU 已进入 scheduler-aware 启动阶段；
-* PID 1 仍在内核态，尚未 exec 用户程序；
-* AP 尚未收到本内核发出的启动序列；
-* initramfs 尚未解包；
-* root filesystem 尚未挂载。
-
-后续主线不再跟随 PID 0。下一执行者是 PID 1：
-
-.. code-block:: c
-
-   kernel_init()
-       wait_for_completion(&kthreadd_done);
-       kernel_init_freeable();
+下一章从PID 1执行 ``kernel_init_freeable()`` 开始。它将开放启动期受限的内存分配标志，建立
+首批工作线程，准备并尝试启动应用处理器，再依据最终在线CPU集合建立SMP调度域和工作队列
+拓扑。
 
 资料
 ----
 
-* `Linux 7.2-rc1 init/main.c：rest_init、kernel_init 与首次调度 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c>`_
-* `Linux 7.2-rc1 kernel/fork.c：kernel_clone、kernel_thread 与 user_mode_thread <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/fork.c>`_
-* `Linux 7.2-rc1 kernel/kthread.c：kthreadd 主循环 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/kthread.c>`_
-* `Linux 7.2-rc1 kernel/sched/idle.c：cpu_startup_entry 与 do_idle <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/sched/idle.c>`_
-* `Linux 7.2-rc1 kernel/rcu/tree.c：rcu_scheduler_starting <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/rcu/tree.c>`_
+* `rest_init()的完整交接
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c#L660-L718>`_
+* `RCU进入调度器初始化阶段
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/rcu/tree.c#L4648-L4673>`_
+* `kernel_clone()分配、唤醒并发布数字PID
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/fork.c#L2694-L2791>`_
+* `kernel_thread()与user_mode_thread()的参数差异
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/fork.c#L2794-L2824>`_
+* `numa_default_policy()
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/mm/mempolicy.c#L3388-L3392>`_
+* `kernel_init()的完成量等待
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c#L1539-L1549>`_
+* `kthreadd()建立上下文并处理创建队列
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/kthread.c#L787-L822>`_
+* `schedule_preempt_disabled()
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/sched/core.c#L7375-L7385>`_
+* `CPU空闲循环与cpu_startup_entry()
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/sched/idle.c#L273-L388>`_
+* `cpu_startup_entry()设置永久空闲角色
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/sched/idle.c#L448-L455>`_

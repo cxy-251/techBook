@@ -1,9 +1,10 @@
-第六十七章：Linux 怎样建立 cgroup 与 accounting，并到达 rest_init？
-=================================================================
+第六十七章：Linux 怎样建立控制组与记账基础，并到达 rest_init()？
+====================================================================
 
-第六十六章结束时，namespace、security、VFS、page cache、procfs、nsfs 和 pidfs 的核心基础已经建立。当前仍只有 PID 0 执行 ``start_kernel()``。
-
-``rest_init()`` 之前只剩最后一组同步初始化：
+第六十六章结束时，CPU0仍以 ``init_task``、 ``swapper/0``、PID 0的身份执行
+``start_kernel()``。VFS对象缓存、初始挂载名字空间、可变 ``rootfs`` 和几个伪文件系统已经
+建立，但系统仍只有一条启动执行流：没有动态PID，没有应用处理器，也没有普通工作线程。固定
+源码中的下一组语句是：
 
 .. code-block:: c
 
@@ -19,318 +20,194 @@
 
    rest_init();
 
-本章追踪到 ``kcsan_init()`` 返回，停在 ``rest_init()`` 调用之前。到这里 ``start_kernel()`` 的单线启动阶段即将结束。
+本章跟踪前八个入口，到 ``kcsan_init()`` 返回为止。它们分别补上控制组根对象、早期任务记账、
+ACPI模式切换和可选并发检查状态，却不创建任务，也不进入 ``rest_init()``。
 
-为什么 ``cgroup_init_early()`` 后还需要 ``cgroup_init()``
-------------------------------------------------------
+``cpuset_init()`` 先建立顶层CPU与内存节点范围
+------------------------------------------------
 
-``start_kernel()`` 最早阶段已经调用过：
+启用 ``CONFIG_CPUSETS`` 时， ``cpuset_init()`` 为 ``top_cpuset`` 分配允许CPU、有效CPU、
+独占CPU等掩码，同时建立子分区和隔离CPU掩码。这些分配使用普通内核分配标志，但每次结果都由
+``BUG_ON()`` 检查；只要关键掩码分配失败，当前启动路径就不会继续执行。
 
-.. code-block:: c
+对象齐备后，函数把顶层允许、有效和独占CPU掩码设为全部可能CPU，把允许和有效内存节点掩码
+设为全集，再调用 ``cpuset1_init()`` 完成顶层对象的第一阶段设置。若启动参数已经启用
+``HK_TYPE_DOMAIN_BOOT`` 维护CPU隔离，它还用 ``cpu_possible_mask`` 减去维护CPU，得到启动期
+隔离CPU集合。
 
-   cgroup_init_early();
+这里建立的是控制组视角的根约束，不是SMP调度域。 ``cpuset_init_smp()`` 要等应用处理器和CPU
+拓扑确定后才会运行，因此当前CPU0的运行队列和亲和关系没有因本入口重新组织。禁用
+``CONFIG_CPUSETS`` 时，同名内联入口直接返回0，上述对象也不会建立。
 
-那一步发生在 page allocator、scheduler 和普通 slab 可用之前，只能建立最小关系：
+``mem_cgroup_init()`` 准备内存控制器的共享设施
+----------------------------------------------
 
-* 让静态 ``init_task`` 拥有合法的初始 cgroup membership；
-* 初始化早期可用的 subsystem state；
-* 保证 scheduler/accounting 读取 current cgroup 时不会遇到空指针。
+启用 ``CONFIG_MEMCG`` 时， ``mem_cgroup_init()`` 首先登记CPU离线回调
+``memcg_hotplug_cpu_dead``，再分配逐CPU ``memcg`` 工作队列。工作队列分配失败只触发
+``WARN_ON()``，源码没有在这里补建替代对象；这与随后缓存分配的失败语义不同，不能概括成一个
+统一的“初始化成功”状态。
 
-现在 allocator、VFS、PID、namespace 和 security 都已建立，才可以构造完整的 cgroup core。
+函数随后为每个可能CPU初始化两项工作： ``memcg_stock.work`` 用于排空本地内存控制组库存，
+``obj_stock.work`` 用于排空本地对象库存。最后，它按当前 ``nr_node_ids`` 计算
+``struct mem_cgroup`` 的变长大小，并创建 ``mem_cgroup`` 与
+``mem_cgroup_per_node`` 两个缓存。两个缓存都带有 ``SLAB_PANIC``，关键分配失败会停止启动。
 
-``cpuset_init()`` 建立 CPU 与 memory-node 约束根
--------------------------------------------
+此时只有内存控制器共享设施， ``root_mem_cgroup`` 还没有在这个函数中完成。源码特意把根内存
+控制组留给紧接着的 ``cgroup_init()``，因为它依赖具体控制组根和控制器状态。禁用
+``CONFIG_MEMCG`` 时，入口为空。
 
-cpuset controller 用 mask 表达任务允许使用的：
-
-* CPU；
-* NUMA memory node；
-* scheduler load-balance domain；
-* memory migration 和 spread policy。
-
-``cpuset_init()`` 初始化顶层 ``top_cpuset``，使它覆盖系统允许的 CPU 与 memory node，并准备 controller 的锁、mask 和有效状态。
-
-当前只有 CPU0 online，但 possible/present CPU 拓扑已经存在。顶层 cpuset 的语义不是“只准 CPU0 永远运行”，而是根 cpuset 起始时代表系统可用资源集合；AP online 和 hotplug 时还会继续更新 effective mask。
-
-cpuset 与 scheduler affinity 的区别
----------------------------------
-
-任务自身有 ``cpus_mask`` / ``cpus_ptr``，cpuset 又提供层级约束。最终允许集合概念上来自：
-
-.. code-block:: text
-
-   task affinity
-   ∩ cpuset effective CPUs
-   ∩ online/active CPUs
-   ∩ isolation and scheduler constraints
-
-当前 ``init_task`` 仍固定在 CPU0 的启动上下文中。初始化 cpuset 不会唤醒 AP，也不会立刻迁移 PID 0。
-
-``mem_cgroup_init()`` 建立 memory cgroup 核心
-----------------------------------------
-
-Memory cgroup（memcg）对 cgroup 中的内存使用进行：
-
-* page/folio charging；
-* slab/kernel-memory accounting；
-* reclaim；
-* limit 与 protection；
-* OOM isolation；
-* per-node statistics；
-* swap accounting（按配置）。
-
-``mem_cgroup_init()`` 准备根 memory cgroup、per-node state、统计与回收所需数据，使后续分配路径可以把内存 charge 到相应 memcg。
-
-这不会给系统自动设置一个很小的内存上限。root memcg 表示未被子 hierarchy 限制的顶层归属；具体 ``memory.max``、``memory.high`` 等值要等 cgroup filesystem 和用户空间配置。
-
-为什么进程创建前必须有 memcg
---------------------------
-
-第六十五章建立的多个 slab cache 带有 ``SLAB_ACCOUNT``。新任务创建时会分配：
-
-* ``task_struct``；
-* kernel stack；
-* credential；
-* signal/files/fs/mm objects；
-* page tables 和匿名页。
-
-这些分配需要在一开始就能找到正确的 memory cgroup。若先创建 PID 1，再补 memcg，启动过程中产生的对象会缺少一致归属。
-
-``cgroup_init()`` 构造完整 cgroup core
-----------------------------------
-
-``cgroup_init()`` 将早期最小状态扩展为正式 cgroup infrastructure，主要包括：
-
-* root cgroup 与 hierarchy 基础；
-* subsystem/controller state；
-* ``css_set`` 和 task membership 索引；
-* controller dependency 与 enable 状态；
-* kernfs/cgroup filesystem 所需关系；
-* task fork/attach/exit hooks 的正式运行条件；
-* release、migration 和 synchronization 基础。
-
-不同 controller 会按照构建配置参与，例如 cpuset、cpu、memory、pids、io、freezer、hugetlb、rdma 等。没有固定 ``.config`` 时不能把全部 controller 都写成已启用。
-
-cgroup core 已建立不等于 cgroupfs 已挂载
-------------------------------------
-
-当前内核已经能把任务关联到 root cgroup，并能在 ``copy_process()`` 中执行 cgroup fork hooks。
-
-用户可见的层级还需要：
-
-.. code-block:: text
-
-   cgroup filesystem type available
-   → mount cgroup2 or cgroup v1
-   → create directories
-   → enable controllers
-   → write limits and task membership
-
-这些动作通常由 initramfs、systemd 或其他 PID 1 用户空间完成。当前没有 ``/sys/fs/cgroup`` mount point。
-
-``taskstats_init_early()`` 准备任务统计对象
---------------------------------------
-
-Taskstats 向用户空间提供任务和 thread-group 的统计，例如：
-
-* CPU runtime；
-* context switches；
-* I/O accounting；
-* delay accounting；
-* exit information。
-
-``taskstats_init_early()`` 建立早期 cache、per-CPU 或 family 基础，使新任务从创建开始就能拥有一致的统计对象。
-
-完整 Generic Netlink interface 和用户请求处理仍可能由后续 initcall 接通。当前没有用户程序订阅 taskstats。
-
-``delayacct_init()`` 建立等待时间记账
---------------------------------
-
-Delay accounting 记录任务因为资源不可用而等待的时间，例如：
-
-* block I/O delay；
-* swap-in delay；
-* memory reclaim/compaction delay；
-* CPU runnable delay；
-* IRQ/SOFTIRQ interference（按配置与版本）。
-
-``delayacct_init()`` 创建 delay-accounting cache，并为 ``init_task`` 准备基础状态。后面 ``copy_process()`` 才会给新任务分配或复制对应对象。
-
-Delay accounting 与 scheduler runtime 不同
----------------------------------------
-
-scheduler runtime 回答“任务实际在 CPU 上执行了多久”；delay accounting 回答“任务想继续执行，却因某类资源等待了多久”。
-
-两者都依赖前面已经初始化的 sched clock，但采集点和语义不同。
-
-``acpi_subsystem_init()`` 真正请求进入 ACPI mode
---------------------------------------------
-
-第六十三章的 ``acpi_early_init()`` 已经：
-
-* 重新安置 ACPI root table；
-* 初始化 ACPICA subsystem；
-* 准备 FADT/SCI 等早期事实；
-* 让 ACPI tables 可访问。
-
-它明确没有完成完整 event handling 和 device scan。
-
-现在 ``acpi_subsystem_init()`` 调用 ACPICA 的 subsystem-enable 路径，请求平台进入 ACPI mode，并启用当前阶段安全的 ACPI hardware/event 基础。成功后，内核可以把 firmware power-management control 从传统兼容状态推进到 ACPI 管理模式。
-
-ACPI subsystem enabled 不等于 ACPI bus scan 完成
+``cgroup_init()`` 把初始任务接入默认控制组根
 ---------------------------------------------
 
-完整 ACPI interpreter object initialization、``_PIC``、device enumeration、driver binding 和通知 handler 仍在后面的 ``acpi_init()`` subsys initcall 中进行。
+启用 ``CONFIG_CGROUPS`` 时， ``cgroup_init()`` 先建立控制组核心文件类型和资源统计状态，并为
+初始控制组名字空间取得用户名字空间引用。持有 ``cgroup_lock`` 期间，它把静态
+``init_css_set`` 放入散列表，建立BPF生命周期通知，再通过 ``cgroup_setup_root()`` 构造默认
+层级 ``cgrp_dfl_root``。
 
-当前不能声称：
+随后，函数遍历编入内核的每个 ``cgroup_subsys``。已经在早期入口初始化的控制器获得正式ID；
+其他控制器此时才执行 ``cgroup_init_subsys()``。对启用的控制器，函数计算默认层级掩码和
+线程化属性，登记各自文件项，调用可选 ``bind`` 回调，并把控制器目录内容接到初始控制组。
+``init_css_set.subsys[]`` 发生变化后，散列表键也随之重新计算。
 
-* 所有 AML method 已执行；
-* EC driver 已完成 probe；
-* ACPI device 已全部出现在 sysfs；
-* PCI root bridge 已完成 Linux driver-model enumeration；
-* sleep/wakeup device 已全部配置。
+核心对象连接完成后，函数尝试创建 ``/sys/fs/cgroup`` 挂载点对象，登记控制组v1、控制组v2和
+可选的旧式CPU集合文件系统，并按条件建立 ``/proc/cgroups``。这些外围操作使用 ``WARN_ON()``
+记录失败，却不把错误传播回 ``start_kernel()``；最后，初始控制组名字空间加入名字空间树。
 
-这一章只跨过“允许平台切到 ACPI mode”的边界。
+这里的结果是“文件系统类型已经登记、默认根和初始成员关系已经建立”，不是“控制组文件系统
+已经挂载”。控制组自己的销毁工作队列也由稍后的初始化调用建立。禁用
+``CONFIG_CGROUPS`` 时，同名入口不构造这些对象。
 
-``arch_post_acpi_subsys_init()`` 检查 AMD E400
+任务统计先有缓存和监听表，稍后才有通信接口
 ------------------------------------------
 
-在 x86 固定实现中，这个架构钩子主要处理 AMD E400/C1E erratum。
+启用 ``CONFIG_TASKSTATS`` 时， ``taskstats_init_early()`` 创建 ``taskstats`` 对象缓存。该
+缓存使用 ``SLAB_PANIC``，然后函数为每个可能CPU初始化 ``listener_array`` 的链表和读写信号
+量。这样，后续任务退出和控制组统计路径已有保存对象及逐CPU监听容器。
 
-只有 boot CPU 已标记 ``X86_BUG_AMD_E400`` 时，函数才读取 ``MSR_K8_INT_PENDING_MSG``，检查 C1E active bits。受影响的平台会：
+本入口没有调用 ``genl_register_family()``。Generic Netlink族由稍后的
+``taskstats_init()`` 登记，所以当前不能从“早期对象存在”推导出用户空间已经能够请求任务
+统计。禁用 ``CONFIG_TASKSTATS`` 时，该入口为空。
 
-* 标记 ``X86_BUG_AMD_APIC_C1E``；
-* 在缺少 nonstop TSC 时把 TSC 标记为 unstable；
-* 按配置要求 tick broadcast；
-* 启用对应 workaround。
+延迟记账是否启用由构建和启动参数共同决定
+----------------------------------------
 
-为什么必须等 ACPI enable 后检查
------------------------------
+启用 ``CONFIG_TASK_DELAY_ACCT`` 时， ``delayacct_init()`` 创建
+``task_delay_info`` 缓存，然后调用 ``delayacct_tsk_init(&init_task)``。该辅助函数先把
+``init_task.delays`` 清空；只有 ``delayacct_on`` 已经为真时，才为PID 0分配具体延迟记账
+对象。
 
-该 erratum 的状态与 firmware/ACPI power-management 行为有关。过早读取可能看不到平台进入 ACPI mode 后才出现的 C1E 状态，因此钩子被放在 ``acpi_subsystem_init()`` 之后。
+``delayacct_on`` 可以由 ``delayacct`` 启动参数预先置位。函数最后用该值设置
+``delayacct_key`` 静态键。因此，本入口保证缓存和开关状态一致，却不保证延迟采集一定打开；
+没有相应构建选项时，它完全为空。
 
-普通非受影响 CPU 会立即返回。固定 QEMU q35 没有限定模拟 CPU model，正文不能提前断言该分支必定命中或跳过。
+ACPI入口此时只尝试切换固件模式
+------------------------------
 
-``kcsan_init()`` 准备并发数据竞争检测
----------------------------------
-
-KCSAN（Kernel Concurrency Sanitizer）通过采样 watchpoint 检测未同步的并发内存访问。
-
-启用 ``CONFIG_KCSAN`` 时，``kcsan_init()`` 建立运行时状态、watchpoint 和报告基础，使后续并发内核线程、interrupt 和 AP 执行时可以发现 data race。
-
-未启用 KCSAN 时，该入口编译为空。即使启用，当前只有 CPU0 和 PID 0，真正高并发访问尚未开始；此处只是把检测器放到即将出现并发之前。
-
-为什么 KCSAN 放在 ``rest_init()`` 前
---------------------------------
-
-``rest_init()`` 会创建 PID 1 与 PID 2，随后第一次进入 scheduler，workqueue、kthread 和 AP bring-up 会逐步产生大量并发路径。
-
-若 KCSAN 等到这些任务已经运行后才初始化，会漏掉最早一批共享状态访问。现在完成初始化，可以覆盖从第一次任务切换开始的并发执行。
-
-``start_kernel()`` 的同步阶段已经准备了什么
----------------------------------------
-
-从 PID 0 进入 ``start_kernel()`` 到当前，Linux 已经建立：
-
-.. code-block:: text
-
-   architecture and memory
-   → buddy/slab/vmalloc
-   → scheduler runqueue
-   → workqueue/RCU/trace foundations
-   → IRQ/IDT/timer/timekeeping
-   → external interrupts enabled
-   → console/ACPI early/x86 timer/boot CPU finalize
-   → PID/fork/cred objects
-   → namespaces/security/VFS/proc/pidfs
-   → cpuset/memcg/cgroup/accounting
-   → ACPI subsystem mode
-   → concurrency sanitizer
-
-现在内核不再只是“能够在 PID 0 中继续初始化”，而是已经具备创建和调度其他任务的通用对象基础。
-
-仍然没有发生第一次正常任务切换
-----------------------------
-
-尽管 timer interrupt、scheduler、PID allocator 和 task caches 都已存在，当前控制流仍是：
-
-.. code-block:: text
-
-   CPU0
-   → init_task / PID 0
-   → start_kernel()
-   → kcsan_init() returned
-
-没有调用 ``schedule()``，没有 runnable PID 1，也没有 kthreadd。
-
-``rest_init()`` 是下一个执行环境边界
----------------------------------
-
-源码在调用前写着：
+若ACPI已经被禁用， ``acpi_subsystem_init()`` 立即结束。否则，它调用：
 
 .. code-block:: c
 
-   /* Do the rest non-__init'ed, we're now alive */
-   rest_init();
+   acpi_enable_subsystem(~ACPI_NO_ACPI_ENABLE);
 
-``rest_init()`` 本身不是普通 ``__init`` 函数。原因是它会同时启动新的 root/init thread；后续 ``free_initmem()`` 可能释放 ``__init`` section，必须避免 PID 0 的返回路径仍依赖已被回收的启动代码。
+这一位掩码保留“允许进入ACPI模式”，同时设置其他 ``ACPI_NO_*`` 位。因此，ACPICA在这里跳过
+FACS映射、固定事件和GPE初始化，也跳过SCI与全局锁处理器安装；这些工作要等后续ACPI总线入口
+再次调用 ``acpi_enable_subsystem()``。本章不能把ACPI模式切换写成ACPI事件系统已经可用。
 
-下一阶段将按固定顺序：
+模式切换失败时，内核打印错误并调用 ``disable_acpi()``，随后仍沿启动链继续。成功时，
+``regulator_has_full_constraints()`` 告诉稳压器核心：使用ACPI的系统可认为固件已经描述
+了所需约束。固定平台采用SeaBIOS，但最终ACPI表内容、启动参数和失败结果仍由实际配置控制，
+不能预先断言这个分支必定成功。
 
-.. code-block:: text
+x86只在确认AMD E400后发布对应修正
+---------------------------------
 
-   rcu_scheduler_starting()
-   → user_mode_thread(kernel_init)  创建 PID 1
-   → 把 PID 1 暂时 pin 在 CPU0
-   → kernel_thread(kthreadd)        创建 PID 2
-   → system_state = SYSTEM_SCHEDULING
-   → complete(kthreadd_done)
-   → schedule_preempt_disabled()
-   → PID 0 第一次进入 scheduler
-   → cpu_startup_entry()
+``arch_post_acpi_subsys_init()`` 是体系结构在ACPI模式切换后的修正入口。固定x86实现先检查启动
+CPU是否带有 ``X86_BUG_AMD_E400``；没有该标记便立即结束。有该标记时，它读取
+``MSR_K8_INT_PENDING_MSG``，还要看到 ``K8_INTP_C1E_ACTIVE_MASK`` 才设置
+``X86_BUG_AMD_APIC_C1E``。
 
-这些动作尚未发生，留给下一章。
+确认修正条件后，缺少 ``X86_FEATURE_NONSTOP_TSC`` 的CPU会把TSC标记为不稳定；启用通用空闲
+时钟事件广播时，内核还打开 ``arch_needs_tick_broadcast`` 静态分支。这个入口不会为普通CPU
+统一重配时钟，也不能用固定QEMU平台名称推导所模拟CPU一定具有或不具有该问题。
 
-当前机器状态
+KCSAN在任务并发出现前完成可选启用
+---------------------------------
+
+启用 ``CONFIG_KCSAN`` 时， ``kcsan_init()`` 先用 ``BUG_ON(!in_task())`` 确认当前仍在任务
+上下文，然后以 ``get_cycles()`` 为每个可能CPU的 ``kcsan_rand_state`` 播种。当前仍只有PID 0
+运行，因此写入这些逐CPU状态时不需要与其他任务竞争。
+
+只有 ``kcsan_early_enable`` 为真时，函数才把 ``kcsan_enabled`` 置为真。随后日志说明当前
+构建采用严格或非严格检测方式。该入口没有在这里创建报告线程，也没有改变控制流的任务数量；
+禁用 ``CONFIG_KCSAN`` 时，它为空。
+
+本章结束状态
 ------------
 
-本章结束时：
+::
 
-* 当前执行者：Linux 7.2-rc1 ``init/main.c:start_kernel()``；
-* 精确位置：``kcsan_init()`` 已返回，``rest_init()`` 尚未调用；
-* current：``init_task`` / ``swapper/0`` / PID 0；
-* CPU：只有 CPU0 online；
-* interrupts：CPU0 IF=1，timer interrupt 已具备正常投递条件；
-* scheduler：runqueue 和 idle task 已建立，尚未进行第一次正常 schedule；
-* cpuset：root cpuset 基础已建立；
-* memcg：root memory cgroup 与 accounting 基础已建立；
-* cgroup：core hierarchy、controller 和 task membership 基础已建立，cgroupfs 未断言已挂载；
-* taskstats/delayacct：新任务统计基础已准备；
-* ACPI：subsystem enable 已执行，完整 ACPI bus/device scan 尚未进行；
-* x86 post-ACPI：AMD E400 检查已按 CPU capability 执行；
-* KCSAN：按配置完成初始化；
-* AP：尚未收到 INIT/SIPI；
-* PID 1 / PID 2：尚未创建；
-* initramfs：尚未解包；
-* VFS root：尚未切入真实 root filesystem。
+   当前执行者          = CPU0上的start_kernel()；kcsan_init()已返回
+   下一入口            = rest_init()
+   CPU模式             = x86-64长模式，CPL0
+   IF                  = 1
+   当前任务            = init_task / swapper/0 / PID 0
+   system_state        = SYSTEM_BOOTING
+   CPU在线且活动       = 仅CPU0
+   应用处理器          = 尚未启动
+   动态PID             = 尚未分配
+   cpuset根            = 按CONFIG_CPUSETS建立或采用空入口
+   内存控制组基础      = 按CONFIG_MEMCG建立共享设施；根状态由cgroup核心连接
+   控制组核心          = 按CONFIG_CGROUPS建立默认根、初始成员关系与文件系统登记
+   cgroupfs            = 尚未挂载
+   taskstats           = 早期缓存与监听表按配置建立；Generic Netlink族尚未登记
+   延迟记账            = 按构建和delayacct启动参数建立或关闭
+   ACPI                = 未禁用时只尝试切换模式；事件与SCI处理器尚未在本入口建立
+   KCSAN               = 按构建和早期启用选择播种并打开，或采用空入口
+   普通工作线程        = 尚未开始执行
+   PID1/PID2           = 尚未创建
+   初始根              = 仍为可变rootfs；最终ext4磁盘根尚未挂载
 
-下一条控制流是：
+关键边界
+--------
 
-.. code-block:: c
+* ``cpuset_init()`` 建立顶层约束掩码，不建立SMP调度域；
+* ``mem_cgroup_init()`` 建立共享设施，根内存控制组由随后 ``cgroup_init()`` 连接；
+* ``cgroup_init()`` 登记文件系统并建立默认根，不等于控制组文件系统已经挂载；
+* ``taskstats_init_early()`` 没有登记Generic Netlink族， ``delayacct_init()`` 也不保证采集已
+  启用；
+* ``acpi_subsystem_init()`` 本次只允许切换ACPI模式，FACS、事件、SCI与全局锁处理器仍留给
+  后续入口；
+* ``arch_post_acpi_subsys_init()`` 和 ``kcsan_init()`` 都受CPU能力、构建或启动选择控制；
+* 本章没有创建任务、启动应用处理器或发生任务切换。
 
-   rest_init();
+下一入口
+--------
 
-这是 PID 0 第一次创建其他任务、启动 scheduler 运行环境并最终进入 idle loop 的入口。
+下一章进入 ``rest_init()``。PID 0将先推进RCU启动阶段，再依次创建PID 1和PID 2，发布
+``kthreadd_done``，执行第一次显式调度并永久转入CPU0空闲循环。
 
 资料
 ----
 
-* `Linux 7.2-rc1 init/main.c：cgroup、ACPI、KCSAN 与 rest_init 边界 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c>`_
-* `Linux 7.2-rc1 kernel/cgroup/cpuset.c：cpuset_init 与 root cpuset <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/cgroup/cpuset.c>`_
-* `Linux 7.2-rc1 mm/memcontrol.c：mem_cgroup_init 与 root memcg <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/mm/memcontrol.c>`_
-* `Linux 7.2-rc1 kernel/cgroup/cgroup.c：cgroup_init 与 task membership <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/cgroup/cgroup.c>`_
-* `Linux 7.2-rc1 kernel/taskstats.c：taskstats_init_early <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/taskstats.c>`_
-* `Linux 7.2-rc1 kernel/delayacct.c：delayacct_init 与 task delay accounting <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/delayacct.c>`_
-* `Linux 7.2-rc1 drivers/acpi/bus.c：acpi_subsystem_init 与后续 acpi_init <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/drivers/acpi/bus.c>`_
-* `Linux 7.2-rc1 arch/x86/kernel/process.c：arch_post_acpi_subsys_init 与 AMD E400 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/process.c>`_
-* `Linux 7.2-rc1 kernel/kcsan/core.c：KCSAN runtime initialization <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/kcsan/core.c>`_
+* `start_kernel()的本章调用区间
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c#L1164-L1175>`_
+* `cpuset_init()
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/cgroup/cpuset.c#L3687-L3712>`_
+* `mem_cgroup_init()
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/mm/memcontrol.c#L5529-L5570>`_
+* `cgroup_init()
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/cgroup/cgroup.c#L6417-L6522>`_
+* `taskstats早期对象与稍后的通信族登记
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/taskstats.c#L693-L711>`_
+* `delayacct_init()
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/delayacct.c#L28-L55>`_
+* `delayacct_tsk_init()按开关分配任务状态
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/include/linux/delayacct.h#L111-L117>`_
+* `ACPI模式切换入口
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/drivers/acpi/bus.c#L1435-L1462>`_
+* `ACPICA对FACS、模式、事件和处理器的分阶段执行
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/drivers/acpi/acpica/utxfinit.c#L110-L192>`_
+* `x86的ACPI后修正
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/process.c#L971-L995>`_
+* `kcsan_init()
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/kcsan/core.c#L794-L820>`_

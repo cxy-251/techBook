@@ -11,9 +11,9 @@ Linux Kernel回溯审查账本
    mode             = retrospective-audit
    production       = paused
    audit_execution  = paused
-   verified_through = 066
+   verified_through = 069
    current_batch    = none
-   next_batch       = 067-069
+   next_batch       = 070-072
    current_status   = paused by user
 
 状态语义遵守 ``project/LINUX_KERNEL_CONTRACT.rst``。
@@ -51,12 +51,14 @@ Linux Kernel回溯审查账本
   SLUB晚期入口/页面集/NUMA策略/早期ACPICA边界核验完成，无阻塞。
 * `064-066 <064-066.rst>`_：``repaired``；x86延后时间/启动CPU收尾、PID与任务对象、
   名字空间/安全框架/VFS与内部根挂载边界核验完成，同编号重复文件已经消除，无阻塞。
+* `067-069 <067-069.rst>`_：``repaired``；控制组/记账/ACPI模式、PID 0/1/2任务交接、
+  应用处理器/工作队列/SMP调度器与页分配晚期收尾边界核验完成，无阻塞。
 
 已知但尚未轮到的结构债务
 ------------------------
 
-* 第067章起的历史启动正文仍引用旧版本标签或未经固定源码复核的内容和数值；
+* 第070章起的历史启动正文仍引用旧版本标签或未经固定源码复核的内容和数值；
 * 既有boot章节没有逐章登记到当前track manifest；
 * 历史正文与通用学习设计规则长期并存，适用关系曾不明确；现由Linux Kernel专用合同消除歧义。
 
-结构债务在顺序审查到对应编号时处理；下一批从067开始。
+结构债务在顺序审查到对应编号时处理；下一批从070开始。

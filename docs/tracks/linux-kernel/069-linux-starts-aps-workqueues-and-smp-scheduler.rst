@@ -1,309 +1,291 @@
-第六十九章：Linux 怎样唤醒 AP，并让 workqueue 与 SMP scheduler 正式运行？
-======================================================================
+第六十九章：Linux 怎样启动应用处理器、工作队列与 SMP 调度器？
+=================================================================
 
-第六十八章结束后，PID 0 已进入 CPU0 的 idle loop。Linux 初始化主线转移到 PID 1 的 ``kernel_init()``。PID 2 ``kthreadd`` 已创建，因此 PID 1 可以开始执行会产生内核线程、worker 和异步任务的初始化路径。
-
-PID 1 首先执行：
+第六十八章完成了初始化主线的任务交接。PID 0已经进入CPU0永久空闲循环；PID 2及全局
+``kthreadd_task`` 已经发布；PID 1在 ``kernel_init()`` 中越过 ``kthreadd_done``，接着调用：
 
 .. code-block:: c
 
-   wait_for_completion(&kthreadd_done);
    kernel_init_freeable();
 
-completion 已由 PID 0 在 ``rest_init()`` 中完成。PID 1 通过该屏障后进入 ``kernel_init_freeable()``。
+PID 1此时仍在内核态，没有装入 ``/init`` 或 ``/sbin/init``。它暂时带有
+``PF_NO_SETAFFINITY``，允许CPU集合只有CPU0。本章跟踪 ``kernel_init_freeable()`` 从开放
+后续分配条件，到 ``page_alloc_init_late()`` 返回；下一条尚未执行的语句是
+``do_basic_setup()``。
 
-本章追踪到 ``page_alloc_init_late()`` 返回，停在 ``do_basic_setup()`` 之前。自然边界是：AP、正式 workqueue、SMP scheduler topology 和依赖 SMP 的内存分配收尾已经具备，下一阶段将进入设备模型和全部 initcall。
+PID 1先解除启动期内存分配限制
+-----------------------------
 
-PID 1 此时仍在内核态
--------------------
-
-``kernel_init()`` 虽然属于未来的用户态 init task，当前仍运行内核 C 函数。它尚未调用 ``kernel_execve()``，没有装入 ``/init`` 或 ``/sbin/init``。
-
-当前任务身份是：
-
-.. code-block:: text
-
-   current = PID 1
-   entry   = kernel_init_freeable()
-   mode    = kernel mode
-   CPU     = initially CPU0
-
-PID 0 已成为 idle task，PID 2 在 kthreadd 循环中等待创建请求。
-
-允许完整 GFP 分配
-----------------
-
-``kernel_init_freeable()`` 首先执行：
+内核早期把 ``gfp_allowed_mask`` 设为 ``GFP_BOOT_MASK``，屏蔽回收、I/O和文件系统相关分配
+标志。调度器已经能够阻塞当前任务，PID 2也已经发布后，PID 1执行：
 
 .. code-block:: c
 
    gfp_allowed_mask = __GFP_BITS_MASK;
 
-启动早期会限制部分 GFP flag，避免代码请求尚不能安全完成的 reclaim、I/O 或 filesystem 行为。scheduler 和基本内存管理已经运行后，PID 1 放开完整 GFP mask，使后续初始化可以使用正常 blocking allocation、reclaim 和 I/O 语义。
+此后分配请求可以保留完整的GFP标志，具体分配路径也可以按自身条件进入回收、I/O或文件系统。
+这项赋值只解除全局掩码，不保证任何一次分配成功，也不表示块设备、最终根文件系统或交换空间
+已经可用。
 
-这不表示所有分配都一定成功，也不表示 swap、块设备和文件系统已经可用。它只取消 early-boot 对 GFP flag 的全局限制；具体路径仍受当前 subsystem 状态约束。
+启用 ``CONFIG_CPUSETS`` 时，紧接着的 ``set_mems_allowed(node_states[N_MEMORY])`` 在任务锁和
+本地中断保护下，把PID 1的 ``mems_allowed`` 设为所有具有内存的节点，并用序列计数发布变化。
+禁用CPU集合控制器时，同名内联入口为空。它改变的是后续分配范围，不迁移此前已经分配的页面。
 
-PID 1 获得全部 memory node 的分配资格
-----------------------------------
+最后， ``cad_pid = get_pid(task_pid(current))`` 为当前PID 1的 ``struct pid`` 增加引用，使
+Ctrl-Alt-Del处理路径以后可以向初始任务发送信号。这个引用不会创建新任务。
 
-接下来：
-
-.. code-block:: c
-
-   set_mems_allowed(node_states[N_MEMORY]);
-
-第六十八章曾把 PID 1 的 CPU affinity 暂时限制在 CPU0。这里处理的是另一件事：memory-node policy。
-
-``set_mems_allowed()`` 允许 init task 从所有具有内存的 node 分配页面。它不改变 CPU affinity，也不会启动 AP。CPU 可运行集合要等后面的 ``sched_init_smp()`` 调整。
-
-``cad_pid`` 暂时指向 PID 1
-------------------------
-
-源码执行：
-
-.. code-block:: c
-
-   cad_pid = get_pid(task_pid(current));
-
-``cad_pid`` 是 Ctrl-Alt-Del 相关动作默认发送信号的目标。当前 ``current`` 是 PID 1，因此初始目标保存为 init task 的 ``struct pid``。
-
-这只是登记 signal target，不会发送信号，也不会触发 reboot。
-
-``smp_prepare_cpus()`` 只准备 AP 启动环境
--------------------------------------
-
-下一步是：
-
-.. code-block:: c
-
-   smp_prepare_cpus(setup_max_cpus);
-
-在 x86 普通 APIC 路径中，它进入 ``native_smp_prepare_cpus()``，主要完成：
-
-* 为 possible CPU 分配 topology sibling/core/die/LLC mask；
-* 建立 CPU0 的 sibling topology 基线；
-* 检查当前 APIC interrupt mode 是否支持 SMP；
-* 为 boot CPU 建立 per-CPU clock-event 路径；
-* 准备 AP startup delay、SMT 和平台 wake-up 策略。
-
-这里必须保持边界：
-
-.. code-block:: text
-
-   smp_prepare_cpus()
-   = 准备 AP 启动数据和平台方法
-   ≠ 已向 AP 发送 INIT/SIPI
-   ≠ AP 已 online
-
-真正唤醒 secondary CPU 发生在后面的 ``smp_init()``。
-
-``workqueue_init()`` 让 early work 真正可以执行
--------------------------------------------
-
-第五十八章中的 ``workqueue_init_early()`` 只允许创建 workqueue，并允许 work item 排队或取消；当时没有 kthreadd，也没有正式 worker pool。
-
-现在 PID 1 调用：
-
-.. code-block:: c
-
-   workqueue_init();
-
-此时 PID 2 已存在，workqueue 可以创建 worker kthread，建立 normal/high-priority/unbound pool，并开始消费此前积压的 work item。
-
-因此两个入口的区别是：
-
-.. code-block:: text
-
-   workqueue_init_early()
-   → data structures and queueing are available
-
-   workqueue_init()
-   → worker execution environment becomes available
-
-这不表示所有 workqueue 都已完成工作。它表示 work item 从此可以被 worker 并发执行。
-
-``init_mm_internals()`` 接上依赖正常调度的 VM 维护
-----------------------------------------------
-
-随后调用：
-
-.. code-block:: c
-
-   init_mm_internals();
-
-该入口建立 VM statistics、per-CPU threshold 和后续内存维护所需基础。某些 vmstat folding、NUMA statistics 和 background maintenance 依赖 timer、workqueue 或 online CPU，因此不能全部放在最早的 ``mm_core_init()`` 阶段。
-
-它不是重新初始化 buddy allocator，也不会创建用户地址空间。PID 1 当前仍共享启动阶段的内核执行环境。
-
-pre-SMP initcall 在 AP 上线前执行
--------------------------------
-
-``do_pre_smp_initcalls()`` 遍历：
-
-.. code-block:: text
-
-   __initcall_start
-   → __initcall0_start
-
-这是链接器单独放在 normal initcall level 之前的一组 early initcall。它们被要求在 AP 正式 online 前完成，例如需要建立全局状态、CPU hotplug callback 或 AP 启动依赖的基础。
-
-每个函数仍通过 ``do_one_initcall()`` 执行，内核会检查：
-
-* 返回时 preempt count 是否失衡；
-* 函数是否错误地保持 IRQ disabled；
-* ``initcall_debug`` 是否需要记录耗时和返回值。
-
-``lockup_detector_init()`` 准备 watchdog
--------------------------------------
-
-lockup detector 在 AP bring-up 前建立 watchdog 基础。后续 CPU online 时，可以按 hotplug callback 为各 CPU 接上 softlockup/hardlockup 检测。
-
-是否真正启用 NMI watchdog、使用 perf event，取决于配置、CPU capability 和命令行。调用该入口不能直接断言每个 QEMU vCPU 都已有硬件 NMI watchdog。
-
-``smp_init()`` 才真正把 AP 唤醒
------------------------------
-
-PID 1 随后调用：
-
-.. code-block:: c
-
-   smp_init();
-
-generic CPU hotplug 代码会在 ``setup_max_cpus`` 限制内遍历 present CPU，为每个 AP 创建 idle task，并通过 architecture bring-up callback 启动 CPU。
-
-x86 普通路径的关键链条是：
-
-.. code-block:: text
-
-   smp_init()
-   → cpu_up()/CPU hotplug state machine
-   → native_kick_ap()
-   → common_cpu_up()
-   → prepare AP idle task, stack and IRQ stack
-   → do_boot_cpu()
-   → APIC wakeup method
-   → startup trampoline
-   → start_secondary()
-
-若 APIC driver 没有更专用的 64-bit/32-bit wake-up 方法，``do_boot_cpu()`` 使用 INIT startup sequence，并把 trampoline 地址作为 SIPI vector 交给目标 APIC ID。
-
-这里才是 Linux 内核自己的 AP bring-up。SeaBIOS 第十二章曾临时唤醒 AP 做固件初始化，随后 AP 又被置于等待状态；当前是 Linux 为自己建立每 CPU 内核上下文并让 AP 成为 online Linux CPU。
-
-AP 从 trampoline 进入 ``start_secondary()``
------------------------------------------
-
-AP 收到启动消息后从 low-memory trampoline 开始，重新建立 Linux 需要的 mode、page table、GDT、per-CPU base 和 stack，随后进入 ``start_secondary()``。
-
-``start_secondary()`` 对 AP 完成：
-
-* CPU identification 与 feature consistency；
-* Local APIC 和 per-CPU timer；
-* scheduler、RCU、call-function 和 hotplug state；
-* topology sibling 关系；
-* 标记 CPU online/active；
-* 最终进入该 CPU 自己的 ``cpu_startup_entry()`` idle loop。
-
-AP online 后不持续执行 PID 1 的代码。每个 AP 先拥有自己的 idle task，等待 scheduler 给它分配 runnable task。
-
-online CPU 数量取决于 QEMU 运行参数
--------------------------------
-
-固定主线只规定 QEMU q35，没有固定 ``-smp`` 的 vCPU 数量，也没有固定 ``maxcpus=``、``nosmp`` 或 CPU isolation 参数。
-
-因此本章只能确认：
-
-* Linux 尝试启动允许范围内的 present AP；
-* 成功启动的 AP 进入 online mask；
-* 启动失败或被配置限制的 CPU 可能保持 offline。
-
-不能预先写死最终 online CPU 数字。
-
-``sched_init_smp()`` 让调度器理解真实 CPU topology
+``smp_prepare_cpus()`` 只准备应用处理器启动条件
 -----------------------------------------------
 
-AP bring-up 完成后调用：
+启用 ``CONFIG_SMP`` 时，固定x86路径通过 ``smp_ops.smp_prepare_cpus`` 进入
+``native_smp_prepare_cpus()``。通用准备部分先把除CPU0以外的可能CPU标成尚未完成索引连接，
+为每个可能CPU分配兄弟、核心、晶粒和共享缓存拓扑掩码，再建立CPU0自己的兄弟关系。
 
-.. code-block:: c
+随后，x86按此前确定的 ``apic_intr_mode`` 分支：
 
-   sched_init_smp();
+* 使用传统PIC或没有配置的虚拟线模式时， ``disable_smp()`` 关闭SMP路径；
+* 对称I/O但没有路由时，同样关闭SMP，只补上CPU0本地时钟事件；
+* 虚拟线或完整对称I/O模式继续准备SMP，设置CPU0逐CPU时钟事件，输出CPU0信息，处理平台钩子、
+  启动延时、共享线程推测执行缓解和可选SNP唤醒方法。
 
-此前 scheduler 已有每 CPU runqueue，但系统只能安全使用 boot CPU。现在调度器根据 online CPU、NUMA node、core/SMT/LLC topology、CPU isolation 和 housekeeping mask 建立 scheduling domains 与 load-balancing relationships。
+本入口没有调用应用处理器跳板，也没有把任何应用处理器标成在线。平台或虚拟化实现还可以替换
+``smp_ops``， ``setup_max_cpus`` 也会在真正启动阶段限制目标数量。因此，此处只能得到“启动
+条件已经准备或SMP已经按检测关闭”，不能提前写出在线CPU数。
 
-它还解除 PID 1 的启动期 CPU0 pinning，把 init task 的 allowed mask 调整到合适的 non-isolated online CPU 集合。
+``workqueue_init()`` 为既有工作池建立首批执行者
+-----------------------------------------------
 
-因此三个阶段要分开：
+工作队列核心在更早的 ``workqueue_init_early()`` 中已经建立系统工作队列和工作池，但当时还
+没有普通 ``kworker`` 执行排队工作。现在 ``workqueue_init()`` 进入三阶段初始化的第二阶段。
 
-.. code-block:: text
+函数首先调用 ``wq_cpu_intensive_thresh_init()``。它通过 ``kthread_run_worker()`` 创建
+``pool_workqueue_release`` 专用线程，失败由 ``BUG_ON()`` 停止当前路径；若启动参数没有指定
+阈值，还根据 ``loops_per_jiffy`` 估算处理器速度，把CPU密集工作阈值限制在10毫秒到1秒之间。
+这也是PID 1开始实际依赖PID 2处理内核线程创建请求的地方。
 
-   sched_init()
-   → runqueue and classes exist
+持有 ``wq_pool_mutex`` 时，函数为此前建立的逐CPU池补上NUMA节点信息，并尝试为请求
+``WQ_MEM_RECLAIM`` 的工作队列创建早期救援线程。救援线程创建失败只打印警告，不与关键工作
+线程使用相同的失败语义。
 
-   smp_init()
-   → APs are brought online
+随后，内核为所有可能CPU的底半部池创建伪工作执行者，为当时每个在线CPU的逐CPU池创建首批
+真正工作线程，并为所有无绑定池创建工作线程。此刻应用处理器尚未由 ``smp_init()`` 启动，
+所以逐在线CPU循环至少覆盖CPU0，不能预先写成覆盖所有可能CPU。关键工作线程创建失败由
+``BUG_ON()`` 处理；全部完成后， ``wq_online`` 置为真，工作队列看门狗也随之初始化。
 
-   sched_init_smp()
-   → scheduler domains and migration policy use actual SMP topology
+``init_mm_internals()`` 接通运行期内存统计
+------------------------------------------
 
-``workqueue_init_topology()`` 更新 worker placement
-------------------------------------------------
+``init_mm_internals()`` 分配带有 ``WQ_MEM_RECLAIM | WQ_PERCPU`` 标志的
+``mm_percpu_wq``。启用SMP时，它分别登记VM统计的CPU离线和上线热插拔状态；登记失败只记录
+错误，函数仍继续初始化节点状态并启动 ``vmstat`` 汇总定时器。源码没有在本函数内检查
+``mm_percpu_wq`` 的分配结果，也没有提供本地恢复分支。
 
-AP 和 scheduler topology 已稳定后，workqueue 根据 CPU affinity、NUMA node、housekeeping/isolation 和 unbound workqueue policy 重建或更新 worker-pool topology。
+启用 ``CONFIG_PROC_FS`` 时，该入口创建 ``buddyinfo``、 ``pagetypeinfo``、 ``vmstat`` 和
+``zoneinfo`` 顺序文件入口，并登记 ``vm`` 系统控制表。第六十六章已经登记 ``procfs`` 类型，但它
+仍未成为当前根下的挂载；这里建立目录项不等于用户空间现在已经能从最终根读取它们。
 
-``workqueue_init()`` 已让 worker 能运行；``workqueue_init_topology()`` 解决这些 worker 在多 CPU 系统上应如何分布。它不是第二次创建整套 workqueue。
+SMP之前只执行专门的早期初始化调用
+---------------------------------
 
-async、padata 与 page allocator late init
+``do_pre_smp_initcalls()`` 把跟踪级别标记为 ``early``，然后遍历链接器
+``__initcall_start`` 到 ``__initcall0_start`` 之间的条目。链接脚本把
+``.initcallearly.init`` 放在这个区间，纯初始化调用级别0从 ``__initcall0_start`` 才开始。
+因此，本入口执行的是以 ``early_initcall()`` 登记、明确要求在SMP启动前完成的函数，而不是
+后面0到7级的完整初始化调用序列。
+
+具体条目取决于构建配置。固定源码可在这里启动RCU宽限期线程、软中断线程、CPU迁移线程、
+``kthread`` 后续设施或其他内建早期服务，但不能在最终 ``.config`` 未固定时声称每个候选入口
+都存在。每个条目都通过 ``do_one_initcall()`` 执行并接受其调试、黑名单和返回值检查。
+
+锁死检测器保留配置、维护CPU集合与探测结果
+-----------------------------------------
+
+启用 ``CONFIG_LOCKUP_DETECTOR`` 时， ``lockup_detector_init()`` 先根据
+``HK_TYPE_TIMER`` 维护CPU集合生成 ``watchdog_cpumask``；使用 ``nohz_full`` 的CPU默认
+不在其中。硬锁死探测成功会发布可用状态，失败则允许稍后重试，最后
+``lockup_detector_setup()`` 按当前开关建立检测状态。
+
+这个入口不保证所有CPU都已经有看门狗线程，也不能从函数返回推导硬锁死探测一定可用。禁用
+对应构建选项时，入口为空。
+
+``smp_init()`` 才真正尝试唤醒应用处理器
 ---------------------------------------
 
-PID 1 继续执行：
+启用SMP时， ``smp_init()`` 先调用 ``idle_threads_init()`` 和
+``cpuhp_threads_init()``，为非启动CPU准备空闲任务与CPU热插拔线程。随后，
+``bringup_nonboot_cpus(setup_max_cpus)`` 才把目标CPU沿热插拔状态机向在线状态推进。
+``setup_max_cpus`` 为0时，该函数直接结束。
 
-.. code-block:: c
+若构建和体系结构都支持并行启动，热插拔核心可以先向一组CPU推进启动请求，再逐个完成后半段
+上线；x86在SMT场景下先处理主线程，避免同一核心的兄弟线程在微码更新期间同时推进。未启用
+并行路径时，内核按CPU串行推进 ``cpu_present_mask``。两种方式都受目标数量和逐CPU状态转换
+结果限制。
 
-   async_init();
-   padata_init();
-   page_alloc_init_late();
+x86的实际唤醒路径先验证CPU对应的APIC ID和物理存在位，保存MTRR状态，清除该CPU的FPU所有者，
+再准备空闲任务与逐CPU基础。 ``do_boot_cpu()`` 把目标空闲任务栈和 ``start_secondary`` 入口
+写入启动状态，然后优先选择平台提供的64位唤醒方法，其次选择普通APIC方法，最后才使用INIT
+启动序列。唤醒失败会清理相关状态并把错误交回热插拔路径，因此“被枚举为可能CPU”不等于
+“本章必然在线”。
 
-``async_init()`` 建立通用 asynchronous init domain，使设备和 subsystem 可以并行执行允许异步化的初始化工作。
+应用处理器从跳板进入 ``start_secondary()``
+-------------------------------------------
 
-``padata_init()`` 准备 parallel-data framework。crypto 和其他需要“并行处理、按序提交”的 subsystem 可以在 online CPU 上分发任务。
+成功响应唤醒的应用处理器从低级跳板进入 ``start_secondary()``。每个处理器先设置CR4和异常
+处理基础，在与控制CPU的存活同步点之前加载应用处理器微码；并行启动时，控制CPU会在该同步点
+逐步放行后续上线过程。
 
-``page_alloc_init_late()`` 完成必须等待 SMP/topology 的 allocator 收尾，例如按最终 CPU/node 状态建立或更新 zonelist、CPU hotplug callback、per-CPU page allocator 关系和 deferred page initialization。具体动作取决于配置。
+被放行后，应用处理器依次建立本地CPU状态和FPU，向RCU报告启动，初始化逐CPU早期时钟，完成
+``ap_starting()``，再与控制CPU检查TSC同步并校准延时循环。只有取得 ``vector_lock`` 后，它
+才同时发布CPU在线状态并启用本地APIC向量空间，避免其他CPU看到半完成的中断向量状态。
 
-它不代表所有物理页都空闲，也不代表内存回收线程已经完成全部工作；它把 page allocator 从 boot/SMP 过渡状态推进到正常多 CPU 运行环境。
+应用处理器随后初始化NMI，打开本地中断，设置自己的逐CPU时钟事件，最后进入
+``cpu_startup_entry(CPUHP_AP_ONLINE_IDLE)``。它从此以对应空闲任务等待调度，不会回到PID 1的
+调用栈。
 
-本章结束时的系统状态
-------------------
+所有目标处理完后， ``smp_init()`` 打印实际在线节点和CPU数量，再调用x86的
+``native_smp_cpus_done()`` 建立体系结构调度拓扑描述，执行NMI自检和缓存应用处理器收尾。
+固定QEMU参数没有限定vCPU数量、CPU模型、加速器或 ``maxcpus``，所以本章只能以运行后
+``cpu_online_mask`` 为事实，不能给出固定数量。
 
-本章结束时：
+``sched_init_smp()`` 按实际活动CPU建立调度域
+--------------------------------------------
 
-* 当前主线执行者：PID 1 ``kernel_init_freeable()``；
-* PID 0：CPU0 idle task；
-* PID 2：``kthreadd`` 已可创建内核线程；
-* workqueue：正式 worker execution 已开始；
-* AP：允许且成功启动的 secondary CPU 已进入 online/idle；
-* scheduler：SMP topology、domain 和 load balancing 基础已建立；
-* PID 1：不再要求永久固定在 CPU0；
-* per-CPU timer、RCU、IPI 与 idle task 已随 online CPU 建立；
-* async、padata 和 allocator late init 已完成对应入口；
-* 设备模型的完整初始化尚未开始；
-* normal initcall levels 尚未执行；
-* initramfs 尚未等待完成；
-* PID 1 仍未 exec 用户态 init。
+应用处理器启动尝试完成后，PID 1调用 ``sched_init_smp()``。函数先初始化NUMA调度信息和随机
+状态，再持有 ``sched_domains_mutex``，按当前 ``cpu_active_mask`` 建立调度域。失败上线的
+CPU不在活动集合中，也不会被正文虚构进调度拓扑。
 
-下一条控制流是：
+接着，函数把当前PID 1的允许CPU集合设为 ``HK_TYPE_DOMAIN`` 维护CPU集合。若CPU0属于
+隔离集合，设置亲和性可能把PID 1迁移到其他非隔离在线CPU；若CPU0仍被允许，PID 1可以继续在
+原CPU运行。成功后才清除 ``PF_NO_SETAFFINITY``，解除第六十八章设置的临时禁止改亲和性状态。
+设置失败由 ``BUG()`` 处理，不存在继续使用旧范围的普通分支。
 
-.. code-block:: c
+最后，函数完成调度粒度、实时调度类、截止期限调度类及其服务器初始化，并把
+``sched_smp_initialized`` 置为真。这个标志说明SMP调度器已经按实际活动CPU完成当前阶段，
+不表示PID 1必定迁移过，也不表示所有可能CPU均在线。
 
-   do_basic_setup();
+工作队列、异步执行和并行数据路径消费最终拓扑
+--------------------------------------------
 
-它将建立 ksysfs、driver core、``/proc/interrupts`` 支持，并按 pure、core、postcore、arch、subsys、fs、device、late 顺序运行 built-in initcall。
+``workqueue_init_topology()`` 是工作队列三阶段初始化的最后一步。它分别按CPU、SMT、共享缓存、
+缓存分片和NUMA关系建立无绑定工作队列分组，然后把 ``wq_topo_initialized`` 置为真。持有
+``wq_pool_mutex`` 时，函数遍历已有工作队列，为每个实际在线CPU重新连接无绑定池，并更新无
+绑定工作队列的逐节点活跃上限。
+
+``async_init()`` 随后创建专用无绑定工作队列 ``async``。异步初始化任务可能互相依赖，普通
+无绑定工作队列的最小活跃数可能造成停滞，所以函数把该队列的最小活跃数提高到
+``WQ_DFL_ACTIVE``；分配失败由 ``BUG_ON()`` 停止当前路径。
+
+``padata_init()`` 按 ``CONFIG_HOTPLUG_CPU`` 登记应用处理器在线多实例状态，然后依据
+``num_possible_cpus()`` 分配 ``padata_work`` 数组，把每个对象加入空闲工作链表。热插拔状态
+登记或数组分配失败时，函数撤销已经登记的状态并打印警告，启动链仍可继续；因此本章出口不能
+无条件宣称并行数据转换设施可用。
+
+``page_alloc_init_late()`` 收束延后页元数据与 ``memblock``
+----------------------------------------------------------
+
+启用 ``CONFIG_DEFERRED_STRUCT_PAGE_INIT`` 时， ``page_alloc_init_late()`` 为每个具有内存的
+节点启动 ``pgdatinit`` 线程，并等待所有线程完成延后的 ``struct page`` 初始化。等待结束后，
+它关闭按需页元数据初始化静态分支，并按最终空闲页数重新计算系统文件数限制。这里没有检查
+各次 ``kthread_run()`` 的返回值；持续路径依赖每个节点线程都能启动并递减完成计数，否则全局
+完成量等待不能正常结束。
+
+无论是否启用延后初始化，函数都会在总内存和空闲内存记账稳定后打印内存信息，调用
+``buffer_init()``，丢弃 ``memblock`` 的私有元数据，并逐内存节点随机化空闲内存顺序。随后，
+它为每个已填充 ``zone`` 计算并发布连续性标志；若早期确实延后了页元数据，还在所有
+``struct page`` 可用后执行 ``page_ext_init()``。最后， ``page_alloc_sysctl_init()`` 按
+系统控制构建配置登记页分配器控制项。
+
+这不是“内存管理从此不再变化”。页面回收、NUMA、内存热插拔和各子系统缓存仍会继续工作。
+本入口只完成依赖线程、最终内存规模和全部页元数据的晚期收尾。
+
+本章结束状态
+------------
+
+::
+
+   当前执行者          = PID 1；page_alloc_init_late()已返回
+   下一入口            = do_basic_setup()
+   CPU模式             = x86-64长模式，CPL0
+   system_state        = SYSTEM_SCHEDULING
+   PID 0               = CPU0空闲任务
+   PID 1               = kernel_init；允许在非隔离housekeeping CPU运行
+   PID 2               = kthreadd；已能处理内核线程创建请求
+   CPU在线集合         = 按SMP配置、APIC模式、setup_max_cpus与逐CPU启动结果确定
+   应用处理器          = 按SMP构建与目标限额尝试上线；成功者进入各自空闲循环
+   SMP调度器           = 按实际cpu_active_mask建立并发布
+   工作队列            = 首批执行者在线，无绑定池已按最终拓扑重新连接
+   内存统计            = 逐CPU工作队列、热插拔状态和汇总定时器按配置建立
+   早期初始化调用      = early_initcall链接区间已经执行
+   锁死检测            = 按配置、housekeeping集合和探测结果设置
+   async               = 专用无绑定工作队列已经建立
+   padata              = 已建立，或在登记/分配失败后警告并撤销
+   延后页元数据        = 启用时已经全部初始化并关闭按需分支
+   memblock私有元数据  = 已丢弃
+   最终磁盘根          = 尚未挂载
+   初始内存盘          = 尚未解包
+   用户空间init       = 尚未装入
+
+关键边界
+--------
+
+* ``smp_prepare_cpus()`` 只建立拓扑掩码和体系结构启动条件，真正唤醒发生在
+  ``smp_init()``；
+* ``workqueue_init()`` 为更早建立的池创建首批执行者，不是从零创建全部工作队列；
+* ``do_pre_smp_initcalls()`` 只执行 ``early_initcall()`` 链接区间，不执行0到7级完整初始化
+  调用；
+* 应用处理器是否在线受构建、APIC模式、 ``setup_max_cpus``、平台唤醒方法和逐CPU错误控制；
+* ``sched_init_smp()`` 按实际活动CPU建立调度域，并解除PID 1的临时亲和限制，但不保证发生
+  迁移；
+* ``padata_init()`` 失败只警告并撤销， ``async_init()`` 和关键工作线程失败则停止当前路径；
+* 延后页元数据初始化依赖每个节点的 ``kthread_run()`` 成功，源码没有检查各次返回值；
+* ``page_alloc_init_late()`` 完成页元数据和 ``memblock`` 晚期收尾，不挂载最终根，也不解包
+  初始内存盘。
+
+下一入口
+--------
+
+下一章从PID 1调用 ``do_basic_setup()`` 开始。该函数先执行 ``cpuset_init_smp()``，随后建立
+内核对象文件系统入口和设备模型，初始化中断的 ``procfs`` 入口，运行构造函数，并进入0到7级完整
+初始化调用序列。
 
 资料
 ----
 
-* `Linux 7.2-rc1 init/main.c：kernel_init_freeable 的 SMP 与 basic setup 顺序 <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c>`_
-* `Linux 7.2-rc1 arch/x86/kernel/smpboot.c：native_smp_prepare_cpus、AP trampoline 与 native_kick_ap <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/smpboot.c>`_
-* `Linux 7.2-rc1 kernel/cpu.c：CPU hotplug state machine 与 secondary CPU bring-up <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/cpu.c>`_
-* `Linux 7.2-rc1 kernel/sched/core.c：sched_init_smp <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/sched/core.c>`_
-* `Linux 7.2-rc1 kernel/workqueue.c：workqueue_init 与 topology setup <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/workqueue.c>`_
-* `Linux 7.2-rc1 mm/vmstat.c：init_mm_internals <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/mm/vmstat.c>`_
-* `Linux 7.2-rc1 mm/page_alloc.c：page_alloc_init_late <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/mm/page_alloc.c>`_
+* `kernel_init_freeable()的本章调用区间
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c#L1629-L1658>`_
+* `启动期GFP掩码的含义
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/include/linux/gfp.h#L408-L414>`_
+* `set_mems_allowed()发布PID 1的内存节点范围
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/include/linux/cpuset.h#L166-L178>`_
+* `x86准备应用处理器
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/smpboot.c#L1175-L1255>`_
+* `workqueue_init()建立首批执行者
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/workqueue.c#L8118-L8178>`_
+* `工作队列CPU密集阈值与释放线程
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/workqueue.c#L8079-L8116>`_
+* `init_mm_internals()
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/mm/vmstat.c#L2266-L2300>`_
+* `SMP前的早期初始化调用区间
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/init/main.c#L1448-L1455>`_
+* `链接脚本区分early与0级初始化调用
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/include/asm-generic/vmlinux.lds.h#L938-L955>`_
+* `lockup_detector_init()
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/watchdog.c#L1386-L1400>`_
+* `smp_init()和实际在线结果
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/smp.c#L1004-L1023>`_
+* `并行或串行推进应用处理器
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/cpu.c#L1821-L1881>`_
+* `x86选择应用处理器唤醒方法
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/smpboot.c#L1018-L1120>`_
+* `应用处理器进入start_secondary()
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/arch/x86/kernel/smpboot.c#L229-L313>`_
+* `sched_init_smp()
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/sched/core.c#L8860-L8887>`_
+* `workqueue_init_topology()
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/workqueue.c#L8418-L8457>`_
+* `async_init()
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/async.c#L350-L362>`_
+* `padata_init()
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/kernel/padata.c#L1089-L1118>`_
+* `page_alloc_init_late()
+  <https://github.com/gregkh/linux/blob/7404ce51637231382873d0b55edabc2f3b841a9d/mm/mm_init.c#L2300-L2345>`_
