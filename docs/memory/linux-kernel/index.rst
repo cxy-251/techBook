@@ -49,6 +49,15 @@ Part 5：启动序列、Initcall 与早期内核初始化
 * `第024章：Initcall 层级与子系统初始化 <024-initcall-levels-and-subsystem-initialization.rst>`_；
 * `第025章：调试 Linux 早期启动故障 <025-debugging-early-boot-failures.rst>`_。
 
+Part 6：内核对象、生命周期、引用与错误路径
+------------------------------------------
+
+* `第026章：内核对象是具有生命周期的 C 结构体 <026-kernel-objects-as-c-structures-with-lifetimes.rst>`_；
+* `第027章：引用计数与所有权转移 <027-reference-counting-and-ownership-transfer.rst>`_；
+* `第028章：资源申请与释放顺序 <028-resource-acquisition-and-release-ordering.rst>`_；
+* `第029章：对象注册、查找与销毁 <029-object-registration-lookup-and-teardown.rst>`_；
+* `第030章：失败路径是内核设计的真实检验 <030-failure-paths-as-the-real-test.rst>`_。
+
 阅读方式
 --------
 
