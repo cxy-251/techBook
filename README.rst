@@ -1,21 +1,45 @@
 techBook
 ========
 
-``techBook`` 当前只写 Linux Kernel。
+``techBook`` 现在同时保存两种学习内容：
 
-当前维护状态
-------------
+* 原有的 Linux Kernel 固定源码时间线与回溯审查正文；
+* 与 AIBook 章节一一对应、可以直接记忆的必背课本。
 
-历史正文已经存在第001—193章；现在暂停继续生成，从第001章开始按固定QEMU、SeaBIOS、
-GRUB与Linux提交顺序回溯审查。已验证游标和下一批只以项目状态与审查账本为准，
-避免README复制动态进度后失效。
+两个内容体系位于不同目录，互不覆盖。原有正文保持不变，新内容直接在 ``main`` 的
+``docs/memory/`` 中继续增加。
+
+内容入口
+--------
+
+* `必背课本总目录 <docs/memory/index.rst>`_；
+* `Linux Kernel 必背课本 <docs/memory/linux-kernel/index.rst>`_；
+* `原有学习路径 <docs/tracks/index.rst>`_；
+* `原有 Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_。
+
+必背课本
+--------
+
+必背课本以 AIBook 完整章节为来源，删除铺垫、重复、长案例和互动步骤，只保留稳定、确定、
+可以直接记忆的知识点、执行路径、概念区别和一句话结论。
+
+* `必背课本内容合同 <project/MEMORY_CONTENT_CONTRACT.rst>`_；
+* `第001章：Linux 内核资源管理模型 <docs/memory/linux-kernel/001-linux-kernel-resource-management-model.rst>`_；
+* `第002章：为什么 Linux 内核源码难读 <docs/memory/linux-kernel/002-why-linux-kernel-source-is-difficult.rst>`_。
+
+Linux Kernel 源码时间线当前维护状态
+----------------------------------
+
+历史正文已经存在第001—193章；现在暂停继续生成，从第001章开始按固定 QEMU、SeaBIOS、
+GRUB 与 Linux 提交顺序回溯审查。已验证游标和下一批只以项目状态与审查账本为准，
+避免 README 复制动态进度后失效。
 
 * `稳定生产与回溯审查合同 <project/LINUX_KERNEL_CONTRACT.rst>`_
 * `当前接续状态 <project/STATE.rst>`_
 * `回溯审查账本 <project/audits/linux-kernel/index.rst>`_
 
-当前正文
---------
+当前源码时间线正文
+------------------
 
 * `Linux Kernel 完整章节目录 <docs/tracks/linux-kernel/index.rst>`_
 * `第一百九十一章：TIME_WAIT timer怎样撤销最后的四元组并释放TW？ <docs/tracks/linux-kernel/191-timewait-timer-kills-lightweight-socket.rst>`_
@@ -76,7 +100,7 @@ GRUB与Linux提交顺序回溯审查。已验证游标和下一批只以项目�
 完成目标
 --------
 
-历史状态曾把43条Linux Kernel源码主线中的19条标记为完成。回溯审查期间，这个数字只作
+历史状态曾把43条 Linux Kernel 源码主线中的19条标记为完成。回溯审查期间，这个数字只作
 历史库存参考；当前可信进度读取 ``project/STATE.rst``。审查到193后重新核定主线进度和
 后续入口，章节总数仍不预设。
 
@@ -96,12 +120,12 @@ GRUB与Linux提交顺序回溯审查。已验证游标和下一批只以项目�
    → close(6)返回0，不等待SOCK_RCU_FREE grace period
    → RCU callback最终回收L存储
 
-历史正文声称TCP/IPv4 loopback主线已经完成，并把UDP socket创建列为下一入口。该终点
+历史正文声称 TCP/IPv4 loopback 主线已经完成，并把 UDP socket 创建列为下一入口。该终点
 保存在 ``project/LINUX_KERNEL_FORWARD_CHECKPOINT.rst``，在001—193回溯审查闭合前不得
-据此继续生产UDP章节。
+据此继续生产 UDP 章节。
 
 开始工作
 --------
 
-新的对话或助手严格按 ``AGENTS.md`` 的接入顺序读取稳定合同、动态状态、当前审查批次
-和固定源码；不要一次性载入全部正文和完整manifest。
+新的对话或助手先读取 ``AGENTS.md``，再根据目标目录选择 Linux Kernel 源码时间线合同或必背课本
+合同。不得把一条内容线的状态和格式规则带入另一条内容线。
