@@ -31,6 +31,15 @@ Part 3：内核 C 语法、核心 API 与运行时约束
 * `第014章：Linux 内核日志与诊断语法 <014-kernel-logging-and-diagnostics.rst>`_；
 * `第015章：Linux 内核代码风格、评审与可维护性 <015-kernel-coding-style-and-maintainability.rst>`_。
 
+Part 4：Kconfig、Kbuild、模块与内核镜像
+--------------------------------------
+
+* `第016章：使用 Kconfig 配置 Linux 内核 <016-kernel-configuration-with-kconfig.rst>`_；
+* `第017章：使用 Kbuild 构建 Linux 内核 <017-kernel-build-system-with-kbuild.rst>`_；
+* `第018章：Linux 可加载内核模块 <018-loadable-kernel-modules.rst>`_；
+* `第019章：Linux 内核镜像、符号与 initramfs <019-kernel-images-symbols-and-initramfs.rst>`_；
+* `第020章：建立可复现的 Linux 内核构建 <020-reproducible-kernel-build.rst>`_。
+
 阅读方式
 --------
 
