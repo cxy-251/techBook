@@ -58,6 +58,15 @@ Part 6：内核对象、生命周期、引用与错误路径
 * `第029章：对象注册、查找与销毁 <029-object-registration-lookup-and-teardown.rst>`_；
 * `第030章：失败路径是内核设计的真实检验 <030-failure-paths-as-the-real-test.rst>`_。
 
+Part 7：可观测接口：procfs、sysfs、debugfs、tracefs 与 dmesg
+-----------------------------------------------------------
+
+* `第031章：procfs 是进程与内核状态的运行时视图 <031-procfs-runtime-view.rst>`_；
+* `第032章：sysfs 是设备与对象模型接口 <032-sysfs-device-and-object-model.rst>`_；
+* `第033章：debugfs 是开发者控制的调试面 <033-debugfs-developer-debug-surface.rst>`_；
+* `第034章：tracefs 与内核追踪接口 <034-tracefs-kernel-tracing-interface.rst>`_；
+* `第035章：dmesg、printk 与运行时证据收集 <035-dmesg-printk-runtime-evidence.rst>`_。
+
 阅读方式
 --------
 
