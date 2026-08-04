@@ -8,7 +8,10 @@ Part 1：内核世界观与工程心智模型
 ---------------------------------
 
 * `第001章：Linux 内核资源管理模型 <001-linux-kernel-resource-management-model.rst>`_；
-* `第002章：为什么 Linux 内核源码难读 <002-why-linux-kernel-source-is-difficult.rst>`_。
+* `第002章：为什么 Linux 内核源码难读 <002-why-linux-kernel-source-is-difficult.rst>`_；
+* `第003章：Linux 内核的核心设计取舍 <003-core-kernel-design-forces.rst>`_；
+* `第004章：Linux 内核的四条核心路径 <004-four-great-kernel-paths.rst>`_；
+* `第005章：怎样学习 Linux 内核源码 <005-how-to-read-linux-kernel-handbook.rst>`_。
 
 阅读方式
 --------
