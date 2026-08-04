@@ -40,6 +40,15 @@ Part 4：Kconfig、Kbuild、模块与内核镜像
 * `第019章：Linux 内核镜像、符号与 initramfs <019-kernel-images-symbols-and-initramfs.rst>`_；
 * `第020章：建立可复现的 Linux 内核构建 <020-reproducible-kernel-build.rst>`_。
 
+Part 5：启动序列、Initcall 与早期内核初始化
+------------------------------------------
+
+* `第021章：从固件到 Bootloader <021-from-firmware-to-bootloader.rst>`_；
+* `第022章：内核解压与早期架构初始化 <022-kernel-decompression-and-early-architecture-setup.rst>`_；
+* `第023章：内核命令行与早期参数 <023-kernel-command-line-and-early-parameters.rst>`_；
+* `第024章：Initcall 层级与子系统初始化 <024-initcall-levels-and-subsystem-initialization.rst>`_；
+* `第025章：调试 Linux 早期启动故障 <025-debugging-early-boot-failures.rst>`_。
+
 阅读方式
 --------
 
