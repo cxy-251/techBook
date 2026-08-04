@@ -22,6 +22,15 @@ Part 2：源码树与代码导航
 * `第009章：怎样结合状态追踪内核调用链 <009-following-call-chains-with-state.rst>`_；
 * `第010章：建立个人内核源码阅读工作流 <010-personal-kernel-reading-workflow.rst>`_。
 
+Part 3：内核 C 语法、核心 API 与运行时约束
+-----------------------------------------
+
+* `第011章：Linux 内核 C 的运行时约束 <011-kernel-c-runtime-constraints.rst>`_；
+* `第012章：Linux 内核核心数据结构 <012-core-kernel-data-structures.rst>`_；
+* `第013章：Linux 内核错误处理与返回约定 <013-kernel-error-handling.rst>`_；
+* `第014章：Linux 内核日志与诊断语法 <014-kernel-logging-and-diagnostics.rst>`_；
+* `第015章：Linux 内核代码风格、评审与可维护性 <015-kernel-coding-style-and-maintainability.rst>`_。
+
 阅读方式
 --------
 
