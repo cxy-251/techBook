@@ -121,6 +121,15 @@ Part 13：并发、锁、原子操作、内存屏障与 RCU
 * `第064章：内存屏障与 CPU 重排 <064-memory-barriers-and-cpu-reordering.rst>`_；
 * `第065章：RCU Read-Copy-Update 同步模型 <065-rcu-read-copy-update.rst>`_。
 
+Part 14：虚拟内存、地址空间与页表
+--------------------------------
+
+* `第066章：虚拟地址空间与 mm_struct <066-virtual-address-spaces-and-mm-struct.rst>`_；
+* `第067章：页表、页表遍历与 TLB <067-page-tables-page-table-walks-and-tlbs.rst>`_；
+* `第068章：用户地址空间与内核地址空间 <068-user-address-space-vs-kernel-address-space.rst>`_；
+* `第069章：VMA、mmap 与地址空间布局 <069-vma-mmap-and-address-space-layout.rst>`_；
+* `第070章：页表调试与地址转换证据 <070-page-table-debugging-and-address-translation-evidence.rst>`_。
+
 阅读方式
 --------
 
