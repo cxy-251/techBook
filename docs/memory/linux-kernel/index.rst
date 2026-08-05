@@ -67,6 +67,15 @@ Part 7：可观测接口：procfs、sysfs、debugfs、tracefs 与 dmesg
 * `第034章：tracefs 与内核追踪接口 <034-tracefs-kernel-tracing-interface.rst>`_；
 * `第035章：dmesg、printk 与运行时证据收集 <035-dmesg-printk-runtime-evidence.rst>`_。
 
+Part 8：用户态—内核态边界与系统调用路径
+--------------------------------------
+
+* `第036章：用户代码怎样进入内核 <036-user-code-entry-into-kernel.rst>`_；
+* `第037章：系统调用表、入口代码与 ABI 稳定性 <037-syscall-tables-entry-and-abi-stability.rst>`_；
+* `第038章：跨越用户态与内核态边界复制数据 <038-copying-data-across-user-kernel-boundary.rst>`_；
+* `第039章：文件描述符、句柄与内核对象 <039-file-descriptors-handles-and-kernel-objects.rst>`_；
+* `第040章：失败、errno 与边界诊断 <040-failure-errno-and-boundary-diagnostics.rst>`_。
+
 阅读方式
 --------
 
