@@ -1,0 +1,114 @@
+第052章：内核抢占模型与自愿抢占
+===============================
+
+本章必须记住
+------------
+
+#. 内核抢占模型决定 CPU 正在执行内核代码时，调度器在什么条件下可以切换到另一个 task。
+#. 上下文切换回答“怎样切换”，抢占模型回答“什么时候允许切换”。
+#. 判断抢占行为必须同时看内核配置、当前执行上下文、``preempt_count``、锁、中断状态和重新调度标志。
+#. ``need_resched`` 表示当前 CPU 应重新选择 task，不表示切换已经立刻发生。
+#. 真正调度必须到达允许调度的边界，例如显式 ``schedule()``、自愿调度点、抢占检查点或返回路径。
+#. 非抢占内核中，task 进入内核态后通常持续运行到阻塞、显式调度点或返回用户态附近。
+#. 非抢占模型减少内核态被插入的并发点，有利于吞吐和局部性，但最坏调度延迟受最长不可让出路径限制。
+#. 用户态仍可被时间片和更高优先级任务抢占；“非抢占”主要描述普通内核态执行段。
+#. ``schedule()`` 表示当前 task 主动阻塞或让出 CPU，属于明确调度入口。
+#. ``cond_resched()`` 在长循环或批处理路径中检查是否需要让出 CPU，适合状态稳定且允许睡眠的位置。
+#. 自愿抢占通过增加显式调度点缩短长内核路径持续占用 CPU 的时间。
+#. 自愿抢占的最大延迟仍受两个调度点之间最长执行段、关中断区和原子临界区限制。
+#. 自愿调度点前后必须保证对象引用、循环状态、锁和错误清理仍然成立。
+#. 持有普通 spinlock 或处于禁止睡眠上下文时，不能直接调用会调度的普通 ``cond_resched()``。
+#. 带锁调度辅助接口具有特定锁语义，不能把“释放后调度再重取锁”自行套用到任意锁。
+#. 可抢占内核允许内核代码在临界区外更细粒度地被抢占。
+#. ``preempt_disable()`` 增加抢占禁止嵌套状态，``preempt_enable()`` 退出该区域并可能触发延后的抢占。
+#. ``preempt_count`` 回到允许值之前，即使更高优先级 task 已经 runnable，当前 CPU 也不能按普通内核抢占路径切换。
+#. spinlock、硬中断、softirq、显式关闭抢占和部分 per-CPU 临界区都会限制抢占。
+#. 可抢占内核降低平均和高分位响应延迟，但会增加内核代码可能出现的并发交错。
+#. 抢占模型越积极，代码越不能依赖“进入内核后当前 task 会一直运行到函数返回”的隐含假设。
+#. per-CPU 指针只在禁止迁移、禁止抢占或其它正式保护成立时才能跨越可能调度的代码段安全使用。
+#. ``CONFIG_PREEMPT_DYNAMIC`` 允许部分内核在启动或运行配置中切换 none、voluntary、full 等模式；实际支持项依赖版本和架构。
+#. 查看 Kconfig 只能知道构建能力，确认当前运行模式还要检查实际配置、启动参数和运行时状态。
+#. ``PREEMPT_RT`` 的目标是降低最坏情况延迟，使更多原本不可抢占的路径进入可调度或线程化模型。
+#. PREEMPT_RT 会线程化大量中断处理，并改变部分锁的实现语义，使等待者可以被调度。
+#. PREEMPT_RT 下许多 ``spinlock_t`` 使用基于 rtmutex 的可睡眠语义，但 ``raw_spinlock_t`` 仍保护真正不可睡眠的底层临界区。
+#. 不能把 PREEMPT_RT 简化成“所有自旋锁都会睡眠”；锁类型、上下文和具体配置决定真实规则。
+#. PREEMPT_RT 降低长时间忙等和硬中断占用造成的延迟，同时引入优先级继承、线程调度和更复杂锁顺序。
+#. 可抢占不等于可在任意位置睡眠；睡眠仍要求进程上下文、没有原子锁、没有关闭中断并满足 API 规则。
+#. 关闭抢占不等于关闭中断；前者阻止调度器切 task，后者阻止 CPU 响应普通本地中断。
+#. 迁移禁止与抢占禁止相关但不完全相同；某些路径只要求 task 不迁移 CPU，并不要求完全禁止调度。
+#. 分析延迟时，应测量 ``need_resched`` 出现到实际 ``sched_switch`` 的时间，并定位期间哪些区域禁止抢占。
+#. ``preemptoff``、``preemptirqsoff``、调度 tracepoint 和 function graph 可用于定位长不可抢占区。
+#. 抢占策略是延迟、吞吐、局部性和同步复杂度之间的工程合同，不存在对所有负载都最优的单一模式。
+
+必背路径
+--------
+
+抢占判断：
+
+::
+
+   更合适的 task 变为 runnable
+   → 当前 CPU 设置 need_resched
+   → 检查当前抢占模型
+   → 检查 preempt_count、IRQ、softirq 和锁状态
+   → 到达显式调度点或抢占检查点
+   → 条件允许时进入 schedule / preempt_schedule
+   → 选择并切换 task
+
+自愿抢占长循环：
+
+::
+
+   处理一批对象
+   → 完成本批状态更新
+   → 确认不持有禁止睡眠的锁
+   → cond_resched 检查 need_resched
+   → 必要时让出 CPU
+   → 恢复后重新确认对象和循环条件
+   → 继续下一批
+
+进入和退出不可抢占区：
+
+::
+
+   preempt_disable 或取得 spinlock
+   → preempt_count 增加
+   → 完成短小临界更新
+   → 释放锁或 preempt_enable
+   → preempt_count 恢复
+   → 若 need_resched 已设置则执行抢占检查
+
+必须区分
+--------
+
+``need_resched`` 与实际切换
+   前者记录调度需求；实际切换仍要等待合法调度边界。
+
+非抢占内核与用户态不可抢占
+   非抢占模型限制普通内核态抢占，不取消用户态调度。
+
+自愿抢占与完全可抢占
+   自愿模式依赖显式让出点；完全可抢占模式允许临界区外更细粒度切换。
+
+禁止抢占与禁止中断
+   禁止抢占阻止 task 切换；禁止中断还会推迟 IRQ 和 timer 交付。
+
+可抢占与可睡眠
+   内核可以被抢占不代表当前函数可以主动睡眠，睡眠规则仍由上下文和锁决定。
+
+``spinlock_t`` 与 ``raw_spinlock_t`` 在 PREEMPT_RT 下
+   前者可能采用可调度实现；后者保留不可睡眠的原始自旋语义。
+
+一句话结论
+----------
+
+内核抢占由配置模型和当前临界状态共同决定：``need_resched`` 只提出切换请求，只有退出不可抢占区并到达合法检查点后，CPU 才能真正交给另一个 task。
+
+来源
+----
+
+* AIBook 书籍：LinuxK；
+* AIBook Part：Part 11，Context Switching, Preemption, Timers, and Timekeeping；
+* AIBook 章节：Chapter 52，Kernel Preemption Models and Voluntary Preemption；
+* 源文件：``docs/LinuxK/Part_11_Context_Switching_Preemption_Timers_and_Timekeeping/Chapter_052_Kernel_Preemption_Models_and_Voluntary_Preemption.md``；
+* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_11_Context_Switching_Preemption_Timers_and_Timekeeping/Chapter_052_Kernel_Preemption_Models_and_Voluntary_Preemption.md>`_。
