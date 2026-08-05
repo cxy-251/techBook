@@ -184,6 +184,15 @@ Part 20：ext4、XFS、Btrfs 与伪文件系统实现
 * `第099章：Btrfs COW、校验和与子卷 <099-btrfs-copy-on-write-checksums-and-subvolumes.rst>`_；
 * `第100章：伪文件系统作为内核接口 <100-pseudo-filesystems-as-kernel-interfaces.rst>`_。
 
+Part 21：Page Cache I/O、Direct I/O、异步 I/O 与 io_uring
+--------------------------------------------------------
+
+* `第101章：Buffered I/O 与 Page Cache 路径 <101-buffered-io-and-the-page-cache-path.rst>`_；
+* `第102章：Direct I/O 与绕过 Page Cache <102-direct-io-and-bypassing-the-page-cache.rst>`_；
+* `第103章：异步 I/O 与完成模型 <103-asynchronous-io-and-completion-models.rst>`_；
+* `第104章：io_uring 作为现代 Linux I/O 接口 <104-io-uring-as-a-modern-linux-io-interface.rst>`_；
+* `第105章：I/O 路径选择与性能权衡 <105-io-path-selection-and-performance-tradeoffs.rst>`_。
+
 阅读方式
 --------
 
