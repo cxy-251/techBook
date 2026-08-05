@@ -202,6 +202,15 @@ Part 22：块层、Bio、Request Queue、I/O Scheduler 与 Multi-Queue
 * `第109章：blk-mq 与多队列扩展性 <109-blk-mq-and-multi-queue-scalability.rst>`_；
 * `第110章：追踪块延迟与排队行为 <110-tracing-block-latency-and-queueing-behavior.rst>`_。
 
+Part 23：存储设备、NVMe、SCSI、Device Mapper 与文件系统可靠性
+-------------------------------------------------------------
+
+* `第111章：从块层到设备的存储栈 <111-storage-stack-from-block-layer-to-device.rst>`_；
+* `第112章：SCSI 与传统存储模型 <112-scsi-and-the-legacy-storage-model.rst>`_；
+* `第113章：NVMe 队列、命令与高性能存储 <113-nvme-queues-commands-and-high-performance-storage.rst>`_；
+* `第114章：Device Mapper、LVM、RAID 与分层块设备 <114-device-mapper-lvm-raid-and-layered-block-devices.rst>`_；
+* `第115章：可靠性、Flush、FUA、Barrier 与崩溃一致性 <115-reliability-flush-fua-barriers-and-crash-consistency.rst>`_。
+
 阅读方式
 --------
 
