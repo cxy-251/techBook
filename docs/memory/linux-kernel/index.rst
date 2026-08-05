@@ -103,6 +103,15 @@ Part 11：上下文切换、抢占、定时器与时间维护
 * `第054章：时间维护、jiffies、Clocksource 与 Clockevents <054-timekeeping-jiffies-clocksource-and-clockevents.rst>`_；
 * `第055章：抢占与定时器路径中的延迟来源 <055-latency-sources-in-preemption-and-timer-paths.rst>`_。
 
+Part 12：中断、异常、Softirq、Tasklet 与 Workqueue
+--------------------------------------------------
+
+* `第056章：CPU 异常与硬件中断入口 <056-cpu-exceptions-and-hardware-interrupt-entry.rst>`_；
+* `第057章：中断控制器、IRQ Domain 与 IRQ 描述符 <057-interrupt-controllers-irq-domains-and-descriptors.rst>`_；
+* `第058章：上半部、下半部与延迟执行 <058-top-halves-bottom-halves-and-deferred-execution.rst>`_；
+* `第059章：Softirq、Tasklet、Workqueue 与 Threaded IRQ <059-softirq-tasklet-workqueue-and-threaded-irqs.rst>`_；
+* `第060章：中断风暴、延迟与调试策略 <060-interrupt-storms-latency-and-debugging.rst>`_。
+
 阅读方式
 --------
 
