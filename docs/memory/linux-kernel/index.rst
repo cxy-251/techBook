@@ -211,6 +211,15 @@ Part 23：存储设备、NVMe、SCSI、Device Mapper 与文件系统可靠性
 * `第114章：Device Mapper、LVM、RAID 与分层块设备 <114-device-mapper-lvm-raid-and-layered-block-devices.rst>`_；
 * `第115章：可靠性、Flush、FUA、Barrier 与崩溃一致性 <115-reliability-flush-fua-barriers-and-crash-consistency.rst>`_。
 
+Part 24：设备模型、Kobject、Sysfs、Driver Core 与设备生命周期
+-------------------------------------------------------------
+
+* `第116章：Linux 设备模型作为内核对象层级 <116-linux-device-model-as-a-kernel-object-hierarchy.rst>`_；
+* `第117章：kobject、kset、ktype 与引用生命周期 <117-kobject-kset-ktype-and-reference-lifetime.rst>`_；
+* `第118章：Device、Driver、Bus 与 Class 关系 <118-device-driver-bus-and-class-relationships.rst>`_；
+* `第119章：Sysfs 中的内核设备表示 <119-sysfs-representation-of-kernel-devices.rst>`_；
+* `第120章：设备生命周期故障与 Driver Core 诊断 <120-device-lifetime-bugs-and-driver-core-diagnostics.rst>`_。
+
 阅读方式
 --------
 
