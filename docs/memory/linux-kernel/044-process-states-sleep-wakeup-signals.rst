@@ -1,0 +1,131 @@
+第044章：进程状态、睡眠、唤醒与信号
+===================================
+
+本章必须记住
+------------
+
+#. task 的运行状态与退出状态是两组不同对象：``__state`` 描述调度状态，``exit_state`` 描述退出与回收阶段。
+#. ``TASK_RUNNING`` 表示 task 对调度器可运行；它可能正在 CPU 上执行，也可能在 runqueue 中等待。
+#. 用户态 ``R`` 不能单独说明 task 正在占用 CPU，还要结合调度和 CPU 运行证据。
+#. ``TASK_INTERRUPTIBLE`` 常对应用户态 ``S``，表示 task 睡眠并允许 pending signal 改变等待路径。
+#. ``TASK_UNINTERRUPTIBLE`` 常对应用户态 ``D``，表示普通信号不会让当前等待按可中断方式提前返回。
+#. ``D`` 状态通常说明 task 正在等待内核条件，例如 I/O、设备、锁、内存或文件系统状态。
+#. ``D`` 状态不自动等于死锁；必须找到具体等待函数、等待对象和唤醒来源。
+#. ``TASK_KILLABLE`` 是折中状态，保持强等待语义，同时允许致命信号介入。
+#. ``TASK_STOPPED`` 常与作业控制停止有关，``TASK_TRACED`` 常与 ptrace 调试有关。
+#. stopped/traced 与睡眠不同：前者来自外部控制，后者来自代码主动等待条件。
+#. task 执行 ``do_exit()`` 后会释放大部分运行资源，并可能进入 ``EXIT_ZOMBIE``。
+#. zombie 已经不再参与调度，只保留退出码、统计和父进程回收所需信息。
+#. 父进程调用 ``wait*()`` 回收退出信息后，task 才进入更靠后的最终释放阶段。
+#. 等待路径的基本结构是：加入等待队列 → 设置 task 状态 → 检查条件 → ``schedule()`` → 醒来后重新检查。
+#. 条件必须在循环中重新检查，因为唤醒只表示条件可能变化，不保证等待者获得 CPU 时条件仍成立。
+#. 正确等待顺序要避免 lost wakeup；设置状态、加入队列和检查条件之间需要遵守等待 API 的内存顺序。
+#. wait queue 由队列头和等待项组成，用于连接等待 task 与改变条件的生产者。
+#. ``wait_event*()`` 系列把加入队列、状态切换、条件检查和调度封装成标准模式。
+#. ``wake_up*()`` 使符合条件的等待 task 变为可运行，不保证它立即运行。
+#. 唤醒和调度是两个阶段：wakeup 把 task 放回可运行集合，scheduler 决定何时获得 CPU。
+#. 等待条件必须由锁、原子操作或其它同步规则保护，单独调用 ``wake_up()`` 不能修复数据竞争。
+#. 可中断等待收到信号后，底层常返回内部 ``-ERESTART*`` 或其它状态，由上层决定重启或向用户返回 ``EINTR``。
+#. pending signal 表示信号已等待处理；blocked mask 决定当前线程暂时阻塞哪些信号。
+#. 信号处理器在用户态执行，但投递选择、pending 队列和返回用户态前的处理由内核完成。
+#. 进程定向信号进入线程组语境，线程定向信号进入具体 task 语境。
+#. 信号不会在任意内核指令中直接执行用户 handler；通常在安全返回用户态的边界重写用户上下文。
+#. 一个“卡住”的进程通常是某个或多个 task 等待条件、锁、I/O、futex、信号或父进程回收。
+#. 排查睡眠 task 时，应同时记录 State、``wchan``、内核栈、等待对象、唤醒源和持续时间。
+#. 单次状态采样只能说明一个瞬间；短暂睡眠、频繁唤醒和长时间停滞需要连续采样或 tracepoint 证据。
+
+必背路径
+--------
+
+普通阻塞等待：
+
+::
+
+   检查条件尚未满足
+   → 准备 wait queue entry
+   → 加入等待队列
+   → 设置 TASK_INTERRUPTIBLE 或其它睡眠状态
+   → 再次检查条件
+   → 条件仍不满足则 schedule 让出 CPU
+   → 生产者更新条件
+   → 生产者调用 wake_up
+   → task 变为 TASK_RUNNING
+   → 调度器选中后继续执行
+   → 移出等待队列并再次验证条件
+
+可中断等待收到信号：
+
+::
+
+   task 处于 TASK_INTERRUPTIBLE
+   → 信号进入 pending 状态
+   → wakeup 路径使 task 可运行
+   → 等待函数检查 signal_pending
+   → 返回内部重启码或中断结果
+   → syscall exit 与信号路径决定自动重启或 EINTR
+   → 返回用户态前安排用户 handler 或默认动作
+
+进程退出与回收：
+
+::
+
+   task 调用退出路径
+   → 停止普通执行
+   → 释放地址空间、文件与其它运行资源引用
+   → 保存退出码和统计
+   → 进入 EXIT_ZOMBIE
+   → 通知父进程
+   → 父进程调用 wait
+   → 读取退出信息
+   → task 进入 EXIT_DEAD 并最终释放
+
+排查卡住 task：
+
+::
+
+   确认具体 TID 与 State
+   → 区分 R、S、D、T、Z
+   → 读取 wchan 与内核栈
+   → 找到等待函数和等待对象
+   → 确认条件由谁更新
+   → 确认 wake_up 是否执行
+   → 用 sched_switch、sched_wakeup 和子系统 tracepoint 建立时间线
+   → 判断是慢、丢失唤醒、资源故障还是死锁
+
+必须区分
+--------
+
+可运行与正在运行
+   ``TASK_RUNNING`` 同时覆盖 CPU 上执行和 runqueue 中等待的 task。
+
+可中断睡眠与不可中断睡眠
+   可中断睡眠允许信号改变等待路径；不可中断睡眠主要等待内核条件完成。
+
+睡眠与停止
+   睡眠来自代码等待条件；停止常来自作业控制或调试器。
+
+唤醒与立即执行
+   wakeup 只让 task 重新可运行，真正执行仍由调度器决定。
+
+zombie 与正在运行的进程
+   zombie 已停止执行，只等待父进程读取退出信息。
+
+信号 pending 与用户 handler 执行
+   pending 是内核中的待处理状态；handler 通常在返回用户态时才获得执行机会。
+
+长时间 ``D`` 与死锁
+   ``D`` 是等待状态证据；死锁还需要证明条件永远无法满足或存在循环依赖。
+
+一句话结论
+----------
+
+Task 的“卡住”本质上通常是等待条件：睡眠路径把 task 放入等待队列，事件或信号使其重新可运行，调度器再决定何时继续执行。
+
+来源
+----
+
+* AIBook 书籍：LinuxK；
+* AIBook Part：Part 9，Process, Thread, Task Struct, and Execution Context；
+* AIBook 章节：Chapter 44，Process States, Sleep, Wakeup, and Signals；
+* 源文件：``docs/LinuxK/Part_09_Process_Thread_Task_Struct_and_Execution_Context/Chapter_044_Process_States_Sleep_Wakeup_and_Signals.md``；
+* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_09_Process_Thread_Task_Struct_and_Execution_Context/Chapter_044_Process_States_Sleep_Wakeup_and_Signals.md>`_。
