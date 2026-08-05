@@ -148,6 +148,15 @@ Part 16：内核内存分配、Slab、SLUB、Vmalloc 与 Per-CPU 内存
 * `第079章：vmalloc 与非连续内核虚拟内存 <079-vmalloc-and-non-contiguous-kernel-virtual-memory.rst>`_；
 * `第080章：Per-CPU 内存与可扩展分配模式 <080-per-cpu-memory-and-scalable-allocation-patterns.rst>`_。
 
+Part 17：Page Cache、Writeback、Reclaim、Compaction 与 OOM
+---------------------------------------------------------
+
+* `第081章：Page Cache 是文件 I/O 的中心 <081-page-cache-as-the-center-of-file-io.rst>`_；
+* `第082章：脏页、回写与 Flusher 线程 <082-dirty-pages-writeback-and-flusher-threads.rst>`_；
+* `第083章：内存回收、LRU 列表与 kswapd <083-memory-reclaim-lru-lists-and-kswapd.rst>`_；
+* `第084章：内存压缩、碎片与大页压力 <084-compaction-fragmentation-and-huge-page-pressure.rst>`_；
+* `第085章：OOM Killer、内存死亡与生存诊断 <085-oom-killer-memory-death-and-survival-diagnostics.rst>`_。
+
 阅读方式
 --------
 
