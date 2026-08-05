@@ -1,0 +1,119 @@
+第064章：内存屏障与 CPU 重排
+============================
+
+本章必须记住
+------------
+
+#. 源代码顺序只表达当前执行流的程序顺序，不自动保证其它 CPU 按同一顺序观察共享内存。
+#. 编译器可以移动、合并或省略它认为没有并发语义的访问；CPU 还可以通过乱序执行、store buffer 和推测读取改变观察顺序。
+#. 内存屏障约束的是内存访问可见顺序，不负责互斥，也不负责对象生命周期。
+#. ``READ_ONCE()`` 和 ``WRITE_ONCE()`` 让单次访问在编译器层保持可识别，防止合并、重复读取或拆分等优化。
+#. ``READ_ONCE()`` 和 ``WRITE_ONCE()`` 不是完整 CPU 内存屏障，不能单独建立“先写数据、后写 ready”的跨 CPU发布关系。
+#. ``barrier()`` 是编译器屏障，阻止编译器把普通内存访问跨过该点移动；它不自动约束 CPU 的运行时内存顺序。
+#. ``smp_mb()`` 是 SMP 全屏障，约束屏障前后的读写访问顺序。
+#. ``smp_rmb()`` 主要约束读与读的顺序；``smp_wmb()`` 主要约束写与写的顺序。
+#. ``smp_*`` 屏障用于 CPU 之间的共享内存协议，在单处理器构建中可能退化为编译器级约束。
+#. ``mb()``、``rmb()``、``wmb()`` 属于更强的架构屏障接口，常用于还涉及设备或必须保留硬件顺序的路径；不能随意用 ``smp_*`` 替代设备屏障。
+#. 设备 DMA、MMIO 和 CPU 缓存一致性具有独立规则，应使用 DMA API、I/O accessor 和对应设备屏障，而不是只套普通 SMP 屏障。
+#. Release 是单向发布屏障：发布点之前的访问不能越过它向后被观察。
+#. Acquire 是单向获取屏障：获取点之后的访问不能越过它向前被观察。
+#. 生产者用 ``smp_store_release()`` 发布 ready，消费者用 ``smp_load_acquire()`` 读取 ready，是常见的数据发布协议。
+#. Acquire 只有在观察到与 release 建立联系的值时，才能把发布侧先前写入传递给观察侧。
+#. 同步变量必须明确：payload 是数据，ready、指针或索引是发布信号；屏障围绕信号建立，而不是随机插在代码中。
+#. ``smp_wmb()`` 与 ``smp_rmb()`` 只有放在正确的发布与观察协议中才有意义；单独存在的屏障不能证明另一侧遵守了对应规则。
+#. 全屏障比 acquire/release 约束更强，可能带来更高成本；能用单向协议表达时不应无条件使用 ``smp_mb()``。
+#. 锁获取通常具有 acquire 语义，锁释放通常具有 release 语义，使同一把锁保护的临界区形成顺序关系。
+#. 锁提供的 acquire/release 不等于任意方向的全屏障；不要从一次 unlock 再 lock 推导文档没有保证的额外顺序。
+#. 自旋锁和 mutex 的顺序保证只覆盖遵守同一锁协议的访问，绕开锁的无锁读写需要自己的内存模型证明。
+#. 原子 RMW 是否携带顺序取决于 API；relaxed 原子需要按协议补充 acquire、release 或专用 ``smp_mb__before_atomic()``、``smp_mb__after_atomic()``。
+#. 专用 atomic 屏障只能围绕文档指定的无序 atomic 操作使用，不能作为通用“修复并发”的装饰。
+#. 控制依赖、地址依赖和数据依赖的屏障规则复杂且架构敏感；新代码优先使用明确的 acquire/release API。
+#. ``rcu_assign_pointer()`` 和 ``rcu_dereference()`` 封装了 RCU 指针发布与读取所需的编译器和内存顺序规则。
+#. Sequence counter、RCU、锁和完成量都可能隐含特定顺序，调用者应依赖对应 API 契约，不要重复猜测底层指令。
+#. x86 的内存模型通常比部分弱序架构更强，但不能把 x86 上“测试没出错”当成跨架构正确性证明。
+#. ARM64、RISC-V 和其它架构可能允许更多观察顺序，内核同步代码必须按 Linux Kernel Memory Model 编写。
+#. 普通 ``volatile`` 只影响编译器优化，不能替代锁、atomic、``READ_ONCE`` 或 CPU 屏障。
+#. 屏障过少会产生旧数据、未初始化读取和丢失状态；屏障过多会降低性能并掩盖协议设计不清。
+#. 正确屏障来自一张明确的事件图：谁写数据、谁发布信号、谁观察信号、谁读取数据。
+#. 调试顺序 bug 时必须记录每个 CPU 的 load、store、RMW 和屏障，不能只按单线程调用栈解释。
+#. LKMM 和 ``tools/memory-model`` 的 litmus test 可用于验证复杂的允许/禁止执行结果。
+
+必背路径
+--------
+
+Release/acquire 发布：
+
+::
+
+   CPU0 写入 payload
+   → CPU0 对 ready 执行 store-release
+   → CPU1 对 ready 执行 load-acquire
+   → CPU1 确认读到已发布状态
+   → CPU1 读取 payload
+   → 生命周期协议保证 payload 未被回收
+
+分析一段无锁代码：
+
+::
+
+   标出所有共享变量
+   → 区分数据字段与同步字段
+   → 列出每个 CPU 的访问顺序
+   → 检查 READ_ONCE / WRITE_ONCE
+   → 检查 acquire、release、RMW 或显式屏障
+   → 确认观察侧真的读取发布侧的值
+   → 检查对象生命周期和失败重试
+
+CPU 与设备交互：
+
+::
+
+   确认对象是普通缓存内存、DMA 缓冲区还是 MMIO
+   → 使用正确 DMA API 或 I/O accessor
+   → 按设备协议填写描述符和数据
+   → 使用对应 DMA / I/O 屏障
+   → 发布 doorbell、索引或所有权位
+   → 再观察设备完成状态
+
+验证屏障协议：
+
+::
+
+   写出发布者与观察者事件
+   → 定义期望禁止的错误结果
+   → 检查当前 API 的最低顺序保证
+   → 在 LKMM 中建立 litmus test
+   → 在弱序架构与压力场景验证
+   → 不依赖单一架构偶然更强的顺序
+
+必须区分
+--------
+
+编译器屏障与 CPU 屏障
+   前者限制优化器移动访问；后者限制运行时内存系统的观察顺序。
+
+``READ_ONCE`` / ``WRITE_ONCE`` 与同步
+   它们固定单次访问形态；跨 CPU 发布仍需要 acquire/release、锁或其它协议。
+
+SMP 屏障与设备屏障
+   ``smp_*`` 面向 CPU 共享内存；DMA 和 MMIO 需要相应设备与 I/O 顺序接口。
+
+Acquire/release 与全屏障
+   Acquire/release 是单向约束；全屏障同时约束两侧多种读写方向。
+
+顺序与生命周期
+   屏障保证观察顺序；引用、RCU 和同步取消保证被观察对象仍然存在。
+
+一句话结论
+----------
+
+内存屏障不是为了让本 CPU “按顺序执行”，而是为了限制其它 CPU 或设备被允许以什么顺序看到共享状态。
+
+来源
+----
+
+* AIBook 书籍：LinuxK；
+* AIBook Part：Part 13，Concurrency, Locking, Atomics, Memory Barriers, and RCU；
+* AIBook 章节：Chapter 64，Memory Barriers and CPU Reordering；
+* 源文件：``docs/LinuxK/Part_13_Concurrency_Locking_Atomics_Memory_Barriers_and_RCU/Chapter_064_Memory_Barriers_and_CPU_Reordering.md``；
+* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_13_Concurrency_Locking_Atomics_Memory_Barriers_and_RCU/Chapter_064_Memory_Barriers_and_CPU_Reordering.md>`_。
