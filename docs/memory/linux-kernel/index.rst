@@ -301,6 +301,15 @@ Part 33：Credentials、Capabilities、Permissions、LSM、Seccomp 与 Audit
 * `第164章：Seccomp 与系统调用过滤 <164-seccomp-and-system-call-filtering.rst>`_；
 * `第165章：Audit、攻击面与安全可观测性 <165-audit-attack-surface-and-security-observability.rst>`_。
 
+Part 34：Kernel Parameters、Sysctl、Control Interfaces 与 Runtime Tuning
+-----------------------------------------------------------------------
+
+* `第166章：Kernel Command Line Parameters 与早期运行控制 <166-kernel-command-line-parameters-and-early-runtime-control.rst>`_；
+* `第167章：Module Parameters 与驱动专用调优 <167-module-parameters-and-driver-specific-tuning.rst>`_；
+* `第168章：sysctl 作为运行时内核控制接口 <168-sysctl-as-a-runtime-kernel-control-interface.rst>`_；
+* `第169章：procfs、sysfs 与 debugfs 控制面 <169-procfs-sysfs-and-debugfs-control-surfaces.rst>`_；
+* `第170章：在运行系统上安全调优 <170-tuning-safely-on-a-live-system.rst>`_。
+
 阅读方式
 --------
 
