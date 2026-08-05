@@ -85,6 +85,15 @@ Part 9：进程、线程、task_struct 与执行上下文
 * `第044章：进程状态、睡眠、唤醒与信号 <044-process-states-sleep-wakeup-signals.rst>`_；
 * `第045章：进程、中断与内核线程执行上下文 <045-execution-contexts-process-interrupt-kernel-thread.rst>`_。
 
+Part 10：调度器架构、CFS、实时调度与 CPU 时间
+---------------------------------------------
+
+* `第046章：调度类与调度框架 <046-scheduler-classes-and-framework.rst>`_；
+* `第047章：CFS、vruntime、权重与公平性 <047-cfs-vruntime-weights-and-fairness.rst>`_；
+* `第048章：实时调度类与延迟保证 <048-real-time-scheduling-and-latency.rst>`_；
+* `第049章：CPU 亲和性、负载均衡与多核调度 <049-cpu-affinity-load-balancing-and-multicore.rst>`_；
+* `第050章：诊断调度延迟与饥饿 <050-diagnosing-scheduling-latency-and-starvation.rst>`_。
+
 阅读方式
 --------
 
