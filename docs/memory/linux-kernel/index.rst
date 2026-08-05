@@ -193,6 +193,15 @@ Part 21：Page Cache I/O、Direct I/O、异步 I/O 与 io_uring
 * `第104章：io_uring 作为现代 Linux I/O 接口 <104-io-uring-as-a-modern-linux-io-interface.rst>`_；
 * `第105章：I/O 路径选择与性能权衡 <105-io-path-selection-and-performance-tradeoffs.rst>`_。
 
+Part 22：块层、Bio、Request Queue、I/O Scheduler 与 Multi-Queue
+---------------------------------------------------------------
+
+* `第106章：从文件系统请求到块 I/O <106-from-filesystem-requests-to-block-io.rst>`_；
+* `第107章：bio、Request 与块 I/O 数据模型 <107-bio-request-and-the-block-io-data-model.rst>`_；
+* `第108章：Request Queue 与 I/O Scheduler <108-request-queues-and-io-schedulers.rst>`_；
+* `第109章：blk-mq 与多队列扩展性 <109-blk-mq-and-multi-queue-scalability.rst>`_；
+* `第110章：追踪块延迟与排队行为 <110-tracing-block-latency-and-queueing-behavior.rst>`_。
+
 阅读方式
 --------
 
