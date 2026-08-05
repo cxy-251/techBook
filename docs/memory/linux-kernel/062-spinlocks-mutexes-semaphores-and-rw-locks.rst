@@ -1,0 +1,119 @@
+第062章：Spinlock、Mutex、Semaphore 与读写锁
+==========================================
+
+本章必须记住
+------------
+
+#. 锁的选择顺序是：先判断当前上下文能否睡眠，再判断临界区长度、资源语义和读写比例。
+#. Spinlock 是忙等互斥锁，适合不可睡眠上下文和极短临界区。
+#. 等待 spinlock 的 CPU 不会主动睡眠，而是持续尝试取得锁，因此临界区必须短且耗时可控。
+#. 持有 spinlock 时不能调用可能睡眠的函数，例如普通 mutex、阻塞 I/O、``copy_*_user`` 可能缺页路径和 ``GFP_KERNEL`` 分配。
+#. 普通非 RT 内核中，取得 spinlock 通常还会禁止本 CPU 抢占；具体实现和 PREEMPT_RT 语义需要按目标内核确认。
+#. ``spin_lock_irqsave()`` 同时保存并关闭本地 IRQ，适合锁同时被进程路径和硬中断路径获取的场景。
+#. ``spin_lock_bh()`` 禁止本 CPU bottom half，适合进程路径和 softirq 共享对象的场景。
+#. 锁后缀必须与同一把锁的所有访问路径匹配；某条路径使用 irq-safe 方式，另一条路径以 IRQ 开启状态获取，可能形成自死锁。
+#. ``raw_spinlock_t`` 保留真正的原始忙等和不可抢占语义，常用于调度器、低层 IRQ 和 PREEMPT_RT 下必须保持硬原子的代码。
+#. PREEMPT_RT 下普通 ``spinlock_t`` 的实现和可抢占语义可能变化，不能把非 RT 的全部副作用机械套用到 RT 内核。
+#. Mutex 是可睡眠的所有者互斥锁，适合进程上下文和可能较长的临界区。
+#. Mutex 获取失败时，等待 task 可以睡眠并让出 CPU，因此不能在硬中断、softirq 或其它 atomic 上下文中使用。
+#. Mutex 具有 owner 语义，通常应由取得锁的 task 释放；跨 task 解锁不符合普通 mutex 模型。
+#. ``mutex_lock_interruptible()``、``mutex_lock_killable()`` 等变体可能在未获得锁时返回错误，错误路径不能无条件 unlock。
+#. Mutex 适合设备配置、对象注册、打开关闭、状态转换和会调用可睡眠 helper 的路径。
+#. Semaphore 的计数表示可同时占用的有限资源数量；``down`` 消耗一个额度，``up`` 归还一个额度。
+#. 二值 semaphore 可以实现互斥，但新代码中的普通所有者互斥通常优先使用 mutex，因为 mutex 的语义和调试能力更明确。
+#. Semaphore 不具有与 mutex 完全相同的 owner 约束，适合资源槽位、并发额度和历史协议，不应无理由替代 completion 或 mutex。
+#. ``rwlock_t`` 是不可睡眠的读写自旋锁，允许多个读者并发，但写者要求独占。
+#. ``rw_semaphore`` 是可睡眠的读写锁，适合进程上下文中的较长读写临界区。
+#. 读写锁只有在读路径明显占优、临界区足够大且共享读确有收益时才可能优于普通 mutex。
+#. 读写锁会引入写者等待、读者饥饿策略、升级困难和更复杂的锁顺序，不能只因“读多写少”就默认使用。
+#. 读锁升级为写锁通常不能直接原地完成；常见做法是释放读锁、取得写锁并重新验证状态。
+#. 锁只保护约定的字段和不变量；临界区外继续使用从锁内取得的指针，还需要引用或其它生命周期保证。
+#. Spinlock 下应只移动队列节点、更新状态位和取得局部快照，复杂处理应在释放锁后完成。
+#. Mutex 临界区虽然允许睡眠，也应控制范围，避免把外部回调、用户交互和无界等待放在高竞争锁内。
+#. 两把锁必须建立全局一致的获取顺序；A→B 和 B→A 的反向嵌套会形成死锁条件。
+#. 调用未知回调、文件操作或下层驱动前，应检查它是否可能反向获取当前层锁。
+#. Lockdep 根据锁类、IRQ 上下文和依赖图检查潜在死锁，但没有报警不等于锁设计已经证明正确。
+#. 锁竞争问题应区分等待者睡眠、等待者忙等、临界区过长、锁粒度过粗和锁顺序错误。
+#. 选择锁时还要考虑 CPU 数量、缓存行竞争、NUMA、实时要求和目标内核的 PREEMPT_RT 配置。
+
+必背路径
+--------
+
+选择同步原语：
+
+::
+
+   确认所有访问者的执行上下文
+   → 任何路径不可睡眠时排除 mutex、rwsem 和普通等待
+   → 临界区短且必须立即互斥时选择 spinlock 或 raw spinlock
+   → 进程上下文的所有者互斥选择 mutex
+   → 有限资源数量选择 semaphore
+   → 读多写少且共享读确有收益时评估 rwlock 或 rwsem
+   → 最后检查 PREEMPT_RT 和锁顺序
+
+进程路径与硬中断共享队列：
+
+::
+
+   保存本地 IRQ 状态
+   → spin_lock_irqsave
+   → 只更新队列、索引和短状态
+   → 取出需要处理的对象
+   → spin_unlock_irqrestore
+   → 在锁外执行复杂处理
+
+可睡眠配置路径：
+
+::
+
+   从用户空间取得并验证输入
+   → mutex_lock 或 interruptible 变体
+   → 再次检查对象状态
+   → 修改配置并执行可睡眠操作
+   → 提交稳定状态
+   → mutex_unlock
+   → 处理未取得锁时的错误返回
+
+检查死锁：
+
+::
+
+   列出所有锁和锁类
+   → 记录每条路径的获取顺序
+   → 标记 IRQ、softirq 和进程上下文
+   → 检查同一锁是否有不一致后缀
+   → 检查外部回调和下层调用
+   → 用 lockdep 验证依赖图
+   → 修正顺序或拆分锁范围
+
+必须区分
+--------
+
+Spinlock 与 mutex
+   Spinlock 忙等且不能睡眠；mutex 让等待者睡眠，只能用于可睡眠上下文。
+
+``spinlock_t`` 与 ``raw_spinlock_t``
+   普通 spinlock 会受 PREEMPT_RT 转换影响；raw spinlock 保留低层硬原子语义。
+
+Mutex 与 semaphore
+   Mutex 表达所有者互斥；semaphore 表达可用资源额度，所有权语义不同。
+
+``rwlock_t`` 与 ``rw_semaphore``
+   前者是不可睡眠的读写自旋锁；后者是可睡眠的读写锁。
+
+互斥与对象存活
+   持锁期间访问安全不表示解锁后指针仍然有效，长期使用仍需要引用或其它生命周期协议。
+
+一句话结论
+----------
+
+锁的名字不是选择依据；正确选择来自执行上下文、是否允许睡眠、临界区长度、资源语义和锁顺序的共同约束。
+
+来源
+----
+
+* AIBook 书籍：LinuxK；
+* AIBook Part：Part 13，Concurrency, Locking, Atomics, Memory Barriers, and RCU；
+* AIBook 章节：Chapter 62，Spinlocks, Mutexes, Semaphores, and Reader-Writer Locks；
+* 源文件：``docs/LinuxK/Part_13_Concurrency_Locking_Atomics_Memory_Barriers_and_RCU/Chapter_062_Spinlocks_Mutexes_Semaphores_and_Reader_Writer_Locks.md``；
+* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_13_Concurrency_Locking_Atomics_Memory_Barriers_and_RCU/Chapter_062_Spinlocks_Mutexes_Semaphores_and_Reader_Writer_Locks.md>`_。
