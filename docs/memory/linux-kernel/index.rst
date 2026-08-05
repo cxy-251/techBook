@@ -274,6 +274,15 @@ Part 30：Network Device Drivers、NAPI、Queues、Offloads 与 Packet Schedulin
 * `第149章：Checksum、TSO、GRO、GSO 与硬件 Offload <149-checksum-tso-gro-gso-and-hardware-offloads.rst>`_；
 * `第150章：Queue Discipline、Traffic Control 与 Packet Scheduling <150-queue-disciplines-traffic-control-and-packet-scheduling.rst>`_。
 
+Part 31：High-Performance Networking、XDP、eBPF、Zero-Copy 与 AF_XDP
+-------------------------------------------------------------------
+
+* `第151章：传统网络栈成本模型 <151-traditional-network-stack-cost-model.rst>`_；
+* `第152章：XDP 与早期 Packet 处理 <152-xdp-and-early-packet-processing.rst>`_；
+* `第153章：eBPF Program、Map、Verifier 与 Attach Point <153-ebpf-programs-maps-verifier-and-attach-points.rst>`_；
+* `第154章：Zero-copy 路径与 AF_XDP <154-zero-copy-paths-and-af-xdp.rst>`_；
+* `第155章：高性能 Packet Pipeline 的观测与优化 <155-observing-and-optimizing-high-performance-packet-pipelines.rst>`_。
+
 阅读方式
 --------
 
