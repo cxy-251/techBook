@@ -265,6 +265,15 @@ Part 29：Socket Layer、sk_buff、Routing、Netfilter 与 TCP/IP Stack
 * `第144章：Routing、Neighbor Table 与 Netfilter Hook <144-routing-neighbor-tables-and-netfilter-hooks.rst>`_；
 * `第145章：TCP/IP 状态、拥塞与 Packet 诊断 <145-tcp-ip-state-congestion-and-packet-diagnostics.rst>`_。
 
+Part 30：Network Device Drivers、NAPI、Queues、Offloads 与 Packet Scheduling
+--------------------------------------------------------------------------
+
+* `第146章：网络设备驱动注册与 netdev_ops <146-network-device-driver-registration-and-netdev-ops.rst>`_；
+* `第147章：RX/TX Ring、Descriptor 与 DMA <147-rx-and-tx-rings-descriptors-and-dma.rst>`_；
+* `第148章：NAPI Polling 与中断缓解 <148-napi-polling-and-interrupt-mitigation.rst>`_；
+* `第149章：Checksum、TSO、GRO、GSO 与硬件 Offload <149-checksum-tso-gro-gso-and-hardware-offloads.rst>`_；
+* `第150章：Queue Discipline、Traffic Control 与 Packet Scheduling <150-queue-disciplines-traffic-control-and-packet-scheduling.rst>`_。
+
 阅读方式
 --------
 
