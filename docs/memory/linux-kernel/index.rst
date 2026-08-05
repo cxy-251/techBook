@@ -139,6 +139,15 @@ Part 15：物理内存、Zone、NUMA 与页分配器
 * `第074章：NUMA 节点、局部性与内存策略 <074-numa-nodes-locality-and-memory-policy.rst>`_；
 * `第075章：诊断物理内存碎片与压力 <075-diagnosing-physical-memory-fragmentation-and-pressure.rst>`_。
 
+Part 16：内核内存分配、Slab、SLUB、Vmalloc 与 Per-CPU 内存
+----------------------------------------------------------
+
+* `第076章：内核分配器家族与分配上下文 <076-kernel-allocator-families-and-allocation-context.rst>`_；
+* `第077章：kmalloc、kfree 与分配标志 <077-kmalloc-kfree-and-allocation-flags.rst>`_；
+* `第078章：Slab 与 SLUB 对象缓存 <078-slab-and-slub-object-caches.rst>`_；
+* `第079章：vmalloc 与非连续内核虚拟内存 <079-vmalloc-and-non-contiguous-kernel-virtual-memory.rst>`_；
+* `第080章：Per-CPU 内存与可扩展分配模式 <080-per-cpu-memory-and-scalable-allocation-patterns.rst>`_。
+
 阅读方式
 --------
 
