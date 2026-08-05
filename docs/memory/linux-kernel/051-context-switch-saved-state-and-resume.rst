@@ -1,0 +1,106 @@
+第051章：上下文切换保存状态与恢复路径
+=====================================
+
+本章必须记住
+------------
+
+#. 上下文切换是 CPU 执行权从 ``prev`` task 转移到 ``next`` task。
+#. 调度器先决定下一个 task，随后 ``context_switch()`` 才负责真正完成执行环境切换。
+#. 一次切换至少包含三层：调度器状态、地址空间状态、架构机器状态。
+#. ``context_switch()`` 位于通用调度核心；``switch_to()`` 和底层寄存器切换位于 ``arch/`` 架构代码。
+#. ``prepare_task_switch()`` 在切走前准备状态，``finish_task_switch()`` 在新 task 的执行流中完成收尾。
+#. ``switch_to()`` 最关键的动作是保存 ``prev`` 的栈指针并装入 ``next`` 的栈指针。
+#. 栈指针切换后，后续弹出的寄存器、返回地址和局部状态都来自 ``next`` 的内核栈。
+#. 源码看起来像 ``prev`` 调用了 ``switch_to()``，实际返回时执行流已经位于 ``next`` 上次暂停的位置。
+#. 内核上下文切换只保存恢复内核执行所需的最小机器状态；用户态完整寄存器通常已由系统调用、异常或中断入口保存在 ``pt_regs`` 中。
+#. 保存哪些通用寄存器、栈帧和扩展状态由架构 ABI 与实现决定，不同架构不能机械套用同一字段表。
+#. ``thread_struct`` 或架构私有 task 状态保存栈指针、TLS、FPU、调试寄存器和其它 CPU 状态。
+#. 用户 task 通常拥有 ``mm_struct``；切换到不同用户地址空间时，需要切换页表上下文。
+#. 地址空间切换可能改变页表根、ASID/PCID 和 TLB 状态，是上下文切换成本的重要来源。
+#. 两个线程共享同一 ``mm_struct`` 时，切换通常不需要完整更换用户地址空间，但寄存器和内核栈仍必须切换。
+#. 内核线程通常没有普通 ``mm``，会通过 ``active_mm`` 借用当前 CPU 可用的地址翻译上下文。
+#. 借用 ``active_mm`` 只是避免无意义地址空间切换，不表示内核线程拥有用户内存语义。
+#. TLB 标签机制可以保留不同地址空间的部分缓存转换，减少切换时完全失效的成本；具体能力依赖架构。
+#. FPU、SIMD、TLS、调试寄存器和权限相关寄存器属于扩展状态，保存恢复策略具有架构和版本差异。
+#. 现代内核对 FPU 状态通常采用按 task 管理并在切换路径中维护正确所有权，不能简单假设所有架构都使用传统 lazy-FPU 模型。
+#. 上下文切换本身会消耗指令，并破坏指令缓存、数据缓存、分支预测和 TLB 局部性。
+#. 切换次数高不必然表示 bug；需要结合每次运行区间、等待原因、CPU 利用率和业务吞吐判断。
+#. 线程之间切换可能比进程之间切换少一次地址空间成本，但仍有寄存器、栈、调度和缓存成本。
+#. 读取上下文切换源码时，应先找到 ``schedule``、``__schedule``、``context_switch``、``switch_to`` 和架构汇编入口。
+#. ``current`` 的更新必须与栈和 per-CPU 当前任务状态保持一致，架构代码负责建立 ``next`` 视图。
+#. 调度器锁和运行队列状态在切换前后有严格交接规则，不能把 ``switch_to`` 当成普通无副作用函数调用。
+#. ``finish_task_switch()`` 可能处理延迟的 mm 释放、前一个 task 状态和调度收尾，因此仍属于切换协议的一部分。
+#. 分析切换成本时，应区分调度决策时间、机器状态切换时间和切换后的缓存冷启动时间。
+
+必背路径
+--------
+
+一次普通切换：
+
+::
+
+   当前 task 进入 schedule
+   → __schedule 更新 prev 状态
+   → 从当前 CPU rq 选择 next
+   → context_switch(prev, next)
+   → 准备 task 切换
+   → 切换 mm 或处理 active_mm
+   → switch_to 保存 prev 栈与寄存器
+   → 装入 next 栈与寄存器
+   → 架构代码恢复扩展 CPU 状态
+   → finish_task_switch 在 next 上收尾
+   → next 从上次暂停位置继续
+
+地址空间切换：
+
+::
+
+   比较 prev->active_mm 与 next->mm
+   → 相同 mm 时复用地址空间上下文
+   → 不同用户 mm 时切换页表上下文
+   → 更新 ASID、PCID 或架构标签
+   → 按需要处理 TLB
+   → 内核线程使用借用 active_mm 路径
+
+阅读架构切换代码：
+
+::
+
+   找到 switch_to 宏或函数
+   → 找到保存 prev 栈指针的位置
+   → 找到装载 next 栈指针的位置
+   → 核对架构保存寄存器集合
+   → 找到返回地址如何恢复
+   → 再检查 FPU、TLS、调试和安全状态
+
+必须区分
+--------
+
+调度决策与上下文切换
+   调度决策选择 next；上下文切换把 CPU 状态真正交给 next。
+
+内核恢复状态与用户态 ``pt_regs``
+   ``switch_to`` 维护内核执行连续性；用户态返回现场通常由入口路径保存。
+
+线程切换与地址空间切换
+   共享 mm 的线程仍需切换 task 状态；不同进程还可能需要更换页表上下文。
+
+``mm`` 与 ``active_mm``
+   ``mm`` 表示 task 拥有的用户地址空间；``active_mm`` 可以是内核线程借用的地址空间。
+
+切换指令成本与局部性成本
+   前者是保存恢复动作；后者来自缓存、TLB 和预测状态被扰动。
+
+一句话结论
+----------
+
+上下文切换把 CPU 从 ``prev`` 的栈、寄存器和地址空间交给 ``next``；真正的控制流翻转发生在架构代码装入 ``next`` 栈指针之后。
+
+来源
+----
+
+* AIBook 书籍：LinuxK；
+* AIBook Part：Part 11，Context Switching, Preemption, Timers, and Timekeeping；
+* AIBook 章节：Chapter 51，Context Switch Saved State and Resume Path；
+* 源文件：``docs/LinuxK/Part_11_Context_Switching_Preemption_Timers_and_Timekeeping/Chapter_051_Context_Switch_Saved_State_and_Resume_Path.md``；
+* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_11_Context_Switching_Preemption_Timers_and_Timekeeping/Chapter_051_Context_Switch_Saved_State_and_Resume_Path.md>`_。
