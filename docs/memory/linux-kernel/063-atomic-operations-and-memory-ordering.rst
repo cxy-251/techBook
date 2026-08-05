@@ -1,0 +1,118 @@
+第063章：原子操作与内存顺序
+===========================
+
+本章必须记住
+------------
+
+#. 原子性回答一个共享内存位置的操作是否不可分割；内存顺序回答其它内存访问能以什么先后关系被其它 CPU 观察。
+#. 一个操作是 atomic，不代表它自动成为完整同步点，也不代表相邻普通字段已经对其它 CPU 可见。
+#. ``atomic_t``、``atomic64_t`` 和 ``atomic_long_t`` 适合并发整数、状态转换和读改写操作。
+#. ``atomic_read()`` 与 ``atomic_set()`` 主要访问原子变量本身；是否携带 acquire/release 顺序取决于所用 API。
+#. 普通统计计数可以使用 ``atomic_t``，但统计值的变化不能自动发布其它对象内容。
+#. ``refcount_t`` 专门表达对象持有者数量，比普通 ``atomic_t`` 更适合引用生命周期。
+#. 引用计数降到 0 通常意味着对象进入最终释放阶段，不能再用普通递增把对象从 0 “复活”。
+#. ``refcount_inc_not_zero()`` 只有在计数仍非 0 时才能取得引用，适合从查找保护提升为长期持有。
+#. ``refcount_dec_and_test()`` 在最后一次 put 时返回 true，调用者进入最终 release 路径。
+#. 引用计数只保证对象内存存活，不自动序列化对象字段修改，也不自动停止 timer、IRQ、work 和 DMA。
+#. Read-modify-write（RMW）把读取旧值、计算新值和写回新值组合成一个不可分割操作。
+#. 普通 ``counter = counter + 1`` 在两个 CPU 并发时会丢失更新；``atomic_inc()`` 或 ``atomic_fetch_add()`` 能避免该竞争。
+#. ``atomic_cmpxchg()`` 只有在当前值等于期望值时才写入新值，适合构造状态机和无锁条件更新。
+#. Compare-exchange 失败时，调用者必须重新读取状态并决定重试、退出或走慢路径。
+#. Atomic RMW 只能保护它操作的单个原子变量；多个字段组成的不变量通常仍需要锁、序列计数、RCU 或更完整协议。
+#. 无返回值的 atomic RMW 通常不提供其它内存位置的完整顺序；带返回值操作的默认顺序和后缀语义应按当前内核 API 文档确认。
+#. ``_relaxed`` 后缀只要求原子性，不建立 acquire 或 release 顺序。
+#. ``_acquire`` 约束操作之后的内存访问不能越过获取点向前观察。
+#. ``_release`` 约束操作之前的内存访问必须在发布动作之前完成。
+#. 默认全序的 atomic API 比 relaxed 成本和约束更强，不能为了“保险”无条件使用最强形式。
+#. Release 与 acquire 要围绕同一个同步变量或明确的 reads-from 关系配对，才能把发布侧数据传递给观察侧。
+#. 生产者应先写对象内容，再执行 release store；消费者通过 acquire load 观察到发布状态后，才读取对象内容。
+#. ``atomic_set_release()`` 与 ``atomic_read_acquire()`` 可以让一个 atomic 状态变量承担发布/获取入口。
+#. ``smp_store_release()`` 与 ``smp_load_acquire()`` 也可用于普通标量或指针的发布与读取。
+#. ``READ_ONCE()`` 和 ``WRITE_ONCE()`` 防止编译器合并、缓存或拆分单次访问，但不自动提供跨 CPU 发布顺序。
+#. 原子变量不应被普通非原子访问与 atomic API 混用，除非内核内存模型和具体协议明确允许。
+#. 原子操作不等于无锁算法已经正确；还必须证明 ABA、对象回收、失败重试和多字段状态一致性。
+#. ABA 表示值从 A 变为 B 又回到 A，compare-exchange 只看到相同数值，却可能错过对象或版本已经改变。
+#. 无锁指针更新通常需要版本、引用、RCU、hazard 方案或其它回收协议，不能只依赖 cmpxchg。
+#. 内存屏障不会修复对象已经释放的问题，引用计数也不会修复错误的发布顺序；生命周期与顺序必须分别闭合。
+#. 调试原子协议时，应列出每个 CPU 的普通访问、原子访问和顺序后缀，再检查同步变量是否真正连接两侧。
+#. KCSAN 能发现部分数据竞争；LKMM 与 litmus test 用于验证更细的内存顺序推理。
+
+必背路径
+--------
+
+发布数据给另一个 CPU：
+
+::
+
+   生产者初始化 payload
+   → 完成所有普通字段写入
+   → 对 ready 执行 release store
+   → 消费者对 ready 执行 acquire load
+   → 只有观察到发布状态后读取 payload
+   → 生命周期协议保证 payload 仍然存在
+
+安全取得对象引用：
+
+::
+
+   在锁或 RCU 保护下找到对象指针
+   → refcount_inc_not_zero 尝试取得引用
+   → 成功后退出查找保护
+   → 使用对象
+   → refcount_dec_and_test 归还引用
+   → 最后一次 put 执行 release
+
+使用 compare-exchange 状态机：
+
+::
+
+   读取当前状态
+   → 计算允许的新状态
+   → cmpxchg 比较并写入
+   → 成功时提交状态转换
+   → 失败时取得最新值
+   → 重新判断是否重试或走慢路径
+   → 单独处理对象生命周期和 ABA
+
+分析 atomic API：
+
+::
+
+   确认原子变量表达统计、状态还是引用
+   → 判断操作是普通读写还是 RMW
+   → 检查 relaxed、acquire、release 或默认顺序
+   → 找到发布侧和观察侧
+   → 检查其它普通字段的可见关系
+   → 检查对象回收和失败分支
+
+必须区分
+--------
+
+原子性与顺序性
+   原子性防止单个位置的竞争更新被拆分；顺序性约束多个内存访问的跨 CPU 可见先后。
+
+``atomic_t`` 与 ``refcount_t``
+   前者表达普通并发整数；后者表达对象引用和 0 值生命周期边界。
+
+原子变量与复合不变量
+   Atomic API 保护一个位置；多个字段必须由更完整的同步协议共同保护。
+
+Relaxed 与 acquire/release
+   Relaxed 只有原子性；acquire/release 还承担单向发布和获取顺序。
+
+引用存活与字段一致性
+   引用保证对象不被释放；对象字段如何并发读写仍需要锁、RCU 或原子状态协议。
+
+一句话结论
+----------
+
+原子操作只先解决“同一个变量怎样不丢更新”；只有配上正确的 acquire、release、屏障和生命周期协议，它才可能成为跨 CPU 同步机制。
+
+来源
+----
+
+* AIBook 书籍：LinuxK；
+* AIBook Part：Part 13，Concurrency, Locking, Atomics, Memory Barriers, and RCU；
+* AIBook 章节：Chapter 63，Atomic Operations and Memory Ordering；
+* 源文件：``docs/LinuxK/Part_13_Concurrency_Locking_Atomics_Memory_Barriers_and_RCU/Chapter_063_Atomic_Operations_and_Memory_Ordering.md``；
+* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_13_Concurrency_Locking_Atomics_Memory_Barriers_and_RCU/Chapter_063_Atomic_Operations_and_Memory_Ordering.md>`_。
