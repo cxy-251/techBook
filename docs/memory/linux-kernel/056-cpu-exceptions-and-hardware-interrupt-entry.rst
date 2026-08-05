@@ -1,0 +1,104 @@
+第056章：CPU 异常与硬件中断入口
+===============================
+
+本章必须记住
+------------
+
+#. CPU 异常由当前指令、当前特权级、地址转换或调试状态同步触发；外部硬件中断由设备或中断控制器异步插入当前执行流。
+#. Page fault、除零、无效指令和断点属于异常；网卡收包、磁盘完成、定时器和键盘事件属于外部中断。
+#. 异常的核心问题是当前指令能否重试、修复、转成信号或升级为 Oops/panic。
+#. 外部中断的核心问题是事件来源是否确认、设备状态是否清除、处理是否快速结束并正确安排后续工作。
+#. 异常和中断都会迫使 CPU 暂停当前执行位置，保存最小返回现场，并跳到架构预先建立的入口。
+#. x86 使用 IDT 和向量入口，ARM64 使用异常向量表；具体寄存器、错误码和栈切换规则由架构决定。
+#. 低层入口代码把硬件保存的现场整理成 ``pt_regs`` 或等价结构，供后续 C 代码读取。
+#. 用户态完整返回现场通常在异常、系统调用或中断入口形成，不由普通 C 函数主动创建。
+#. 通用 entry/exit 代码还要更新 RCU、lockdep、tracing、时间记账、抢占计数和上下文跟踪状态。
+#. 硬中断入口通常由 ``irq_enter_rcu()`` 与 ``irq_exit_rcu()`` 一类协议包围，使 ``in_hardirq()`` 等状态判断成立。
+#. 硬中断发生时 ``current`` 仍指向被打断的 task，但设备事件通常与该 task 没有业务因果关系。
+#. 不能因为 IRQ 调用栈中出现某个用户进程，就把设备事件归因给该进程。
+#. Page fault 是同步异常，可以是正常的 demand paging、COW 或用户访问缺页路径，也可能是非法访问。
+#. 用户态非法异常通常转化为信号；内核态异常可能通过 exception table fixup 恢复，也可能形成 Oops 或 panic。
+#. Fault 通常在指令完成前报告，处理后可能重试同一指令；trap 通常在相关指令完成后报告；abort 表示恢复能力有限。
+#. Fault、trap 和 abort 的精确定义依赖架构手册，不能跨架构机械套用。
+#. 硬中断上下文不能睡眠，不能使用可能阻塞的 mutex、普通用户访问或 ``GFP_KERNEL`` 分配。
+#. 硬中断处理应只确认硬件、读取最小状态、更新短小原子状态、唤醒等待者或安排延迟处理。
+#. 中断入口可以打断用户态、普通内核代码，甚至部分其它上下文；共享数据必须按真实并发关系设计。
+#. 本地关闭中断只能阻止当前 CPU 接收普通可屏蔽 IRQ，不能自动保护其它 CPU 对共享对象的访问。
+#. NMI、machine check、double fault 等特殊事件具有更严格入口和栈规则，不能当作普通硬中断处理。
+#. 异常或 IRQ 返回前，内核可能处理 softirq、调度请求、信号和用户态返回工作，因此返回路径也是入口协议的一部分。
+#. Page fault 恢复后可能重试原指令；设备 IRQ 处理后通常回到被打断位置，除非返回路径触发调度或其它工作。
+#. 读取入口源码时，必须按“架构入口 → 现场整理 → 通用 entry 状态 → 异常或 generic IRQ 分发 → exit”顺序追踪。
+
+必背路径
+--------
+
+同步异常路径：
+
+::
+
+   当前指令触发异常
+   → CPU 记录指令位置、错误码和最小现场
+   → 架构异常入口建立 pt_regs
+   → 通用 entry 更新内核上下文状态
+   → 异常处理函数分析地址、权限或指令
+   → 修复并重试、发送 signal、Oops 或 panic
+   → entry exit 恢复状态
+   → 返回原执行流或终止
+
+外部硬件中断路径：
+
+::
+
+   设备产生事件
+   → interrupt controller 选择目标 CPU 和向量
+   → CPU 强制进入架构 IRQ 入口
+   → 保存现场并建立 pt_regs
+   → irq_enter_rcu 建立 hardirq 状态
+   → generic IRQ 层定位 IRQ 描述符
+   → 调用 flow handler 与设备 handler
+   → 确认硬件并安排延迟工作
+   → irq_exit_rcu 处理退出工作
+   → 返回被打断路径或发生调度
+
+判断异常后果：
+
+::
+
+   确认事件由哪条指令触发
+   → 读取故障地址和架构错误码
+   → 判断来自用户态还是内核态
+   → 检查异常表、VMA、页表和访问权限
+   → 判断是否可修复或重试
+   → 否则转信号、Oops 或 panic
+
+必须区分
+--------
+
+异常与外部中断
+   异常与当前指令同步相关；外部中断由当前执行流之外的硬件事件异步触发。
+
+入口现场与 task 上下文
+   ``pt_regs`` 保存被打断现场；``current`` 只是当时运行的 task，不一定是事件发起者。
+
+Fault 与硬件故障
+   架构术语 fault 表示异常类型，不等于硬件设备一定损坏。
+
+硬中断与进程上下文
+   硬中断不能睡眠，也没有普通用户请求语义；进程上下文通常可被调度并可受控访问用户空间。
+
+关闭本地 IRQ 与多 CPU 同步
+   关中断只限制本 CPU 的可屏蔽中断，跨 CPU 共享数据仍需要锁或其它同步机制。
+
+一句话结论
+----------
+
+异常和硬件中断都会强制改变 CPU 控制流；异常解释当前指令为何不能正常继续，硬件中断解释外部设备事件怎样快速进入、处理并退出内核。
+
+来源
+----
+
+* AIBook 书籍：LinuxK；
+* AIBook Part：Part 12，Interrupts, Exceptions, Softirq, Tasklet, and Workqueue；
+* AIBook 章节：Chapter 56，CPU Exceptions and Hardware Interrupt Entry；
+* 源文件：``docs/LinuxK/Part_12_Interrupts_Exceptions_Softirq_Tasklet_and_Workqueue/Chapter_056_CPU_Exceptions_and_Hardware_Interrupt_Entry.md``；
+* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_12_Interrupts_Exceptions_Softirq_Tasklet_and_Workqueue/Chapter_056_CPU_Exceptions_and_Hardware_Interrupt_Entry.md>`_。
