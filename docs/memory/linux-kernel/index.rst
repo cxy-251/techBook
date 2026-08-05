@@ -112,6 +112,15 @@ Part 12：中断、异常、Softirq、Tasklet 与 Workqueue
 * `第059章：Softirq、Tasklet、Workqueue 与 Threaded IRQ <059-softirq-tasklet-workqueue-and-threaded-irqs.rst>`_；
 * `第060章：中断风暴、延迟与调试策略 <060-interrupt-storms-latency-and-debugging.rst>`_。
 
+Part 13：并发、锁、原子操作、内存屏障与 RCU
+------------------------------------------
+
+* `第061章：内核并发中的上下文、生命周期与顺序 <061-kernel-concurrency-context-lifetime-and-ordering.rst>`_；
+* `第062章：Spinlock、Mutex、Semaphore 与读写锁 <062-spinlocks-mutexes-semaphores-and-rw-locks.rst>`_；
+* `第063章：原子操作与内存顺序 <063-atomic-operations-and-memory-ordering.rst>`_；
+* `第064章：内存屏障与 CPU 重排 <064-memory-barriers-and-cpu-reordering.rst>`_；
+* `第065章：RCU Read-Copy-Update 同步模型 <065-rcu-read-copy-update.rst>`_。
+
 阅读方式
 --------
 
