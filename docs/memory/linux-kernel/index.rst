@@ -256,6 +256,15 @@ Part 28：电源管理、热插拔、固件加载与 Runtime PM
 * `第139章：固件加载与设备初始化依赖 <139-firmware-loading-and-device-initialization-dependencies.rst>`_；
 * `第140章：驱动中的电源管理故障模式 <140-power-management-failure-modes-in-drivers.rst>`_。
 
+Part 29：Socket Layer、sk_buff、Routing、Netfilter 与 TCP/IP Stack
+-----------------------------------------------------------------
+
+* `第141章：Socket API 与内核 Socket 对象 <141-socket-api-and-kernel-socket-objects.rst>`_；
+* `第142章：sk_buff 作为网络 Packet 对象 <142-sk-buff-as-the-network-packet-object.rst>`_；
+* `第143章：网络栈中的接收路径与发送路径 <143-receive-path-and-transmit-path-through-the-stack.rst>`_；
+* `第144章：Routing、Neighbor Table 与 Netfilter Hook <144-routing-neighbor-tables-and-netfilter-hooks.rst>`_；
+* `第145章：TCP/IP 状态、拥塞与 Packet 诊断 <145-tcp-ip-state-congestion-and-packet-diagnostics.rst>`_。
+
 阅读方式
 --------
 
