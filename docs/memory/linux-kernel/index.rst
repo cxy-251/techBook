@@ -175,6 +175,15 @@ Part 19：文件描述符、VFS、Inode、Dentry 与 Superblock
 * `第094章：路径查找、挂载与命名空间感知解析 <094-path-lookup-mounts-and-namespace-aware-resolution.rst>`_；
 * `第095章：VFS 故障模式与文件系统级证据 <095-vfs-failure-modes-and-filesystem-level-evidence.rst>`_。
 
+Part 20：ext4、XFS、Btrfs 与伪文件系统实现
+-----------------------------------------
+
+* `第096章：真实文件系统如何接入 VFS <096-how-real-filesystems-plug-into-vfs.rst>`_；
+* `第097章：ext4 日志、Extent 与元数据一致性 <097-ext4-journaling-extents-and-metadata-consistency.rst>`_；
+* `第098章：XFS 扩展性、Allocation Group 与大型文件系统 <098-xfs-scalability-allocation-groups-and-large-filesystems.rst>`_；
+* `第099章：Btrfs COW、校验和与子卷 <099-btrfs-copy-on-write-checksums-and-subvolumes.rst>`_；
+* `第100章：伪文件系统作为内核接口 <100-pseudo-filesystems-as-kernel-interfaces.rst>`_。
+
 阅读方式
 --------
 
