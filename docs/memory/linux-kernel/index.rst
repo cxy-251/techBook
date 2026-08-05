@@ -238,6 +238,15 @@ Part 26：字符设备、块设备、网络设备与 Misc 驱动
 * `第129章：Misc 驱动与简单内核接口 <129-misc-drivers-and-simple-kernel-interfaces.rst>`_；
 * `第130章：选择正确的驱动抽象 <130-choosing-the-correct-driver-abstraction.rst>`_。
 
+Part 27：IRQ、DMA、MMIO、IOMMU、缓存一致性与硬件资源
+----------------------------------------------------
+
+* `第131章：MMIO 与寄存器级硬件控制 <131-mmio-and-register-level-hardware-control.rst>`_；
+* `第132章：IRQ 请求、处理、亲和性与退出 <132-irq-request-handling-affinity-and-teardown.rst>`_；
+* `第133章：DMA Mapping、Streaming DMA 与 Consistent DMA <133-dma-mapping-streaming-dma-and-consistent-dma.rst>`_；
+* `第134章：IOMMU、地址转换与设备隔离 <134-iommu-address-translation-and-device-isolation.rst>`_；
+* `第135章：真实硬件交互中的缓存一致性问题 <135-cache-coherency-problems-in-real-hardware-interaction.rst>`_。
+
 阅读方式
 --------
 
