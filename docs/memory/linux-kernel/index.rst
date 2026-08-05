@@ -130,6 +130,15 @@ Part 14：虚拟内存、地址空间与页表
 * `第069章：VMA、mmap 与地址空间布局 <069-vma-mmap-and-address-space-layout.rst>`_；
 * `第070章：页表调试与地址转换证据 <070-page-table-debugging-and-address-translation-evidence.rst>`_。
 
+Part 15：物理内存、Zone、NUMA 与页分配器
+---------------------------------------
+
+* `第071章：物理页、struct page 与内存模型 <071-physical-pages-struct-page-and-memory-models.rst>`_；
+* `第072章：Zone、水位线与分配约束 <072-zones-watermarks-and-allocation-constraints.rst>`_；
+* `第073章：Buddy 分配器与页分配路径 <073-buddy-allocator-and-page-allocation-paths.rst>`_；
+* `第074章：NUMA 节点、局部性与内存策略 <074-numa-nodes-locality-and-memory-policy.rst>`_；
+* `第075章：诊断物理内存碎片与压力 <075-diagnosing-physical-memory-fragmentation-and-pressure.rst>`_。
+
 阅读方式
 --------
 
