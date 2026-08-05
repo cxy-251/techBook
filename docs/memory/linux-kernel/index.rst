@@ -229,6 +229,15 @@ Part 25：Platform、PCI、USB、I2C、SPI、ACPI 与 Device Tree 总线框架
 * `第124章：USB、I2C 与 SPI 设备模型 <124-usb-i2c-and-spi-device-models.rst>`_；
 * `第125章：ACPI 与 Device Tree 作为硬件描述机制 <125-acpi-and-device-tree-as-hardware-description-mechanisms.rst>`_。
 
+Part 26：字符设备、块设备、网络设备与 Misc 驱动
+------------------------------------------------
+
+* `第126章：字符设备注册与 file_operations <126-character-device-registration-and-file-operations.rst>`_；
+* `第127章：块设备驱动模型与请求处理 <127-block-device-driver-model-and-request-handling.rst>`_；
+* `第128章：网络设备注册与 net_device 操作 <128-network-device-registration-and-net-device-operations.rst>`_；
+* `第129章：Misc 驱动与简单内核接口 <129-misc-drivers-and-simple-kernel-interfaces.rst>`_；
+* `第130章：选择正确的驱动抽象 <130-choosing-the-correct-driver-abstraction.rst>`_。
+
 阅读方式
 --------
 
