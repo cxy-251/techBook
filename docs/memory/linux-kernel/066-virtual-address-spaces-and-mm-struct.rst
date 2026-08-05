@@ -1,0 +1,122 @@
+第066章：虚拟地址空间与 mm_struct
+=================================
+
+本章必须记住
+------------
+
+#. 用户程序使用的是虚拟地址；虚拟地址必须放进某个进程的地址空间上下文中才有意义。
+#. 两个进程可以使用相同的虚拟地址数值，却映射到不同物理页、文件页或完全不同的对象。
+#. 用户地址空间由 ``struct mm_struct`` 描述，用户 task 通常通过 ``task_struct->mm`` 指向它。
+#. ``mm_struct`` 把 VMA 集合、页表根、地址布局、锁、统计和生命周期引用连接成一个内核对象。
+#. 现代内核通常使用 Maple Tree 组织一个 ``mm_struct`` 中的 VMA 范围。
+#. ``mm_struct->pgd`` 指向该地址空间的顶层页表；CPU 的硬件地址转换最终从页表根开始。
+#. VMA 描述一段虚拟地址范围允许怎样访问、内容来自哪里、缺页时走什么策略。
+#. 页表描述某个虚拟页当前是否已映射，以及它对应的物理页框和硬件权限。
+#. VMA 存在不代表物理页已经存在；匿名映射、文件映射和堆空间都可以延迟到首次访问时分配或装入页面。
+#. ``mmap_lock`` 保护 VMA 集合和地址空间布局的结构性修改；页表还使用页表锁和更细粒度同步。
+#. ``mm_users`` 表达仍在使用这套用户地址空间的 task 或使用者数量。
+#. ``mm_count`` 表达 ``mm_struct`` 描述符对象自身的引用数量。
+#. ``mm_users`` 归零后，内核可以拆除用户映射和页表；``mm_count`` 归零后，描述符内存才可最终释放。
+#. 地址空间释放是分阶段过程，不能把“进程退出”直接等同于 ``mm_struct`` 立即消失。
+#. ``mmput()`` 递减用户地址空间使用计数；最后一个用户离开时进入 ``__mmput()`` 和 ``exit_mmap()`` 一类清理路径。
+#. ``mmdrop()`` 负责归还描述符对象引用，最后一个对象引用结束后才释放 ``mm_struct``。
+#. 同一进程的多个线程通常共享同一个 ``mm_struct``，所以一个线程的 ``mmap``、``munmap``、``mprotect`` 会改变其它线程看到的地址空间。
+#. ``clone()`` 是否共享地址空间由 ``CLONE_VM`` 等创建语义决定；共享地址空间的 task 不是彼此独立的内存进程。
+#. ``fork`` 通常创建新的 ``mm_struct`` 和页表结构，同时通过写时复制共享现有物理页。
+#. ``exec`` 在当前 task 中替换用户程序映像和地址空间，不是简单地在旧 ``mm_struct`` 上追加新程序。
+#. 普通用户 task 的 ``mm`` 和 ``active_mm`` 通常指向同一地址空间。
+#. 内核线程通常没有普通用户地址空间，因此 ``task_struct->mm`` 可以为 ``NULL``。
+#. 内核线程仍需在 CPU 上使用合法的地址翻译上下文，所以会通过 ``active_mm`` 借用一套已有地址空间。
+#. 借用 ``active_mm`` 是调度和 TLB 优化，不表示内核线程拥有或可以按普通用户语义访问借用进程的用户内存。
+#. Lazy TLB 允许从用户 task 切换到内核线程时暂时保留原地址空间上下文，把真正的用户页表切换推迟到下一个用户 task。
+#. 上下文切换时，调度器必须正确处理 ``mm``、``active_mm``、页表根、ASID/PCID 和 TLB 状态。
+#. 地址空间可以被多个线程共享，也可能暂时被 ``get_task_mm()``、``mmget()``、``mmgrab()`` 等路径持有。
+#. 取得 ``mm_struct`` 指针后必须明确持有的是用户引用还是描述符引用，并使用匹配的 put 操作。
+#. ``get_task_mm()`` 可能在目标 task 没有用户地址空间时返回 ``NULL``，调用者不能假设所有 task 都有 ``mm``。
+#. 地址空间锁只保护映射结构和修改协议，不自动保证某个物理页永久驻留，也不代替页面引用和 pin 规则。
+#. 一个虚拟地址的稳定分析顺序是：确认 task 和 ``mm_struct``，找到 VMA，检查访问权限，再检查页表和物理页状态。
+#. 只看到指针数值不能判断它属于哪个对象；必须同时记录进程、架构、页表、权限和地址空间生命周期。
+
+必背路径
+--------
+
+解释一个用户地址：
+
+::
+
+   用户虚拟地址
+   → 找到当前 task
+   → 取得 task->mm
+   → 在 mm 的 VMA 集合中查找地址
+   → 检查 VMA 范围与权限
+   → 从 mm->pgd 检查页表状态
+   → 得到物理页、文件页、缺页或权限错误结论
+
+线程共享地址空间：
+
+::
+
+   创建 task
+   → CLONE_VM 决定共享现有 mm
+   → 多个 task->mm 指向同一 mm_struct
+   → 任一线程修改 VMA 或页表
+   → 其它线程立即处于同一地址空间变化中
+   → 最后一个 mm_users 离开后拆除映射
+
+地址空间释放：
+
+::
+
+   task 退出或释放 mm 使用权
+   → mmput 递减 mm_users
+   → 最后一个用户进入 __mmput
+   → exit_mmap 删除 VMA 和页表映射
+   → 归还描述符引用
+   → mmdrop 递减 mm_count
+   → 最后一个引用释放 mm_struct
+
+切换到内核线程：
+
+::
+
+   prev 用户 task 拥有 mm
+   → next 内核线程的 mm 为 NULL
+   → next 借用 prev 的 active_mm
+   → CPU 暂时保留合法页表上下文
+   → 下一次切到用户 task 时真正 switch_mm
+   → 更新地址空间标签和 TLB 状态
+
+必须区分
+--------
+
+虚拟地址与物理地址
+   虚拟地址属于某套地址空间；物理地址描述真实内存或设备资源位置。
+
+VMA 与页表
+   VMA 描述范围策略；页表描述当前页级映射和硬件权限。
+
+``mm`` 与 ``active_mm``
+   ``mm`` 表示 task 拥有的用户地址空间；``active_mm`` 表示 CPU 执行该 task 时使用或借用的地址翻译上下文。
+
+``mm_users`` 与 ``mm_count``
+   前者管理用户地址空间使用者；后者管理描述符对象自身生命周期。
+
+线程共享与进程独立
+   同一线程组通常共享一个 mm；不同进程通常拥有不同 mm，即使虚拟地址数值相同。
+
+地址空间存在与页面驻留
+   VMA 和 mm 存在不表示所有页面已分配或驻留，具体页可能仍需缺页建立。
+
+一句话结论
+----------
+
+``mm_struct`` 是用户地址空间的内核对象：它把 VMA 范围、页表根、线程共享、调度切换和分阶段释放统一到同一套生命周期中。
+
+来源
+----
+
+* AIBook 书籍：LinuxK；
+* AIBook Part：Part 14，Virtual Memory, Address Spaces, and Page Tables；
+* AIBook 章节：Chapter 66，Virtual Address Spaces and mm_struct；
+* 源文件：``docs/LinuxK/Part_14_Virtual_Memory_Address_Spaces_and_Page_Tables/Chapter_066_Virtual_Address_Spaces_and_mm_struct.md``；
+* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_14_Virtual_Memory_Address_Spaces_and_Page_Tables/Chapter_066_Virtual_Address_Spaces_and_mm_struct.md>`_。
