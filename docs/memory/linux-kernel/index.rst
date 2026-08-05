@@ -247,6 +247,15 @@ Part 27：IRQ、DMA、MMIO、IOMMU、缓存一致性与硬件资源
 * `第134章：IOMMU、地址转换与设备隔离 <134-iommu-address-translation-and-device-isolation.rst>`_；
 * `第135章：真实硬件交互中的缓存一致性问题 <135-cache-coherency-problems-in-real-hardware-interaction.rst>`_。
 
+Part 28：电源管理、热插拔、固件加载与 Runtime PM
+-------------------------------------------------
+
+* `第136章：系统睡眠、Suspend、Resume 与 Wakeup <136-system-sleep-suspend-resume-and-wakeup.rst>`_；
+* `第137章：Runtime PM 与设备空闲状态 <137-runtime-power-management-and-device-idle-states.rst>`_；
+* `第138章：CPU 热插拔、内存热插拔与设备热插拔 <138-cpu-hotplug-memory-hotplug-and-device-hotplug.rst>`_；
+* `第139章：固件加载与设备初始化依赖 <139-firmware-loading-and-device-initialization-dependencies.rst>`_；
+* `第140章：驱动中的电源管理故障模式 <140-power-management-failure-modes-in-drivers.rst>`_。
+
 阅读方式
 --------
 
