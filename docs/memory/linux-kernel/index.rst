@@ -157,6 +157,15 @@ Part 17：Page Cache、Writeback、Reclaim、Compaction 与 OOM
 * `第084章：内存压缩、碎片与大页压力 <084-compaction-fragmentation-and-huge-page-pressure.rst>`_；
 * `第085章：OOM Killer、内存死亡与生存诊断 <085-oom-killer-memory-death-and-survival-diagnostics.rst>`_。
 
+Part 18：内存映射、缺页、写时复制与大页
+--------------------------------------
+
+* `第086章：缺页异常入口与故障分类 <086-page-fault-entry-and-fault-classification.rst>`_；
+* `第087章：匿名内存与文件后备映射 <087-anonymous-memory-and-file-backed-mapping.rst>`_；
+* `第088章：fork 之后的写时复制 <088-copy-on-write-after-fork.rst>`_；
+* `第089章：透明大页与 HugeTLB <089-transparent-huge-pages-and-hugetlb.rst>`_；
+* `第090章：诊断 Major Fault、Minor Fault 与内存异常 <090-debugging-major-faults-minor-faults-and-memory-surprises.rst>`_。
+
 阅读方式
 --------
 
