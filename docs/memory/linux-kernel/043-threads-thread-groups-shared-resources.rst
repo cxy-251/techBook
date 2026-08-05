@@ -1,0 +1,124 @@
+第043章：线程、线程组与共享资源
+===============================
+
+本章必须记住
+------------
+
+#. Linux 调度器调度的是一个个 task；用户态线程是共享一组进程级资源、同时独立参与调度的 task。
+#. 一个多线程进程通常对应多个 ``task_struct``，而不是一个 task 内部保存多个线程。
+#. 普通用户线程通常由线程库通过 ``clone`` 或 ``clone3`` 创建。
+#. ``CLONE_THREAD`` 让新 task 加入调用者线程组；线程组内 task 共享 TGID。
+#. ``getpid()`` 返回进程级线程组身份，``gettid()`` 返回当前 task 的线程 ID。
+#. 单线程进程中 TGID 与 TID 通常相同；多线程进程中各线程 TID 不同、TGID 相同。
+#. 线程组 leader 是线程组的代表 task，``group_leader`` 指向它。
+#. ``/proc/<tgid>/task/`` 展示该线程组中的各个 TID，适合定位具体阻塞线程。
+#. ``CLONE_VM`` 让线程共享同一个 ``mm_struct``，因此堆、全局变量、mmap 和共享库映射彼此可见。
+#. 共享地址空间不等于共享同一用户栈；每个线程通常在同一地址空间中使用独立栈区。
+#. 线程栈仍是共享地址空间中的内存，错误传递栈地址、栈溢出和悬垂指针可以影响其它线程。
+#. ``CLONE_FILES`` 让线程共享同一个 ``files_struct``，因此打开、关闭、dup 和 close-on-exec 修改会影响其它线程。
+#. fd 数值属于共享文件表；一个线程 ``close(fd)`` 后，另一个线程继续使用旧数值可能命中已关闭或被复用的表项。
+#. ``CLONE_FS`` 让线程共享当前目录、根目录和 umask 等路径上下文。
+#. ``CLONE_SIGHAND`` 让线程共享信号处理器表，因此 ``sigaction()`` 修改通常对线程组可见。
+#. ``signal_struct`` 承载线程组级信号、退出和资源状态；每个 task 仍有自己的阻塞掩码和线程级 pending signal。
+#. 进程定向信号由内核在线程组内选择可接收线程；线程定向信号指定具体 TID。
+#. ``tgkill(tgid, tid, sig)`` 同时使用线程组 ID 与线程 ID，避免只凭复用的 TID 定位错误目标。
+#. 每个线程独立拥有用户栈指针、寄存器现场、内核栈、TLS、调度实体、CPU 亲和性和阻塞状态。
+#. 一个线程睡眠不等于整个进程停止；其它线程仍可在其它 CPU 上继续运行。
+#. 每个线程可以拥有不同调度优先级、策略和 CPU 亲和性，性能问题要落实到具体 TID。
+#. TLS 为每个线程提供独立的线程局部数据，入口由架构线程状态和用户态运行时共同管理。
+#. 多线程共享对象的正确性依赖锁、原子操作、内存顺序和用户态同步协议；共享本身不提供同步。
+#. ``fork`` 在多线程进程中只复制调用 fork 的线程为子进程初始 task，但会复制进程级资源视图。
+#. 多线程程序 fork 后、exec 前只能安全调用异步信号安全接口，因为其它线程持有的用户态锁不会自动在子进程中恢复。
+#. 一个线程执行成功 exec 后，其它线程被清理，新程序继续使用执行 exec 的 task 身份。
+#. 线程退出会释放自己的栈、TLS 和 task 状态，并通过 clear-child-tid/futex 等协议通知 ``pthread_join`` 等等待者。
+#. 共享资源通常在最后一个引用者退出后才释放；单个线程退出不应破坏仍被其它线程使用的 mm、files 或 signal 对象。
+#. 排查多线程问题时，第一步是判断异常属于共享对象还是单个 task 的独立状态。
+
+必背路径
+--------
+
+创建普通用户线程：
+
+::
+
+   pthread_create
+   → 线程库分配用户栈与 TLS
+   → 准备 CLONE_VM、CLONE_FILES、CLONE_SIGHAND、CLONE_THREAD 等 flags
+   → clone 或 clone3 创建新 task
+   → 新 task 加入同一线程组
+   → 共享 mm、files、signal 和 sighand
+   → 设置独立 TID、寄存器、栈、TLS 和调度实体
+   → 进入调度器独立运行
+
+定位卡住的线程：
+
+::
+
+   确认进程 TGID
+   → 枚举 /proc/<tgid>/task/<tid>
+   → 读取每个线程 State、wchan、stack 和调度信息
+   → 区分共享资源问题与单线程等待
+   → 对具体 TID 使用 strace、tracefs 或 perf
+   → 回到对应锁、fd、futex、I/O 或信号路径
+
+共享 fd 表的风险：
+
+::
+
+   线程 A 取得 fd 数值
+   → 线程 B close 或 dup2 修改共享 fdtable
+   → 原表项被移除或替换
+   → 数值可能被后续 open 复用
+   → 线程 A 再次使用旧整数
+   → 可能得到 EBADF 或操作另一个对象
+
+线程退出：
+
+::
+
+   线程函数返回或调用退出接口
+   → 执行线程清理与 TLS destructor
+   → task 进入退出路径
+   → 清理线程私有状态
+   → clear_child_tid 清零并 futex 唤醒
+   → join 等待者继续
+   → 归还共享对象引用
+   → 最后一个引用者负责最终释放共享资源
+
+必须区分
+--------
+
+线程与 task
+   线程是用户态资源共享语义；task 是内核独立调度和阻塞的执行对象。
+
+TGID 与 TID
+   TGID 表示线程组；TID 表示具体 task。
+
+共享地址空间与共享栈
+   线程共享 ``mm_struct``，但通常各自使用独立栈区域。
+
+共享 fd 表与共享打开对象
+   ``files_struct`` 决定 fd 表项是否共同变化；``struct file`` 决定打开对象状态和偏移是否共享。
+
+进程级信号与线程级信号
+   进程定向信号交给线程组；线程定向信号指定一个 task。
+
+一个线程睡眠与整个进程卡住
+   线程独立调度；只有关键线程、共享锁或共享资源阻塞时，进程整体功能才可能停滞。
+
+资源共享与并发安全
+   多个线程能访问同一对象不代表访问有序，仍必须使用同步机制。
+
+一句话结论
+----------
+
+Linux 线程是共享地址空间、文件表和信号状态的独立 task：资源按线程组共享，栈、寄存器、TLS、TID 和调度状态按线程独立。
+
+来源
+----
+
+* AIBook 书籍：LinuxK；
+* AIBook Part：Part 9，Process, Thread, Task Struct, and Execution Context；
+* AIBook 章节：Chapter 43，Threads, Thread Groups, and Shared Resources；
+* 源文件：``docs/LinuxK/Part_09_Process_Thread_Task_Struct_and_Execution_Context/Chapter_043_Threads_Thread_Groups_and_Shared_Resources.md``；
+* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_09_Process_Thread_Task_Struct_and_Execution_Context/Chapter_043_Threads_Thread_Groups_and_Shared_Resources.md>`_。
