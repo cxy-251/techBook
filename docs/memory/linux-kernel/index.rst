@@ -220,6 +220,15 @@ Part 24：设备模型、Kobject、Sysfs、Driver Core 与设备生命周期
 * `第119章：Sysfs 中的内核设备表示 <119-sysfs-representation-of-kernel-devices.rst>`_；
 * `第120章：设备生命周期故障与 Driver Core 诊断 <120-device-lifetime-bugs-and-driver-core-diagnostics.rst>`_。
 
+Part 25：Platform、PCI、USB、I2C、SPI、ACPI 与 Device Tree 总线框架
+-----------------------------------------------------------------
+
+* `第121章：总线框架作为驱动匹配与资源模型 <121-bus-frameworks-as-driver-matching-and-resource-models.rst>`_；
+* `第122章：Platform 设备与板级硬件描述 <122-platform-devices-and-board-level-description.rst>`_；
+* `第123章：PCI 枚举、BAR、MSI 与配置空间 <123-pci-enumeration-bars-msi-and-configuration-space.rst>`_；
+* `第124章：USB、I2C 与 SPI 设备模型 <124-usb-i2c-and-spi-device-models.rst>`_；
+* `第125章：ACPI 与 Device Tree 作为硬件描述机制 <125-acpi-and-device-tree-as-hardware-description-mechanisms.rst>`_。
+
 阅读方式
 --------
 
