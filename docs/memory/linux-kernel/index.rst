@@ -76,6 +76,15 @@ Part 8：用户态—内核态边界与系统调用路径
 * `第039章：文件描述符、句柄与内核对象 <039-file-descriptors-handles-and-kernel-objects.rst>`_；
 * `第040章：失败、errno 与边界诊断 <040-failure-errno-and-boundary-diagnostics.rst>`_。
 
+Part 9：进程、线程、task_struct 与执行上下文
+--------------------------------------------
+
+* `第041章：task_struct 是 Linux 内核的任务对象 <041-task-struct-as-kernel-process-object.rst>`_；
+* `第042章：fork、clone 与 exec 的进程创建语义 <042-process-creation-fork-clone-exec.rst>`_；
+* `第043章：线程、线程组与共享资源 <043-threads-thread-groups-shared-resources.rst>`_；
+* `第044章：进程状态、睡眠、唤醒与信号 <044-process-states-sleep-wakeup-signals.rst>`_；
+* `第045章：进程、中断与内核线程执行上下文 <045-execution-contexts-process-interrupt-kernel-thread.rst>`_。
+
 阅读方式
 --------
 
