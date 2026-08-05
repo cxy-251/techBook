@@ -283,6 +283,15 @@ Part 31：High-Performance Networking、XDP、eBPF、Zero-Copy 与 AF_XDP
 * `第154章：Zero-copy 路径与 AF_XDP <154-zero-copy-paths-and-af-xdp.rst>`_；
 * `第155章：高性能 Packet Pipeline 的观测与优化 <155-observing-and-optimizing-high-performance-packet-pipelines.rst>`_。
 
+Part 32：Namespaces、Cgroups、Resource Control 与 Container Internals
+---------------------------------------------------------------------
+
+* `第156章：Namespaces 作为内核级系统视图 <156-namespaces-as-kernel-level-views-of-the-system.rst>`_；
+* `第157章：PID、Mount、Network、User、IPC、UTS 与 Time Namespace <157-pid-mount-network-user-ipc-uts-and-time-namespaces.rst>`_；
+* `第158章：Cgroup 作为资源统计与控制机制 <158-cgroups-as-resource-accounting-and-control.rst>`_；
+* `第159章：Container Runtime 与内核原语的交互 <159-container-runtime-interaction-with-kernel-primitives.rst>`_；
+* `第160章：隔离与资源限制问题诊断 <160-debugging-isolation-and-resource-limit-problems.rst>`_。
+
 阅读方式
 --------
 
