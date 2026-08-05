@@ -292,6 +292,15 @@ Part 32：Namespaces、Cgroups、Resource Control 与 Container Internals
 * `第159章：Container Runtime 与内核原语的交互 <159-container-runtime-interaction-with-kernel-primitives.rst>`_；
 * `第160章：隔离与资源限制问题诊断 <160-debugging-isolation-and-resource-limit-problems.rst>`_。
 
+Part 33：Credentials、Capabilities、Permissions、LSM、Seccomp 与 Audit
+---------------------------------------------------------------------
+
+* `第161章：Credentials、UID/GID 与权限检查 <161-credentials-uid-gid-and-permission-checks.rst>`_；
+* `第162章：Capabilities 与特权拆分 <162-capabilities-and-privilege-decomposition.rst>`_；
+* `第163章：LSM Hook 与内核安全策略 <163-lsm-hooks-and-kernel-security-policy.rst>`_；
+* `第164章：Seccomp 与系统调用过滤 <164-seccomp-and-system-call-filtering.rst>`_；
+* `第165章：Audit、攻击面与安全可观测性 <165-audit-attack-surface-and-security-observability.rst>`_。
+
 阅读方式
 --------
 
