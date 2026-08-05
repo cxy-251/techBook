@@ -166,6 +166,15 @@ Part 18：内存映射、缺页、写时复制与大页
 * `第089章：透明大页与 HugeTLB <089-transparent-huge-pages-and-hugetlb.rst>`_；
 * `第090章：诊断 Major Fault、Minor Fault 与内存异常 <090-debugging-major-faults-minor-faults-and-memory-surprises.rst>`_。
 
+Part 19：文件描述符、VFS、Inode、Dentry 与 Superblock
+----------------------------------------------------
+
+* `第091章：文件描述符与进程文件表 <091-file-descriptors-and-the-process-file-table.rst>`_；
+* `第092章：VFS 作为文件系统抽象层 <092-vfs-as-the-filesystem-abstraction-layer.rst>`_；
+* `第093章：inode、dentry、file 与 super_block <093-inode-dentry-file-and-super-block.rst>`_；
+* `第094章：路径查找、挂载与命名空间感知解析 <094-path-lookup-mounts-and-namespace-aware-resolution.rst>`_；
+* `第095章：VFS 故障模式与文件系统级证据 <095-vfs-failure-modes-and-filesystem-level-evidence.rst>`_。
+
 阅读方式
 --------
 
