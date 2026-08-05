@@ -94,6 +94,15 @@ Part 10：调度器架构、CFS、实时调度与 CPU 时间
 * `第049章：CPU 亲和性、负载均衡与多核调度 <049-cpu-affinity-load-balancing-and-multicore.rst>`_；
 * `第050章：诊断调度延迟与饥饿 <050-diagnosing-scheduling-latency-and-starvation.rst>`_。
 
+Part 11：上下文切换、抢占、定时器与时间维护
+------------------------------------------
+
+* `第051章：上下文切换保存状态与恢复路径 <051-context-switch-saved-state-and-resume.rst>`_；
+* `第052章：内核抢占模型与自愿抢占 <052-kernel-preemption-models-and-voluntary-preemption.rst>`_；
+* `第053章：定时器基础设施与高精度定时器 <053-timer-infrastructure-and-high-resolution-timers.rst>`_；
+* `第054章：时间维护、jiffies、Clocksource 与 Clockevents <054-timekeeping-jiffies-clocksource-and-clockevents.rst>`_；
+* `第055章：抢占与定时器路径中的延迟来源 <055-latency-sources-in-preemption-and-timer-paths.rst>`_。
+
 阅读方式
 --------
 
