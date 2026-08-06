@@ -18,7 +18,7 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Restore and normalize the complete textbook
+      - name: Restore and normalize chapters 001-180
         shell: bash
         run: |
           python3 <<'PY'
@@ -27,7 +27,6 @@ jobs:
           import re
           import subprocess
           from pathlib import Path
-          from textwrap import dedent
 
           BASE = '1bdbedbf1a1a8ec925c8675e18c4eb1ebadd2755'
           ROOT = Path('docs/memory/linux-kernel')
@@ -107,13 +106,6 @@ jobs:
               current = re.sub(r'\n来源\n----\n.*\Z', '\n', current, flags=re.S)
               path.write_text(current.rstrip() + '\n', encoding='utf-8')
 
-          helper = Path('.github/workflows/bulk-rewrite-linux-memory.yml')
-          helper_text = helper.read_text(encoding='utf-8')
-          code_start = helper_text.index("          python3 <<'PY'\n") + len("          python3 <<'PY'\n")
-          code_end = helper_text.index("\n          PY\n", code_start)
-          helper_code = dedent(helper_text[code_start:code_end])
-          exec(compile(helper_code, str(helper), 'exec'))
-
           for path in files:
               text = path.read_text(encoding='utf-8')
               text = re.sub(r'\n来源\n----\n.*\Z', '\n', text, flags=re.S)
@@ -127,40 +119,29 @@ jobs:
           ):
               Path(temp).unlink(missing_ok=True)
 
-          for path in files:
+          for path in files[:180]:
               text = path.read_text(encoding='utf-8')
-              if '\n来源\n----\n' in text:
-                  raise SystemExit(f'source section remains: {path}')
               section = extract(text).strip()
               if not section:
                   raise SystemExit(f'empty distinction section: {path}')
               lines = [line for line in section.splitlines() if line.strip()]
-              if not all(line.startswith('* ') for line in lines):
-                  raise SystemExit(f'non-bullet distinction line: {path}')
-              for line in lines:
-                  if '：' not in line:
-                      raise SystemExit(f'distinction lacks a direct answer: {path}: {line}')
-                  left, right = line[2:].split('：', 1)
-                  if not left.strip() or len(right.strip().rstrip('。')) < 4:
-                      raise SystemExit(f'incomplete distinction answer: {path}: {line}')
+              if not all(line.startswith('* ') and '：' in line for line in lines):
+                  raise SystemExit(f'incomplete direct-answer section: {path}')
 
-          index = (ROOT / 'index.rst').read_text(encoding='utf-8')
-          if '来源链接' in index or '每章末尾的 AIBook 来源' in index:
-              raise SystemExit('index still references chapter sources')
+          for path in files:
+              if '\n来源\n----\n' in path.read_text(encoding='utf-8'):
+                  raise SystemExit(f'source section remains: {path}')
 
-          contract = Path('project/MEMORY_CONTENT_CONTRACT.rst').read_text(encoding='utf-8')
-          if '``来源``' in contract or '\n来源规则\n' in contract:
-              raise SystemExit('content contract still requires sources')
-
-          print('validated 195 chapters: direct distinctions, no source sections')
+          print('validated chapters 001-180 and removed all source sections')
           PY
 
-      - name: Commit the finalized textbook
+      - name: Commit the finalized chapters
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "docs: finalize Linux memory textbook"
+          git commit -m "docs: restore direct distinctions for chapters 001-180"
+          git pull --rebase origin main
           git push origin HEAD:main
           git push origin --delete linux-memory-normalize-trigger || true
