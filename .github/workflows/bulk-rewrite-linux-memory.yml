@@ -1,0 +1,179 @@
+name: Bulk rewrite Linux memory textbook
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/bulk-rewrite-linux-memory.yml
+
+permissions:
+  contents: write
+
+jobs:
+  rewrite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Rewrite Linux memory textbook
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from __future__ import annotations
+
+          import re
+          from pathlib import Path
+
+          root = Path('docs/memory/linux-kernel')
+          files = sorted(root.glob('[0-9][0-9][0-9]-*.rst'))
+          if len(files) != 195:
+              raise SystemExit(f'expected 195 chapters, found {len(files)}')
+
+          marker = '\n必须区分\n--------\n'
+          next_marker = '\n一句话结论\n----------\n'
+
+          def extract_section(text: str) -> str:
+              start = text.index(marker) + len(marker)
+              end = text.index(next_marker, start)
+              return text[start:end]
+
+          def normalize_section(section: str) -> str:
+              lines = section.strip('\n').splitlines()
+              if any(line.startswith('* ') for line in lines):
+                  bullets: list[str] = []
+                  current: list[str] = []
+                  for line in lines:
+                      if line.startswith('* '):
+                          if current:
+                              bullets.append(' '.join(current).strip())
+                          current = [line[2:].strip()]
+                      elif current and line.strip():
+                          current.append(line.strip())
+                  if current:
+                      bullets.append(' '.join(current).strip())
+                  if not bullets:
+                      raise ValueError('empty bullet distinction section')
+                  return '\n'.join('* ' + item.rstrip('；。') + '。' for item in bullets) + '\n'
+
+              entries: list[tuple[str, str]] = []
+              term: str | None = None
+              description: list[str] = []
+
+              def flush() -> None:
+                  nonlocal term, description
+                  if term is not None:
+                      answer = ' '.join(description).strip()
+                      if not answer:
+                          raise ValueError(f'distinction term has no answer: {term}')
+                      entries.append((term.strip(), answer.rstrip('；。')))
+                  term = None
+                  description = []
+
+              for line in lines:
+                  if not line.strip():
+                      continue
+                  if line[:1].isspace():
+                      if term is None:
+                          raise ValueError(f'orphan distinction description: {line}')
+                      description.append(line.strip())
+                  else:
+                      flush()
+                      term = line.strip().rstrip('：')
+              flush()
+              if not entries:
+                  raise ValueError('empty definition-list distinction section')
+              return '\n'.join(f'* {term}：{answer}。' for term, answer in entries) + '\n'
+
+          definition_lists = 0
+          bullet_lists = 0
+          for path in files:
+              text = path.read_text(encoding='utf-8')
+              original_section = extract_section(text)
+              if any(line.startswith('* ') for line in original_section.splitlines()):
+                  bullet_lists += 1
+              else:
+                  definition_lists += 1
+              normalized = normalize_section(original_section)
+              start = text.index(marker) + len(marker)
+              end = text.index(next_marker, start)
+              text = text[:start] + '\n' + normalized + text[end:]
+              text = re.sub(r'\n来源\n----\n.*\Z', '\n', text, flags=re.S)
+              path.write_text(text.rstrip() + '\n', encoding='utf-8')
+
+          contract_path = Path('project/MEMORY_CONTENT_CONTRACT.rst')
+          contract = contract_path.read_text(encoding='utf-8')
+          contract = contract.replace(
+              '每篇必背正文必须记录对应的 AIBook 书籍、Part、章节号、源文件路径和固定提交。章节范围、\n'
+              '顺序和主题由 AIBook 决定，不允许为了凑结构合并无关章节，也不允许把一章拆成脱离原书的\n'
+              '新知识体系。',
+              '每篇必背正文必须与 AIBook 的 Part、章节号和主题一一对应。对应关系由文件编号、标题、目录\n'
+              '和 Git 历史维护；正文不保留来源元数据或固定链接。章节范围、顺序和主题由 AIBook 决定，\n'
+              '不允许为了凑结构合并无关章节，也不允许把一章拆成脱离原书的新知识体系。'
+          )
+          contract = contract.replace(
+              '* 容易混淆的概念必须明确写出区别；',
+              '* 容易混淆的概念必须分别写出定义、适用范围或判断条件，不能只并列名称；'
+          )
+          contract = contract.replace(
+              '#. ``一句话结论``；\n#. ``来源``。',
+              '#. ``一句话结论``。'
+          )
+          contract = re.sub(
+              r'\n来源规则\n--------\n.*?(?=\n修改边界\n--------)',
+              '\n',
+              contract,
+              flags=re.S,
+          )
+          contract = contract.replace(
+              '必要导航和本合同明确\n要求的来源记录。',
+              '必要导航和本合同。'
+          )
+          contract_path.write_text(contract.rstrip() + '\n', encoding='utf-8')
+
+          index_path = root / 'index.rst'
+          index = index_path.read_text(encoding='utf-8')
+          index = index.replace(
+              '按编号直接阅读和记忆即可。正文不设置问题、练习和互动环节。需要完整推导、源码例子或实验时，\n'
+              '使用每章末尾的 AIBook 来源链接。',
+              '按编号直接阅读和记忆即可。正文不设置问题、练习、互动环节或来源元数据。'
+          )
+          index_path.write_text(index.rstrip() + '\n', encoding='utf-8')
+
+          Path('.github/workflows/bulk-rewrite-linux-memory.yml').unlink()
+
+          for path in files:
+              text = path.read_text(encoding='utf-8')
+              if '\n来源\n----\n' in text:
+                  raise SystemExit(f'source section remains: {path}')
+              section = extract_section(text).strip()
+              if not section:
+                  raise SystemExit(f'empty distinction section: {path}')
+              lines = [line for line in section.splitlines() if line.strip()]
+              if not all(line.startswith('* ') for line in lines):
+                  raise SystemExit(f'non-bullet distinction line: {path}')
+              for line in lines:
+                  if '：' not in line:
+                      raise SystemExit(f'distinction lacks direct answer: {path}: {line}')
+                  left, right = line[2:].split('：', 1)
+                  if not left.strip() or len(right.strip().rstrip('。')) < 4:
+                      raise SystemExit(f'incomplete distinction answer: {path}: {line}')
+
+          contract = contract_path.read_text(encoding='utf-8')
+          if '``来源``' in contract or '\n来源规则\n' in contract:
+              raise SystemExit('content contract still requires source sections')
+
+          print(f'updated {len(files)} chapters')
+          print(f'converted {definition_lists} definition-list sections')
+          print(f'preserved {bullet_lists} direct-answer bullet sections')
+          PY
+
+      - name: Commit final revision
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "docs: finalize Linux memory textbook structure"
+          git push origin HEAD:main
