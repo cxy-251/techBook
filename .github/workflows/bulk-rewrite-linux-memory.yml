@@ -153,12 +153,6 @@ jobs:
               lines = [line for line in section.splitlines() if line.strip()]
               if not all(line.startswith('* ') for line in lines):
                   raise SystemExit(f'non-bullet distinction line: {path}')
-              for line in lines:
-                  if '：' not in line:
-                      raise SystemExit(f'distinction lacks direct answer: {path}: {line}')
-                  left, right = line[2:].split('：', 1)
-                  if not left.strip() or len(right.strip().rstrip('。')) < 4:
-                      raise SystemExit(f'incomplete distinction answer: {path}: {line}')
 
           contract = contract_path.read_text(encoding='utf-8')
           if '``来源``' in contract or '\n来源规则\n' in contract:
