@@ -328,6 +328,15 @@ Part 36：CPU、Memory、I/O、Network 与 Lock Contention 内核性能工程
 * `第179章：I/O 延迟、排队、Writeback 与存储瓶颈 <179-io-latency-queueing-writeback-and-storage-bottlenecks.rst>`_；
 * `第180章：网络吞吐、丢包、锁争用与可扩展性 <180-network-throughput-packet-loss-lock-contention-and-scalability.rst>`_。
 
+Part 37：Kernel Testing、KUnit、kselftest、LTP、Fuzzing、Sanitizers 与 Fault Injection
+-------------------------------------------------------------------------------------
+
+* `第181章：内核测试边界与失败模型 <181-kernel-testing-boundary-and-failure-model.rst>`_；
+* `第182章：KUnit 内核内部单元测试 <182-kunit-for-in-kernel-unit-testing.rst>`_；
+* `第183章：kselftest 与用户态驱动的内核测试 <183-kselftest-and-user-space-driven-kernel-tests.rst>`_；
+* `第184章：Fuzzing、syzkaller 与缺陷发现 <184-fuzzing-syzkaller-and-bug-discovery.rst>`_；
+* `第185章：Sanitizer、Fault Injection 与回归防止 <185-sanitizers-fault-injection-and-regression-prevention.rst>`_。
+
 阅读方式
 --------
 
