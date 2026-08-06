@@ -103,34 +103,14 @@ Buddy 合并：
 必须区分
 --------
 
-空闲容量与连续形状
-   总空闲页多不代表目标 order 有可用连续块。
-
-PCP 与 Buddy
-   PCP 加速 CPU 本地低阶页流动；buddy 管理 zone 范围内各阶连续空闲块。
-
-Reclaim 与 Compaction
-   Reclaim 释放可回收页解决容量；compaction 迁移页面解决连续形状。
-
-物理连续与虚拟连续
-   Buddy 返回物理连续页；``vmalloc`` 可以提供虚拟连续而物理分散的内存。
-
-快路径失败与最终失败
-   快路径未命中只表示要进入慢路径；慢路径耗尽允许手段后才形成最终分配失败。
-
-高阶请求与多个单页
-   高阶请求要求连续物理块；多个 order-0 页只保证总容量，不保证物理相邻。
+* 空闲容量与连续形状：总空闲页多不代表目标 order 有可用连续块。
+* PCP 与 Buddy：PCP 加速 CPU 本地低阶页流动；buddy 管理 zone 范围内各阶连续空闲块。
+* Reclaim 与 Compaction：Reclaim 释放可回收页解决容量；compaction 迁移页面解决连续形状。
+* 物理连续与虚拟连续：Buddy 返回物理连续页；``vmalloc`` 可以提供虚拟连续而物理分散的内存。
+* 快路径失败与最终失败：快路径未命中只表示要进入慢路径；慢路径耗尽允许手段后才形成最终分配失败。
+* 高阶请求与多个单页：高阶请求要求连续物理块；多个 order-0 页只保证总容量，不保证物理相邻。
 
 一句话结论
 ----------
 
 Buddy allocator 用 order 保存空闲内存的形状：低阶请求靠 PCP 和拆分快速满足，高阶请求则取决于 zone 水位、连续块、回收与压缩能否共同成功。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 15，Physical Memory, Zones, NUMA, and Page Allocator；
-* AIBook 章节：Chapter 73，Buddy Allocator and Page Allocation Paths；
-* 源文件：``docs/LinuxK/Part_15_Physical_Memory_Zones_NUMA_and_Page_Allocator/Chapter_073_Buddy_Allocator_and_Page_Allocation_Paths.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_15_Physical_Memory_Zones_NUMA_and_Page_Allocator/Chapter_073_Buddy_Allocator_and_Page_Allocation_Paths.md>`_。

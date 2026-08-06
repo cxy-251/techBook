@@ -88,31 +88,13 @@
 必须区分
 --------
 
-线程睡眠与 timer
-   线程睡眠将当前 task 交给调度器；timer 将回调对象交给时间系统。
-
-普通 timer 与 hrtimer
-   普通 timer 强调低成本粗粒度超时；hrtimer 强调精确时间表达和最早到期排序。
-
-逻辑到期与实际回调
-   到期表示时间条件已满足；中断和执行延迟决定回调真正开始时间。
-
-Clocksource 与 clockevents
-   clocksource 读取现在；clockevents 安排未来中断。
-
-取消 timer 与对象可释放
-   还要同步正在执行的回调、已排队 work 和可能重新 arm 的路径。
+* 线程睡眠与 timer：线程睡眠将当前 task 交给调度器；timer 将回调对象交给时间系统。
+* 普通 timer 与 hrtimer：普通 timer 强调低成本粗粒度超时；hrtimer 强调精确时间表达和最早到期排序。
+* 逻辑到期与实际回调：到期表示时间条件已满足；中断和执行延迟决定回调真正开始时间。
+* Clocksource 与 clockevents：clocksource 读取现在；clockevents 安排未来中断。
+* 取消 timer 与对象可释放：还要同步正在执行的回调、已排队 work 和可能重新 arm 的路径。
 
 一句话结论
 ----------
 
 定时器是时间驱动的异步控制流：普通 timer 适合低成本超时，hrtimer 适合精细截止，而安全性取决于回调上下文和宿主对象 teardown 是否完整同步。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 11，Context Switching, Preemption, Timers, and Timekeeping；
-* AIBook 章节：Chapter 53，Timer Infrastructure and High-Resolution Timers；
-* 源文件：``docs/LinuxK/Part_11_Context_Switching_Preemption_Timers_and_Timekeeping/Chapter_053_Timer_Infrastructure_and_High_Resolution_Timers.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_11_Context_Switching_Preemption_Timers_and_Timekeeping/Chapter_053_Timer_Infrastructure_and_High_Resolution_Timers.md>`_。

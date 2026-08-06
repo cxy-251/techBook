@@ -77,34 +77,14 @@ CPU 选择下一个 task：
 必须区分
 --------
 
-调度框架与调度策略
-   核心框架负责统一状态与切换；调度类负责不同策略的队列和选择规则。
-
-可运行与正在运行
-   runnable task 有资格获得 CPU；running task 正在某个 CPU 上执行。
-
-入队与切换
-   入队让 task 进入竞争集合；上下文切换才真正把 CPU 交给它。
-
-重新调度请求与立即切换
-   ``need_resched`` 记录调度需求；切换要等到允许调度的执行边界。
-
-每 CPU 队列与全局调度
-   每次选择基于本 CPU ``rq``；多核迁移和负载均衡在此基础上协调多个队列。
-
-选择 next 与完成切换
-   ``pick_next_task`` 决定候选；``context_switch`` 才改变实际执行者。
+* 调度框架与调度策略：核心框架负责统一状态与切换；调度类负责不同策略的队列和选择规则。
+* 可运行与正在运行：runnable task 有资格获得 CPU；running task 正在某个 CPU 上执行。
+* 入队与切换：入队让 task 进入竞争集合；上下文切换才真正把 CPU 交给它。
+* 重新调度请求与立即切换：``need_resched`` 记录调度需求；切换要等到允许调度的执行边界。
+* 每 CPU 队列与全局调度：每次选择基于本 CPU ``rq``；多核迁移和负载均衡在此基础上协调多个队列。
+* 选择 next 与完成切换：``pick_next_task`` 决定候选；``context_switch`` 才改变实际执行者。
 
 一句话结论
 ----------
 
 Linux 调度器以每 CPU ``rq`` 保存状态，以 ``sched_class`` 实现策略；最终选择只是前面一系列唤醒、入队、记账和状态转换的结果。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 10，Scheduler Architecture, CFS, Real-Time Classes, and CPU Time；
-* AIBook 章节：Chapter 46，Scheduler Classes and the Scheduling Framework；
-* 源文件：``docs/LinuxK/Part_10_Scheduler_Architecture_CFS_Real_Time_Classes_and_CPU_Time/Chapter_046_Scheduler_Classes_and_the_Scheduling_Framework.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_10_Scheduler_Architecture_CFS_Real_Time_Classes_and_CPU_Time/Chapter_046_Scheduler_Classes_and_the_Scheduling_Framework.md>`_。

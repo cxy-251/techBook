@@ -126,34 +126,14 @@
 必须区分
 --------
 
-VMA 建立与物理页建立
-   ``mmap`` 先创建地址范围语义；物理页和 PTE 通常在后续访问时按需出现。
-
-匿名映射与文件映射
-   匿名页以零值和 swap 为后端语义；文件映射以文件偏移和 Page Cache 为后端。
-
-``MAP_PRIVATE`` 与 ``MAP_SHARED``
-   Private 写入形成私有 COW 副本；shared 写入修改共享后端并可能进入 writeback。
-
-文件描述符与映射生命周期
-   fd 是用户句柄；映射成功后 VMA 持有自己的文件对象关系，关闭 fd 通常不取消映射。
-
-VMA 范围与后端有效范围
-   地址可以位于 VMA 内，但文件截断或后端错误仍可能使 fault 返回 ``SIGBUS``。
-
-RSS 与虚拟地址空间
-   虚拟范围表示可访问语义；RSS 只统计当前驻留的部分页面。
+* VMA 建立与物理页建立：``mmap`` 先创建地址范围语义；物理页和 PTE 通常在后续访问时按需出现。
+* 匿名映射与文件映射：匿名页以零值和 swap 为后端语义；文件映射以文件偏移和 Page Cache 为后端。
+* ``MAP_PRIVATE`` 与 ``MAP_SHARED``：Private 写入形成私有 COW 副本；shared 写入修改共享后端并可能进入 writeback。
+* 文件描述符与映射生命周期：fd 是用户句柄；映射成功后 VMA 持有自己的文件对象关系，关闭 fd 通常不取消映射。
+* VMA 范围与后端有效范围：地址可以位于 VMA 内，但文件截断或后端错误仍可能使 fault 返回 ``SIGBUS``。
+* RSS 与虚拟地址空间：虚拟范围表示可访问语义；RSS 只统计当前驻留的部分页面。
 
 一句话结论
 ----------
 
 ``mmap`` 的核心是先为虚拟地址建立匿名或文件、私有或共享的后端语义，实际页面再由 fault 按需连接到零页、匿名页、Page Cache 或 COW 副本。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 18，Memory Mapping, Page Faults, Copy-on-Write, and Huge Pages；
-* AIBook 章节：Chapter 87，Anonymous Memory and File-Backed Mapping；
-* 源文件：``docs/LinuxK/Part_18_Memory_Mapping_Page_Faults_Copy_on_Write_and_Huge_Pages/Chapter_087_Anonymous_Memory_and_File_Backed_Mapping.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_18_Memory_Mapping_Page_Faults_Copy_on_Write_and_Huge_Pages/Chapter_087_Anonymous_Memory_and_File_Backed_Mapping.md>`_。

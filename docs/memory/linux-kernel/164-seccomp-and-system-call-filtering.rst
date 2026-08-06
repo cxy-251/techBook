@@ -167,31 +167,13 @@ Filter Mode 安装：
 必须区分
 --------
 
-Seccomp 与 LSM
-   Seccomp 过滤 Syscall ABI 入口；LSM 在真实内核对象访问点执行策略。
-
-Strict Mode 与 Filter Mode
-   Strict 是固定极小集合；Filter 可按 Syscall、Arch 和整数参数返回多种 Action。
-
-``ERRNO`` 与 ``KILL``
-   前者让应用按错误路径继续；后者把调用视为严重策略违规并终止执行单元。
-
-Filter 安装成功与 Sandbox 正确
-   安装只证明规则合法，业务兼容、覆盖范围和绕过风险仍需测试。
-
-Syscall 名称与稳定 ABI
-   同名 Syscall 在不同 Architecture/ABI 上编号可能不同，规则必须先验证 Arch。
+* Seccomp 与 LSM：Seccomp 过滤 Syscall ABI 入口；LSM 在真实内核对象访问点执行策略。
+* Strict Mode 与 Filter Mode：Strict 是固定极小集合；Filter 可按 Syscall、Arch 和整数参数返回多种 Action。
+* ``ERRNO`` 与 ``KILL``：前者让应用按错误路径继续；后者把调用视为严重策略违规并终止执行单元。
+* Filter 安装成功与 Sandbox 正确：安装只证明规则合法，业务兼容、覆盖范围和绕过风险仍需测试。
+* Syscall 名称与稳定 ABI：同名 Syscall 在不同 Architecture/ABI 上编号可能不同，规则必须先验证 Arch。
 
 一句话结论
 ----------
 
 Seccomp 通过在系统调用入口执行单向过滤，把进程可触达的内核接口缩成最小集合；它负责入口面，不负责对象级授权和资源隔离。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 33，Credentials, Capabilities, Permissions, LSM, Seccomp, and Audit；
-* AIBook 章节：Chapter 164，Seccomp and System Call Filtering；
-* 源文件：``docs/LinuxK/Part_33_Credentials_Capabilities_Permissions_LSM_Seccomp_and_Audit/Chapter_164_Seccomp_and_System_Call_Filtering.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_33_Credentials_Capabilities_Permissions_LSM_Seccomp_and_Audit/Chapter_164_Seccomp_and_System_Call_Filtering.md>`_。

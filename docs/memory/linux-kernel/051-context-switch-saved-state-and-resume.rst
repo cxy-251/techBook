@@ -76,31 +76,13 @@
 必须区分
 --------
 
-调度决策与上下文切换
-   调度决策选择 next；上下文切换把 CPU 状态真正交给 next。
-
-内核恢复状态与用户态 ``pt_regs``
-   ``switch_to`` 维护内核执行连续性；用户态返回现场通常由入口路径保存。
-
-线程切换与地址空间切换
-   共享 mm 的线程仍需切换 task 状态；不同进程还可能需要更换页表上下文。
-
-``mm`` 与 ``active_mm``
-   ``mm`` 表示 task 拥有的用户地址空间；``active_mm`` 可以是内核线程借用的地址空间。
-
-切换指令成本与局部性成本
-   前者是保存恢复动作；后者来自缓存、TLB 和预测状态被扰动。
+* 调度决策与上下文切换：调度决策选择 next；上下文切换把 CPU 状态真正交给 next。
+* 内核恢复状态与用户态 ``pt_regs``：``switch_to`` 维护内核执行连续性；用户态返回现场通常由入口路径保存。
+* 线程切换与地址空间切换：共享 mm 的线程仍需切换 task 状态；不同进程还可能需要更换页表上下文。
+* ``mm`` 与 ``active_mm``：``mm`` 表示 task 拥有的用户地址空间；``active_mm`` 可以是内核线程借用的地址空间。
+* 切换指令成本与局部性成本：前者是保存恢复动作；后者来自缓存、TLB 和预测状态被扰动。
 
 一句话结论
 ----------
 
 上下文切换把 CPU 从 ``prev`` 的栈、寄存器和地址空间交给 ``next``；真正的控制流翻转发生在架构代码装入 ``next`` 栈指针之后。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 11，Context Switching, Preemption, Timers, and Timekeeping；
-* AIBook 章节：Chapter 51，Context Switch Saved State and Resume Path；
-* 源文件：``docs/LinuxK/Part_11_Context_Switching_Preemption_Timers_and_Timekeeping/Chapter_051_Context_Switch_Saved_State_and_Resume_Path.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_11_Context_Switching_Preemption_Timers_and_Timekeeping/Chapter_051_Context_Switch_Saved_State_and_Resume_Path.md>`_。

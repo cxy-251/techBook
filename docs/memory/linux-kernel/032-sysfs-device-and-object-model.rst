@@ -81,33 +81,14 @@
 必须区分
 --------
 
-``/sys/devices`` 与 ``/sys/class``
-   ``devices`` 表达设备主树；``class`` 提供按功能分类的视图，通常通过链接指向主对象。
-
-设备对象与目录路径
-   内核对象是运行时结构；sysfs 目录是它在用户空间的投影。
-
-属性读取与属性写入
-   读取通常观察状态；写入可能触发真实设备、驱动和电源状态变化。
-
-目录存在与功能正常
-   目录存在证明对象被发布到该视图；功能是否正常还要看绑定、probe、状态和 I/O 结果。
-
-权限允许与操作安全
-   文件权限允许写入不代表当前状态适合修改，store 回调和对象生命周期仍决定安全边界。
-
-sysfs 与 debugfs
-   sysfs 表达对象模型和较稳定属性；debugfs 表达开发调试状态，格式和语义通常不稳定。
+* ``/sys/devices`` 与 ``/sys/class``：``devices`` 表达设备主树；``class`` 提供按功能分类的视图，通常通过链接指向主对象。
+* 设备对象与目录路径：内核对象是运行时结构；sysfs 目录是它在用户空间的投影。
+* 属性读取与属性写入：读取通常观察状态；写入可能触发真实设备、驱动和电源状态变化。
+* 目录存在与功能正常：目录存在证明对象被发布到该视图；功能是否正常还要看绑定、probe、状态和 I/O 结果。
+* 权限允许与操作安全：文件权限允许写入不代表当前状态适合修改，store 回调和对象生命周期仍决定安全边界。
+* sysfs 与 debugfs：sysfs 表达对象模型和较稳定属性；debugfs 表达开发调试状态，格式和语义通常不稳定。
 
 一句话结论
 ----------
 
 ``sysfs`` 是内核设备与对象模型的用户态投影：目录表达对象，链接表达关系，属性表达状态，而可写属性会直接进入对象控制路径。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 32，sysfs as a Device and Object Model Interface；
-* 源文件：``docs/LinuxK/Part_07_Observability_Interfaces_procfs_sysfs_debugfs_tracefs_and_dmesg/Chapter_032_sysfs_as_a_Device_and_Object_Model_Interface.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_07_Observability_Interfaces_procfs_sysfs_debugfs_tracefs_and_dmesg/Chapter_032_sysfs_as_a_Device_and_Object_Model_Interface.md>`_。

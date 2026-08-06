@@ -143,31 +143,13 @@ Coherent Ring 发布：
 必须区分
 --------
 
-Coherency 与 Ordering
-   Coherency保证最新内容能被看见；ordering保证多个写入按协议先后出现。
-
-DMA Sync 与 IRQ Synchronize
-   DMA sync维护buffer可见性；IRQ synchronize只等待中断处理路径。
-
-IOMMU Mapping 与 Cache Visibility
-   IOMMU决定设备访问哪一页；cache维护决定双方看到哪一版内容。
-
-Completion 通知与设备停止访问
-   Completion通常表示一个请求结束；回收前仍需遵守设备队列和所有权协议。
-
-Coherent Architecture 与无需 Barrier
-   硬件cache一致不代表描述符字段和doorbell可以任意重排。
+* Coherency 与 Ordering：Coherency保证最新内容能被看见；ordering保证多个写入按协议先后出现。
+* DMA Sync 与 IRQ Synchronize：DMA sync维护buffer可见性；IRQ synchronize只等待中断处理路径。
+* IOMMU Mapping 与 Cache Visibility：IOMMU决定设备访问哪一页；cache维护决定双方看到哪一版内容。
+* Completion 通知与设备停止访问：Completion通常表示一个请求结束；回收前仍需遵守设备队列和所有权协议。
+* Coherent Architecture 与无需 Barrier：硬件cache一致不代表描述符字段和doorbell可以任意重排。
 
 一句话结论
 ----------
 
 真实硬件中的 DMA 正确性取决于明确的 CPU/设备所有权交接：direction、sync、cache-line 隔离、描述符 barrier 和 buffer 生命周期缺一不可。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 27，IRQ, DMA, MMIO, IOMMU, Cache Coherency, and Hardware Resources；
-* AIBook 章节：Chapter 135，Cache Coherency Problems in Real Hardware Interaction；
-* 源文件：``docs/LinuxK/Part_27_IRQ_DMA_MMIO_IOMMU_Cache_Coherency_and_Hardware_Resources/Chapter_135_Cache_Coherency_Problems_in_Real_Hardware_Interaction.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_27_IRQ_DMA_MMIO_IOMMU_Cache_Coherency_and_Hardware_Resources/Chapter_135_Cache_Coherency_Problems_in_Real_Hardware_Interaction.md>`_。

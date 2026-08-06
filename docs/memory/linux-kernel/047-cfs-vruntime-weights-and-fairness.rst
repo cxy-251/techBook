@@ -89,34 +89,14 @@
 必须区分
 --------
 
-实际运行时间与 ``vruntime``
-   实际运行时间是 task 真正占用 CPU 的时间；``vruntime`` 是按权重归一化后的公平记账。
-
-nice 与实时优先级
-   nice 只调整公平类份额；实时优先级属于更高调度类的固定优先级规则。
-
-长期公平与短期延迟
-   权重比例描述长期趋势；一次唤醒能否迅速上 CPU 还受队列、抢占和拓扑影响。
-
-经典 CFS 选择与现代 EEVDF
-   经典模型强调较小 ``vruntime``；现代主线在保留虚拟时间记账的同时使用 eligibility 和虚拟 deadline。
-
-单 task 权重与 cgroup 组权重
-   task 权重控制组内实体关系；组权重控制不同 cgroup 之间的层级份额。
-
-睡眠时间与 CPU 消耗
-   睡眠任务不占 CPU；唤醒放置规则决定它重新加入竞争时的位置。
+* 实际运行时间与 ``vruntime``：实际运行时间是 task 真正占用 CPU 的时间；``vruntime`` 是按权重归一化后的公平记账。
+* nice 与实时优先级：nice 只调整公平类份额；实时优先级属于更高调度类的固定优先级规则。
+* 长期公平与短期延迟：权重比例描述长期趋势；一次唤醒能否迅速上 CPU 还受队列、抢占和拓扑影响。
+* 经典 CFS 选择与现代 EEVDF：经典模型强调较小 ``vruntime``；现代主线在保留虚拟时间记账的同时使用 eligibility 和虚拟 deadline。
+* 单 task 权重与 cgroup 组权重：task 权重控制组内实体关系；组权重控制不同 cgroup 之间的层级份额。
+* 睡眠时间与 CPU 消耗：睡眠任务不占 CPU；唤醒放置规则决定它重新加入竞争时的位置。
 
 一句话结论
 ----------
 
 公平调度通过权重和虚拟时间连续记录“谁已经获得多少 CPU”；现代实现再用 eligibility 与虚拟 deadline 决定当前应运行的实体。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 10，Scheduler Architecture, CFS, Real-Time Classes, and CPU Time；
-* AIBook 章节：Chapter 47，CFS, vruntime, Weights, and Fairness；
-* 源文件：``docs/LinuxK/Part_10_Scheduler_Architecture_CFS_Real_Time_Classes_and_CPU_Time/Chapter_047_CFS_vruntime_Weights_and_Fairness.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_10_Scheduler_Architecture_CFS_Real_Time_Classes_and_CPU_Time/Chapter_047_CFS_vruntime_Weights_and_Fairness.md>`_。

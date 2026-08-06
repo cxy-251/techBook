@@ -95,37 +95,15 @@
 必须区分
 --------
 
-进程上下文与用户进程上下文
-   kworker 和内核线程也属于进程上下文并可睡眠，但不代表普通用户地址空间。
-
-硬中断与 softirq
-   两者都不能睡眠；硬中断直接响应硬件，softirq 负责延后的高频 atomic 工作。
-
-softirq 在线程名下运行与可睡眠
-   即使由 ``ksoftirqd`` task 执行，softirq 回调本身仍按 softirq 规则运行。
-
-workqueue 与 softirq
-   线程型 workqueue 通常可睡眠；softirq 不能使用阻塞 API。
-
-``current`` 存在与用户指针有效
-   每种上下文都有 current；只有代表相应用户 task 的路径才具有用户地址空间语义。
-
-``mm`` 与 ``active_mm``
-   ``mm`` 表示 task 拥有的用户地址空间；``active_mm`` 可能只是内核线程运行时借用的地址空间。
-
-排队上下文与执行上下文
-   在 IRQ 中排入 workqueue，不表示 work function 也运行在 IRQ 中。
+* 进程上下文与用户进程上下文：kworker 和内核线程也属于进程上下文并可睡眠，但不代表普通用户地址空间。
+* 硬中断与 softirq：两者都不能睡眠；硬中断直接响应硬件，softirq 负责延后的高频 atomic 工作。
+* softirq 在线程名下运行与可睡眠：即使由 ``ksoftirqd`` task 执行，softirq 回调本身仍按 softirq 规则运行。
+* workqueue 与 softirq：线程型 workqueue 通常可睡眠；softirq 不能使用阻塞 API。
+* ``current`` 存在与用户指针有效：每种上下文都有 current；只有代表相应用户 task 的路径才具有用户地址空间语义。
+* ``mm`` 与 ``active_mm``：``mm`` 表示 task 拥有的用户地址空间；``active_mm`` 可能只是内核线程运行时借用的地址空间。
+* 排队上下文与执行上下文：在 IRQ 中排入 workqueue，不表示 work function 也运行在 IRQ 中。
 
 一句话结论
 ----------
 
 内核代码是否合法首先由执行上下文决定：硬中断和 softirq 必须非阻塞，线程型 workqueue 与内核线程通常可睡眠，而用户指针只能在代表相应用户 task 的受控路径中访问。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 9，Process, Thread, Task Struct, and Execution Context；
-* AIBook 章节：Chapter 45，Execution Contexts Process, Interrupt, and Kernel Thread；
-* 源文件：``docs/LinuxK/Part_09_Process_Thread_Task_Struct_and_Execution_Context/Chapter_045_Execution_Contexts_Process_Interrupt_and_Kernel_Thread.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_09_Process_Thread_Task_Struct_and_Execution_Context/Chapter_045_Execution_Contexts_Process_Interrupt_and_Kernel_Thread.md>`_。

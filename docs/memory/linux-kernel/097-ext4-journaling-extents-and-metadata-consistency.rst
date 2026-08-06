@@ -129,34 +129,14 @@ JBD2 元数据事务：
 必须区分
 --------
 
-Extent 与 Block group
-   Extent 描述文件映射；block group 是空间、位图和 inode 管理的局部域。
-
-Delayed allocation 与空间保证
-   延迟分配改善布局，但 write 成功时不保证未来一定能取得物理块。
-
-Journal 一致性与数据持久化
-   JBD2 主要保护元数据事务；数据内容保证还取决于 data mode、同步调用和设备顺序。
-
-Ordered mode 与同步写
-   Ordered 约束数据和元数据提交顺序，不表示每次 write 返回时数据已落盘。
-
-Rename 原子性与崩溃持久性
-   Rename 提供运行时命名切换原子性；掉电后的目录项和文件数据仍需同步协议保证。
-
-文件系统恢复与应用事务恢复
-   Journal replay 让 ext4 结构可解释；应用跨文件业务状态仍需自己的事务或恢复机制。
+* Extent 与 Block group：Extent 描述文件映射；block group 是空间、位图和 inode 管理的局部域。
+* Delayed allocation 与空间保证：延迟分配改善布局，但 write 成功时不保证未来一定能取得物理块。
+* Journal 一致性与数据持久化：JBD2 主要保护元数据事务；数据内容保证还取决于 data mode、同步调用和设备顺序。
+* Ordered mode 与同步写：Ordered 约束数据和元数据提交顺序，不表示每次 write 返回时数据已落盘。
+* Rename 原子性与崩溃持久性：Rename 提供运行时命名切换原子性；掉电后的目录项和文件数据仍需同步协议保证。
+* 文件系统恢复与应用事务恢复：Journal replay 让 ext4 结构可解释；应用跨文件业务状态仍需自己的事务或恢复机制。
 
 一句话结论
 ----------
 
 Ext4 用 extent 与延迟分配改善空间映射，用 JBD2 保护元数据事务，但应用数据持久化仍必须结合 data mode、fsync 顺序和真实设备写入保证。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 20，Filesystem Implementations ext4, XFS, Btrfs, and Pseudo Filesystems；
-* AIBook 章节：Chapter 97，ext4 Journaling, Extents, and Metadata Consistency；
-* 源文件：``docs/LinuxK/Part_20_Filesystem_Implementations_ext4_XFS_Btrfs_and_Pseudo_Filesystems/Chapter_097_ext4_Journaling_Extents_and_Metadata_Consistency.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_20_Filesystem_Implementations_ext4_XFS_Btrfs_and_Pseudo_Filesystems/Chapter_097_ext4_Journaling_Extents_and_Metadata_Consistency.md>`_。

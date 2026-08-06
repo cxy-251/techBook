@@ -152,41 +152,16 @@ Tracepoint Event：
 必须区分
 --------
 
-Function Tracer 与 Function Graph
-   前者记录函数入口；后者记录入口、返回、嵌套和观测 Duration。
-
-Function 与 Tracepoint
-   Function 以代码入口为对象；Tracepoint 以子系统定义的结构化状态事件为对象。
-
-``trace`` 与 ``trace_pipe``
-   前者读取当前缓冲快照；后者实时消费新记录。
-
-Filter 与事后 Grep
-   Filter 在写入前缩小数据与开销；Grep 只能处理已经产生和保留下来的文本。
-
-Ring Buffer 第一行与真实事件起点
-   Buffer 可能覆盖旧数据，现存第一行不一定是故障开始位置。
-
-Trace Duration 与纯执行时间
-   Duration 可包含调度、中断、抢占与追踪开销，不能直接等同于函数 CPU 成本。
-
-Tracer 关闭与 Event 关闭
-   ``current_tracer=nop`` 不自动关闭已启用 Tracepoint Event。
-
-路径存在与路径发生
-   源码证明路径存在；运行 Trace 才证明当前窗口记录到它发生。
+* Function Tracer 与 Function Graph：前者记录函数入口；后者记录入口、返回、嵌套和观测 Duration。
+* Function 与 Tracepoint：Function 以代码入口为对象；Tracepoint 以子系统定义的结构化状态事件为对象。
+* ``trace`` 与 ``trace_pipe``：前者读取当前缓冲快照；后者实时消费新记录。
+* Filter 与事后 Grep：Filter 在写入前缩小数据与开销；Grep 只能处理已经产生和保留下来的文本。
+* Ring Buffer 第一行与真实事件起点：Buffer 可能覆盖旧数据，现存第一行不一定是故障开始位置。
+* Trace Duration 与纯执行时间：Duration 可包含调度、中断、抢占与追踪开销，不能直接等同于函数 CPU 成本。
+* Tracer 关闭与 Event 关闭：``current_tracer=nop`` 不自动关闭已启用 Tracepoint Event。
+* 路径存在与路径发生：源码证明路径存在；运行 Trace 才证明当前窗口记录到它发生。
 
 一句话结论
 ----------
 
 ftrace 的核心价值是把“内核大概走了这条路”变成带对象、CPU 和时间线的运行证据，同时用最小过滤范围控制观测扰动。
-
-来源
-----
-
-* 书籍：Linux Kernel AIBook；
-* Part：Part 35 — Kernel Debugging, printk, Dynamic Debug, ftrace, perf, kdump, and crash；
-* 章节：Chapter 172 — ftrace, Function Graph Tracing, and Tracepoints；
-* 源文件：``docs/LinuxK/Part_35_Kernel_Debugging_printk_Dynamic_Debug_ftrace_perf_kdump_and_crash/Chapter_172_ftrace_Function_Graph_Tracing_and_Tracepoints.md``；
-* 固定提交：``18386764582829f2b807b7b0947785eb77b50446``；
-* 固定来源：``https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_35_Kernel_Debugging_printk_Dynamic_Debug_ftrace_perf_kdump_and_crash/Chapter_172_ftrace_Function_Graph_Tracing_and_Tracepoints.md``。

@@ -106,31 +106,13 @@ RCU 读取：
 必须区分
 --------
 
-可见性删除与内存释放
-   摘除指针只阻止新读者；旧对象必须在 grace period 和其它持有者结束后释放。
-
-RCU 与写侧锁
-   RCU保护读者与回收；写侧锁序列化多个更新者和复合结构修改。
-
-RCU 与引用计数
-   RCU保证临界区内短期访问；引用计数保证对象在临界区之外长期存活。
-
-Grace period 与所有使用者结束
-   Grace period只等待对应 RCU 读者，不自动等待 timer、work、IRQ、DMA 和普通引用。
-
-可抢占 RCU 与可睡眠读侧
-   读者可被调度抢占不表示可以任意阻塞；需要睡眠应选择明确支持的 RCU 风味。
+* 可见性删除与内存释放：摘除指针只阻止新读者；旧对象必须在 grace period 和其它持有者结束后释放。
+* RCU 与写侧锁：RCU保护读者与回收；写侧锁序列化多个更新者和复合结构修改。
+* RCU 与引用计数：RCU保证临界区内短期访问；引用计数保证对象在临界区之外长期存活。
+* Grace period 与所有使用者结束：Grace period只等待对应 RCU 读者，不自动等待 timer、work、IRQ、DMA 和普通引用。
+* 可抢占 RCU 与可睡眠读侧：读者可被调度抢占不表示可以任意阻塞；需要睡眠应选择明确支持的 RCU 风味。
 
 一句话结论
 ----------
 
 RCU 先改变对象的可见性，再等待旧读者离开，最后回收旧对象；它把高频读取成本转移给低频更新和延迟释放路径。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 13，Concurrency, Locking, Atomics, Memory Barriers, and RCU；
-* AIBook 章节：Chapter 65，RCU Read-Copy-Update as a Kernel-Scale Synchronization Model；
-* 源文件：``docs/LinuxK/Part_13_Concurrency_Locking_Atomics_Memory_Barriers_and_RCU/Chapter_065_RCU_Read_Copy_Update_as_a_Kernel_Scale_Synchronization_Model.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_13_Concurrency_Locking_Atomics_Memory_Barriers_and_RCU/Chapter_065_RCU_Read_Copy_Update_as_a_Kernel_Scale_Synchronization_Model.md>`_。

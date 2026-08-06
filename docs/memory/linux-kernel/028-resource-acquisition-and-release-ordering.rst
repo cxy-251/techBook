@@ -85,33 +85,14 @@
 必须区分
 --------
 
-申请顺序与释放顺序
-   申请从基础资源走向外部可见入口；释放从外部入口走回基础资源。
-
-源码倒序与依赖逆序
-   资源通常按依赖逆序释放；存在独立资源时，不必机械复制源码的严格倒序。
-
-初始化失败与正常 remove
-   初始化失败只清理已完成阶段；正常 remove 拆除已经完整运行的对象。
-
-关闭入口与释放对象
-   关闭入口阻止新使用者；释放对象还要等待旧调用链和异步路径退出。
-
-``devm_*`` 与自动正确
-   devres 自动执行已登记的释放动作；它不能自动设计正确的发布、停机和并发同步顺序。
-
-释放函数与普通 free
-   某些释放函数同时执行同步、注销或等待；阅读时必须确认它关闭了什么入口、等待了谁。
+* 申请顺序与释放顺序：申请从基础资源走向外部可见入口；释放从外部入口走回基础资源。
+* 源码倒序与依赖逆序：资源通常按依赖逆序释放；存在独立资源时，不必机械复制源码的严格倒序。
+* 初始化失败与正常 remove：初始化失败只清理已完成阶段；正常 remove 拆除已经完整运行的对象。
+* 关闭入口与释放对象：关闭入口阻止新使用者；释放对象还要等待旧调用链和异步路径退出。
+* ``devm_*`` 与自动正确：devres 自动执行已登记的释放动作；它不能自动设计正确的发布、停机和并发同步顺序。
+* 释放函数与普通 free：某些释放函数同时执行同步、注销或等待；阅读时必须确认它关闭了什么入口、等待了谁。
 
 一句话结论
 ----------
 
 资源申请建立依赖，资源释放拆除依赖；安全退出必须先关闭外部和异步入口，再按依赖逆序释放底层对象。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 28，Resource Acquisition and Release Ordering；
-* 源文件：``docs/LinuxK/Part_06_Kernel_Objects_Lifetimes_References_and_Error_Paths/Chapter_028_Resource_Acquisition_and_Release_Ordering.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_06_Kernel_Objects_Lifetimes_References_and_Error_Paths/Chapter_028_Resource_Acquisition_and_Release_Ordering.md>`_。

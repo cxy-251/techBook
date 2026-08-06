@@ -90,33 +90,14 @@ Fault injection 测试：
 必须区分
 --------
 
-业务失败与回滚失败
-   业务调用返回错误是原始故障；清理遗漏、重复释放或退出后访问是失败路径自身的缺陷。
-
-错误标签与普通跳转
-   ``err_*`` 标签表达构造阶段和恢复边界，不只是为了减少代码缩进。
-
-返回失败与状态恢复
-   函数返回负错误码只说明失败被报告；还必须证明对象状态和资源已经恢复安全。
-
-正常测试与失败注入
-   正常测试覆盖成功路径；失败注入主动覆盖低概率错误和半初始化路径。
-
-KASAN 报告与根因
-   KASAN 证明发生了非法内存访问；根因仍可能是引用、入口、异步同步或错误回滚缺失。
-
-泄漏与延迟释放
-   泄漏表示资源永远失去释放路径；延迟释放可能是仍有合法引用或等待 grace period，需要结合生命周期判断。
+* 业务失败与回滚失败：业务调用返回错误是原始故障；清理遗漏、重复释放或退出后访问是失败路径自身的缺陷。
+* 错误标签与普通跳转：``err_*`` 标签表达构造阶段和恢复边界，不只是为了减少代码缩进。
+* 返回失败与状态恢复：函数返回负错误码只说明失败被报告；还必须证明对象状态和资源已经恢复安全。
+* 正常测试与失败注入：正常测试覆盖成功路径；失败注入主动覆盖低概率错误和半初始化路径。
+* KASAN 报告与根因：KASAN 证明发生了非法内存访问；根因仍可能是引用、入口、异步同步或错误回滚缺失。
+* 泄漏与延迟释放：泄漏表示资源永远失去释放路径；延迟释放可能是仍有合法引用或等待 grace period，需要结合生命周期判断。
 
 一句话结论
 ----------
 
 真正可靠的内核设计不仅能成功建立对象，还能在任意中间阶段失败时关闭入口、归还所有权、逆序回滚并恢复稳定状态。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 30，Failure Paths as the Real Test of Kernel Design；
-* 源文件：``docs/LinuxK/Part_06_Kernel_Objects_Lifetimes_References_and_Error_Paths/Chapter_030_Failure_Paths_as_the_Real_Test_of_Kernel_Design.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_06_Kernel_Objects_Lifetimes_References_and_Error_Paths/Chapter_030_Failure_Paths_as_the_Real_Test_of_Kernel_Design.md>`_。

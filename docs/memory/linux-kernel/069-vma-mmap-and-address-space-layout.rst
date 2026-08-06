@@ -104,34 +104,14 @@
 必须区分
 --------
 
-VMA 与物理页
-   VMA 定义范围含义；物理页是某个虚拟页当前实际承载的数据。
-
-``mmap`` 成功与页面驻留
-   成功表示虚拟范围已经建立，页面仍可能在首次访问时才分配或读入。
-
-``MAP_PRIVATE`` 与 ``MAP_SHARED``
-   Private 写入通常形成 COW 私有页；shared 修改可以被其它映射者观察并可能回写后端。
-
-文件映射与匿名映射
-   文件映射从文件偏移和 page cache 取得内容；匿名映射由零页、匿名页和 swap 承载。
-
-用户调用次数与 VMA 数量
-   VMA 会合并和拆分，不能用 mmap 调用次数推断当前 VMA 数量。
-
-VMA 权限与 PTE 权限
-   VMA 保存范围策略；页表项保存当前每页实际硬件权限，两者必须一致更新。
+* VMA 与物理页：VMA 定义范围含义；物理页是某个虚拟页当前实际承载的数据。
+* ``mmap`` 成功与页面驻留：成功表示虚拟范围已经建立，页面仍可能在首次访问时才分配或读入。
+* ``MAP_PRIVATE`` 与 ``MAP_SHARED``：Private 写入通常形成 COW 私有页；shared 修改可以被其它映射者观察并可能回写后端。
+* 文件映射与匿名映射：文件映射从文件偏移和 page cache 取得内容；匿名映射由零页、匿名页和 swap 承载。
+* 用户调用次数与 VMA 数量：VMA 会合并和拆分，不能用 mmap 调用次数推断当前 VMA 数量。
+* VMA 权限与 PTE 权限：VMA 保存范围策略；页表项保存当前每页实际硬件权限，两者必须一致更新。
 
 一句话结论
 ----------
 
 VMA 在页面出现之前就定义一段地址范围的权限、来源和 fault 策略；``mmap`` 创建这种范围语义，真正页面通常在后续访问中按需建立。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 14，Virtual Memory, Address Spaces, and Page Tables；
-* AIBook 章节：Chapter 69，VMA, mmap, and Address Space Layout；
-* 源文件：``docs/LinuxK/Part_14_Virtual_Memory_Address_Spaces_and_Page_Tables/Chapter_069_VMA_mmap_and_Address_Space_Layout.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_14_Virtual_Memory_Address_Spaces_and_Page_Tables/Chapter_069_VMA_mmap_and_Address_Space_Layout.md>`_。

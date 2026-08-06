@@ -151,31 +151,13 @@
 必须区分
 --------
 
-参数出现在 ``/proc/cmdline`` 与参数生效
-   前者只证明字符串被传入；后者需要解析日志、子系统状态和实际行为证明。
-
-``early_param`` 与普通参数
-   Early 参数在基础设施尚未完整初始化时处理；普通参数在后续通用解析阶段处理。
-
-内建驱动参数与可加载模块参数
-   内建驱动主要从 Kernel Command Line 取值；可加载模块可由 ``modprobe``/``insmod`` 传值。
-
-Kernel 参数与 Init 参数
-   内核消费自己的控制项；未消费部分及 ``--`` 后内容可进入第一个用户态进程。
-
-临时启动规避与根因修复
-   ``nomodeset``、禁用设备等可帮助定位，长期方案应修复驱动、固件、配置或硬件问题。
+* 参数出现在 ``/proc/cmdline`` 与参数生效：前者只证明字符串被传入；后者需要解析日志、子系统状态和实际行为证明。
+* ``early_param`` 与普通参数：Early 参数在基础设施尚未完整初始化时处理；普通参数在后续通用解析阶段处理。
+* 内建驱动参数与可加载模块参数：内建驱动主要从 Kernel Command Line 取值；可加载模块可由 ``modprobe``/``insmod`` 传值。
+* Kernel 参数与 Init 参数：内核消费自己的控制项；未消费部分及 ``--`` 后内容可进入第一个用户态进程。
+* 临时启动规避与根因修复：``nomodeset``、禁用设备等可帮助定位，长期方案应修复驱动、固件、配置或硬件问题。
 
 一句话结论
 ----------
 
 Kernel Command Line 是用户态出现前的分阶段控制面：必须先确认谁在何时消费参数，再用最终内核状态证明它真正生效。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 34，Kernel Parameters, Sysctl, Control Interfaces, and Runtime Tuning；
-* AIBook 章节：Chapter 166，Kernel Command Line Parameters and Early Runtime Control；
-* 源文件：``docs/LinuxK/Part_34_Kernel_Parameters_Sysctl_Control_Interfaces_and_Runtime_Tuning/Chapter_166_Kernel_Command_Line_Parameters_and_Early_Runtime_Control.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_34_Kernel_Parameters_Sysctl_Control_Interfaces_and_Runtime_Tuning/Chapter_166_Kernel_Command_Line_Parameters_and_Early_Runtime_Control.md>`_。

@@ -167,31 +167,13 @@ Zero-copy 确认：
 必须区分
 --------
 
-UMEM Address 与 DMA Address
-   Descriptor 使用 UMEM Offset 语义；设备实际 DMA Address 由内核、驱动和 IOMMU 建立。
-
-Copy Mode 与 Zero-copy Mode
-   两者使用相同 AF_XDP 对象模型，Payload 是否在路径中复制不同。
-
-TX Ring 提交与 TX Completion
-   提交转移 Frame 所有权；只有 Completion 后用户才能复用。
-
-RX Ring 空与连接结束
-   空 Ring 只表示当前没有 Descriptor，不表示设备或 XSK 生命周期结束。
-
-Payload Zero-copy 与零开销
-   Ring 同步、Cache、NUMA、轮询、Descriptor 和应用处理仍然存在。
+* UMEM Address 与 DMA Address：Descriptor 使用 UMEM Offset 语义；设备实际 DMA Address 由内核、驱动和 IOMMU 建立。
+* Copy Mode 与 Zero-copy Mode：两者使用相同 AF_XDP 对象模型，Payload 是否在路径中复制不同。
+* TX Ring 提交与 TX Completion：提交转移 Frame 所有权；只有 Completion 后用户才能复用。
+* RX Ring 空与连接结束：空 Ring 只表示当前没有 Descriptor，不表示设备或 XSK 生命周期结束。
+* Payload Zero-copy 与零开销：Ring 同步、Cache、NUMA、轮询、Descriptor 和应用处理仍然存在。
 
 一句话结论
 ----------
 
 AF_XDP 的 Zero-copy 是一套 UMEM Frame 所有权协议：FILL/RX 管理接收，TX/COMPLETION 管理发送，任何提前复用、Ring 耗尽或 Queue 不匹配都会直接转化为数据损坏或丢包。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 31，High Performance Networking XDP, eBPF, Zero Copy, and AF_XDP；
-* AIBook 章节：Chapter 154，Zero-Copy Paths and AF_XDP；
-* 源文件：``docs/LinuxK/Part_31_High_Performance_Networking_XDP_eBPF_Zero_Copy_and_AF_XDP/Chapter_154_Zero_Copy_Paths_and_AF_XDP.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_31_High_Performance_Networking_XDP_eBPF_Zero_Copy_and_AF_XDP/Chapter_154_Zero_Copy_Paths_and_AF_XDP.md>`_。

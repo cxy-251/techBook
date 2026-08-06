@@ -130,34 +130,14 @@ Direct I/O：
 必须区分
 --------
 
-文件 offset 与块设备 sector
-   前者表示文件内部字节位置；后者表示某块设备抽象中的逻辑扇区范围。
-
-文件系统逻辑块与设备 logical block
-   文件系统用自己的块/extent 管理文件；设备报告可寻址和对齐的逻辑块能力。
-
-Buffered write 返回与块 I/O 提交
-   Buffered write 常先修改内存；块提交可以在稍后的 writeback 或同步点发生。
-
-数据 I/O 与元数据 I/O
-   同一文件操作可能同时产生文件数据、inode、extent、journal 和 flush 请求。
-
-上层 ``bio`` 与下层设备命令
-   Bio 是块层数据移动描述；它还可能被映射、拆分、合并后才形成驱动命令。
-
-块请求完成与业务持久化
-   Request completion满足当前块操作语义；应用事务和文件系统恢复保证仍需上层协议证明。
+* 文件 offset 与块设备 sector：前者表示文件内部字节位置；后者表示某块设备抽象中的逻辑扇区范围。
+* 文件系统逻辑块与设备 logical block：文件系统用自己的块/extent 管理文件；设备报告可寻址和对齐的逻辑块能力。
+* Buffered write 返回与块 I/O 提交：Buffered write 常先修改内存；块提交可以在稍后的 writeback 或同步点发生。
+* 数据 I/O 与元数据 I/O：同一文件操作可能同时产生文件数据、inode、extent、journal 和 flush 请求。
+* 上层 ``bio`` 与下层设备命令：Bio 是块层数据移动描述；它还可能被映射、拆分、合并后才形成驱动命令。
+* 块请求完成与业务持久化：Request completion满足当前块操作语义；应用事务和文件系统恢复保证仍需上层协议证明。
 
 一句话结论
 ----------
 
 文件系统先把文件范围翻译成块设备 sector 和数据页片段，通用块层再以 ``bio``、队列和 request 把这些结果组织成驱动能够执行的设备工作。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 22，Block Layer, Bio, Request Queues, Schedulers, and Multi-Queue；
-* AIBook 章节：Chapter 106，From Filesystem Requests to Block IO；
-* 源文件：``docs/LinuxK/Part_22_Block_Layer_Bio_Request_Queues_Schedulers_and_Multi_Queue/Chapter_106_From_Filesystem_Requests_to_Block_IO.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_22_Block_Layer_Bio_Request_Queues_Schedulers_and_Multi_Queue/Chapter_106_From_Filesystem_Requests_to_Block_IO.md>`_。

@@ -127,34 +127,14 @@ Fork 后立即 exec：
 必须区分
 --------
 
-地址空间独立与物理页共享
-   父子拥有独立 mm/VMA/页表，只有部分叶子 PTE 暂时指向相同物理页。
-
-VMA 可写与 PTE 可写
-   COW 中 VMA 保留写语义，PTE 临时写保护以捕获首次写入。
-
-Fork 成本与 COW 成本
-   Fork 复制结构和页表关系；真实数据复制在后续写 fault 中发生。
-
-``MAP_PRIVATE`` 与 ``MAP_SHARED``
-   Private 映射通过 COW 保持隔离；shared 映射的修改按共享后端语义传播。
-
-RSS 与物理独占内存
-   RSS 会包含共享映射；PSS 和 Private_Dirty 更适合区分共享和私有化程度。
-
-COW minor fault 与低成本
-   COW 通常计为 minor，但仍可能分配、复制大页、触发回收并形成明显延迟。
+* 地址空间独立与物理页共享：父子拥有独立 mm/VMA/页表，只有部分叶子 PTE 暂时指向相同物理页。
+* VMA 可写与 PTE 可写：COW 中 VMA 保留写语义，PTE 临时写保护以捕获首次写入。
+* Fork 成本与 COW 成本：Fork 复制结构和页表关系；真实数据复制在后续写 fault 中发生。
+* ``MAP_PRIVATE`` 与 ``MAP_SHARED``：Private 映射通过 COW 保持隔离；shared 映射的修改按共享后端语义传播。
+* RSS 与物理独占内存：RSS 会包含共享映射；PSS 和 Private_Dirty 更适合区分共享和私有化程度。
+* COW minor fault 与低成本：COW 通常计为 minor，但仍可能分配、复制大页、触发回收并形成明显延迟。
 
 一句话结论
 ----------
 
 Fork 的低成本来自父子页表暂时共享物理页并用写保护捕获分歧；真正的内存成本在后续写 fault 中按页面复制、独占复用或大页拆分逐步支付。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 18，Memory Mapping, Page Faults, Copy-on-Write, and Huge Pages；
-* AIBook 章节：Chapter 88，Copy-on-Write After fork；
-* 源文件：``docs/LinuxK/Part_18_Memory_Mapping_Page_Faults_Copy_on_Write_and_Huge_Pages/Chapter_088_Copy_on_Write_After_fork.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_18_Memory_Mapping_Page_Faults_Copy_on_Write_and_Huge_Pages/Chapter_088_Copy_on_Write_After_fork.md>`_。

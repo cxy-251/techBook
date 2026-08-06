@@ -117,34 +117,14 @@ SLUB 分配快路径：
 必须区分
 --------
 
-Slab 抽象与 SLUB 实现
-   Slab 表示同型对象缓存模型；SLUB 是实现该模型的具体分配器后端。
-
-通用 cache 与专用 cache
-   ``kmalloc-*`` 按大小分类；专用 cache 还表达对象类型、构造、回收和调试属性。
-
-构造函数与每次初始化
-   构造函数不一定每次分配执行；每个新对象实例仍需完整初始化可变状态。
-
-槽位存活与对象身份
-   槽位内存仍存在不表示旧对象仍存在；释放后同一地址可以承载新对象。
-
-Per-CPU 快路径与业务同步
-   SLUB 本地 freelist 降低分配锁竞争；对象字段并发仍由子系统同步协议保护。
-
-RCU 延迟释放与类型安全
-   ``SLAB_TYPESAFE_BY_RCU`` 保护 slab 存储回收时机，不自动保护槽位内容、对象身份或引用取得。
+* Slab 抽象与 SLUB 实现：Slab 表示同型对象缓存模型；SLUB 是实现该模型的具体分配器后端。
+* 通用 cache 与专用 cache：``kmalloc-*`` 按大小分类；专用 cache 还表达对象类型、构造、回收和调试属性。
+* 构造函数与每次初始化：构造函数不一定每次分配执行；每个新对象实例仍需完整初始化可变状态。
+* 槽位存活与对象身份：槽位内存仍存在不表示旧对象仍存在；释放后同一地址可以承载新对象。
+* Per-CPU 快路径与业务同步：SLUB 本地 freelist 降低分配锁竞争；对象字段并发仍由子系统同步协议保护。
+* RCU 延迟释放与类型安全：``SLAB_TYPESAFE_BY_RCU`` 保护 slab 存储回收时机，不自动保护槽位内容、对象身份或引用取得。
 
 一句话结论
 ----------
 
 Slab/SLUB 通过同型对象槽位和 per-CPU 复用降低小对象成本，但对象身份、初始化、并发和最终回收仍必须由子系统生命周期协议完整证明。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 16，Kernel Memory Allocation Slab, Slub, Vmalloc, and Per-CPU Memory；
-* AIBook 章节：Chapter 78，Slab and Slub Object Caches；
-* 源文件：``docs/LinuxK/Part_16_Kernel_Memory_Allocation_Slab_Slub_Vmalloc_and_Per_CPU_Memory/Chapter_078_Slab_and_Slub_Object_Caches.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_16_Kernel_Memory_Allocation_Slab_Slub_Vmalloc_and_Per_CPU_Memory/Chapter_078_Slab_and_Slub_Object_Caches.md>`_。

@@ -136,34 +136,14 @@ Mount crossing：
 必须区分
 --------
 
-路径字符串与 ``struct path``
-   字符串只是输入；``struct path`` 才是当前 namespace 中的 mount+dentry 对象位置。
-
-Dcache 命中与文件存在的永久事实
-   命中是缓存结果，仍可能需要 revalidate，并受并发目录变化影响。
-
-Dentry 与 Mount
-   Dentry 表达文件系统内部名字；mount 决定该名字在命名空间挂载树中的位置。
-
-绝对路径与宿主机根
-   绝对路径从调用进程有效 root 开始，不保证是宿主机初始命名空间的 ``/``。
-
-``..`` 与简单父指针
-   ``..`` 还要处理 mount root、mounted-on dentry 和进程 root 边界。
-
-字符串清洗与安全解析
-   去除 ``..`` 不能解决 symlink、bind mount 和 rename 竞态；应使用 dirfd 和内核解析约束。
+* 路径字符串与 ``struct path``：字符串只是输入；``struct path`` 才是当前 namespace 中的 mount+dentry 对象位置。
+* Dcache 命中与文件存在的永久事实：命中是缓存结果，仍可能需要 revalidate，并受并发目录变化影响。
+* Dentry 与 Mount：Dentry 表达文件系统内部名字；mount 决定该名字在命名空间挂载树中的位置。
+* 绝对路径与宿主机根：绝对路径从调用进程有效 root 开始，不保证是宿主机初始命名空间的 ``/``。
+* ``..`` 与简单父指针：``..`` 还要处理 mount root、mounted-on dentry 和进程 root 边界。
+* 字符串清洗与安全解析：去除 ``..`` 不能解决 symlink、bind mount 和 rename 竞态；应使用 dirfd 和内核解析约束。
 
 一句话结论
 ----------
 
 路径是一次在调用进程根、目录 fd、mount namespace、dcache 与文件系统回调中逐组件执行的解析过程，最终结果必须用 mount+dentry 表达。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 19，File Descriptors, VFS, Inode, Dentry, and Superblock；
-* AIBook 章节：Chapter 94，Path Lookup, Mounts, and Namespace-Aware Resolution；
-* 源文件：``docs/LinuxK/Part_19_File_Descriptors_VFS_Inode_Dentry_and_Superblock/Chapter_094_Path_Lookup_Mounts_Namespace_Aware_Resolution.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_19_File_Descriptors_VFS_Inode_Dentry_and_Superblock/Chapter_094_Path_Lookup_Mounts_Namespace_Aware_Resolution.md>`_。

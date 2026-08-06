@@ -163,31 +163,13 @@
 必须区分
 --------
 
-参数变量已更新与硬件已重配置
-   Sysfs 写入可以只改变软件变量；已有设备状态需要驱动显式执行重配置。
-
-模块级参数与设备级属性
-   Module Parameter 通常影响整个驱动；Device Attribute 绑定具体设备实例。
-
-Built-in 与 Loadable
-   内建驱动从 Kernel Command Line 获得参数；可加载模块可由 Kmod/Insmod 传入。
-
-Load-time Policy 与 Runtime Control
-   只在 Init/Probe 消费的参数需要 Reload/重启；运行时控制必须有并发和回滚协议。
-
-参数当前值与最终有效值
-   驱动可能按硬件能力裁剪、缓存或转换，实际状态应从设备接口和日志验证。
+* 参数变量已更新与硬件已重配置：Sysfs 写入可以只改变软件变量；已有设备状态需要驱动显式执行重配置。
+* 模块级参数与设备级属性：Module Parameter 通常影响整个驱动；Device Attribute 绑定具体设备实例。
+* Built-in 与 Loadable：内建驱动从 Kernel Command Line 获得参数；可加载模块可由 Kmod/Insmod 传入。
+* Load-time Policy 与 Runtime Control：只在 Init/Probe 消费的参数需要 Reload/重启；运行时控制必须有并发和回滚协议。
+* 参数当前值与最终有效值：驱动可能按硬件能力裁剪、缓存或转换，实际状态应从设备接口和日志验证。
 
 一句话结论
 ----------
 
 Module Parameter 是驱动的策略输入口，不是硬件状态本身：只有追踪参数被何时读取、怎样验证和如何重配置，才能证明它真正生效。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 34，Kernel Parameters, Sysctl, Control Interfaces, and Runtime Tuning；
-* AIBook 章节：Chapter 167，Module Parameters and Driver-Specific Tuning；
-* 源文件：``docs/LinuxK/Part_34_Kernel_Parameters_Sysctl_Control_Interfaces_and_Runtime_Tuning/Chapter_167_Module_Parameters_and_Driver_Specific_Tuning.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_34_Kernel_Parameters_Sysctl_Control_Interfaces_and_Runtime_Tuning/Chapter_167_Module_Parameters_and_Driver_Specific_Tuning.md>`_。

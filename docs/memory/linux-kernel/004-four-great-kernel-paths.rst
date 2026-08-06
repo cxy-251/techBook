@@ -73,27 +73,12 @@
 必须区分
 --------
 
-正在运行与可运行
-   正在运行表示 task 当前占用 CPU；可运行表示 task 正在等待调度器选择。
-
-虚拟地址与物理页
-   虚拟地址属于进程地址空间；物理页是内核管理的实际内存资源。
-
-文件描述符与 I/O 实现
-   文件描述符只是入口索引；对象类型、操作表和缓存状态决定具体 I/O 路径。
-
-socket 接受数据与远端收到数据
-   本机 ``send()`` 成功只证明数据进入本机协议处理边界，不证明远端应用已经处理。
+* 正在运行与可运行：正在运行表示 task 当前占用 CPU；可运行表示 task 正在等待调度器选择。
+* 虚拟地址与物理页：虚拟地址属于进程地址空间；物理页是内核管理的实际内存资源。
+* 文件描述符与 I/O 实现：文件描述符只是入口索引；对象类型、操作表和缓存状态决定具体 I/O 路径。
+* socket 接受数据与远端收到数据：本机 ``send()`` 成功只证明数据进入本机协议处理边界，不证明远端应用已经处理。
 
 一句话结论
 ----------
 
 执行路径决定谁在运行，内存路径决定地址落到哪里，I/O 路径决定文件数据从哪里来，网络路径决定数据怎样成为并传递网络包。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 4，The Four Great Paths Through the Kernel；
-* 源文件：``docs/LinuxK/Part_01_Kernel_Worldview_and_Engineering_Mental_Model/Chapter_004_The_Four_Great_Paths_Through_the_Kernel.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_01_Kernel_Worldview_and_Engineering_Mental_Model/Chapter_004_The_Four_Great_Paths_Through_the_Kernel.md>`_。

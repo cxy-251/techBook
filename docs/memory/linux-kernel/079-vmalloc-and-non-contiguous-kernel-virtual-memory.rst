@@ -115,34 +115,14 @@
 必须区分
 --------
 
-虚拟连续与物理连续
-   Vmalloc 保证前者；背后页可以分散，不能直接满足连续物理需求。
-
-``vmalloc`` 与 ``vmap``
-   ``vmalloc`` 取得页并映射；``vmap`` 映射调用者已经拥有的页集合。
-
-``vfree`` 与 ``kvfree``
-   ``vfree`` 面向明确的 vmalloc 来源；``kvfree`` 适合来源可能是 kmalloc 或 vmalloc 的 kvmalloc 结果。
-
-CPU 地址与 DMA 地址
-   CPU 通过页表解释 vmalloc 指针；设备需要 DMA API 建立总线可见地址。
-
-物理内存不足与 vmalloc 区不足
-   前者缺少 backing pages；后者缺少可用连续内核虚拟区间或页表资源。
-
-映射仍存在与调用者仍可访问
-   实现可能延迟部分底层回收，但调用者在释放后立即失去访问权。
+* 虚拟连续与物理连续：Vmalloc 保证前者；背后页可以分散，不能直接满足连续物理需求。
+* ``vmalloc`` 与 ``vmap``：``vmalloc`` 取得页并映射；``vmap`` 映射调用者已经拥有的页集合。
+* ``vfree`` 与 ``kvfree``：``vfree`` 面向明确的 vmalloc 来源；``kvfree`` 适合来源可能是 kmalloc 或 vmalloc 的 kvmalloc 结果。
+* CPU 地址与 DMA 地址：CPU 通过页表解释 vmalloc 指针；设备需要 DMA API 建立总线可见地址。
+* 物理内存不足与 vmalloc 区不足：前者缺少 backing pages；后者缺少可用连续内核虚拟区间或页表资源。
+* 映射仍存在与调用者仍可访问：实现可能延迟部分底层回收，但调用者在释放后立即失去访问权。
 
 一句话结论
 ----------
 
 ``vmalloc`` 用页表把分散物理页拼成连续内核虚拟地址，适合可睡眠的 CPU 大块访问路径，但不能提供 DMA 或物理连续保证。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 16，Kernel Memory Allocation Slab, Slub, Vmalloc, and Per-CPU Memory；
-* AIBook 章节：Chapter 79，vmalloc and Non-Contiguous Kernel Virtual Memory；
-* 源文件：``docs/LinuxK/Part_16_Kernel_Memory_Allocation_Slab_Slub_Vmalloc_and_Per_CPU_Memory/Chapter_079_vmalloc_and_Non_Contiguous_Kernel_Virtual_Memory.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_16_Kernel_Memory_Allocation_Slab_Slub_Vmalloc_and_Per_CPU_Memory/Chapter_079_vmalloc_and_Non_Contiguous_Kernel_Virtual_Memory.md>`_。

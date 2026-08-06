@@ -154,41 +154,16 @@ Use-after-free 分析：
 必须区分
 --------
 
-Vmcore 与 Vmlinux
-   前者保存崩溃内存，后者提供符号、类型和结构布局。
-
-Panic Task 与根因 Task
-   当前 Task 可能只是发现坏状态的一方，真正破坏可能来自更早的其它上下文。
-
-调用栈与完整时间线
-   栈显示冻结时控制流，不能展示所有先前事件顺序。
-
-地址可读与对象有效
-   已释放内存仍可能可读；对象生命周期需结合分配器、引用和发布状态。
-
-页面缺失与对象不存在
-   过滤或损坏可使页面不可读，不能据此断言崩溃时对象不存在。
-
-锁等待与死锁
-   冻结时等待只是一张快照；死锁结论还需 Holder、Waiter 和可进展性证据。
-
-工具输出与工程结论
-   命令输出是原始证据，结论必须围绕对象关系、源码路径和版本边界组织。
-
-冻结状态与运行历史
-   Vmcore 提供一个时刻的世界；日志、Trace 和复现补充此前时间线。
+* Vmcore 与 Vmlinux：前者保存崩溃内存，后者提供符号、类型和结构布局。
+* Panic Task 与根因 Task：当前 Task 可能只是发现坏状态的一方，真正破坏可能来自更早的其它上下文。
+* 调用栈与完整时间线：栈显示冻结时控制流，不能展示所有先前事件顺序。
+* 地址可读与对象有效：已释放内存仍可能可读；对象生命周期需结合分配器、引用和发布状态。
+* 页面缺失与对象不存在：过滤或损坏可使页面不可读，不能据此断言崩溃时对象不存在。
+* 锁等待与死锁：冻结时等待只是一张快照；死锁结论还需 Holder、Waiter 和可进展性证据。
+* 工具输出与工程结论：命令输出是原始证据，结论必须围绕对象关系、源码路径和版本边界组织。
+* 冻结状态与运行历史：Vmcore 提供一个时刻的世界；日志、Trace 和复现补充此前时间线。
 
 一句话结论
 ----------
 
 ``crash`` 分析的本质是用匹配的类型与符号，把 Vmcore 中的冻结字节重建为 Task、Stack、Lock、Memory 和子系统对象，再用多源证据还原最后失败条件。
-
-来源
-----
-
-* 书籍：Linux Kernel AIBook；
-* Part：Part 35 — Kernel Debugging, printk, Dynamic Debug, ftrace, perf, kdump, and crash；
-* 章节：Chapter 175 — crash Utility and Post-Mortem Kernel Analysis；
-* 源文件：``docs/LinuxK/Part_35_Kernel_Debugging_printk_Dynamic_Debug_ftrace_perf_kdump_and_crash/Chapter_175_crash_Utility_and_Post_Mortem_Kernel_Analysis.md``；
-* 固定提交：``18386764582829f2b807b7b0947785eb77b50446``；
-* 固定来源：``https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_35_Kernel_Debugging_printk_Dynamic_Debug_ftrace_perf_kdump_and_crash/Chapter_175_crash_Utility_and_Post_Mortem_Kernel_Analysis.md``。

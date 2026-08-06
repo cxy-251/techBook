@@ -128,34 +128,14 @@ Buffered write：
 必须区分
 --------
 
-Page Cache 命中与后端持久化
-   命中说明内存中有可读数据；不能证明后端已经包含最新内容。
-
-``write`` 返回与数据落盘
-   Write 通常完成内存缓存修改；持久化需要 writeback、文件系统提交和设备顺序保证。
-
-Dirty 与 Writeback
-   Dirty 表示需要写出；writeback 表示正在执行写出，二者都不自动表示稳定完成。
-
-用户请求与 Readahead I/O
-   应用请求一个范围，内核可以提前读取更大相邻范围。
-
-缓存占用与内存泄漏
-   可回收文件缓存是正常内存用途；泄漏需要证明对象无法按预期回收且持续造成损害。
-
-缓存策略与异步接口
-   Buffered/Direct 决定是否使用 Page Cache；同步、AIO、``io_uring`` 决定提交和完成模型。
+* Page Cache 命中与后端持久化：命中说明内存中有可读数据；不能证明后端已经包含最新内容。
+* ``write`` 返回与数据落盘：Write 通常完成内存缓存修改；持久化需要 writeback、文件系统提交和设备顺序保证。
+* Dirty 与 Writeback：Dirty 表示需要写出；writeback 表示正在执行写出，二者都不自动表示稳定完成。
+* 用户请求与 Readahead I/O：应用请求一个范围，内核可以提前读取更大相邻范围。
+* 缓存占用与内存泄漏：可回收文件缓存是正常内存用途；泄漏需要证明对象无法按预期回收且持续造成损害。
+* 缓存策略与异步接口：Buffered/Direct 决定是否使用 Page Cache；同步、AIO、``io_uring`` 决定提交和完成模型。
 
 一句话结论
 ----------
 
 Buffered I/O 以 ``address_space`` 和 folio 把文件数据纳入 Page Cache、预读、脏页、回写与回收体系，读取命中、写入返回和持久化完成必须分阶段判断。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 21，Page Cache IO, Direct IO, Async IO, and io_uring；
-* AIBook 章节：Chapter 101，Buffered IO and the Page Cache Path；
-* 源文件：``docs/LinuxK/Part_21_Page_Cache_IO_Direct_IO_Async_IO_and_io_uring/Chapter_101_Buffered_IO_and_the_Page_Cache_Path.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_21_Page_Cache_IO_Direct_IO_Async_IO_and_io_uring/Chapter_101_Buffered_IO_and_the_Page_Cache_Path.md>`_。

@@ -50,27 +50,12 @@
 必须区分
 --------
 
-性能与安全
-   性能要求降低正常路径成本；安全要求不可信输入和对象状态始终受到检查。二者需要共同成立。
-
-通用接口与统一实现
-   通用接口允许不同对象使用相同入口；它不表示所有对象执行相同代码。
-
-延迟与吞吐
-   延迟关注单个请求完成速度；吞吐关注一段时间内完成的总工作量。
-
-用户态 ABI 与内核内部接口
-   用户态 ABI 需要长期稳定；内核内部实现可以随版本演进。
+* 性能与安全：性能要求降低正常路径成本；安全要求不可信输入和对象状态始终受到检查。二者需要共同成立。
+* 通用接口与统一实现：通用接口允许不同对象使用相同入口；它不表示所有对象执行相同代码。
+* 延迟与吞吐：延迟关注单个请求完成速度；吞吐关注一段时间内完成的总工作量。
+* 用户态 ABI 与内核内部接口：用户态 ABI 需要长期稳定；内核内部实现可以随版本演进。
 
 一句话结论
 ----------
 
 Linux 内核的代码形态来自多种工程压力的平衡：边界必须安全，入口尽量通用，热路径控制成本，内部实现允许演进。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 3，Core Kernel Design Forces；
-* 源文件：``docs/LinuxK/Part_01_Kernel_Worldview_and_Engineering_Mental_Model/Chapter_003_Core_Kernel_Design_Forces.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_01_Kernel_Worldview_and_Engineering_Mental_Model/Chapter_003_Core_Kernel_Design_Forces.md>`_。

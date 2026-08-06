@@ -95,37 +95,15 @@ Affinity 修改：
 必须区分
 --------
 
-Affinity 与实际运行 CPU
-   affinity 给出允许集合；调度器仍会在集合内选择当前运行 CPU。
-
-空闲 CPU 与可用 CPU
-   CPU 空闲不代表它在 task 的 allowed mask、cpuset 或调度域中。
-
-Wakeup placement 与负载均衡
-   placement 决定唤醒时的初始 CPU；balancing 负责后续纠正队列失衡。
-
-Load 与 utilization
-   load 常包含权重和可运行竞争含义；utilization 更接近近期实际 CPU 使用需求。
-
-Utilization 与 capacity
-   utilization 是任务需求；capacity 是 CPU 可提供的相对能力。
-
-Affinity 与 CPU quota
-   affinity 限制位置；quota 限制一定周期内可使用的总 CPU 时间。
-
-性能放置与节能放置
-   最低延迟可能倾向高能力或空闲 CPU；最低能耗可能选择不同位置。
+* Affinity 与实际运行 CPU：affinity 给出允许集合；调度器仍会在集合内选择当前运行 CPU。
+* 空闲 CPU 与可用 CPU：CPU 空闲不代表它在 task 的 allowed mask、cpuset 或调度域中。
+* Wakeup placement 与负载均衡：placement 决定唤醒时的初始 CPU；balancing 负责后续纠正队列失衡。
+* Load 与 utilization：load 常包含权重和可运行竞争含义；utilization 更接近近期实际 CPU 使用需求。
+* Utilization 与 capacity：utilization 是任务需求；capacity 是 CPU 可提供的相对能力。
+* Affinity 与 CPU quota：affinity 限制位置；quota 限制一定周期内可使用的总 CPU 时间。
+* 性能放置与节能放置：最低延迟可能倾向高能力或空闲 CPU；最低能耗可能选择不同位置。
 
 一句话结论
 ----------
 
 多核调度先受 affinity 和 cpuset 限制，再在调度域、负载、缓存、NUMA、CPU capacity 与能耗之间选择和修正 task 的运行位置。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 10，Scheduler Architecture, CFS, Real-Time Classes, and CPU Time；
-* AIBook 章节：Chapter 49，CPU Affinity, Load Balancing, and Multi-Core Scheduling；
-* 源文件：``docs/LinuxK/Part_10_Scheduler_Architecture_CFS_Real_Time_Classes_and_CPU_Time/Chapter_049_CPU_Affinity_Load_Balancing_and_Multi_Core_Scheduling.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_10_Scheduler_Architecture_CFS_Real_Time_Classes_and_CPU_Time/Chapter_049_CPU_Affinity_Load_Balancing_and_Multi_Core_Scheduling.md>`_。

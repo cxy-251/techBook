@@ -148,31 +148,13 @@
 必须区分
 --------
 
-``struct socket`` 与 ``struct sock``
-   前者承接 BSD/VFS 操作；后者承载协议状态、队列、内存与回调。
-
-Readiness 与 Completion
-   Poll/epoll 表示操作可能推进；不表示某次 send/recv 请求已经完成。
-
-Send 返回与远端接收
-   Send 通常只表示本地协议栈接受数据；远端交付还要经过网络、ACK 和应用读取。
-
-Socket Buffer 大小与 Payload 字节
-   Buffer 记账包含协议和分配开销，不等于纯用户数据容量。
-
-Close fd 与协议状态结束
-   Fd 引用结束后，TCP 状态、异步工作和其它引用仍可能继续存在。
+* ``struct socket`` 与 ``struct sock``：前者承接 BSD/VFS 操作；后者承载协议状态、队列、内存与回调。
+* Readiness 与 Completion：Poll/epoll 表示操作可能推进；不表示某次 send/recv 请求已经完成。
+* Send 返回与远端接收：Send 通常只表示本地协议栈接受数据；远端交付还要经过网络、ACK 和应用读取。
+* Socket Buffer 大小与 Payload 字节：Buffer 记账包含协议和分配开销，不等于纯用户数据容量。
+* Close fd 与协议状态结束：Fd 引用结束后，TCP 状态、异步工作和其它引用仍可能继续存在。
 
 一句话结论
 ----------
 
 Socket 是由 fd 暴露的协议状态机：``struct socket`` 连接 VFS 与 BSD 操作，``struct sock`` 连接队列、内存记账、等待唤醒和具体 TCP/UDP 状态。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 29，Socket Layer, sk_buff, Routing, Netfilter, and TCP IP Stack；
-* AIBook 章节：Chapter 141，Socket API and Kernel Socket Objects；
-* 源文件：``docs/LinuxK/Part_29_Socket_Layer_sk_buff_Routing_Netfilter_and_TCP_IP_Stack/Chapter_141_Socket_API_and_Kernel_Socket_Objects.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_29_Socket_Layer_sk_buff_Routing_Netfilter_and_TCP_IP_Stack/Chapter_141_Socket_API_and_Kernel_Socket_Objects.md>`_。

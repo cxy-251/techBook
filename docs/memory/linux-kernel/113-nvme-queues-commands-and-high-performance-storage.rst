@@ -164,34 +164,14 @@ Timeout 与 reset：
 必须区分
 --------
 
-Admin queue 与 I/O queue
-   前者管理 controller 和 namespace；后者执行正常数据读写。
-
-blk-mq hctx 与 NVMe queue pair
-   Hctx 是块层派发对象；驱动把它映射到协议 SQ/CQ。
-
-Blk-mq tag 与 NVMe CID
-   二者处于不同层级，但驱动利用映射把 completion 找回 request。
-
-Queue depth 与设备并行度
-   深度是允许在途命令规模；控制器实际并行还受固件和介质限制。
-
-Interrupt completion 与 Polling
-   前者由设备通知 CPU；后者由 CPU 主动检查 CQ，资源成本不同。
-
-Reset 恢复与写入回滚
-   Reset 重建控制器命令通路，不能自动撤销可能已执行的数据写入。
+* Admin queue 与 I/O queue：前者管理 controller 和 namespace；后者执行正常数据读写。
+* blk-mq hctx 与 NVMe queue pair：Hctx 是块层派发对象；驱动把它映射到协议 SQ/CQ。
+* Blk-mq tag 与 NVMe CID：二者处于不同层级，但驱动利用映射把 completion 找回 request。
+* Queue depth 与设备并行度：深度是允许在途命令规模；控制器实际并行还受固件和介质限制。
+* Interrupt completion 与 Polling：前者由设备通知 CPU；后者由 CPU 主动检查 CQ，资源成本不同。
+* Reset 恢复与写入回滚：Reset 重建控制器命令通路，不能自动撤销可能已执行的数据写入。
 
 一句话结论
 ----------
 
 NVMe 把存储访问变成多队列命令协议，性能与可靠性取决于 blk-mq、SQ/CQ、tag、CPU/IRQ 局部性和 controller 状态机共同闭合。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 23，Storage Devices, NVMe, SCSI, Device Mapper, and Filesystem Reliability；
-* AIBook 章节：Chapter 113，NVMe Queues, Commands, and High-Performance Storage；
-* 源文件：``docs/LinuxK/Part_23_Storage_Devices_NVMe_SCSI_Device_Mapper_and_Filesystem_Reliability/Chapter_113_NVMe_Queues_Commands_and_High_Performance_Storage.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_23_Storage_Devices_NVMe_SCSI_Device_Mapper_and_Filesystem_Reliability/Chapter_113_NVMe_Queues_Commands_and_High_Performance_Storage.md>`_。

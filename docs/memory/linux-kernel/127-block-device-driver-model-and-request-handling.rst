@@ -148,34 +148,14 @@ Request 完成：
 必须区分
 --------
 
-``gendisk`` 与 ``request_queue``
-   Gendisk 表示用户可见磁盘地址空间；queue 表示能力、排队和提交路径。
-
-``bio`` 与 ``request``
-   Bio 描述块数据范围和完成关系；request 是驱动调度与硬件执行单位。
-
-Sector 与设备块大小
-   块层地址常以 512 字节 sector 表达；logical/physical block size 是设备能力属性。
-
-Queue Freeze 与 Quiesce
-   Freeze 阻止新的块层进入并等待活动路径；quiesce 主要停止向驱动派发。
-
-Request 完成与数据持久化
-   普通成功表示 I/O 命令完成；稳定介质保证还依赖 flush/FUA 和设备缓存语义。
-
-``del_gendisk`` 与对象释放
-   Del 撤销用户可见磁盘；旧打开、分区和内部引用仍可能延长对象寿命。
+* ``gendisk`` 与 ``request_queue``：Gendisk 表示用户可见磁盘地址空间；queue 表示能力、排队和提交路径。
+* ``bio`` 与 ``request``：Bio 描述块数据范围和完成关系；request 是驱动调度与硬件执行单位。
+* Sector 与设备块大小：块层地址常以 512 字节 sector 表达；logical/physical block size 是设备能力属性。
+* Queue Freeze 与 Quiesce：Freeze 阻止新的块层进入并等待活动路径；quiesce 主要停止向驱动派发。
+* Request 完成与数据持久化：普通成功表示 I/O 命令完成；稳定介质保证还依赖 flush/FUA 和设备缓存语义。
+* ``del_gendisk`` 与对象释放：Del 撤销用户可见磁盘；旧打开、分区和内部引用仍可能延长对象寿命。
 
 一句话结论
 ----------
 
 块驱动通过 ``gendisk`` 发布扇区地址空间，通过 request queue 接收块层重塑后的 bio/request，并必须让每个已接管请求在错误、超时、reset 和移除竞态下恰好完成一次。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 26，Character Devices, Block Devices, Network Devices, and Misc Drivers；
-* AIBook 章节：Chapter 127，Block Device Driver Model and Request Handling；
-* 源文件：``docs/LinuxK/Part_26_Character_Devices_Block_Devices_Network_Devices_and_Misc_Drivers/Chapter_127_Block_Device_Driver_Model_and_Request_Handling.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_26_Character_Devices_Block_Devices_Network_Devices_and_Misc_Drivers/Chapter_127_Block_Device_Driver_Model_and_Request_Handling.md>`_。

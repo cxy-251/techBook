@@ -137,34 +137,14 @@ fd 读路径：
 必须区分
 --------
 
-VFS 与具体文件系统
-   VFS 提供公共对象和入口；具体文件系统实现 lookup、数据、元数据和持久化策略。
-
-路径名调用与 fd 调用
-   前者先解析 dentry/inode；后者先从 fd table 取得已有 ``struct file``。
-
-``file_operations`` 与 ``inode_operations``
-   前者服务打开实例上的 I/O；后者服务名字查找和对象元数据操作。
-
-Dcache、inode cache 与 Page Cache
-   它们分别缓存名字关系、对象元数据和文件内容。
-
-文件系统类型与挂载实例
-   ``file_system_type`` 表示实现类型；``super_block`` 表示具体已挂载实例。
-
-统一接口与统一行为
-   相同 VFS 调用边界可以进入完全不同实现，错误、性能和一致性仍由具体对象和后端决定。
+* VFS 与具体文件系统：VFS 提供公共对象和入口；具体文件系统实现 lookup、数据、元数据和持久化策略。
+* 路径名调用与 fd 调用：前者先解析 dentry/inode；后者先从 fd table 取得已有 ``struct file``。
+* ``file_operations`` 与 ``inode_operations``：前者服务打开实例上的 I/O；后者服务名字查找和对象元数据操作。
+* Dcache、inode cache 与 Page Cache：它们分别缓存名字关系、对象元数据和文件内容。
+* 文件系统类型与挂载实例：``file_system_type`` 表示实现类型；``super_block`` 表示具体已挂载实例。
+* 统一接口与统一行为：相同 VFS 调用边界可以进入完全不同实现，错误、性能和一致性仍由具体对象和后端决定。
 
 一句话结论
 ----------
 
 VFS 用统一对象模型、公共检查和函数指针表把系统调用分发给不同文件系统，实现“统一入口、分层对象、具体策略”的文件访问框架。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 19，File Descriptors, VFS, Inode, Dentry, and Superblock；
-* AIBook 章节：Chapter 92，VFS as the Filesystem Abstraction Layer；
-* 源文件：``docs/LinuxK/Part_19_File_Descriptors_VFS_Inode_Dentry_and_Superblock/Chapter_092_VFS_as_the_Filesystem_Abstraction_Layer.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_19_File_Descriptors_VFS_Inode_Dentry_and_Superblock/Chapter_092_VFS_as_the_Filesystem_Abstraction_Layer.md>`_。

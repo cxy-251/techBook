@@ -89,31 +89,13 @@
 必须区分
 --------
 
-Spinlock 与 mutex
-   Spinlock 忙等且不能睡眠；mutex 让等待者睡眠，只能用于可睡眠上下文。
-
-``spinlock_t`` 与 ``raw_spinlock_t``
-   普通 spinlock 会受 PREEMPT_RT 转换影响；raw spinlock 保留低层硬原子语义。
-
-Mutex 与 semaphore
-   Mutex 表达所有者互斥；semaphore 表达可用资源额度，所有权语义不同。
-
-``rwlock_t`` 与 ``rw_semaphore``
-   前者是不可睡眠的读写自旋锁；后者是可睡眠的读写锁。
-
-互斥与对象存活
-   持锁期间访问安全不表示解锁后指针仍然有效，长期使用仍需要引用或其它生命周期协议。
+* Spinlock 与 mutex：Spinlock 忙等且不能睡眠；mutex 让等待者睡眠，只能用于可睡眠上下文。
+* ``spinlock_t`` 与 ``raw_spinlock_t``：普通 spinlock 会受 PREEMPT_RT 转换影响；raw spinlock 保留低层硬原子语义。
+* Mutex 与 semaphore：Mutex 表达所有者互斥；semaphore 表达可用资源额度，所有权语义不同。
+* ``rwlock_t`` 与 ``rw_semaphore``：前者是不可睡眠的读写自旋锁；后者是可睡眠的读写锁。
+* 互斥与对象存活：持锁期间访问安全不表示解锁后指针仍然有效，长期使用仍需要引用或其它生命周期协议。
 
 一句话结论
 ----------
 
 锁的名字不是选择依据；正确选择来自执行上下文、是否允许睡眠、临界区长度、资源语义和锁顺序的共同约束。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 13，Concurrency, Locking, Atomics, Memory Barriers, and RCU；
-* AIBook 章节：Chapter 62，Spinlocks, Mutexes, Semaphores, and Reader-Writer Locks；
-* 源文件：``docs/LinuxK/Part_13_Concurrency_Locking_Atomics_Memory_Barriers_and_RCU/Chapter_062_Spinlocks_Mutexes_Semaphores_and_Reader_Writer_Locks.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_13_Concurrency_Locking_Atomics_Memory_Barriers_and_RCU/Chapter_062_Spinlocks_Mutexes_Semaphores_and_Reader_Writer_Locks.md>`_。

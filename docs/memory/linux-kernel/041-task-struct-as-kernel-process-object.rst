@@ -70,34 +70,14 @@
 必须区分
 --------
 
-进程与 task
-   用户态进程通常是一个线程组和一组共享资源；task 是调度器可以独立运行和阻塞的实体。
-
-PID 与 TGID
-   PID/TID 标识具体 task；TGID 标识线程组的进程级身份。
-
-task 对象与资源对象
-   ``task_struct`` 是关系中心；地址空间、文件表、信号和凭证由各自对象管理。
-
-共享指针与复制内容
-   两个 task 指向同一资源对象表示共享；指向不同对象但内容初始相同表示复制。
-
-退出与最终释放
-   task 停止执行后可能仍保留退出信息和引用，最终释放发生在回收与引用归零之后。
-
-RCU 可见与长期存活
-   RCU 可以保证特定读取阶段不被立即回收；跨阶段持有仍需要正式引用。
+* 进程与 task：用户态进程通常是一个线程组和一组共享资源；task 是调度器可以独立运行和阻塞的实体。
+* PID 与 TGID：PID/TID 标识具体 task；TGID 标识线程组的进程级身份。
+* task 对象与资源对象：``task_struct`` 是关系中心；地址空间、文件表、信号和凭证由各自对象管理。
+* 共享指针与复制内容：两个 task 指向同一资源对象表示共享；指向不同对象但内容初始相同表示复制。
+* 退出与最终释放：task 停止执行后可能仍保留退出信息和引用，最终释放发生在回收与引用归零之后。
+* RCU 可见与长期存活：RCU 可以保证特定读取阶段不被立即回收；跨阶段持有仍需要正式引用。
 
 一句话结论
 ----------
 
 ``task_struct`` 是 Linux 执行、身份和资源关系的中心：一个用户态进程通常由多个 task 及其共享的内存、文件、信号和权限对象共同构成。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 9，Process, Thread, Task Struct, and Execution Context；
-* AIBook 章节：Chapter 41，task_struct as the Kernels Process Object；
-* 源文件：``docs/LinuxK/Part_09_Process_Thread_Task_Struct_and_Execution_Context/Chapter_041_task_struct_as_the_Kernels_Process_Object.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_09_Process_Thread_Task_Struct_and_Execution_Context/Chapter_041_task_struct_as_the_Kernels_Process_Object.md>`_。

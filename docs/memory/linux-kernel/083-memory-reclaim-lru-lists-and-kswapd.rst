@@ -132,34 +132,14 @@ Direct reclaim：
 必须区分
 --------
 
-可回收与当前能立即释放
-   页面类型可能允许回收，但 dirty、引用、锁、pin 和后端状态会阻止当前释放。
-
-``kswapd`` 与 Direct reclaim
-   前者后台恢复水位；后者由当前分配任务承担并直接影响业务延迟。
-
-File reclaim 与 Anon reclaim
-   文件页可从文件重读；匿名页需要 swap、demotion 或其它内容保存目标。
-
-Reclaim 与 Compaction
-   Reclaim 增加可用页总量；compaction 重新排列页以形成连续块。
-
-传统 LRU 与 MGLRU
-   前者按 active/inactive 近似热度；后者按代际组织，具体运行路径取决于内核配置。
-
-扫描量与回收成果
-   ``pgscan`` 是检查候选数量；``pgsteal`` 才是成功释放或回收的页数量。
+* 可回收与当前能立即释放：页面类型可能允许回收，但 dirty、引用、锁、pin 和后端状态会阻止当前释放。
+* ``kswapd`` 与 Direct reclaim：前者后台恢复水位；后者由当前分配任务承担并直接影响业务延迟。
+* File reclaim 与 Anon reclaim：文件页可从文件重读；匿名页需要 swap、demotion 或其它内容保存目标。
+* Reclaim 与 Compaction：Reclaim 增加可用页总量；compaction 重新排列页以形成连续块。
+* 传统 LRU 与 MGLRU：前者按 active/inactive 近似热度；后者按代际组织，具体运行路径取决于内核配置。
+* 扫描量与回收成果：``pgscan`` 是检查候选数量；``pgsteal`` 才是成功释放或回收的页数量。
 
 一句话结论
 ----------
 
 Memory reclaim 通过估计页面复用价值，在后台 ``kswapd`` 或前台 direct reclaim 中把文件缓存、匿名页和可收缩对象转换成空闲页，并把无法隐藏的成本表现为 I/O 与任务停顿。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 17，Page Cache, Writeback, Reclaim, Compaction, and OOM；
-* AIBook 章节：Chapter 83，Memory Reclaim, LRU Lists, and kswapd；
-* 源文件：``docs/LinuxK/Part_17_Page_Cache_Writeback_Reclaim_Compaction_and_OOM/Chapter_083_Memory_Reclaim_LRU_Lists_and_kswapd.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_17_Page_Cache_Writeback_Reclaim_Compaction_and_OOM/Chapter_083_Memory_Reclaim_LRU_Lists_and_kswapd.md>`_。

@@ -88,31 +88,13 @@
 必须区分
 --------
 
-原子性与顺序性
-   原子性防止单个位置的竞争更新被拆分；顺序性约束多个内存访问的跨 CPU 可见先后。
-
-``atomic_t`` 与 ``refcount_t``
-   前者表达普通并发整数；后者表达对象引用和 0 值生命周期边界。
-
-原子变量与复合不变量
-   Atomic API 保护一个位置；多个字段必须由更完整的同步协议共同保护。
-
-Relaxed 与 acquire/release
-   Relaxed 只有原子性；acquire/release 还承担单向发布和获取顺序。
-
-引用存活与字段一致性
-   引用保证对象不被释放；对象字段如何并发读写仍需要锁、RCU 或原子状态协议。
+* 原子性与顺序性：原子性防止单个位置的竞争更新被拆分；顺序性约束多个内存访问的跨 CPU 可见先后。
+* ``atomic_t`` 与 ``refcount_t``：前者表达普通并发整数；后者表达对象引用和 0 值生命周期边界。
+* 原子变量与复合不变量：Atomic API 保护一个位置；多个字段必须由更完整的同步协议共同保护。
+* Relaxed 与 acquire/release：Relaxed 只有原子性；acquire/release 还承担单向发布和获取顺序。
+* 引用存活与字段一致性：引用保证对象不被释放；对象字段如何并发读写仍需要锁、RCU 或原子状态协议。
 
 一句话结论
 ----------
 
 原子操作只先解决“同一个变量怎样不丢更新”；只有配上正确的 acquire、release、屏障和生命周期协议，它才可能成为跨 CPU 同步机制。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 13，Concurrency, Locking, Atomics, Memory Barriers, and RCU；
-* AIBook 章节：Chapter 63，Atomic Operations and Memory Ordering；
-* 源文件：``docs/LinuxK/Part_13_Concurrency_Locking_Atomics_Memory_Barriers_and_RCU/Chapter_063_Atomic_Operations_and_Memory_Ordering.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_13_Concurrency_Locking_Atomics_Memory_Barriers_and_RCU/Chapter_063_Atomic_Operations_and_Memory_Ordering.md>`_。

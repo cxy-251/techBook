@@ -93,34 +93,14 @@ Deadline 任务：
 必须区分
 --------
 
-``SCHED_FIFO`` 与 ``SCHED_RR``
-   FIFO 运行到阻塞或被抢占；RR 在同一实时优先级内加入时间片轮转。
-
-实时优先级与 nice
-   实时优先级决定 RT 类内顺序；nice 只影响普通公平类份额。
-
-固定优先级实时与 deadline
-   FIFO/RR 按静态 priority；deadline 按预算、截止时间和周期约束。
-
-调度延迟与执行时间
-   调度延迟是 runnable 后等 CPU 的时间；执行时间是拿到 CPU 后完成工作的时间。
-
-实时与高吞吐
-   实时追求延迟上界和可预测性；高吞吐追求单位时间完成更多工作。
-
-优先级反转与普通抢占
-   普通抢占是更高优先级任务占用 CPU；优先级反转是高优先级任务被低优先级持有的资源阻塞。
+* ``SCHED_FIFO`` 与 ``SCHED_RR``：FIFO 运行到阻塞或被抢占；RR 在同一实时优先级内加入时间片轮转。
+* 实时优先级与 nice：实时优先级决定 RT 类内顺序；nice 只影响普通公平类份额。
+* 固定优先级实时与 deadline：FIFO/RR 按静态 priority；deadline 按预算、截止时间和周期约束。
+* 调度延迟与执行时间：调度延迟是 runnable 后等 CPU 的时间；执行时间是拿到 CPU 后完成工作的时间。
+* 实时与高吞吐：实时追求延迟上界和可预测性；高吞吐追求单位时间完成更多工作。
+* 优先级反转与普通抢占：普通抢占是更高优先级任务占用 CPU；优先级反转是高优先级任务被低优先级持有的资源阻塞。
 
 一句话结论
 ----------
 
 实时调度通过固定优先级或 runtime/deadline/period 预算缩短可运行任务的等待时间，但端到端保证仍取决于执行时间、锁、中断、内存和设备路径。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 10，Scheduler Architecture, CFS, Real-Time Classes, and CPU Time；
-* AIBook 章节：Chapter 48，Real-Time Scheduling Classes and Latency Guarantees；
-* 源文件：``docs/LinuxK/Part_10_Scheduler_Architecture_CFS_Real_Time_Classes_and_CPU_Time/Chapter_048_Real-Time_Scheduling_Classes_and_Latency_Guarantees.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_10_Scheduler_Architecture_CFS_Real_Time_Classes_and_CPU_Time/Chapter_048_Real-Time_Scheduling_Classes_and_Latency_Guarantees.md>`_。

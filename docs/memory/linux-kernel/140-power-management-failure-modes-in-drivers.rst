@@ -140,31 +140,13 @@ Wakeup 故障诊断：
 必须区分
 --------
 
-PM Callback 成功与设备可用
-   回调返回是软件结果；硬件所需资源、队列和完成路径必须真实恢复。
-
-Runtime PM 引用与私有 I/O 锁
-   Usage 防止电源转换；私有锁保护请求和硬件状态竞态。
-
-Wakeup Policy 与硬件 Wake 配置
-   Policy 允许设备唤醒；驱动仍要正确编程设备和 IRQ。
-
-IRQ 同步与 DMA 收束
-   等待 handler 不表示设备停止访问内存。
-
-第一次恢复成功与可重复循环
-   正确 PM 驱动必须在多次 suspend/resume 后仍回到同一稳定状态。
+* PM Callback 成功与设备可用：回调返回是软件结果；硬件所需资源、队列和完成路径必须真实恢复。
+* Runtime PM 引用与私有 I/O 锁：Usage 防止电源转换；私有锁保护请求和硬件状态竞态。
+* Wakeup Policy 与硬件 Wake 配置：Policy 允许设备唤醒；驱动仍要正确编程设备和 IRQ。
+* IRQ 同步与 DMA 收束：等待 handler 不表示设备停止访问内存。
+* 第一次恢复成功与可重复循环：正确 PM 驱动必须在多次 suspend/resume 后仍回到同一稳定状态。
 
 一句话结论
 ----------
 
 驱动 PM 故障不是单个回调问题，而是电源、寄存器、firmware、DMA、IRQ、队列和上层入口跨状态转换后的整体闭合失败。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 28，Power Management, Hotplug, Firmware Loading, and Runtime PM；
-* AIBook 章节：Chapter 140，Power Management Failure Modes in Drivers；
-* 源文件：``docs/LinuxK/Part_28_Power_Management_Hotplug_Firmware_Loading_and_Runtime_PM/Chapter_140_Power_Management_Failure_Modes_in_Drivers.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_28_Power_Management_Hotplug_Firmware_Loading_and_Runtime_PM/Chapter_140_Power_Management_Failure_Modes_in_Drivers.md>`_。

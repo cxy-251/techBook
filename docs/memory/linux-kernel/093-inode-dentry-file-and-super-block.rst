@@ -137,34 +137,14 @@ Unlink 后继续访问：
 必须区分
 --------
 
-Dentry 与 Inode
-   Dentry 表达父目录下的名字关系；inode 表达文件系统对象及其元数据。
-
-Inode 与 ``struct file``
-   Inode 是对象级状态；file 是一次打开的偏移、标志、操作和私有状态。
-
-Superblock 与 Mount
-   Superblock 表示文件系统实例；mount 把实例放进具体命名空间挂载树。
-
-路径删除与对象销毁
-   Unlink 删除名字关系；打开实例、硬链接和映射可以继续保持 inode 与数据。
-
-Positive 与 Negative dentry
-   前者连接 inode；后者缓存当前不存在的名字查找结果。
-
-引用存活与状态稳定
-   引用保证对象内存不释放；对象字段的一致读取仍需要对应并发保护。
+* Dentry 与 Inode：Dentry 表达父目录下的名字关系；inode 表达文件系统对象及其元数据。
+* Inode 与 ``struct file``：Inode 是对象级状态；file 是一次打开的偏移、标志、操作和私有状态。
+* Superblock 与 Mount：Superblock 表示文件系统实例；mount 把实例放进具体命名空间挂载树。
+* 路径删除与对象销毁：Unlink 删除名字关系；打开实例、硬链接和映射可以继续保持 inode 与数据。
+* Positive 与 Negative dentry：前者连接 inode；后者缓存当前不存在的名字查找结果。
+* 引用存活与状态稳定：引用保证对象内存不释放；对象字段的一致读取仍需要对应并发保护。
 
 一句话结论
 ----------
 
 VFS 用 dentry 表达名字、inode 表达文件系统对象、file 表达打开实例、superblock 表达挂载实例，四者共同构成文件访问与生命周期。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 19，File Descriptors, VFS, Inode, Dentry, and Superblock；
-* AIBook 章节：Chapter 93，inode, dentry, file, and super_block；
-* 源文件：``docs/LinuxK/Part_19_File_Descriptors_VFS_Inode_Dentry_and_Superblock/Chapter_093_inode_dentry_file_and_super_block.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_19_File_Descriptors_VFS_Inode_Dentry_and_Superblock/Chapter_093_inode_dentry_file_and_super_block.md>`_。

@@ -69,30 +69,13 @@
 必须区分
 --------
 
-源码存在与功能存在
-   源码存在只说明功能具有构建来源；目标配置和构建产物决定运行内核是否包含该功能。
-
-``y`` 与 ``m``
-   ``y`` 随内核镜像存在；``m`` 依赖模块文件、符号、签名、依赖关系和加载时机。
-
-``depends on`` 与 ``select``
-   ``depends on`` 限制当前符号的可选条件；``select`` 由当前符号反向强制另一个符号，不能用来掩盖复杂依赖。
-
-配置意图与最终配置
-   人工选择、defconfig 或旧配置只是输入意图；Kconfig 求值后的最终 ``.config`` 才进入构建。
-
-``IS_ENABLED`` 与 ``IS_REACHABLE``
-   ``IS_ENABLED`` 判断功能是否为 ``y`` 或 ``m``；``IS_REACHABLE`` 还判断当前代码能否实际到达模块实现。
+* 源码存在与功能存在：源码存在只说明功能具有构建来源；目标配置和构建产物决定运行内核是否包含该功能。
+* ``y`` 与 ``m``：``y`` 随内核镜像存在；``m`` 依赖模块文件、符号、签名、依赖关系和加载时机。
+* ``depends on`` 与 ``select``：``depends on`` 限制当前符号的可选条件；``select`` 由当前符号反向强制另一个符号，不能用来掩盖复杂依赖。
+* 配置意图与最终配置：人工选择、defconfig 或旧配置只是输入意图；Kconfig 求值后的最终 ``.config`` 才进入构建。
+* ``IS_ENABLED`` 与 ``IS_REACHABLE``：``IS_ENABLED`` 判断功能是否为 ``y`` 或 ``m``；``IS_REACHABLE`` 还判断当前代码能否实际到达模块实现。
 
 一句话结论
 ----------
 
 Linux 内核功能先由 Kconfig 决定是否存在以及以何种形态存在，再由 Kbuild 把最终配置转换成内建代码、模块或被排除的实现。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 16，Kernel Configuration with Kconfig；
-* 源文件：``docs/LinuxK/Part_04_Kconfig_Kbuild_Modules_and_Kernel_Images/Chapter_016_Kernel_Configuration_with_Kconfig.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_04_Kconfig_Kbuild_Modules_and_Kernel_Images/Chapter_016_Kernel_Configuration_with_Kconfig.md>`_。

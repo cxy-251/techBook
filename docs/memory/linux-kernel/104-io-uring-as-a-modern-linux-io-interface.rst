@@ -152,34 +152,14 @@ Linked write 与 fsync：
 必须区分
 --------
 
-SQE 被消费与请求完成
-   内核取得 SQE 后槽位可复用；buffer、file 和业务 token 要等 CQE 终结。
-
-``io_uring_enter`` 错误与 CQE 错误
-   前者属于 ring 入口操作；后者属于某个具体请求结果。
-
-``user_data`` 值与对象生命周期
-   User data 只是身份标记；若保存指针，对象必须活到所有相关 CQE 被消费。
-
-Registered buffer 与 Zero-copy
-   注册减少重复 pin/校验；具体数据路径仍可能复制。
-
-SQPOLL 与 IOPOLL
-   前者轮询提交队列，后者轮询设备完成，成本与适用条件不同。
-
-Link 顺序与事务原子性
-   链接规定请求依赖和失败处理，不自动创建文件系统或业务事务。
+* SQE 被消费与请求完成：内核取得 SQE 后槽位可复用；buffer、file 和业务 token 要等 CQE 终结。
+* ``io_uring_enter`` 错误与 CQE 错误：前者属于 ring 入口操作；后者属于某个具体请求结果。
+* ``user_data`` 值与对象生命周期：User data 只是身份标记；若保存指针，对象必须活到所有相关 CQE 被消费。
+* Registered buffer 与 Zero-copy：注册减少重复 pin/校验；具体数据路径仍可能复制。
+* SQPOLL 与 IOPOLL：前者轮询提交队列，后者轮询设备完成，成本与适用条件不同。
+* Link 顺序与事务原子性：链接规定请求依赖和失败处理，不自动创建文件系统或业务事务。
 
 一句话结论
 ----------
 
 ``io_uring`` 是用户态与内核共享的有界请求—完成协议，正确性取决于 SQ/CQ 内存顺序、请求身份、资源生命周期、完成消费和 teardown 全部闭合。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 21，Page Cache IO, Direct IO, Async IO, and io_uring；
-* AIBook 章节：Chapter 104，io_uring as a Modern Linux IO Interface；
-* 源文件：``docs/LinuxK/Part_21_Page_Cache_IO_Direct_IO_Async_IO_and_io_uring/Chapter_104_io_uring_as_a_Modern_Linux_IO_Interface.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_21_Page_Cache_IO_Direct_IO_Async_IO_and_io_uring/Chapter_104_io_uring_as_a_Modern_Linux_IO_Interface.md>`_。

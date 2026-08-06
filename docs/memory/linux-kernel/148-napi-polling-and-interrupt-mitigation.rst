@@ -158,31 +158,13 @@ Softirq 过载：
 必须区分
 --------
 
-IRQ Coalescing 与 NAPI
-   Coalescing 决定设备何时通知；NAPI 决定通知后怎样批量处理。
-
-NAPI Budget 与 Ring Size
-   Budget 限制单轮 CPU 工作；Ring Size 决定硬件可缓存多少 Descriptor。
-
-``napi_disable`` 与停止硬件
-   Disable 只收束 Poll；DMA 和 IRQ 事件源必须由驱动另行停止。
-
-Softirq 与 ``ksoftirqd``
-   同一 NAPI 工作可在中断返回 Softirq 或内核线程中执行，时延和调度条件不同。
-
-Busy Poll 与普通 NAPI
-   Busy Poll 让应用主动寻找完成；普通 NAPI 由 IRQ/Softirq 调度，两者仍共享 Queue 和协议语义。
+* IRQ Coalescing 与 NAPI：Coalescing 决定设备何时通知；NAPI 决定通知后怎样批量处理。
+* NAPI Budget 与 Ring Size：Budget 限制单轮 CPU 工作；Ring Size 决定硬件可缓存多少 Descriptor。
+* ``napi_disable`` 与停止硬件：Disable 只收束 Poll；DMA 和 IRQ 事件源必须由驱动另行停止。
+* Softirq 与 ``ksoftirqd``：同一 NAPI 工作可在中断返回 Softirq 或内核线程中执行，时延和调度条件不同。
+* Busy Poll 与普通 NAPI：Busy Poll 让应用主动寻找完成；普通 NAPI 由 IRQ/Softirq 调度，两者仍共享 Queue 和协议语义。
 
 一句话结论
 ----------
 
 NAPI 用一次 IRQ 换取一个受 Budget 控制的批处理窗口，正确性取决于 Schedule、Poll、Complete、IRQ Rearm 与设备 Queue 所有权形成无丢事件闭环。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 30，Network Device Drivers, NAPI, Queues, Offloads, and Packet Scheduling；
-* AIBook 章节：Chapter 148，NAPI Polling and Interrupt Mitigation；
-* 源文件：``docs/LinuxK/Part_30_Network_Device_Drivers_NAPI_Queues_Offloads_and_Packet_Scheduling/Chapter_148_NAPI_Polling_and_Interrupt_Mitigation.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_30_Network_Device_Drivers_NAPI_Queues_Offloads_and_Packet_Scheduling/Chapter_148_NAPI_Polling_and_Interrupt_Mitigation.md>`_。

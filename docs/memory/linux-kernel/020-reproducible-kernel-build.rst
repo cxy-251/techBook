@@ -100,33 +100,14 @@
 必须区分
 --------
 
-源码版本与源码目录名称
-   目录名称只是标签；commit、补丁集合和工作区状态才构成可验证的源码指纹。
-
-配置来源与最终配置
-   defconfig 或旧配置描述生成起点；Kconfig 求值后的最终 ``.config`` 才是实际构建输入。
-
-out-of-tree 构建与干净构建
-   ``O=`` 隔离输出位置；真正干净还要求新输出目录、可审计源码树和没有残留隐式输入。
-
-调试构建与生产构建
-   调试构建强调可观测性和检查；生产构建强调部署约束，两者的时序、布局和性能可能不同。
-
-构建完成与交付完成
-   构建完成得到镜像和模块；交付完成还要求匹配的 initramfs、符号、配置、清单和 bootloader 入口。
-
-版本字符串相同与构建相同
-   相同 ``uname -r`` 不保证二进制、配置、补丁和工具链相同；需要构建清单和哈希继续确认。
+* 源码版本与源码目录名称：目录名称只是标签；commit、补丁集合和工作区状态才构成可验证的源码指纹。
+* 配置来源与最终配置：defconfig 或旧配置描述生成起点；Kconfig 求值后的最终 ``.config`` 才是实际构建输入。
+* out-of-tree 构建与干净构建：``O=`` 隔离输出位置；真正干净还要求新输出目录、可审计源码树和没有残留隐式输入。
+* 调试构建与生产构建：调试构建强调可观测性和检查；生产构建强调部署约束，两者的时序、布局和性能可能不同。
+* 构建完成与交付完成：构建完成得到镜像和模块；交付完成还要求匹配的 initramfs、符号、配置、清单和 bootloader 入口。
+* 版本字符串相同与构建相同：相同 ``uname -r`` 不保证二进制、配置、补丁和工具链相同；需要构建清单和哈希继续确认。
 
 一句话结论
 ----------
 
 无法从明确输入稳定重建的内核，就无法可靠证明它的来源、解释它的差异、复现它的故障或安全地部署它。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 20，Engineering a Reproducible Kernel Build；
-* 源文件：``docs/LinuxK/Part_04_Kconfig_Kbuild_Modules_and_Kernel_Images/Chapter_020_Engineering_a_Reproducible_Kernel_Build.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_04_Kconfig_Kbuild_Modules_and_Kernel_Images/Chapter_020_Engineering_a_Reproducible_Kernel_Build.md>`_。

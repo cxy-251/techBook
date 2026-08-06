@@ -65,30 +65,13 @@
 必须区分
 --------
 
-负错误码与用户态 ``errno``
-   内核函数直接返回负错误码；用户态 C 库通常把它转换成 ``-1`` 和正值 ``errno``。
-
-``NULL`` 与错误指针
-   ``NULL`` 常表示没有对象；错误指针表示操作失败并携带具体错误原因，具体语义由接口决定。
-
-错误原因与清理阶段
-   错误码说明为什么失败；清理标签说明失败时函数已经承担哪些资源责任。
-
-成功申请与所有权移交
-   调用成功不一定表示当前函数长期拥有资源；必须查看接口是否把所有权交给调用者或其它对象。
-
-slow path 与错误路径
-   slow path 可以经过昂贵操作后成功；错误路径以失败、部分完成或回滚结束。
+* 负错误码与用户态 ``errno``：内核函数直接返回负错误码；用户态 C 库通常把它转换成 ``-1`` 和正值 ``errno``。
+* ``NULL`` 与错误指针：``NULL`` 常表示没有对象；错误指针表示操作失败并携带具体错误原因，具体语义由接口决定。
+* 错误原因与清理阶段：错误码说明为什么失败；清理标签说明失败时函数已经承担哪些资源责任。
+* 成功申请与所有权移交：调用成功不一定表示当前函数长期拥有资源；必须查看接口是否把所有权交给调用者或其它对象。
+* slow path 与错误路径：slow path 可以经过昂贵操作后成功；错误路径以失败、部分完成或回滚结束。
 
 一句话结论
 ----------
 
 可靠的内核错误处理必须同时回答两个问题：失败原因怎样向上传播，已经改变的资源和对象状态怎样完整回滚。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 13，Kernel Error Handling and Return Conventions；
-* 源文件：``docs/LinuxK/Part_03_Kernel_Code_Grammar_Core_APIs_and_C_Runtime_Constraints/Chapter_013_Kernel_Error_Handling_and_Return_Conventions.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_03_Kernel_Code_Grammar_Core_APIs_and_C_Runtime_Constraints/Chapter_013_Kernel_Error_Handling_and_Return_Conventions.md>`_。

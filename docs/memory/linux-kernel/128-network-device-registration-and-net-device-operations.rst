@@ -150,34 +150,14 @@ RX 与 NAPI：
 必须区分
 --------
 
-``net_device`` 与硬件总线设备
-   Netdev 表示网络接口；PCI/USB/platform device 表示承载它的硬件实例。
-
-接口 Up 与 Carrier Up
-   Up 表示管理状态已启动；carrier 表示链路可用，二者独立变化。
-
-``NETDEV_TX_OK`` 与 ``NETDEV_TX_BUSY``
-   OK 表示驱动消费 skb；BUSY 表示 skb 仍归网络核心，驱动不能释放或保存它。
-
-IRQ 与 NAPI
-   IRQ 快速确认并调度；NAPI 在 poll 中批量处理 packet 和完成队列。
-
-NAPI Disable 与 DMA Stop
-   Disable 收束 poll；硬件仍需单独停止 DMA 和中断源。
-
-接口注销与对象释放
-   Unregister 撤销网络栈入口；ring、硬件资源和 netdev 存储还需按引用与 teardown 顺序释放。
+* ``net_device`` 与硬件总线设备：Netdev 表示网络接口；PCI/USB/platform device 表示承载它的硬件实例。
+* 接口 Up 与 Carrier Up：Up 表示管理状态已启动；carrier 表示链路可用，二者独立变化。
+* ``NETDEV_TX_OK`` 与 ``NETDEV_TX_BUSY``：OK 表示驱动消费 skb；BUSY 表示 skb 仍归网络核心，驱动不能释放或保存它。
+* IRQ 与 NAPI：IRQ 快速确认并调度；NAPI 在 poll 中批量处理 packet 和完成队列。
+* NAPI Disable 与 DMA Stop：Disable 收束 poll；硬件仍需单独停止 DMA 和中断源。
+* 接口注销与对象释放：Unregister 撤销网络栈入口；ring、硬件资源和 netdev 存储还需按引用与 teardown 顺序释放。
 
 一句话结论
 ----------
 
 网络驱动用 ``net_device`` 向协议栈发布 packet/queue 接口，用 TX/RX DMA ring 和 NAPI 转移 ``sk_buff`` 所有权，并必须在队列背压、reset 和热拔插中完整收束每个 packet。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 26，Character Devices, Block Devices, Network Devices, and Misc Drivers；
-* AIBook 章节：Chapter 128，Network Device Registration and net_device Operations；
-* 源文件：``docs/LinuxK/Part_26_Character_Devices_Block_Devices_Network_Devices_and_Misc_Drivers/Chapter_128_Network_Device_Registration_and_net_device_Operations.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_26_Character_Devices_Block_Devices_Network_Devices_and_Misc_Drivers/Chapter_128_Network_Device_Registration_and_net_device_Operations.md>`_。

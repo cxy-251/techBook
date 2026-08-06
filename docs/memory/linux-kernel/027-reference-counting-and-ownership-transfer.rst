@@ -84,33 +84,14 @@
 必须区分
 --------
 
-引用与指针
-   指针只是地址值；引用表示当前路径拥有保证对象存活的生命周期权利。
-
-对象存活与对象可操作
-   引用保证内存仍存在；状态位和子系统规则决定新操作是否允许。
-
-引用计数与字段同步
-   引用计数保护对象生命期；锁、RCU 或原子操作保护字段并发一致性。
-
-借用与拥有
-   借用指针只能在原保护范围内使用；拥有引用允许对象跨越该范围继续存活。
-
-复制所有权与转移所有权
-   复制所有权需要新增引用；转移所有权把现有引用及其 ``put`` 责任交给接收方。
-
-注销与最后一次 put
-   注销阻止新持有者；最后一次 put 才触发对象最终释放。
+* 引用与指针：指针只是地址值；引用表示当前路径拥有保证对象存活的生命周期权利。
+* 对象存活与对象可操作：引用保证内存仍存在；状态位和子系统规则决定新操作是否允许。
+* 引用计数与字段同步：引用计数保护对象生命期；锁、RCU 或原子操作保护字段并发一致性。
+* 借用与拥有：借用指针只能在原保护范围内使用；拥有引用允许对象跨越该范围继续存活。
+* 复制所有权与转移所有权：复制所有权需要新增引用；转移所有权把现有引用及其 ``put`` 责任交给接收方。
+* 注销与最后一次 put：注销阻止新持有者；最后一次 put 才触发对象最终释放。
 
 一句话结论
 ----------
 
 引用计数是一份所有权账本：谁让对象跨越并发或异步边界，谁就必须取得引用，并确保最终有人归还它。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 27，Reference Counting and Ownership Transfer；
-* 源文件：``docs/LinuxK/Part_06_Kernel_Objects_Lifetimes_References_and_Error_Paths/Chapter_027_Reference_Counting_and_Ownership_Transfer.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_06_Kernel_Objects_Lifetimes_References_and_Error_Paths/Chapter_027_Reference_Counting_and_Ownership_Transfer.md>`_。

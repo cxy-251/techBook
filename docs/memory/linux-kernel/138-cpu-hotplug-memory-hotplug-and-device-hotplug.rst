@@ -123,31 +123,13 @@ Device Remove：
 必须区分
 --------
 
-Present 与 Online
-   对象存在不表示已进入普通调度、分配或 I/O 可用集合。
-
-撤销可见性与释放对象
-   从 sysfs/driver core 移除只阻止新查找；旧引用可能继续存活。
-
-Software Object Lifetime 与 Hardware Availability
-   对象可被引用保留；物理设备、CPU 或内存能力可能已经消失。
-
-Memory Free 与 Memory Removable
-   系统有空闲内存不表示目标物理范围内没有不可迁移页。
-
-Driver Unbind 与 Physical Remove
-   Unbind 改变驱动控制关系；physical remove 可能立即终止硬件访问。
+* Present 与 Online：对象存在不表示已进入普通调度、分配或 I/O 可用集合。
+* 撤销可见性与释放对象：从 sysfs/driver core 移除只阻止新查找；旧引用可能继续存活。
+* Software Object Lifetime 与 Hardware Availability：对象可被引用保留；物理设备、CPU 或内存能力可能已经消失。
+* Memory Free 与 Memory Removable：系统有空闲内存不表示目标物理范围内没有不可迁移页。
+* Driver Unbind 与 Physical Remove：Unbind 改变驱动控制关系；physical remove 可能立即终止硬件访问。
 
 一句话结论
 ----------
 
 热插拔把启动时的静态拓扑变成运行时状态机，正确退出取决于先撤销新工作、迁移或排空旧工作，再从可用集合移除并等待最后引用释放。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 28，Power Management, Hotplug, Firmware Loading, and Runtime PM；
-* AIBook 章节：Chapter 138，CPU Hotplug, Memory Hotplug, and Device Hotplug；
-* 源文件：``docs/LinuxK/Part_28_Power_Management_Hotplug_Firmware_Loading_and_Runtime_PM/Chapter_138_CPU_Hotplug_Memory_Hotplug_and_Device_Hotplug.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_28_Power_Management_Hotplug_Firmware_Loading_and_Runtime_PM/Chapter_138_CPU_Hotplug_Memory_Hotplug_and_Device_Hotplug.md>`_。

@@ -84,30 +84,13 @@
 必须区分
 --------
 
-内建代码与可加载模块
-   内建代码随镜像存在并参与启动；模块以独立文件交付，在运行时经过加载和卸载生命周期。
-
-``insmod`` 与 ``modprobe``
-   ``insmod`` 面向具体文件；``modprobe`` 面向模块名、别名、配置和依赖关系。
-
-模块文件存在与模块已加载
-   ``.ko`` 存在只说明文件可供尝试加载；``lsmod`` 或 ``/proc/modules`` 才说明模块已进入运行内核。
-
-模块加载成功与功能正确
-   加载成功只说明初始化入口返回成功；设备绑定、I/O、并发和错误恢复仍需单独验证。
-
-参数可写与参数安全
-   sysfs 权限允许写入不代表任意时刻修改都安全；参数 setter 必须维护运行对象一致性。
+* 内建代码与可加载模块：内建代码随镜像存在并参与启动；模块以独立文件交付，在运行时经过加载和卸载生命周期。
+* ``insmod`` 与 ``modprobe``：``insmod`` 面向具体文件；``modprobe`` 面向模块名、别名、配置和依赖关系。
+* 模块文件存在与模块已加载：``.ko`` 存在只说明文件可供尝试加载；``lsmod`` 或 ``/proc/modules`` 才说明模块已进入运行内核。
+* 模块加载成功与功能正确：加载成功只说明初始化入口返回成功；设备绑定、I/O、并发和错误恢复仍需单独验证。
+* 参数可写与参数安全：sysfs 权限允许写入不代表任意时刻修改都安全；参数 setter 必须维护运行对象一致性。
 
 一句话结论
 ----------
 
 可加载模块是具有完整内核权限和严格生命周期的运行时代码：加载前要匹配内核，初始化失败要回滚，卸载前要撤销全部入口并等待所有使用者离开。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 18，Loadable Kernel Modules；
-* 源文件：``docs/LinuxK/Part_04_Kconfig_Kbuild_Modules_and_Kernel_Images/Chapter_018_Loadable_Kernel_Modules.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_04_Kconfig_Kbuild_Modules_and_Kernel_Images/Chapter_018_Loadable_Kernel_Modules.md>`_。

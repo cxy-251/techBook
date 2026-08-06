@@ -117,34 +117,14 @@ GFP 选择：
 必须区分
 --------
 
-请求大小与 bucket 大小
-   请求大小定义合法对象边界；bucket 是分配器内部复用和对齐单位。
-
-``kmalloc`` 与 ``kzalloc``
-   前者内容未初始化；后者将请求区域清零，但不代替对象专用初始化。
-
-``GFP_NOWAIT`` 与 ``GFP_ATOMIC``
-   二者都不能正常睡眠回收；后者可尝试部分紧急保留，仍然没有成功保证。
-
-``GFP_NOIO`` 与 ``GFP_NOFS``
-   前者阻止回收进入 I/O；后者主要阻止进入文件系统递归路径。
-
-``krealloc`` 失败与成功
-   失败时原对象仍有效；成功时返回地址可能改变，旧指针不能继续使用。
-
-``kfree`` 与对象生命周期结束
-   ``kfree`` 归还存储；调用前必须先结束所有查找、引用和异步访问。
+* 请求大小与 bucket 大小：请求大小定义合法对象边界；bucket 是分配器内部复用和对齐单位。
+* ``kmalloc`` 与 ``kzalloc``：前者内容未初始化；后者将请求区域清零，但不代替对象专用初始化。
+* ``GFP_NOWAIT`` 与 ``GFP_ATOMIC``：二者都不能正常睡眠回收；后者可尝试部分紧急保留，仍然没有成功保证。
+* ``GFP_NOIO`` 与 ``GFP_NOFS``：前者阻止回收进入 I/O；后者主要阻止进入文件系统递归路径。
+* ``krealloc`` 失败与成功：失败时原对象仍有效；成功时返回地址可能改变，旧指针不能继续使用。
+* ``kfree`` 与对象生命周期结束：``kfree`` 归还存储；调用前必须先结束所有查找、引用和异步访问。
 
 一句话结论
 ----------
 
 ``kmalloc`` family 的正确使用不只是申请字节，而是用准确大小和 GFP 声明上下文、完整初始化对象、处理失败，并在所有并发使用结束后用匹配接口释放。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 16，Kernel Memory Allocation Slab, Slub, Vmalloc, and Per-CPU Memory；
-* AIBook 章节：Chapter 77，kmalloc, kfree, and Allocation Flags；
-* 源文件：``docs/LinuxK/Part_16_Kernel_Memory_Allocation_Slab_Slub_Vmalloc_and_Per_CPU_Memory/Chapter_077_kmalloc_kfree_and_Allocation_Flags.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_16_Kernel_Memory_Allocation_Slab_Slub_Vmalloc_and_Per_CPU_Memory/Chapter_077_kmalloc_kfree_and_Allocation_Flags.md>`_。

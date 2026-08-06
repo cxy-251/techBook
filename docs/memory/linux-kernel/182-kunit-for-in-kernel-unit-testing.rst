@@ -111,24 +111,14 @@ KUnit 对象链：
 必须区分
 --------
 
-* ``KUNIT_EXPECT_*``，与 ``KUNIT_ASSERT_*``；
-* 测试 Resource 生命周期，与生产对象生命周期；
-* UML 快速测试，与真实硬件验证；
-* 内建执行器，与 ``kunit.py`` 用户态工具；
-* KTAP ``ok``，与没有任何内核运行时警告；
+* ``KUNIT_EXPECT_*``，与 ``KUNIT_ASSERT_*``。
+* 测试 Resource 生命周期，与生产对象生命周期。
+* UML 快速测试，与真实硬件验证。
+* 内建执行器，与 ``kunit.py`` 用户态工具。
+* KTAP ``ok``，与没有任何内核运行时警告。
 * 内部逻辑正确，与用户态接口契约正确。
 
 一句话结论
 ----------
 
 KUnit 把内核内部函数和对象变成可直接构造、断言和自动清理的白盒测试单元，使错误路径在接触完整系统和真实硬件前就能被验证。
-
-来源
-----
-
-* 教材：AIBook《Linux Kernel》；
-* Part：Part 37：Kernel Testing KUnit, Kselftest, LTP, Fuzzing, Sanitizers, and Fault Injection；
-* 章节：Chapter 182: KUnit for In-Kernel Unit Testing；
-* 源文件：``docs/LinuxK/Part_37_Kernel_Testing_KUnit_Kselftest_LTP_Fuzzing_Sanitizers_and_Fault_Injection/Chapter_182_KUnit_for_In_Kernel_Unit_Testing.md``；
-* 固定版本：``18386764582829f2b807b7b0947785eb77b50446``；
-* 固定链接：https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_37_Kernel_Testing_KUnit_Kselftest_LTP_Fuzzing_Sanitizers_and_Fault_Injection/Chapter_182_KUnit_for_In_Kernel_Unit_Testing.md

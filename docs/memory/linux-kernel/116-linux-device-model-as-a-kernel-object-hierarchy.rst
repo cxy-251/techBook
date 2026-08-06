@@ -137,34 +137,14 @@
 必须区分
 --------
 
-``struct device`` 与总线专用设备对象
-   Device 是公共身份；PCI、USB、platform 等宿主对象保存总线专用状态。
-
-Bus 与 Class
-   Bus 负责设备—驱动匹配；class 按用户空间功能组织已经存在的设备。
-
-Match 成功与 Probe 成功
-   Match 只确认候选兼容；probe 成功才表示驱动完成实例初始化和绑定。
-
-``device_del`` 与对象释放
-   Del 撤销设备模型可见性；内存要等所有引用归零并进入 release 回调。
-
-对象内存存活与硬件可用
-   引用可以保留软件对象；设备移除后硬件访问必须由退出状态禁止。
-
-Uevent 与设备状态
-   Uevent 是变化通知；完整状态需要重新查询 sysfs、驱动和子系统对象。
+* ``struct device`` 与总线专用设备对象：Device 是公共身份；PCI、USB、platform 等宿主对象保存总线专用状态。
+* Bus 与 Class：Bus 负责设备—驱动匹配；class 按用户空间功能组织已经存在的设备。
+* Match 成功与 Probe 成功：Match 只确认候选兼容；probe 成功才表示驱动完成实例初始化和绑定。
+* ``device_del`` 与对象释放：Del 撤销设备模型可见性；内存要等所有引用归零并进入 release 回调。
+* 对象内存存活与硬件可用：引用可以保留软件对象；设备移除后硬件访问必须由退出状态禁止。
+* Uevent 与设备状态：Uevent 是变化通知；完整状态需要重新查询 sysfs、驱动和子系统对象。
 
 一句话结论
 ----------
 
 Linux 设备模型用 ``struct device`` 把不同总线实例接入统一父子层级，再由 bus 匹配 driver、class 提供功能视图，并用 kobject 引用与 uevent 管理可见性和最终释放。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 24，Device Model, Kobject, Sysfs, Driver Core, and Device Lifetime；
-* AIBook 章节：Chapter 116，Linux Device Model as a Kernel Object Hierarchy；
-* 源文件：``docs/LinuxK/Part_24_Device_Model_Kobject_Sysfs_Driver_Core_and_Device_Lifetime/Chapter_116_Linux_Device_Model_as_a_Kernel_Object_Hierarchy.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_24_Device_Model_Kobject_Sysfs_Driver_Core_and_Device_Lifetime/Chapter_116_Linux_Device_Model_as_a_Kernel_Object_Hierarchy.md>`_。

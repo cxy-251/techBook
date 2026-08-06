@@ -144,31 +144,13 @@
 必须区分
 --------
 
-完整协议语义与最短处理路径
-   传统栈提供可靠性、策略和兼容性；早期路径只适合所需信息更少的决策。
-
-每 Packet 成本与每 Byte 成本
-   小 Packet 放大对象与分派开销；大 Packet 更容易受复制和内存带宽限制。
-
-队列吸收 Burst 与持续积压
-   短时 Backlog 是缓冲；服务速率长期低于到达速率才形成延迟和 Drop。
-
-Zero-copy 与零管理成本
-   减少 Payload Copy 后，Ring、同步、NUMA、轮询和用户逻辑仍有成本。
-
-抓包可见性与实际 Packet 路径
-   抓取点只看到路径的一部分，早期 Drop、Redirect 和 Offload 会改变可见形态。
+* 完整协议语义与最短处理路径：传统栈提供可靠性、策略和兼容性；早期路径只适合所需信息更少的决策。
+* 每 Packet 成本与每 Byte 成本：小 Packet 放大对象与分派开销；大 Packet 更容易受复制和内存带宽限制。
+* 队列吸收 Burst 与持续积压：短时 Backlog 是缓冲；服务速率长期低于到达速率才形成延迟和 Drop。
+* Zero-copy 与零管理成本：减少 Payload Copy 后，Ring、同步、NUMA、轮询和用户逻辑仍有成本。
+* 抓包可见性与实际 Packet 路径：抓取点只看到路径的一部分，早期 Drop、Redirect 和 Offload 会改变可见形态。
 
 一句话结论
 ----------
 
 传统网络栈用每 Packet 对象、队列和策略成本换取完整通用语义；高性能优化必须先证明哪些语义不需要，再把决策前移，而不是盲目绕过内核。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 31，High Performance Networking XDP, eBPF, Zero Copy, and AF_XDP；
-* AIBook 章节：Chapter 151，Traditional Network Stack Cost Model；
-* 源文件：``docs/LinuxK/Part_31_High_Performance_Networking_XDP_eBPF_Zero_Copy_and_AF_XDP/Chapter_151_Traditional_Network_Stack_Cost_Model.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_31_High_Performance_Networking_XDP_eBPF_Zero_Copy_and_AF_XDP/Chapter_151_Traditional_Network_Stack_Cost_Model.md>`_。

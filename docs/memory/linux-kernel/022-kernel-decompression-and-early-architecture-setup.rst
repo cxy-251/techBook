@@ -86,30 +86,13 @@ arm64 典型主路径：
 必须区分
 --------
 
-压缩启动镜像与 ``vmlinux``
-   启动镜像面向 bootloader 和架构启动协议；``vmlinux`` 是链接后的内核 ELF 和调试依据。
-
-解压代码与完整内核
-   解压 stub 只能使用极少的早期能力；进入解压代码不表示通用内核设施已经可用。
-
-物理地址与虚拟地址
-   物理地址表示真实内存位置；虚拟地址由页表解释，内核链接符号通常依赖内核虚拟地址布局。
-
-identity mapping 与 kernel mapping
-   identity mapping 主要支撑切换和当前代码执行；kernel mapping 支撑正式内核虚拟地址访问。
-
-总内存与可用内存
-   固件报告的 RAM 总量还要扣除内核、initramfs、固件、设备和其它保留范围，才能成为早期可分配内存。
+* 压缩启动镜像与 ``vmlinux``：启动镜像面向 bootloader 和架构启动协议；``vmlinux`` 是链接后的内核 ELF 和调试依据。
+* 解压代码与完整内核：解压 stub 只能使用极少的早期能力；进入解压代码不表示通用内核设施已经可用。
+* 物理地址与虚拟地址：物理地址表示真实内存位置；虚拟地址由页表解释，内核链接符号通常依赖内核虚拟地址布局。
+* identity mapping 与 kernel mapping：identity mapping 主要支撑切换和当前代码执行；kernel mapping 支撑正式内核虚拟地址访问。
+* 总内存与可用内存：固件报告的 RAM 总量还要扣除内核、initramfs、固件、设备和其它保留范围，才能成为早期可分配内存。
 
 一句话结论
 ----------
 
 内核在管理系统之前，必须先把自己解压或放置到正确位置，建立 CPU、页表、栈和早期内存管理，随后才能进入 ``start_kernel()`` 的通用初始化。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 22，Kernel Decompression and Early Architecture Setup；
-* 源文件：``docs/LinuxK/Part_05_Boot_Sequence_Initcalls_and_Early_Kernel_Initialization/Chapter_022_Kernel_Decompression_and_Early_Architecture_Setup.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_05_Boot_Sequence_Initcalls_and_Early_Kernel_Initialization/Chapter_022_Kernel_Decompression_and_Early_Architecture_Setup.md>`_。

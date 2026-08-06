@@ -61,27 +61,12 @@
 必须区分
 --------
 
-结构体定义与运行对象
-   结构体定义描述内存布局；分配、初始化、注册和生命周期规则使实例成为运行对象。
-
-成员地址与宿主对象有效性
-   ``container_of`` 能计算宿主地址；它不能保证该地址对应的对象仍然存活。
-
-从集合删除与释放对象
-   删除节点只改变集合关系；对象是否释放由所有权和引用规则决定。
-
-操作表字段与具体函数
-   字段只是回调槽位；具体目标由某个操作表实例中的赋值决定。
+* 结构体定义与运行对象：结构体定义描述内存布局；分配、初始化、注册和生命周期规则使实例成为运行对象。
+* 成员地址与宿主对象有效性：``container_of`` 能计算宿主地址；它不能保证该地址对应的对象仍然存活。
+* 从集合删除与释放对象：删除节点只改变集合关系；对象是否释放由所有权和引用规则决定。
+* 操作表字段与具体函数：字段只是回调槽位；具体目标由某个操作表实例中的赋值决定。
 
 一句话结论
 ----------
 
 内核结构体不是字段清单，而是对象模型；嵌入、集合、操作表和生命周期规则共同决定对象怎样被找到、调用和释放。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 8，Reading Kernel Data Structures；
-* 源文件：``docs/LinuxK/Part_02_Kernel_Source_Tree_and_Code_Navigation/Chapter_008_Reading_Kernel_Data_Structures.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_02_Kernel_Source_Tree_and_Code_Navigation/Chapter_008_Reading_Kernel_Data_Structures.md>`_。

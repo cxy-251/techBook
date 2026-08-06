@@ -101,34 +101,14 @@
 必须区分
 --------
 
-VMA 存在与页面 present
-   VMA 定义范围；present 表示某个具体虚拟页当前有可用页表映射。
-
-虚拟大小与驻留大小
-   Size 是地址范围；RSS 是当前驻留页，PSS 是共享页按比例分摊。
-
-Minor fault 与 major fault
-   Minor 不需要慢速存储 I/O；major 需要文件或 swap I/O。
-
-``SEGV_MAPERR`` 与 ``SEGV_ACCERR``
-   前者通常是映射缺失；后者通常是映射存在但权限不允许。
-
-PFN 为 0 与页面不存在
-   PFN 可能因权限被屏蔽，必须结合 present 和权限环境解释。
-
-瞬时证据与稳定状态
-   Procfs 输出可能在读取时变化，复杂结论需要多次采样和 trace 时间线。
+* VMA 存在与页面 present：VMA 定义范围；present 表示某个具体虚拟页当前有可用页表映射。
+* 虚拟大小与驻留大小：Size 是地址范围；RSS 是当前驻留页，PSS 是共享页按比例分摊。
+* Minor fault 与 major fault：Minor 不需要慢速存储 I/O；major 需要文件或 swap I/O。
+* ``SEGV_MAPERR`` 与 ``SEGV_ACCERR``：前者通常是映射缺失；后者通常是映射存在但权限不允许。
+* PFN 为 0 与页面不存在：PFN 可能因权限被屏蔽，必须结合 present 和权限环境解释。
+* 瞬时证据与稳定状态：Procfs 输出可能在读取时变化，复杂结论需要多次采样和 trace 时间线。
 
 一句话结论
 ----------
 
 页表调试必须按“地址 → VMA → 页表项 → 页面后端 → fault 结果”逐层取证，任何单个地址、RSS、PFN 或 SIGSEGV 都不足以独立解释根因。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 14，Virtual Memory, Address Spaces, and Page Tables；
-* AIBook 章节：Chapter 70，Page Table Debugging and Address Translation Evidence；
-* 源文件：``docs/LinuxK/Part_14_Virtual_Memory_Address_Spaces_and_Page_Tables/Chapter_070_Page_Table_Debugging_and_Address_Translation_Evidence.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_14_Virtual_Memory_Address_Spaces_and_Page_Tables/Chapter_070_Page_Table_Debugging_and_Address_Translation_Evidence.md>`_。

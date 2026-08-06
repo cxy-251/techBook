@@ -58,27 +58,12 @@
 必须区分
 --------
 
-入口函数与最终实现
-   入口负责接收请求；最终实现由对象类型、操作表和运行状态决定。
-
-直接调用与回调分派
-   直接调用的目标写在源码中；回调目标保存在运行时对象的函数指针中。
-
-进程上下文与中断上下文
-   进程上下文可能允许阻塞；中断上下文不能睡眠，也没有普通系统调用的用户执行语义。
-
-源码目录与运行路径
-   目录表示代码组织边界；运行路径由对象交接、回调和状态变化连接起来。
+* 入口函数与最终实现：入口负责接收请求；最终实现由对象类型、操作表和运行状态决定。
+* 直接调用与回调分派：直接调用的目标写在源码中；回调目标保存在运行时对象的函数指针中。
+* 进程上下文与中断上下文：进程上下文可能允许阻塞；中断上下文不能睡眠，也没有普通系统调用的用户执行语义。
+* 源码目录与运行路径：目录表示代码组织边界；运行路径由对象交接、回调和状态变化连接起来。
 
 一句话结论
 ----------
 
 阅读 Linux 内核时，先问“当前是哪条路径、什么对象、什么上下文”，再问“代码在哪个文件”。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 2，The Programmers Confusion About the Kernel；
-* 源文件：``docs/LinuxK/Part_01_Kernel_Worldview_and_Engineering_Mental_Model/Chapter_002_The_Programmers_Confusion_About_the_Kernel.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_01_Kernel_Worldview_and_Engineering_Mental_Model/Chapter_002_The_Programmers_Confusion_About_the_Kernel.md>`_。

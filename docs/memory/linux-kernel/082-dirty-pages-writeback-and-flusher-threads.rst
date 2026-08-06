@@ -127,34 +127,14 @@ Buffered write 到后台回写：
 必须区分
 --------
 
-Dirty 与 Writeback
-   Dirty 表示等待提交的修改；writeback 表示正在向后端提交，folio 仍可能被再次写脏。
-
-后台回写与写入者限速
-   前者由 worker 消化脏页；后者把压力反馈给产生脏数据的任务。
-
-``write`` 成功与 ``fsync`` 成功
-   前者通常完成缓存写入；后者还要等待数据、必要元数据和延迟错误处理。
-
-Writeback 完成与稳定介质
-   I/O 完成需要结合文件系统日志、设备缓存 flush 和硬件语义才能形成持久化结论。
-
-全局脏页与局部写回域
-   整机 Dirty 是汇总值；实际限速可能发生在某个 BDI、memcg 或文件系统域内。
-
-调高阈值与提高吞吐
-   阈值改变缓冲和延迟分布，不会突破后端持续写入能力。
+* Dirty 与 Writeback：Dirty 表示等待提交的修改；writeback 表示正在向后端提交，folio 仍可能被再次写脏。
+* 后台回写与写入者限速：前者由 worker 消化脏页；后者把压力反馈给产生脏数据的任务。
+* ``write`` 成功与 ``fsync`` 成功：前者通常完成缓存写入；后者还要等待数据、必要元数据和延迟错误处理。
+* Writeback 完成与稳定介质：I/O 完成需要结合文件系统日志、设备缓存 flush 和硬件语义才能形成持久化结论。
+* 全局脏页与局部写回域：整机 Dirty 是汇总值；实际限速可能发生在某个 BDI、memcg 或文件系统域内。
+* 调高阈值与提高吞吐：阈值改变缓冲和延迟分布，不会突破后端持续写入能力。
 
 一句话结论
 ----------
 
 Writeback 把 buffered write 形成的脏内存按后端设备和文件组织起来，后台线程负责提交，脏页阈值则把设备消化能力反向施加给写入者。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 17，Page Cache, Writeback, Reclaim, Compaction, and OOM；
-* AIBook 章节：Chapter 82，Dirty Pages, Writeback, and Flusher Threads；
-* 源文件：``docs/LinuxK/Part_17_Page_Cache_Writeback_Reclaim_Compaction_and_OOM/Chapter_082_Dirty_Pages_Writeback_and_Flusher_Threads.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_17_Page_Cache_Writeback_Reclaim_Compaction_and_OOM/Chapter_082_Dirty_Pages_Writeback_and_Flusher_Threads.md>`_。

@@ -102,30 +102,13 @@
 必须区分
 --------
 
-参数文本与参数生效
-   命令行出现某个字符串只证明它被传入；对应注册点、解析返回值和运行对象状态才能证明它生效。
-
-``early_param`` 与 ``__setup``
-   ``early_param`` 服务最早期环境；``__setup`` 在稍后的启动阶段处理普通核心参数。
-
-``core_param`` 与 ``module_param``
-   ``core_param`` 面向核心内核变量且无普通模块名前缀；``module_param`` 面向内建组件或可加载模块参数。
-
-``init=`` 与 ``rdinit=``
-   ``rdinit=`` 选择 initramfs 中的 init；``init=`` 选择切换到最终根文件系统后执行的 init。
-
-未知参数与无效参数
-   未知参数可能被传给模块或 PID 1；被接收不代表它对内核产生了预期作用。
+* 参数文本与参数生效：命令行出现某个字符串只证明它被传入；对应注册点、解析返回值和运行对象状态才能证明它生效。
+* ``early_param`` 与 ``__setup``：``early_param`` 服务最早期环境；``__setup`` 在稍后的启动阶段处理普通核心参数。
+* ``core_param`` 与 ``module_param``：``core_param`` 面向核心内核变量且无普通模块名前缀；``module_param`` 面向内建组件或可加载模块参数。
+* ``init=`` 与 ``rdinit=``：``rdinit=`` 选择 initramfs 中的 init；``init=`` 选择切换到最终根文件系统后执行的 init。
+* 未知参数与无效参数：未知参数可能被传给模块或 PID 1；被接收不代表它对内核产生了预期作用。
 
 一句话结论
 ----------
 
 内核命令行不是一张同时解析的键值表，而是一组按启动阶段登记和扫描的控制接口；判断参数必须同时看注册宏、解析时机和目标状态。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 23，Kernel Command Line and Early Parameters；
-* 源文件：``docs/LinuxK/Part_05_Boot_Sequence_Initcalls_and_Early_Kernel_Initialization/Chapter_023_Kernel_Command_Line_and_Early_Parameters.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_05_Boot_Sequence_Initcalls_and_Early_Kernel_Initialization/Chapter_023_Kernel_Command_Line_and_Early_Parameters.md>`_。

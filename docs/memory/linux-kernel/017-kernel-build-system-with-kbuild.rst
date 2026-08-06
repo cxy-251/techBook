@@ -78,30 +78,13 @@
 必须区分
 --------
 
-运行时调用链与构建依赖链
-   调用链说明代码执行时谁调用谁；构建链说明哪些文件被编译、组合和链接。
-
-目录中的 ``obj-y`` 与最终内建
-   当前目录的 ``obj-y`` 还受父目录进入方式控制，必须沿父目录规则向上确认。
-
-``built-in.a`` 与 ``vmlinux``
-   ``built-in.a`` 是目录级内建对象集合；``vmlinux`` 是所有内建链条完成最终链接后的内核 ELF。
-
-编译通过与模块可加载
-   编译通过不保证符号可解析、版本匹配、签名合格或初始化成功。
-
-导出符号与普通全局符号
-   普通全局符号不自动对模块可见；模块只能可靠引用内核明确导出的符号。
+* 运行时调用链与构建依赖链：调用链说明代码执行时谁调用谁；构建链说明哪些文件被编译、组合和链接。
+* 目录中的 ``obj-y`` 与最终内建：当前目录的 ``obj-y`` 还受父目录进入方式控制，必须沿父目录规则向上确认。
+* ``built-in.a`` 与 ``vmlinux``：``built-in.a`` 是目录级内建对象集合；``vmlinux`` 是所有内建链条完成最终链接后的内核 ELF。
+* 编译通过与模块可加载：编译通过不保证符号可解析、版本匹配、签名合格或初始化成功。
+* 导出符号与普通全局符号：普通全局符号不自动对模块可见；模块只能可靠引用内核明确导出的符号。
 
 一句话结论
 ----------
 
 Kbuild 是配置到产物的依赖图：父目录决定是否进入，子目录决定编译什么，built-in 链接成 ``vmlinux``，module 链经过符号检查生成 ``.ko``。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 17，Kernel Build System with Kbuild；
-* 源文件：``docs/LinuxK/Part_04_Kconfig_Kbuild_Modules_and_Kernel_Images/Chapter_017_Kernel_Build_System_with_Kbuild.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_04_Kconfig_Kbuild_Modules_and_Kernel_Images/Chapter_017_Kernel_Build_System_with_Kbuild.md>`_。

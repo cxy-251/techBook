@@ -109,25 +109,15 @@
 必须区分
 --------
 
-* 返回错误码，与失败后系统仍可信；
-* 单元测试，与用户态契约测试；
-* 测试未复现，与缺陷不存在；
-* Coverage，与正确性断言；
-* ``SKIP``，与 ``PASS``；
-* Mock 环境结论，与真实硬件结论；
+* 返回错误码，与失败后系统仍可信。
+* 单元测试，与用户态契约测试。
+* 测试未复现，与缺陷不存在。
+* Coverage，与正确性断言。
+* ``SKIP``，与 ``PASS``。
+* Mock 环境结论，与真实硬件结论。
 * 同步函数被调用，与异步活动真正收束。
 
 一句话结论
 ----------
 
 内核测试的核心不是让某个函数返回预期值，而是在危险 Context、并发和失败条件下证明对象、资源与整个系统仍保持可信。
-
-来源
-----
-
-* 教材：AIBook《Linux Kernel》；
-* Part：Part 37：Kernel Testing KUnit, Kselftest, LTP, Fuzzing, Sanitizers, and Fault Injection；
-* 章节：Chapter 181: Kernel Testing Boundary and Failure Model；
-* 源文件：``docs/LinuxK/Part_37_Kernel_Testing_KUnit_Kselftest_LTP_Fuzzing_Sanitizers_and_Fault_Injection/Chapter_181_Kernel_Testing_Boundary_and_Failure_Model.md``；
-* 固定版本：``18386764582829f2b807b7b0947785eb77b50446``；
-* 固定链接：https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_37_Kernel_Testing_KUnit_Kselftest_LTP_Fuzzing_Sanitizers_and_Fault_Injection/Chapter_181_Kernel_Testing_Boundary_and_Failure_Model.md

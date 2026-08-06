@@ -146,31 +146,13 @@ User Namespace 映射：
 必须区分
 --------
 
-``task_struct`` 与 PID 数字
-   Task 是执行实体；PID 是该实体在特定 PID Namespace 中的名字。
-
-Mount Namespace 与文件副本
-   Mount Namespace 隔离路径关系，底层 Inode、Superblock 和 Page Cache 可以共享。
-
-Network Namespace 与网络可达
-   独立网络栈只建立隔离边界，通信仍需要设备、地址、路由和过滤配置。
-
-容器内 UID 0 与宿主 Root
-   子 User Namespace 的 Root 权力受 ID Mapping、Capability 范围和目标对象所有者限制。
-
-UTS Hostname 与网络身份
-   Hostname 是 UTS 视图字段，不自动决定 DNS、IP 地址或外部认证身份。
+* ``task_struct`` 与 PID 数字：Task 是执行实体；PID 是该实体在特定 PID Namespace 中的名字。
+* Mount Namespace 与文件副本：Mount Namespace 隔离路径关系，底层 Inode、Superblock 和 Page Cache 可以共享。
+* Network Namespace 与网络可达：独立网络栈只建立隔离边界，通信仍需要设备、地址、路由和过滤配置。
+* 容器内 UID 0 与宿主 Root：子 User Namespace 的 Root 权力受 ID Mapping、Capability 范围和目标对象所有者限制。
+* UTS Hostname 与网络身份：Hostname 是 UTS 视图字段，不自动决定 DNS、IP 地址或外部认证身份。
 
 一句话结论
 ----------
 
 每种 Namespace 都只隔离一种全局资源视图；容器隔离来自多张视图按正确顺序组合，而不是复制一台独立内核机器。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 32，Namespaces, Cgroups, Resource Control, and Container Internals；
-* AIBook 章节：Chapter 157，PID, Mount, Network, User, IPC, UTS, and Time Namespaces；
-* 源文件：``docs/LinuxK/Part_32_Namespaces_Cgroups_Resource_Control_and_Container_Internals/Chapter_157_PID_Mount_Network_User_IPC_UTS_and_Time_Namespaces.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_32_Namespaces_Cgroups_Resource_Control_and_Container_Internals/Chapter_157_PID_Mount_Network_User_IPC_UTS_and_Time_Namespaces.md>`_。

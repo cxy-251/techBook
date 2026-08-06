@@ -131,34 +131,14 @@ THP fault：
 必须区分
 --------
 
-容量不足与外部碎片
-   容量不足缺少可用页总数；外部碎片缺少目标 order 的连续形状。
-
-Reclaim 与 Compaction
-   Reclaim 释放页；compaction 迁移页并整理物理布局。
-
-Direct compaction 与 ``kcompactd``
-   前者由当前分配任务同步承担；后者在后台提前整理 node。
-
-THP 与 HugeTLB
-   THP 透明使用且常可回退基础页；HugeTLB 使用显式页池和独立配额，失败语义更严格。
-
-物理连续与设备连续
-   物理连续是页框相邻；设备可能通过 IOMMU 或 scatter-gather 使用分散页，必须由 DMA API 定义。
-
-高阶失败与 OOM
-   高阶请求可因形状失败；OOM 处理约束域内无法恢复的容量危机，两者不能等同。
+* 容量不足与外部碎片：容量不足缺少可用页总数；外部碎片缺少目标 order 的连续形状。
+* Reclaim 与 Compaction：Reclaim 释放页；compaction 迁移页并整理物理布局。
+* Direct compaction 与 ``kcompactd``：前者由当前分配任务同步承担；后者在后台提前整理 node。
+* THP 与 HugeTLB：THP 透明使用且常可回退基础页；HugeTLB 使用显式页池和独立配额，失败语义更严格。
+* 物理连续与设备连续：物理连续是页框相邻；设备可能通过 IOMMU 或 scatter-gather 使用分散页，必须由 DMA API 定义。
+* 高阶失败与 OOM：高阶请求可因形状失败；OOM 处理约束域内无法恢复的容量危机，两者不能等同。
 
 一句话结论
 ----------
 
 Compaction 通过迁移可移动页恢复物理内存的连续形状，高阶页、THP、HugeTLB 与 DMA 都必须按各自的连续性、回退和生命周期语义分析。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 17，Page Cache, Writeback, Reclaim, Compaction, and OOM；
-* AIBook 章节：Chapter 84，Compaction, Fragmentation, and Huge Page Pressure；
-* 源文件：``docs/LinuxK/Part_17_Page_Cache_Writeback_Reclaim_Compaction_and_OOM/Chapter_084_Compaction_Fragmentation_and_Huge_Page_Pressure.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_17_Page_Cache_Writeback_Reclaim_Compaction_and_OOM/Chapter_084_Compaction_Fragmentation_and_Huge_Page_Pressure.md>`_。

@@ -89,37 +89,15 @@
 必须区分
 --------
 
-fd 与 ``struct file``
-   fd 是进程表中的整数索引；``struct file`` 是内核中的打开对象。
-
-``struct file`` 与 ``struct inode``
-   ``file`` 表示一次打开关系；``inode`` 表示文件系统对象身份和元数据。
-
-fd 表共享与 file 对象共享
-   任务可以拥有不同 ``files_struct``，其中的表项仍可指向同一个 ``struct file``。
-
-``dup`` 与重新打开
-   ``dup`` 共享同一个打开对象和偏移；重新 ``open`` 通常创建新的 ``struct file``。
-
-``close`` 与对象立即销毁
-   ``close`` 只释放当前 fd 引用；其它 fd、进程或内核引用仍可让对象存活。
-
-fd 数值与对象身份
-   fd 关闭后可立即复用，整数相同不代表对象相同。
-
-``FD_CLOEXEC`` 与 ``O_CLOEXEC``
-   前者是表项状态；后者要求创建时原子设置，避免多线程继承竞态。
+* fd 与 ``struct file``：fd 是进程表中的整数索引；``struct file`` 是内核中的打开对象。
+* ``struct file`` 与 ``struct inode``：``file`` 表示一次打开关系；``inode`` 表示文件系统对象身份和元数据。
+* fd 表共享与 file 对象共享：任务可以拥有不同 ``files_struct``，其中的表项仍可指向同一个 ``struct file``。
+* ``dup`` 与重新打开：``dup`` 共享同一个打开对象和偏移；重新 ``open`` 通常创建新的 ``struct file``。
+* ``close`` 与对象立即销毁：``close`` 只释放当前 fd 引用；其它 fd、进程或内核引用仍可让对象存活。
+* fd 数值与对象身份：fd 关闭后可立即复用，整数相同不代表对象相同。
+* ``FD_CLOEXEC`` 与 ``O_CLOEXEC``：前者是表项状态；后者要求创建时原子设置，避免多线程继承竞态。
 
 一句话结论
 ----------
 
 fd 是用户态索引，``struct file`` 是内核打开对象，``file_operations`` 决定实际行为；dup、fork、exec 和 close 只是在改变对象引用与 fd 表边界。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 8，User-Kernel Boundary and System Call Path；
-* AIBook 章节：Chapter 39，File Descriptors, Handles, and Kernel Objects；
-* 源文件：``docs/LinuxK/Part_08_User_Kernel_Boundary_and_System_Call_Path/Chapter_039_File_Descriptors_Handles_and_Kernel_Objects.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_08_User_Kernel_Boundary_and_System_Call_Path/Chapter_039_File_Descriptors_Handles_and_Kernel_Objects.md>`_。

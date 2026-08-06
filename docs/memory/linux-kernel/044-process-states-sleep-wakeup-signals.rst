@@ -95,37 +95,15 @@
 必须区分
 --------
 
-可运行与正在运行
-   ``TASK_RUNNING`` 同时覆盖 CPU 上执行和 runqueue 中等待的 task。
-
-可中断睡眠与不可中断睡眠
-   可中断睡眠允许信号改变等待路径；不可中断睡眠主要等待内核条件完成。
-
-睡眠与停止
-   睡眠来自代码等待条件；停止常来自作业控制或调试器。
-
-唤醒与立即执行
-   wakeup 只让 task 重新可运行，真正执行仍由调度器决定。
-
-zombie 与正在运行的进程
-   zombie 已停止执行，只等待父进程读取退出信息。
-
-信号 pending 与用户 handler 执行
-   pending 是内核中的待处理状态；handler 通常在返回用户态时才获得执行机会。
-
-长时间 ``D`` 与死锁
-   ``D`` 是等待状态证据；死锁还需要证明条件永远无法满足或存在循环依赖。
+* 可运行与正在运行：``TASK_RUNNING`` 同时覆盖 CPU 上执行和 runqueue 中等待的 task。
+* 可中断睡眠与不可中断睡眠：可中断睡眠允许信号改变等待路径；不可中断睡眠主要等待内核条件完成。
+* 睡眠与停止：睡眠来自代码等待条件；停止常来自作业控制或调试器。
+* 唤醒与立即执行：wakeup 只让 task 重新可运行，真正执行仍由调度器决定。
+* zombie 与正在运行的进程：zombie 已停止执行，只等待父进程读取退出信息。
+* 信号 pending 与用户 handler 执行：pending 是内核中的待处理状态；handler 通常在返回用户态时才获得执行机会。
+* 长时间 ``D`` 与死锁：``D`` 是等待状态证据；死锁还需要证明条件永远无法满足或存在循环依赖。
 
 一句话结论
 ----------
 
 Task 的“卡住”本质上通常是等待条件：睡眠路径把 task 放入等待队列，事件或信号使其重新可运行，调度器再决定何时继续执行。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 9，Process, Thread, Task Struct, and Execution Context；
-* AIBook 章节：Chapter 44，Process States, Sleep, Wakeup, and Signals；
-* 源文件：``docs/LinuxK/Part_09_Process_Thread_Task_Struct_and_Execution_Context/Chapter_044_Process_States_Sleep_Wakeup_and_Signals.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_09_Process_Thread_Task_Struct_and_Execution_Context/Chapter_044_Process_States_Sleep_Wakeup_and_Signals.md>`_。

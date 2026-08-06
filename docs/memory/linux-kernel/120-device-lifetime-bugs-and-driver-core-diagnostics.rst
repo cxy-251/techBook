@@ -164,34 +164,14 @@ Probe 失败：
 必须区分
 --------
 
-Probe unwind 与 Remove
-   前者撤销半初始化资源；后者必须先撤销已发布接口并处理并发使用者。
-
-对象引用与硬件可用性
-   引用保留软件内存；removed 状态决定是否还能访问设备。
-
-Sysfs 消失与 Release 执行
-   可见性可以先撤销；最终释放要等全部引用结束。
-
-Cancel 与 Flush
-   Cancel 尝试阻止待执行工作并等待运行实例；flush 要求已排队工作完成，语义依具体对象。
-
-RCU Grace Period 与全部使用者结束
-   RCU 只等待对应读侧；普通引用、DMA、IRQ、work 和 fd 需独立收束。
-
-Devm 自动释放与完整 Teardown
-   Devres 归还挂载资源；业务接口、异步执行和对象引用仍由驱动负责。
+* Probe unwind 与 Remove：前者撤销半初始化资源；后者必须先撤销已发布接口并处理并发使用者。
+* 对象引用与硬件可用性：引用保留软件内存；removed 状态决定是否还能访问设备。
+* Sysfs 消失与 Release 执行：可见性可以先撤销；最终释放要等全部引用结束。
+* Cancel 与 Flush：Cancel 尝试阻止待执行工作并等待运行实例；flush 要求已排队工作完成，语义依具体对象。
+* RCU Grace Period 与全部使用者结束：RCU 只等待对应读侧；普通引用、DMA、IRQ、work 和 fd 需独立收束。
+* Devm 自动释放与完整 Teardown：Devres 归还挂载资源；业务接口、异步执行和对象引用仍由驱动负责。
 
 一句话结论
 ----------
 
 设备生命周期正确性的唯一可靠顺序是先撤销所有新入口，再同步并排空旧访问，最后让引用归零进入 release；任何颠倒都会形成泄漏、卡死或 use-after-free。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 24，Device Model, Kobject, Sysfs, Driver Core, and Device Lifetime；
-* AIBook 章节：Chapter 120，Device Lifetime Bugs and Driver Core Diagnostics；
-* 源文件：``docs/LinuxK/Part_24_Device_Model_Kobject_Sysfs_Driver_Core_and_Device_Lifetime/Chapter_120_Device_Lifetime_Bugs_and_Driver_Core_Diagnostics.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_24_Device_Model_Kobject_Sysfs_Driver_Core_and_Device_Lifetime/Chapter_120_Device_Lifetime_Bugs_and_Driver_Core_Diagnostics.md>`_。

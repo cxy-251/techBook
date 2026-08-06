@@ -183,31 +183,13 @@ NAPI 完成：
 必须区分
 --------
 
-IRQ 通知与 Packet 处理
-   IRQ 通知有事件；NAPI poll 通常完成批量收发工作。
-
-GRO 与 GSO/TSO
-   GRO 在接收侧聚合；GSO/TSO 在发送侧把大 skb 分段。
-
-qdisc Queue 与 Driver Ring
-   qdisc 是软件调度队列；TX ring 是驱动与设备共享的执行队列。
-
-Send 返回与 TX Completion
-   Send 表示本地接受数据；completion 才允许驱动解除 DMA 并释放 skb。
-
-抓包可见与最终交付
-   抓取点看到 packet 不表示后续未被路由、规则、qdisc 或协议丢弃。
+* IRQ 通知与 Packet 处理：IRQ 通知有事件；NAPI poll 通常完成批量收发工作。
+* GRO 与 GSO/TSO：GRO 在接收侧聚合；GSO/TSO 在发送侧把大 skb 分段。
+* qdisc Queue 与 Driver Ring：qdisc 是软件调度队列；TX ring 是驱动与设备共享的执行队列。
+* Send 返回与 TX Completion：Send 表示本地接受数据；completion 才允许驱动解除 DMA 并释放 skb。
+* 抓包可见与最终交付：抓取点看到 packet 不表示后续未被路由、规则、qdisc 或协议丢弃。
 
 一句话结论
 ----------
 
 网络收发性能由 packet 在 RX ring、NAPI、协议队列、qdisc、TX ring 和 socket queue 中的排队位置决定；先定位队列和执行上下文，再谈 offload、CPU 或设备优化。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 29，Socket Layer, sk_buff, Routing, Netfilter, and TCP IP Stack；
-* AIBook 章节：Chapter 143，Receive Path and Transmit Path Through the Stack；
-* 源文件：``docs/LinuxK/Part_29_Socket_Layer_sk_buff_Routing_Netfilter_and_TCP_IP_Stack/Chapter_143_Receive_Path_and_Transmit_Path_Through_the_Stack.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_29_Socket_Layer_sk_buff_Routing_Netfilter_and_TCP_IP_Stack/Chapter_143_Receive_Path_and_Transmit_Path_Through_the_Stack.md>`_。

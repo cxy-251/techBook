@@ -114,26 +114,16 @@
 必须区分
 --------
 
-* KASAN 内存安全，与 KCSAN 数据竞争；
-* KASAN 高覆盖调试，与 KFENCE 低开销采样；
-* Lockdep 依赖图告警，与已经发生的真实死锁；
-* Refcount 保护对象存储，与硬件仍在线；
-* RCU Grace Period，与取消所有异步活动；
-* 故障注入的真实失败点，与人为制造的不可能状态；
-* 报告消失，与根因已修复；
+* KASAN 内存安全，与 KCSAN 数据竞争。
+* KASAN 高覆盖调试，与 KFENCE 低开销采样。
+* Lockdep 依赖图告警，与已经发生的真实死锁。
+* Refcount 保护对象存储，与硬件仍在线。
+* RCU Grace Period，与取消所有异步活动。
+* 故障注入的真实失败点，与人为制造的不可能状态。
+* 报告消失，与根因已修复。
 * 修复后测试通过，与测试确实能触发旧 Bug。
 
 一句话结论
 ----------
 
 Sanitizer 和检查器把违规变成证据，Fault Injection 把低概率错误路径变成稳定输入，Regression Test 再把修复后的对象与同步合同永久固定下来。
-
-来源
-----
-
-* 教材：AIBook《Linux Kernel》；
-* Part：Part 37：Kernel Testing KUnit, Kselftest, LTP, Fuzzing, Sanitizers, and Fault Injection；
-* 章节：Chapter 185: Sanitizers, Fault Injection, and Regression Prevention；
-* 源文件：``docs/LinuxK/Part_37_Kernel_Testing_KUnit_Kselftest_LTP_Fuzzing_Sanitizers_and_Fault_Injection/Chapter_185_Sanitizers_Fault_Injection_and_Regression_Prevention.md``；
-* 固定版本：``18386764582829f2b807b7b0947785eb77b50446``；
-* 固定链接：https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_37_Kernel_Testing_KUnit_Kselftest_LTP_Fuzzing_Sanitizers_and_Fault_Injection/Chapter_185_Sanitizers_Fault_Injection_and_Regression_Prevention.md

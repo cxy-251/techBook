@@ -112,25 +112,15 @@
 必须区分
 --------
 
-* Memory Encryption，与 Attestation；
-* Private Memory，与 Shared Communication Buffer；
-* Host 无法读取 Guest 私有页，与 Host 无法拒绝服务；
-* IOMMU 地址隔离，与 Host/Device 数据可信；
-* Secure Boot，与远程证明；
-* Confidential VM 边界，与 Guest 内部进程隔离；
+* Memory Encryption，与 Attestation。
+* Private Memory，与 Shared Communication Buffer。
+* Host 无法读取 Guest 私有页，与 Host 无法拒绝服务。
+* IOMMU 地址隔离，与 Host/Device 数据可信。
+* Secure Boot，与远程证明。
+* Confidential VM 边界，与 Guest 内部进程隔离。
 * 平台支持某技术，与目标实例整条信任链已正确配置。
 
 一句话结论
 ----------
 
 机密计算依靠硬件保护的 Private Memory 和远程证明把信任边界下沉到操作系统之下，同时迫使 Guest 将 Shared Memory、Hypercall 与设备 I/O 全部视为来自更强对手的输入。
-
-来源
-----
-
-* 教材：AIBook《Linux Kernel》；
-* Part：Part 39：Modern Kernel Evolution PREEMPT_RT, Livepatching, Rust, Confidential Computing, and Future Directions；
-* 章节：Chapter 194: Confidential Computing and Hardware-Assisted Isolation；
-* 源文件：``docs/LinuxK/Part_39_Modern_Kernel_Evolution_PREEMPT_RT_Livepatching_Rust_Confidential_Computing_and_Future_Directions/Chapter_194_Confidential_Computing_and_Hardware_Assisted_Isolation.md``；
-* 固定版本：``18386764582829f2b807b7b0947785eb77b50446``；
-* 固定链接：https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_39_Modern_Kernel_Evolution_PREEMPT_RT_Livepatching_Rust_Confidential_Computing_and_Future_Directions/Chapter_194_Confidential_Computing_and_Hardware_Assisted_Isolation.md

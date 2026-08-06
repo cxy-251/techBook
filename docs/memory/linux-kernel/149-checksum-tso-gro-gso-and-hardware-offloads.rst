@@ -161,31 +161,13 @@ Feature 更新：
 必须区分
 --------
 
-TSO 与 GSO
-   TSO 由硬件分段；GSO 是内核软件分段框架和 Fallback。
-
-GRO 与 Wire 大包
-   GRO 在接收后聚合多个 Packet；Wire 上仍是合法的小 Segment。
-
-Feature Enabled 与 Packet 实际使用
-   接口具备能力不表示当前 skb 的协议、封装和 Header 符合条件。
-
-Bad Checksum 抓包与真实线缆错误
-   硬件前抓包可能看到尚未填写的 TX Checksum，需在正确点位复核。
-
-Offload 降级与协议语义改变
-   软件 Fallback 只改变工作位置，不应改变最终 Wire Packet 的协议语义。
+* TSO 与 GSO：TSO 由硬件分段；GSO 是内核软件分段框架和 Fallback。
+* GRO 与 Wire 大包：GRO 在接收后聚合多个 Packet；Wire 上仍是合法的小 Segment。
+* Feature Enabled 与 Packet 实际使用：接口具备能力不表示当前 skb 的协议、封装和 Header 符合条件。
+* Bad Checksum 抓包与真实线缆错误：硬件前抓包可能看到尚未填写的 TX Checksum，需在正确点位复核。
+* Offload 降级与协议语义改变：软件 Fallback 只改变工作位置，不应改变最终 Wire Packet 的协议语义。
 
 一句话结论
 ----------
 
 Offload 是由 skb 元数据和 netdev Feature 共同定义的跨软硬件合同：移动工作可以提高吞吐，任何 Header、Checksum、Segment 或 Fallback 解释不一致都会直接破坏数据正确性。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 30，Network Device Drivers, NAPI, Queues, Offloads, and Packet Scheduling；
-* AIBook 章节：Chapter 149，Checksum, TSO, GRO, GSO, and Hardware Offloads；
-* 源文件：``docs/LinuxK/Part_30_Network_Device_Drivers_NAPI_Queues_Offloads_and_Packet_Scheduling/Chapter_149_Checksum_TSO_GRO_GSO_and_Hardware_Offloads.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_30_Network_Device_Drivers_NAPI_Queues_Offloads_and_Packet_Scheduling/Chapter_149_Checksum_TSO_GRO_GSO_and_Hardware_Offloads.md>`_。

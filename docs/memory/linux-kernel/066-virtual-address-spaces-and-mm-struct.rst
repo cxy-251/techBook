@@ -89,34 +89,14 @@
 必须区分
 --------
 
-虚拟地址与物理地址
-   虚拟地址属于某套地址空间；物理地址描述真实内存或设备资源位置。
-
-VMA 与页表
-   VMA 描述范围策略；页表描述当前页级映射和硬件权限。
-
-``mm`` 与 ``active_mm``
-   ``mm`` 表示 task 拥有的用户地址空间；``active_mm`` 表示 CPU 执行该 task 时使用或借用的地址翻译上下文。
-
-``mm_users`` 与 ``mm_count``
-   前者管理用户地址空间使用者；后者管理描述符对象自身生命周期。
-
-线程共享与进程独立
-   同一线程组通常共享一个 mm；不同进程通常拥有不同 mm，即使虚拟地址数值相同。
-
-地址空间存在与页面驻留
-   VMA 和 mm 存在不表示所有页面已分配或驻留，具体页可能仍需缺页建立。
+* 虚拟地址与物理地址：虚拟地址属于某套地址空间；物理地址描述真实内存或设备资源位置。
+* VMA 与页表：VMA 描述范围策略；页表描述当前页级映射和硬件权限。
+* ``mm`` 与 ``active_mm``：``mm`` 表示 task 拥有的用户地址空间；``active_mm`` 表示 CPU 执行该 task 时使用或借用的地址翻译上下文。
+* ``mm_users`` 与 ``mm_count``：前者管理用户地址空间使用者；后者管理描述符对象自身生命周期。
+* 线程共享与进程独立：同一线程组通常共享一个 mm；不同进程通常拥有不同 mm，即使虚拟地址数值相同。
+* 地址空间存在与页面驻留：VMA 和 mm 存在不表示所有页面已分配或驻留，具体页可能仍需缺页建立。
 
 一句话结论
 ----------
 
 ``mm_struct`` 是用户地址空间的内核对象：它把 VMA 范围、页表根、线程共享、调度切换和分阶段释放统一到同一套生命周期中。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 14，Virtual Memory, Address Spaces, and Page Tables；
-* AIBook 章节：Chapter 66，Virtual Address Spaces and mm_struct；
-* 源文件：``docs/LinuxK/Part_14_Virtual_Memory_Address_Spaces_and_Page_Tables/Chapter_066_Virtual_Address_Spaces_and_mm_struct.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_14_Virtual_Memory_Address_Spaces_and_Page_Tables/Chapter_066_Virtual_Address_Spaces_and_mm_struct.md>`_。

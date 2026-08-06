@@ -162,12 +162,3 @@
 ----------
 
 内核性能工程不是根据总利用率猜瓶颈，而是把每个慢请求拆成执行、等待、排队、服务和重试，并用对象级证据验证最小修复。
-
-来源
-----
-
-* 教材：AIBook Linux Kernel
-* Part：Part 36 — Kernel Performance Engineering for CPU, Memory, I/O, Network, and Lock Contention
-* 章节：Chapter 176 — Building a Kernel Performance Investigation Model
-* 源文件：``docs/LinuxK/Part_36_Kernel_Performance_Engineering_for_CPU_Memory_IO_Network_and_Lock_Contention/Chapter_176_Building_a_Kernel_Performance_Investigation_Model.md``
-* 固定版本：`18386764582829f2b807b7b0947785eb77b50446 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_36_Kernel_Performance_Engineering_for_CPU_Memory_IO_Network_and_Lock_Contention/Chapter_176_Building_a_Kernel_Performance_Investigation_Model.md>`_

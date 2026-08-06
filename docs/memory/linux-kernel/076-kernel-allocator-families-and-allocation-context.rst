@@ -98,34 +98,14 @@
 必须区分
 --------
 
-页分配与对象分配
-   Page allocator 管理物理页块；slab/SLUB 把页切成可复用的小对象槽位。
-
-通用大小缓存与专用对象缓存
-   ``kmalloc`` 按大小等级分配；``kmem_cache`` 还携带对象类型、对齐、构造和调试语义。
-
-虚拟连续与物理连续
-   CPU 线性指针只要求虚拟连续；DMA 和低层硬件路径必须按设备接口证明实际可访问布局。
-
-分配上下文与内存用途
-   GFP 描述调用者允许分配器执行什么动作；对象用途描述返回内存随后怎样被使用。
-
-释放存储与结束生命周期
-   释放接口归还内存；对象必须先停止所有可见性、引用和异步访问。
-
-快速失败与前进保证
-   ``GFP_ATOMIC`` 仍可失败；真正需要保证的路径应使用预分配、对象池或 mempool。
+* 页分配与对象分配：Page allocator 管理物理页块；slab/SLUB 把页切成可复用的小对象槽位。
+* 通用大小缓存与专用对象缓存：``kmalloc`` 按大小等级分配；``kmem_cache`` 还携带对象类型、对齐、构造和调试语义。
+* 虚拟连续与物理连续：CPU 线性指针只要求虚拟连续；DMA 和低层硬件路径必须按设备接口证明实际可访问布局。
+* 分配上下文与内存用途：GFP 描述调用者允许分配器执行什么动作；对象用途描述返回内存随后怎样被使用。
+* 释放存储与结束生命周期：释放接口归还内存；对象必须先停止所有可见性、引用和异步访问。
+* 快速失败与前进保证：``GFP_ATOMIC`` 仍可失败；真正需要保证的路径应使用预分配、对象池或 mempool。
 
 一句话结论
 ----------
 
 内核内存分配必须先按资源粒度、连续性、访问者和执行上下文选择专用分配器，再用匹配的失败与生命周期协议保证对象最终安全归还。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 16，Kernel Memory Allocation Slab, Slub, Vmalloc, and Per-CPU Memory；
-* AIBook 章节：Chapter 76，Kernel Allocator Families and Allocation Context；
-* 源文件：``docs/LinuxK/Part_16_Kernel_Memory_Allocation_Slab_Slub_Vmalloc_and_Per_CPU_Memory/Chapter_076_Kernel_Allocator_Families_and_Allocation_Context.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_16_Kernel_Memory_Allocation_Slab_Slub_Vmalloc_and_Per_CPU_Memory/Chapter_076_Kernel_Allocator_Families_and_Allocation_Context.md>`_。

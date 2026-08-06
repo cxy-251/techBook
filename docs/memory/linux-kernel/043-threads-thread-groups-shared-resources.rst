@@ -88,37 +88,15 @@
 必须区分
 --------
 
-线程与 task
-   线程是用户态资源共享语义；task 是内核独立调度和阻塞的执行对象。
-
-TGID 与 TID
-   TGID 表示线程组；TID 表示具体 task。
-
-共享地址空间与共享栈
-   线程共享 ``mm_struct``，但通常各自使用独立栈区域。
-
-共享 fd 表与共享打开对象
-   ``files_struct`` 决定 fd 表项是否共同变化；``struct file`` 决定打开对象状态和偏移是否共享。
-
-进程级信号与线程级信号
-   进程定向信号交给线程组；线程定向信号指定一个 task。
-
-一个线程睡眠与整个进程卡住
-   线程独立调度；只有关键线程、共享锁或共享资源阻塞时，进程整体功能才可能停滞。
-
-资源共享与并发安全
-   多个线程能访问同一对象不代表访问有序，仍必须使用同步机制。
+* 线程与 task：线程是用户态资源共享语义；task 是内核独立调度和阻塞的执行对象。
+* TGID 与 TID：TGID 表示线程组；TID 表示具体 task。
+* 共享地址空间与共享栈：线程共享 ``mm_struct``，但通常各自使用独立栈区域。
+* 共享 fd 表与共享打开对象：``files_struct`` 决定 fd 表项是否共同变化；``struct file`` 决定打开对象状态和偏移是否共享。
+* 进程级信号与线程级信号：进程定向信号交给线程组；线程定向信号指定一个 task。
+* 一个线程睡眠与整个进程卡住：线程独立调度；只有关键线程、共享锁或共享资源阻塞时，进程整体功能才可能停滞。
+* 资源共享与并发安全：多个线程能访问同一对象不代表访问有序，仍必须使用同步机制。
 
 一句话结论
 ----------
 
 Linux 线程是共享地址空间、文件表和信号状态的独立 task：资源按线程组共享，栈、寄存器、TLS、TID 和调度状态按线程独立。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 9，Process, Thread, Task Struct, and Execution Context；
-* AIBook 章节：Chapter 43，Threads, Thread Groups, and Shared Resources；
-* 源文件：``docs/LinuxK/Part_09_Process_Thread_Task_Struct_and_Execution_Context/Chapter_043_Threads_Thread_Groups_and_Shared_Resources.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_09_Process_Thread_Task_Struct_and_Execution_Context/Chapter_043_Threads_Thread_Groups_and_Shared_Resources.md>`_。

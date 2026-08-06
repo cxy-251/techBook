@@ -88,37 +88,15 @@
 必须区分
 --------
 
-用户指针与内核指针
-   用户指针属于用户地址空间并由用户控制；内核指针指向由内核生命周期规则保护的对象。
-
-``__user`` 标注与运行时保护
-   标注帮助静态检查；真正访问仍必须通过 uaccess helper。
-
-``access_ok`` 与复制成功
-   ``access_ok`` 只说明地址范围可尝试；复制仍可能 fault 或部分完成。
-
-块复制与标量复制返回值
-   ``copy_*_user`` 返回未复制字节数；``get_user``、``put_user`` 通常返回零或负错误码。
-
-字节复制成功与业务输入有效
-   复制只解决数据移动；范围、权限、版本和状态仍需单独验证。
-
-复制结构体与复制嵌套数据
-   结构体中的用户指针只是地址数值，指向的数据要再次受控复制。
-
-地址有效与权限允许
-   用户缓冲区可访问不代表调用者可以操作指定设备、文件或内核对象。
+* 用户指针与内核指针：用户指针属于用户地址空间并由用户控制；内核指针指向由内核生命周期规则保护的对象。
+* ``__user`` 标注与运行时保护：标注帮助静态检查；真正访问仍必须通过 uaccess helper。
+* ``access_ok`` 与复制成功：``access_ok`` 只说明地址范围可尝试；复制仍可能 fault 或部分完成。
+* 块复制与标量复制返回值：``copy_*_user`` 返回未复制字节数；``get_user``、``put_user`` 通常返回零或负错误码。
+* 字节复制成功与业务输入有效：复制只解决数据移动；范围、权限、版本和状态仍需单独验证。
+* 复制结构体与复制嵌套数据：结构体中的用户指针只是地址数值，指向的数据要再次受控复制。
+* 地址有效与权限允许：用户缓冲区可访问不代表调用者可以操作指定设备、文件或内核对象。
 
 一句话结论
 ----------
 
 用户指针是不可信的边界输入；内核必须通过 uaccess 把数据复制成经过验证的内核快照，并正确处理 fault、部分复制、上下文限制和 TOCTOU。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 8，User-Kernel Boundary and System Call Path；
-* AIBook 章节：Chapter 38，Copying Data Across the User-Kernel Boundary；
-* 源文件：``docs/LinuxK/Part_08_User_Kernel_Boundary_and_System_Call_Path/Chapter_038_Copying_Data_Across_the_User-Kernel_Boundary.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_08_User_Kernel_Boundary_and_System_Call_Path/Chapter_038_Copying_Data_Across_the_User-Kernel_Boundary.md>`_。

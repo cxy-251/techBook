@@ -129,31 +129,13 @@ Runtime Resume：
 必须区分
 --------
 
-Usage Counter 与对象引用
-   Usage 表示设备当前电源使用者；普通引用保证软件对象存活。
-
-Runtime Status 与硬件真实状态
-   PM core 状态是软件判断；驱动必须让硬件事实与其一致。
-
-Autosuspend 请求与 Suspend 完成
-   请求只表示未来允许转换；回调成功后才进入 suspended 状态。
-
-PM Core 串行化与驱动 I/O 串行化
-   PM core 保护回调；私有队列和提交竞态仍由驱动处理。
-
-设备 Active 与上层队列开放
-   硬件恢复是前提；上层入口必须在全部依赖恢复后才能开放。
+* Usage Counter 与对象引用：Usage 表示设备当前电源使用者；普通引用保证软件对象存活。
+* Runtime Status 与硬件真实状态：PM core 状态是软件判断；驱动必须让硬件事实与其一致。
+* Autosuspend 请求与 Suspend 完成：请求只表示未来允许转换；回调成功后才进入 suspended 状态。
+* PM Core 串行化与驱动 I/O 串行化：PM core 保护回调；私有队列和提交竞态仍由驱动处理。
+* 设备 Active 与上层队列开放：硬件恢复是前提；上层入口必须在全部依赖恢复后才能开放。
 
 一句话结论
 ----------
 
 Runtime PM 是围绕单设备使用区间建立的有界状态协议：每次硬件访问都必须由 get/put、私有 I/O 状态、父子依赖和完整 suspend/resume 回调共同证明安全。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 28，Power Management, Hotplug, Firmware Loading, and Runtime PM；
-* AIBook 章节：Chapter 137，Runtime Power Management and Device Idle States；
-* 源文件：``docs/LinuxK/Part_28_Power_Management_Hotplug_Firmware_Loading_and_Runtime_PM/Chapter_137_Runtime_Power_Management_and_Device_Idle_States.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_28_Power_Management_Hotplug_Firmware_Loading_and_Runtime_PM/Chapter_137_Runtime_Power_Management_and_Device_Idle_States.md>`_。

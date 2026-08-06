@@ -136,34 +136,14 @@ Misc 注册：
 必须区分
 --------
 
-Misc 入口与真实设备模型
-   Misc 提供字符节点；硬件发现、资源、电源和热插拔仍由父驱动负责。
-
-动态 Minor 与稳定设备身份
-   Minor 是运行期分发表键；稳定身份应来自节点名、parent、总线地址和正式 ABI。
-
-``misc_deregister`` 与对象释放
-   Deregister 阻止新打开；旧 fd、VMA 和异步执行仍可能持有对象。
-
-简单注册与简单生命周期
-   Framework 样板少不表示 IRQ、DMA、并发和 remove 也自动简单。
-
-Misc 与专业子系统
-   Misc 让驱动自定义文件 ABI；专业子系统提供标准数据模型、工具和长期维护合同。
-
-节点权限与接口安全
-   文件模式限制谁能打开；驱动仍需验证命令、能力、长度、地址和设备状态。
+* Misc 入口与真实设备模型：Misc 提供字符节点；硬件发现、资源、电源和热插拔仍由父驱动负责。
+* 动态 Minor 与稳定设备身份：Minor 是运行期分发表键；稳定身份应来自节点名、parent、总线地址和正式 ABI。
+* ``misc_deregister`` 与对象释放：Deregister 阻止新打开；旧 fd、VMA 和异步执行仍可能持有对象。
+* 简单注册与简单生命周期：Framework 样板少不表示 IRQ、DMA、并发和 remove 也自动简单。
+* Misc 与专业子系统：Misc 让驱动自定义文件 ABI；专业子系统提供标准数据模型、工具和长期维护合同。
+* 节点权限与接口安全：文件模式限制谁能打开；驱动仍需验证命令、能力、长度、地址和设备状态。
 
 一句话结论
 ----------
 
 Misc framework 只把简单字符入口的注册集中起来；驱动仍必须为真实硬件、文件 ABI、权限、并发和移除后的旧 fd/VMA 建立完整生命周期。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 26，Character Devices, Block Devices, Network Devices, and Misc Drivers；
-* AIBook 章节：Chapter 129，Misc Drivers and Simple Kernel Interfaces；
-* 源文件：``docs/LinuxK/Part_26_Character_Devices_Block_Devices_Network_Devices_and_Misc_Drivers/Chapter_129_Misc_Drivers_and_Simple_Kernel_Interfaces.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_26_Character_Devices_Block_Devices_Network_Devices_and_Misc_Drivers/Chapter_129_Misc_Drivers_and_Simple_Kernel_Interfaces.md>`_。

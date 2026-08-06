@@ -92,34 +92,14 @@
 必须区分
 --------
 
-用户地址与内核地址
-   用户地址由具体进程的 mm 解释；内核地址由架构内核虚拟布局解释。
-
-直接映射与 ``vmalloc``
-   直接映射按物理内存关系建立；``vmalloc`` 只保证虚拟连续，物理页可以分散。
-
-普通 RAM 与 MMIO
-   RAM 使用普通内存和缓存一致性规则；MMIO 代表设备寄存器，需要 I/O 访问器和设备顺序规则。
-
-用户权限与映射存在
-   页面存在不表示用户态可访问，CPU 还会检查 user、write 和 execute 权限。
-
-ASLR 与对象生命周期
-   随机化只改变地址位置，不保证对象有效，也不替代边界检查。
-
-地址范围判断与精确对象判断
-   地址前缀只能给出候选区域；精确结论还要结合映射、符号、页表和分配来源。
+* 用户地址与内核地址：用户地址由具体进程的 mm 解释；内核地址由架构内核虚拟布局解释。
+* 直接映射与 ``vmalloc``：直接映射按物理内存关系建立；``vmalloc`` 只保证虚拟连续，物理页可以分散。
+* 普通 RAM 与 MMIO：RAM 使用普通内存和缓存一致性规则；MMIO 代表设备寄存器，需要 I/O 访问器和设备顺序规则。
+* 用户权限与映射存在：页面存在不表示用户态可访问，CPU 还会检查 user、write 和 execute 权限。
+* ASLR 与对象生命周期：随机化只改变地址位置，不保证对象有效，也不替代边界检查。
+* 地址范围判断与精确对象判断：地址前缀只能给出候选区域；精确结论还要结合映射、符号、页表和分配来源。
 
 一句话结论
 ----------
 
 地址值没有脱离上下文的固定含义：用户地址由进程 ``mm_struct`` 解释，内核地址由架构虚拟布局解释，而权限、映射类型和生命周期共同决定它能否被安全访问。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 14，Virtual Memory, Address Spaces, and Page Tables；
-* AIBook 章节：Chapter 68，User Address Space vs Kernel Address Space；
-* 源文件：``docs/LinuxK/Part_14_Virtual_Memory_Address_Spaces_and_Page_Tables/Chapter_068_User_Address_Space_vs_Kernel_Address_Space.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_14_Virtual_Memory_Address_Spaces_and_Page_Tables/Chapter_068_User_Address_Space_vs_Kernel_Address_Space.md>`_。

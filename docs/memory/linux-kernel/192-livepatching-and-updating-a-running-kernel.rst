@@ -109,24 +109,14 @@
 必须区分
 --------
 
-* 函数入口可替换，与系统语义一致；
-* 补丁模块已加载，与补丁已对所有 Task 生效；
-* Transition 完成，与业务修复验证完成；
-* 恢复旧函数入口，与恢复旧共享状态；
-* Livepatch 紧急修复，与完整内核升级；
+* 函数入口可替换，与系统语义一致。
+* 补丁模块已加载，与补丁已对所有 Task 生效。
+* Transition 完成，与业务修复验证完成。
+* 恢复旧函数入口，与恢复旧共享状态。
+* Livepatch 紧急修复，与完整内核升级。
 * 源码补丁相同，与不同 Kernel Build 可共用同一 Livepatch 二进制。
 
 一句话结论
 ----------
 
 Livepatching 在共享内核状态持续运行时按 Task 安全切换函数实现，因此真正的核心不是函数替换本身，而是新旧语义并存、收敛和回滚的一致性证明。
-
-来源
-----
-
-* 教材：AIBook《Linux Kernel》；
-* Part：Part 39：Modern Kernel Evolution PREEMPT_RT, Livepatching, Rust, Confidential Computing, and Future Directions；
-* 章节：Chapter 192: Livepatching and Updating a Running Kernel；
-* 源文件：``docs/LinuxK/Part_39_Modern_Kernel_Evolution_PREEMPT_RT_Livepatching_Rust_Confidential_Computing_and_Future_Directions/Chapter_192_Livepatching_and_Updating_a_Running_Kernel.md``；
-* 固定版本：``18386764582829f2b807b7b0947785eb77b50446``；
-* 固定链接：https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_39_Modern_Kernel_Evolution_PREEMPT_RT_Livepatching_Rust_Confidential_Computing_and_Future_Directions/Chapter_192_Livepatching_and_Updating_a_Running_Kernel.md

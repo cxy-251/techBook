@@ -157,34 +157,14 @@ Service time 高：
 必须区分
 --------
 
-软件排队与设备服务
-   Insert 到 issue 近似软件等待；issue 到 complete 近似驱动、下层和设备服务。
-
-设备统计与单请求 trace
-   Diskstats/iostat 是设备级聚合；tracepoint 才能观察具体请求时间线。
-
-``comm`` 与原始 I/O 所有者
-   事件当前任务可能是 writeback worker、中断或 kworker，不一定是业务进程。
-
-上层虚拟设备与下层物理设备
-   Device Mapper 会 remap/clone 请求，两个层级的统计不能简单相加。
-
-块完成与应用完成
-   Block complete 后还可能等待 bio 聚合、文件系统、CQE、唤醒和业务调度。
-
-平均延迟与尾延迟
-   Await 等平均值会隐藏少数极慢请求，必须保留延迟分布和错误时间线。
+* 软件排队与设备服务：Insert 到 issue 近似软件等待；issue 到 complete 近似驱动、下层和设备服务。
+* 设备统计与单请求 trace：Diskstats/iostat 是设备级聚合；tracepoint 才能观察具体请求时间线。
+* ``comm`` 与原始 I/O 所有者：事件当前任务可能是 writeback worker、中断或 kworker，不一定是业务进程。
+* 上层虚拟设备与下层物理设备：Device Mapper 会 remap/clone 请求，两个层级的统计不能简单相加。
+* 块完成与应用完成：Block complete 后还可能等待 bio 聚合、文件系统、CQE、唤醒和业务调度。
+* 平均延迟与尾延迟：Await 等平均值会隐藏少数极慢请求，必须保留延迟分布和错误时间线。
 
 一句话结论
 ----------
 
 块延迟必须沿 bio/request 生命周期拆成软件排队和驱动—设备服务，再与文件系统、完成回调和任务调度证据对齐，才能判断真正等待发生在哪一层。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 22，Block Layer, Bio, Request Queues, Schedulers, and Multi-Queue；
-* AIBook 章节：Chapter 110，Tracing Block Latency and Queueing Behavior；
-* 源文件：``docs/LinuxK/Part_22_Block_Layer_Bio_Request_Queues_Schedulers_and_Multi_Queue/Chapter_110_Tracing_Block_Latency_and_Queueing_Behavior.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_22_Block_Layer_Bio_Request_Queues_Schedulers_and_Multi_Queue/Chapter_110_Tracing_Block_Latency_and_Queueing_Behavior.md>`_。

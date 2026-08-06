@@ -131,31 +131,13 @@ VFIO 直通：
 必须区分
 --------
 
-IOVA 与 CPU Physical Address
-   IOVA 是设备请求地址；IOMMU 将它翻译到物理页，数值不必相同。
-
-IOMMU Domain 与 IOMMU Group
-   Domain 是翻译与权限状态；group 是最小安全隔离设备集合。
-
-地址翻译与 Cache Coherency
-   IOMMU 决定访问哪一页；DMA coherency 决定 CPU/设备何时看见最新内容。
-
-Mapping 存在与设备已停止
-   Unmap 前必须确认设备不再使用 IOVA；撤销页表不会主动停止硬件。
-
-IOMMU 启用与严格隔离
-   系统存在 IOMMU 不代表每个设备都处于 translated、独立、安全 domain。
+* IOVA 与 CPU Physical Address：IOVA 是设备请求地址；IOMMU 将它翻译到物理页，数值不必相同。
+* IOMMU Domain 与 IOMMU Group：Domain 是翻译与权限状态；group 是最小安全隔离设备集合。
+* 地址翻译与 Cache Coherency：IOMMU 决定访问哪一页；DMA coherency 决定 CPU/设备何时看见最新内容。
+* Mapping 存在与设备已停止：Unmap 前必须确认设备不再使用 IOVA；撤销页表不会主动停止硬件。
+* IOMMU 启用与严格隔离：系统存在 IOMMU 不代表每个设备都处于 translated、独立、安全 domain。
 
 一句话结论
 ----------
 
 IOMMU 把设备 DMA 变成受 domain 页表和权限约束的地址空间访问；可靠性要求设备身份、IOVA mapping、权限和硬件停止顺序在同一生命周期中严格闭合。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 27，IRQ, DMA, MMIO, IOMMU, Cache Coherency, and Hardware Resources；
-* AIBook 章节：Chapter 134，IOMMU, Address Translation, and Device Isolation；
-* 源文件：``docs/LinuxK/Part_27_IRQ_DMA_MMIO_IOMMU_Cache_Coherency_and_Hardware_Resources/Chapter_134_IOMMU_Address_Translation_and_Device_Isolation.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_27_IRQ_DMA_MMIO_IOMMU_Cache_Coherency_and_Hardware_Resources/Chapter_134_IOMMU_Address_Translation_and_Device_Isolation.md>`_。

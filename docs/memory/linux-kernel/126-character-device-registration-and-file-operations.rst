@@ -140,34 +140,14 @@ Ioctl：
 必须区分
 --------
 
-设备节点与内核设备
-   ``/dev`` 只是路径和设备号；真实状态位于 ``cdev``、驱动对象和硬件资源中。
-
-``inode`` 与 ``struct file``
-   Inode 表示节点；file 表示一次打开实例，并承载偏移、标志和 private data。
-
-``cdev_del`` 与对象释放
-   Del 阻止新打开；已有 fd、VMA 和异步路径仍可能延长对象寿命。
-
-阻塞等待与 Poll 就绪
-   Read 可以睡眠等待数据；poll 只登记等待关系并报告当前是否可能推进。
-
-Ioctl 编码与参数安全
-   命令宏编码方向和大小；驱动仍需复制、验证版本、范围、权限和对象状态。
-
-关闭 fd 与硬件移除
-   Close 结束一个打开引用；remove 撤销硬件能力，两条生命周期可能交叉。
+* 设备节点与内核设备：``/dev`` 只是路径和设备号；真实状态位于 ``cdev``、驱动对象和硬件资源中。
+* ``inode`` 与 ``struct file``：Inode 表示节点；file 表示一次打开实例，并承载偏移、标志和 private data。
+* ``cdev_del`` 与对象释放：Del 阻止新打开；已有 fd、VMA 和异步路径仍可能延长对象寿命。
+* 阻塞等待与 Poll 就绪：Read 可以睡眠等待数据；poll 只登记等待关系并报告当前是否可能推进。
+* Ioctl 编码与参数安全：命令宏编码方向和大小；驱动仍需复制、验证版本、范围、权限和对象状态。
+* 关闭 fd 与硬件移除：Close 结束一个打开引用；remove 撤销硬件能力，两条生命周期可能交叉。
 
 一句话结论
 ----------
 
 字符驱动用设备号和 ``cdev`` 把路径映射到 ``file_operations``，真正正确性取决于每个打开实例的引用、阻塞/就绪语义、UAPI 验证以及设备移除后旧 fd 与 VMA 的安全收束。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 26，Character Devices, Block Devices, Network Devices, and Misc Drivers；
-* AIBook 章节：Chapter 126，Character Device Registration and file_operations；
-* 源文件：``docs/LinuxK/Part_26_Character_Devices_Block_Devices_Network_Devices_and_Misc_Drivers/Chapter_126_Character_Device_Registration_and_file_operations.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_26_Character_Devices_Block_Devices_Network_Devices_and_Misc_Drivers/Chapter_126_Character_Device_Registration_and_file_operations.md>`_。

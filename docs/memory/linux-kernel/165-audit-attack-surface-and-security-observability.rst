@@ -177,31 +177,13 @@ Audit 完整性检查：
 必须区分
 --------
 
-安全决策与 Audit 记录
-   LSM、Seccomp、Capability 等负责允许或拒绝；Audit 负责记录进入审计路径的证据。
-
-Event 与单条 Record
-   一次事件常由多条 Record 共同描述，必须按 Event ID 聚合。
-
-AUID 与当前 UID
-   AUID 追踪登录身份；当前 UID/EUID/FSUID 描述运行时 Credential。
-
-日志为空与事件未发生
-   Audit 未启用、规则未匹配、Backlog 丢失或权限问题都可能导致看不到记录。
-
-记录了 Seccomp 与阻断了 Syscall
-   LOG Action 可记录后继续执行；必须结合 Action、返回值和进程状态判断。
+* 安全决策与 Audit 记录：LSM、Seccomp、Capability 等负责允许或拒绝；Audit 负责记录进入审计路径的证据。
+* Event 与单条 Record：一次事件常由多条 Record 共同描述，必须按 Event ID 聚合。
+* AUID 与当前 UID：AUID 追踪登录身份；当前 UID/EUID/FSUID 描述运行时 Credential。
+* 日志为空与事件未发生：Audit 未启用、规则未匹配、Backlog 丢失或权限问题都可能导致看不到记录。
+* 记录了 Seccomp 与阻断了 Syscall：LOG Action 可记录后继续执行；必须结合 Action、返回值和进程状态判断。
 
 一句话结论
 ----------
 
 Linux 安全可维护性的关键，是用 Audit 把主体、对象、入口、策略和结果连接成可复盘事件，再用多层最小权限机制共同缩小真实攻击面。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 33，Credentials, Capabilities, Permissions, LSM, Seccomp, and Audit；
-* AIBook 章节：Chapter 165，Audit, Attack Surface, and Security Observability；
-* 源文件：``docs/LinuxK/Part_33_Credentials_Capabilities_Permissions_LSM_Seccomp_and_Audit/Chapter_165_Audit_Attack_Surface_and_Security_Observability.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_33_Credentials_Capabilities_Permissions_LSM_Seccomp_and_Audit/Chapter_165_Audit_Attack_Surface_and_Security_Observability.md>`_。

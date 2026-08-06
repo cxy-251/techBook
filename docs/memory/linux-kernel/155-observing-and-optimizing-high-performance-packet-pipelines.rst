@@ -170,31 +170,13 @@ Queue/NUMA 对齐：
 必须区分
 --------
 
-策略 Drop 与资源 Drop
-   XDP 策略拒绝可能是正确结果；Ring、Buffer 或 Queue 耗尽属于容量问题。
-
-Verifier 拒绝与运行时瓶颈
-   前者发生在加载阶段；后者发生在事件执行、Map、Redirect 或用户消费阶段。
-
-IRQ 分布与完整 CPU 路径
-   IRQ CPU 只是入口，RPS、NAPI、Worker 和 NUMA 可能让后续工作转移。
-
-Ring 扩容与吞吐提升
-   更大 Ring 只能吸收更多在途工作，也可能增加内存和排队延迟。
-
-Counter 差值与真实丢包
-   不同层统计粒度、Offload 和重置边界不同，必须先统一语义再计算差值。
+* 策略 Drop 与资源 Drop：XDP 策略拒绝可能是正确结果；Ring、Buffer 或 Queue 耗尽属于容量问题。
+* Verifier 拒绝与运行时瓶颈：前者发生在加载阶段；后者发生在事件执行、Map、Redirect 或用户消费阶段。
+* IRQ 分布与完整 CPU 路径：IRQ CPU 只是入口，RPS、NAPI、Worker 和 NUMA 可能让后续工作转移。
+* Ring 扩容与吞吐提升：更大 Ring 只能吸收更多在途工作，也可能增加内存和排队延迟。
+* Counter 差值与真实丢包：不同层统计粒度、Offload 和重置边界不同，必须先统一语义再计算差值。
 
 一句话结论
 ----------
 
 高性能 Packet Pipeline 的优化必须建立逐层守恒账本：先证明 Packet 在哪里消失、CPU 在哪里消耗、Frame 在哪里停留，再调整程序、Queue、NUMA、Batch 和唤醒策略。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 31，High Performance Networking XDP, eBPF, Zero Copy, and AF_XDP；
-* AIBook 章节：Chapter 155，Observing and Optimizing High-Performance Packet Pipelines；
-* 源文件：``docs/LinuxK/Part_31_High_Performance_Networking_XDP_eBPF_Zero_Copy_and_AF_XDP/Chapter_155_Observing_and_Optimizing_High_Performance_Packet_Pipelines.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_31_High_Performance_Networking_XDP_eBPF_Zero_Copy_and_AF_XDP/Chapter_155_Observing_and_Optimizing_High_Performance_Packet_Pipelines.md>`_。

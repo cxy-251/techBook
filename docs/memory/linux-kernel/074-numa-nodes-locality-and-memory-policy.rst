@@ -103,34 +103,14 @@
 必须区分
 --------
 
-CPU 位置与页面位置
-   Task 在哪个 node 的 CPU 上运行，不代表它访问的页面位于同一 node。
-
-Task 迁移与页面迁移
-   Task 迁移改变执行位置；页面迁移改变物理页位置，二者互不自动等价。
-
-策略偏好与硬限制
-   Preferred 可以允许 fallback；bind 和 cpuset 会更严格限制候选节点集合。
-
-拓扑与 Zone
-   Node 描述距离；zone 描述地址能力和迁移约束。
-
-未来分配策略与既有页面位置
-   修改策略主要影响后续分配；既有页是否迁移需要单独动作和可迁移条件。
-
-本地访问与正确访问
-   远端内存仍可正确访问，问题主要是延迟、带宽和互连竞争。
+* CPU 位置与页面位置：Task 在哪个 node 的 CPU 上运行，不代表它访问的页面位于同一 node。
+* Task 迁移与页面迁移：Task 迁移改变执行位置；页面迁移改变物理页位置，二者互不自动等价。
+* 策略偏好与硬限制：Preferred 可以允许 fallback；bind 和 cpuset 会更严格限制候选节点集合。
+* 拓扑与 Zone：Node 描述距离；zone 描述地址能力和迁移约束。
+* 未来分配策略与既有页面位置：修改策略主要影响后续分配；既有页是否迁移需要单独动作和可迁移条件。
+* 本地访问与正确访问：远端内存仍可正确访问，问题主要是延迟、带宽和互连竞争。
 
 一句话结论
 ----------
 
 NUMA 性能由线程位置和页面位置的组合决定；可靠调优必须同时控制 CPU affinity、first-touch、内存策略、cpuset 与页面迁移。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 15，Physical Memory, Zones, NUMA, and Page Allocator；
-* AIBook 章节：Chapter 74，NUMA Nodes, Locality, and Memory Policy；
-* 源文件：``docs/LinuxK/Part_15_Physical_Memory_Zones_NUMA_and_Page_Allocator/Chapter_074_NUMA_Nodes_Locality_and_Memory_Policy.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_15_Physical_Memory_Zones_NUMA_and_Page_Allocator/Chapter_074_NUMA_Nodes_Locality_and_Memory_Policy.md>`_。

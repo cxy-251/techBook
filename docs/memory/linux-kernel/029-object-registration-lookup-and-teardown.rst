@@ -87,33 +87,14 @@ RCU 删除的最小模型：
 必须区分
 --------
 
-分配与注册
-   分配创建内存；注册创建外部发现入口和并发可见性。
-
-查到指针与持有引用
-   查找只得到地址；临时引用才保证对象在使用期间不会被释放。
-
-注销与最终释放
-   注销关闭新发现路径；最终释放还要等待旧引用和异步执行退出。
-
-索引生命周期与对象生命周期
-   索引保护映射关系；对象本体还需要引用计数、RCU 或其它所有权规则保护。
-
-引用保护与状态检查
-   引用保证内存有效；状态检查保证当前操作符合对象状态机。
-
-RCU grace period 与引用归零
-   Grace period 等待旧 RCU 读者；引用归零等待所有长期持有者，两者解决不同持有方式。
+* 分配与注册：分配创建内存；注册创建外部发现入口和并发可见性。
+* 查到指针与持有引用：查找只得到地址；临时引用才保证对象在使用期间不会被释放。
+* 注销与最终释放：注销关闭新发现路径；最终释放还要等待旧引用和异步执行退出。
+* 索引生命周期与对象生命周期：索引保护映射关系；对象本体还需要引用计数、RCU 或其它所有权规则保护。
+* 引用保护与状态检查：引用保证内存有效；状态检查保证当前操作符合对象状态机。
+* RCU grace period 与引用归零：Grace period 等待旧 RCU 读者；引用归零等待所有长期持有者，两者解决不同持有方式。
 
 一句话结论
 ----------
 
 对象注册让它可被发现，安全查找把发现转换成引用，销毁则先关闭所有入口，再等待旧使用者离开，最后释放内存。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 29，Object Registration, Lookup, and Teardown；
-* 源文件：``docs/LinuxK/Part_06_Kernel_Objects_Lifetimes_References_and_Error_Paths/Chapter_029_Object_Registration_Lookup_and_Teardown.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_06_Kernel_Objects_Lifetimes_References_and_Error_Paths/Chapter_029_Object_Registration_Lookup_and_Teardown.md>`_。

@@ -50,30 +50,13 @@
 必须区分
 --------
 
-用户态运行时与内核运行时
-   用户态依赖 libc 和进程运行时；内核本身提供底层运行环境，并使用带上下文约束的内核 API。
-
-普通内核指针与 ``__user`` 指针
-   普通内核指针指向内核可访问对象；``__user`` 指针属于用户地址空间，必须通过用户访问接口处理。
-
-``__iomem`` 地址与普通内存
-   ``__iomem`` 表示设备 I/O 映射，访问顺序和宽度可能具有硬件语义，不能当普通 RAM 直接读写。
-
-进程上下文与原子上下文
-   进程上下文在条件允许时可以睡眠；中断、持有自旋锁和其它原子路径不能执行可能睡眠的操作。
-
-类型标记与实际访问
-   ``__user``、``__iomem`` 等标记提供类型和检查语义；真正访问仍必须调用对应 helper。
+* 用户态运行时与内核运行时：用户态依赖 libc 和进程运行时；内核本身提供底层运行环境，并使用带上下文约束的内核 API。
+* 普通内核指针与 ``__user`` 指针：普通内核指针指向内核可访问对象；``__user`` 指针属于用户地址空间，必须通过用户访问接口处理。
+* ``__iomem`` 地址与普通内存：``__iomem`` 表示设备 I/O 映射，访问顺序和宽度可能具有硬件语义，不能当普通 RAM 直接读写。
+* 进程上下文与原子上下文：进程上下文在条件允许时可以睡眠；中断、持有自旋锁和其它原子路径不能执行可能睡眠的操作。
+* 类型标记与实际访问：``__user``、``__iomem`` 等标记提供类型和检查语义；真正访问仍必须调用对应 helper。
 
 一句话结论
 ----------
 
 内核 C 不是另一种语法，而是运行在上下文、地址空间、并发和硬件约束下的 C；先判断环境，才能判断代码是否合法。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 11，Kernel C Runtime Constraints；
-* 源文件：``docs/LinuxK/Part_03_Kernel_Code_Grammar_Core_APIs_and_C_Runtime_Constraints/Chapter_011_Kernel_C_Runtime_Constraints.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_03_Kernel_Code_Grammar_Core_APIs_and_C_Runtime_Constraints/Chapter_011_Kernel_C_Runtime_Constraints.md>`_。

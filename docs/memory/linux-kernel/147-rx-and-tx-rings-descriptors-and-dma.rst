@@ -159,31 +159,13 @@ TX Completion：
 必须区分
 --------
 
-Descriptor Ring 与 Packet Buffer
-   Ring 是共享控制结构；Packet Buffer 是实际 DMA 数据对象，生命周期和映射类型通常不同。
-
-Doorbell 与 Completion
-   Doorbell 发布工作；Completion 才结束设备对 Descriptor 和 Buffer 的所有权。
-
-Queue Stop 与硬件停止
-   Stop Subqueue 只阻止网络核心继续提交，不会停止 NIC 已在执行的 DMA。
-
-BQL 字节限制与 Ring 槽位
-   BQL 控制在途字节；驱动仍需独立保证 Descriptor 空间充足。
-
-DMA Mapping 与数据正确
-   Mapping 只建立设备地址；Descriptor 格式、顺序和 Ownership 仍需驱动正确实现。
+* Descriptor Ring 与 Packet Buffer：Ring 是共享控制结构；Packet Buffer 是实际 DMA 数据对象，生命周期和映射类型通常不同。
+* Doorbell 与 Completion：Doorbell 发布工作；Completion 才结束设备对 Descriptor 和 Buffer 的所有权。
+* Queue Stop 与硬件停止：Stop Subqueue 只阻止网络核心继续提交，不会停止 NIC 已在执行的 DMA。
+* BQL 字节限制与 Ring 槽位：BQL 控制在途字节；驱动仍需独立保证 Descriptor 空间充足。
+* DMA Mapping 与数据正确：Mapping 只建立设备地址；Descriptor 格式、顺序和 Ownership 仍需驱动正确实现。
 
 一句话结论
 ----------
 
 网卡 Ring 的正确性来自严格的 Descriptor 与 Buffer 所有权转换：发布前完整准备，Completion 前绝不复用，回收时每个 Mapping 和 skb 恰好结束一次。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 30，Network Device Drivers, NAPI, Queues, Offloads, and Packet Scheduling；
-* AIBook 章节：Chapter 147，RX and TX Rings, Descriptors, and DMA；
-* 源文件：``docs/LinuxK/Part_30_Network_Device_Drivers_NAPI_Queues_Offloads_and_Packet_Scheduling/Chapter_147_RX_and_TX_Rings_Descriptors_and_DMA.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_30_Network_Device_Drivers_NAPI_Queues_Offloads_and_Packet_Scheduling/Chapter_147_RX_and_TX_Rings_Descriptors_and_DMA.md>`_。

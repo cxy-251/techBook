@@ -152,31 +152,13 @@ XDP Redirect：
 必须区分
 --------
 
-``xdp_buff`` 与 ``sk_buff``
-   前者表示早期 RX Frame；后者承载完整网络栈元数据和协议路径。
-
-Native XDP 与 Generic XDP
-   Native 在驱动 skb 前路径执行；Generic 已进入 skb 路径，兼容性和成本不同。
-
-``XDP_DROP`` 与 Netfilter Drop
-   XDP Drop 发生得更早，后续抓包、规则计数和 Socket 通常看不到。
-
-``XDP_TX`` 与普通 TX
-   XDP TX 从入口设备快速发回，不经过完整 Socket、qdisc 和协议发送语义。
-
-Redirect Action 与目标完成
-   返回 Redirect 只是选择路径；目标 Queue、Ring 和设备仍可能拒绝或丢弃。
+* ``xdp_buff`` 与 ``sk_buff``：前者表示早期 RX Frame；后者承载完整网络栈元数据和协议路径。
+* Native XDP 与 Generic XDP：Native 在驱动 skb 前路径执行；Generic 已进入 skb 路径，兼容性和成本不同。
+* ``XDP_DROP`` 与 Netfilter Drop：XDP Drop 发生得更早，后续抓包、规则计数和 Socket 通常看不到。
+* ``XDP_TX`` 与普通 TX：XDP TX 从入口设备快速发回，不经过完整 Socket、qdisc 和协议发送语义。
+* Redirect Action 与目标完成：返回 Redirect 只是选择路径；目标 Queue、Ring 和设备仍可能拒绝或丢弃。
 
 一句话结论
 ----------
 
 XDP 用 ``xdp_buff`` 和受验证 BPF 程序把 Packet 决策前移到 skb 之前；性能来自更早终止路径，正确性取决于边界检查、Action 所有权和目标 Backpressure 全部成立。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 31，High Performance Networking XDP, eBPF, Zero Copy, and AF_XDP；
-* AIBook 章节：Chapter 152，XDP and Early Packet Processing；
-* 源文件：``docs/LinuxK/Part_31_High_Performance_Networking_XDP_eBPF_Zero_Copy_and_AF_XDP/Chapter_152_XDP_and_Early_Packet_Processing.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_31_High_Performance_Networking_XDP_eBPF_Zero_Copy_and_AF_XDP/Chapter_152_XDP_and_Early_Packet_Processing.md>`_。

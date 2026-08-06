@@ -134,34 +134,14 @@ Request queue 派发：
 必须区分
 --------
 
-Request queue 与设备内部队列
-   Request queue 是 Linux 块层提交边界；控制器和介质还会在设备内部继续排队。
-
-Scheduler 与 Queue Limits
-   Scheduler 调整顺序和节奏；limits 是不能违反的设备能力边界。
-
-Merge 与调度
-   Merge 改变 request 形状和数量；调度决定等待 request 的派发顺序。
-
-``none`` 与没有排队
-   None 关闭通用 elevator，blk-mq、驱动和设备内部仍然存在队列和资源控制。
-
-Deadline 与完成期限
-   Deadline 限制软件队列饥饿，不保证设备在确定时间内完成请求。
-
-软件队列容量与硬件 queue depth
-   ``nr_requests``、blk-mq tags 和设备命令槽属于不同层级的容量。
+* Request queue 与设备内部队列：Request queue 是 Linux 块层提交边界；控制器和介质还会在设备内部继续排队。
+* Scheduler 与 Queue Limits：Scheduler 调整顺序和节奏；limits 是不能违反的设备能力边界。
+* Merge 与调度：Merge 改变 request 形状和数量；调度决定等待 request 的派发顺序。
+* ``none`` 与没有排队：None 关闭通用 elevator，blk-mq、驱动和设备内部仍然存在队列和资源控制。
+* Deadline 与完成期限：Deadline 限制软件队列饥饿，不保证设备在确定时间内完成请求。
+* 软件队列容量与硬件 queue depth：``nr_requests``、blk-mq tags 和设备命令槽属于不同层级的容量。
 
 一句话结论
 ----------
 
 Request queue 汇集块设备工作，I/O scheduler 在驱动接收前控制 request 的 merge、等待与派发顺序，并在吞吐、延迟和公平性之间取舍。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 22，Block Layer, Bio, Request Queues, Schedulers, and Multi-Queue；
-* AIBook 章节：Chapter 108，Request Queues and IO Schedulers；
-* 源文件：``docs/LinuxK/Part_22_Block_Layer_Bio_Request_Queues_Schedulers_and_Multi_Queue/Chapter_108_Request_Queues_and_IO_Schedulers.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_22_Block_Layer_Bio_Request_Queues_Schedulers_and_Multi_Queue/Chapter_108_Request_Queues_and_IO_Schedulers.md>`_。

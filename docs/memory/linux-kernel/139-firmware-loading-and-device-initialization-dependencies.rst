@@ -130,31 +130,13 @@ Resume 重载：
 必须区分
 --------
 
-设备枚举与设备可用
-   枚举创建硬件对象；firmware 可能仍是进入工作态的必需依赖。
-
-Loader 成功与设备启动成功
-   Loader 只提供字节；驱动上传和设备 ready 才完成初始化。
-
-固件文件缺失与固件不兼容
-   前者失败在查找；后者可能成功读取后在校验或运行阶段失败。
-
-Initramfs 文件与 Rootfs 文件
-   两个文件树服务不同启动阶段，必须分别确认。
-
-``MODULE_FIRMWARE`` 与实际加载
-   元数据帮助打包；请求、校验和上传仍由驱动执行。
+* 设备枚举与设备可用：枚举创建硬件对象；firmware 可能仍是进入工作态的必需依赖。
+* Loader 成功与设备启动成功：Loader 只提供字节；驱动上传和设备 ready 才完成初始化。
+* 固件文件缺失与固件不兼容：前者失败在查找；后者可能成功读取后在校验或运行阶段失败。
+* Initramfs 文件与 Rootfs 文件：两个文件树服务不同启动阶段，必须分别确认。
+* ``MODULE_FIRMWARE`` 与实际加载：元数据帮助打包；请求、校验和上传仍由驱动执行。
 
 一句话结论
 ----------
 
 Firmware 是许多现代设备从“已发现”到“可工作”的关键依赖，文件查找、blob 生命周期、硬件上传、版本兼容和电源恢复必须组成一条完整初始化协议。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 28，Power Management, Hotplug, Firmware Loading, and Runtime PM；
-* AIBook 章节：Chapter 139，Firmware Loading and Device Initialization Dependencies；
-* 源文件：``docs/LinuxK/Part_28_Power_Management_Hotplug_Firmware_Loading_and_Runtime_PM/Chapter_139_Firmware_Loading_and_Device_Initialization_Dependencies.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_28_Power_Management_Hotplug_Firmware_Loading_and_Runtime_PM/Chapter_139_Firmware_Loading_and_Device_Initialization_Dependencies.md>`_。

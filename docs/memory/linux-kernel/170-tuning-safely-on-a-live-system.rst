@@ -181,31 +181,13 @@
 必须区分
 --------
 
-利用率与饱和
-   利用率描述资源忙碌程度；饱和描述工作已经排队且无法及时获得资源。
-
-参数值改变与路径行为改变
-   文件回读新值只是控制面事实；必须验证子系统状态和业务指标。
-
-平均改善与尾延迟改善
-   平均值下降可掩盖 p99、错误和邻居工作负载恶化。
-
-回滚参数与恢复系统
-   写回旧值可能不足以撤销已创建对象、队列、连接和硬件状态。
-
-性能调优与安全退让
-   关闭保护机制改变威胁模型，不能作为普通性能参数实验处理。
+* 利用率与饱和：利用率描述资源忙碌程度；饱和描述工作已经排队且无法及时获得资源。
+* 参数值改变与路径行为改变：文件回读新值只是控制面事实；必须验证子系统状态和业务指标。
+* 平均改善与尾延迟改善：平均值下降可掩盖 p99、错误和邻居工作负载恶化。
+* 回滚参数与恢复系统：写回旧值可能不足以撤销已创建对象、队列、连接和硬件状态。
+* 性能调优与安全退让：关闭保护机制改变威胁模型，不能作为普通性能参数实验处理。
 
 一句话结论
 ----------
 
 Live Tuning 是带基线、单变量、验证和回滚的内核实验；找不到可重复证据的参数修改不应被固化。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 34，Kernel Parameters, Sysctl, Control Interfaces, and Runtime Tuning；
-* AIBook 章节：Chapter 170，Tuning Safely on a Live System；
-* 源文件：``docs/LinuxK/Part_34_Kernel_Parameters_Sysctl_Control_Interfaces_and_Runtime_Tuning/Chapter_170_Tuning_Safely_on_a_Live_System.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_34_Kernel_Parameters_Sysctl_Control_Interfaces_and_Runtime_Tuning/Chapter_170_Tuning_Safely_on_a_Live_System.md>`_。

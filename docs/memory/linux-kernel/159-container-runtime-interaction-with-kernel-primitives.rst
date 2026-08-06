@@ -153,31 +153,13 @@ Cgroup 放置：
 必须区分
 --------
 
-OCI 配置与内核状态
-   配置是用户态意图；只有系统调用、Cgroupfs 和对象关系能证明实际生效。
-
-Image 与 Container
-   Image 提供文件系统内容；Container 是运行时装配后的 Task 与内核资源关系。
-
-``chroot`` 与 Mount Namespace/``pivot_root``
-   Chroot 只改变路径根；完整容器 Rootfs 还需要独立挂载树、传播控制和旧根清理。
-
-Capability 与 Seccomp
-   Capability 控制特权操作授权；Seccomp 限制系统调用入口，两者作用层不同。
-
-容器退出与删除
-   退出只表示 Task 停止；删除还要清理 Cgroup、Mount、Network、Namespace 引用和 Runtime State。
+* OCI 配置与内核状态：配置是用户态意图；只有系统调用、Cgroupfs 和对象关系能证明实际生效。
+* Image 与 Container：Image 提供文件系统内容；Container 是运行时装配后的 Task 与内核资源关系。
+* ``chroot`` 与 Mount Namespace/``pivot_root``：Chroot 只改变路径根；完整容器 Rootfs 还需要独立挂载树、传播控制和旧根清理。
+* Capability 与 Seccomp：Capability 控制特权操作授权；Seccomp 限制系统调用入口，两者作用层不同。
+* 容器退出与删除：退出只表示 Task 停止；删除还要清理 Cgroup、Mount、Network、Namespace 引用和 Runtime State。
 
 一句话结论
 ----------
 
 Container Runtime 的真实工作是把 OCI 意图翻译成有序的内核对象装配：先建立视图和资源边界，再收紧权限，最后执行用户程序并保证失败可逆。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 32，Namespaces, Cgroups, Resource Control, and Container Internals；
-* AIBook 章节：Chapter 159，Container Runtime Interaction with Kernel Primitives；
-* 源文件：``docs/LinuxK/Part_32_Namespaces_Cgroups_Resource_Control_and_Container_Internals/Chapter_159_Container_Runtime_Interaction_with_Kernel_Primitives.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_32_Namespaces_Cgroups_Resource_Control_and_Container_Internals/Chapter_159_Container_Runtime_Interaction_with_Kernel_Primitives.md>`_。

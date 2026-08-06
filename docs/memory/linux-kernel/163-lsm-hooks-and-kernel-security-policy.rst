@@ -158,31 +158,13 @@ Stacking 判断：
 必须区分
 --------
 
-LSM Framework 与具体安全模块
-   Framework 提供 Hook 和对象接入；SELinux、AppArmor、Landlock 等实现具体策略。
-
-Path、Inode 与 File Hook
-   三者分别对应路径关系、文件系统对象和已打开对象状态，信息边界不同。
-
-DAC/Capability 允许与 LSM 允许
-   基础权限通过后，强制策略仍可继续拒绝。
-
-Subject Label/Profile 与普通 UID
-   LSM 安全身份是独立维度，相同 UID 可有不同策略角色。
-
-Audit 记录与完整策略
-   Audit 是运行事件证据，不等于策略文件的完整内容，也不证明未记录路径没有检查。
+* LSM Framework 与具体安全模块：Framework 提供 Hook 和对象接入；SELinux、AppArmor、Landlock 等实现具体策略。
+* Path、Inode 与 File Hook：三者分别对应路径关系、文件系统对象和已打开对象状态，信息边界不同。
+* DAC/Capability 允许与 LSM 允许：基础权限通过后，强制策略仍可继续拒绝。
+* Subject Label/Profile 与普通 UID：LSM 安全身份是独立维度，相同 UID 可有不同策略角色。
+* Audit 记录与完整策略：Audit 是运行事件证据，不等于策略文件的完整内容，也不证明未记录路径没有检查。
 
 一句话结论
 ----------
 
 LSM 把强制安全策略钉在内核对象访问点上：最终授权取决于当前主体、真实目标对象、操作语义和全部活跃安全模块的共同结果。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 33，Credentials, Capabilities, Permissions, LSM, Seccomp, and Audit；
-* AIBook 章节：Chapter 163，LSM Hooks and Kernel Security Policy；
-* 源文件：``docs/LinuxK/Part_33_Credentials_Capabilities_Permissions_LSM_Seccomp_and_Audit/Chapter_163_LSM_Hooks_and_Kernel_Security_Policy.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_33_Credentials_Capabilities_Permissions_LSM_Seccomp_and_Audit/Chapter_163_LSM_Hooks_and_Kernel_Security_Policy.md>`_。

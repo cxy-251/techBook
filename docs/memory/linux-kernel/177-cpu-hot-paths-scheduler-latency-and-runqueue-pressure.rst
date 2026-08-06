@@ -148,12 +148,3 @@ CPU 修复验证：
 ----------
 
 CPU 性能调查必须同时解释“CPU 正在执行什么”和“目标任务为什么还没得到 CPU”，再用 PMU、调度事件和拓扑证据决定修复对象。
-
-来源
-----
-
-* 教材：AIBook Linux Kernel
-* Part：Part 36 — Kernel Performance Engineering for CPU, Memory, I/O, Network, and Lock Contention
-* 章节：Chapter 177 — CPU Hot Paths, Scheduler Latency, and Runqueue Pressure
-* 源文件：``docs/LinuxK/Part_36_Kernel_Performance_Engineering_for_CPU_Memory_IO_Network_and_Lock_Contention/Chapter_177_CPU_Hot_Paths_Scheduler_Latency_and_Runqueue_Pressure.md``
-* 固定版本：`18386764582829f2b807b7b0947785eb77b50446 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_36_Kernel_Performance_Engineering_for_CPU_Memory_IO_Network_and_Lock_Contention/Chapter_177_CPU_Hot_Paths_Scheduler_Latency_and_Runqueue_Pressure.md>`_

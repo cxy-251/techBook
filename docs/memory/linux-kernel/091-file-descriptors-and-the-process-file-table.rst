@@ -128,34 +128,14 @@ Close 生命周期：
 必须区分
 --------
 
-fd 数字与打开对象
-   fd 是当前进程表中的索引；``struct file`` 才保存打开实例状态。
-
-fd 表项与 ``struct file``
-   表项保存指针和 ``FD_CLOEXEC``；``struct file`` 保存偏移、状态标志和操作表。
-
-两次 ``open`` 与一次 ``dup``
-   两次 open 通常产生独立打开实例；dup 产生新表项并共享同一个打开实例。
-
-Fork 表复制与线程表共享
-   fork 通常复制表容器并共享 file 引用；``CLONE_FILES`` 让线程直接共享同一张表。
-
-Close fd 与对象销毁
-   close 只移除一个表项引用；最后引用归零后底层打开对象才进入最终释放。
-
-fd 数值复用与对象身份
-   旧 fd 被关闭后同一整数可指向新对象，不能用数字相等证明身份未变。
+* fd 数字与打开对象：fd 是当前进程表中的索引；``struct file`` 才保存打开实例状态。
+* fd 表项与 ``struct file``：表项保存指针和 ``FD_CLOEXEC``；``struct file`` 保存偏移、状态标志和操作表。
+* 两次 ``open`` 与一次 ``dup``：两次 open 通常产生独立打开实例；dup 产生新表项并共享同一个打开实例。
+* Fork 表复制与线程表共享：fork 通常复制表容器并共享 file 引用；``CLONE_FILES`` 让线程直接共享同一张表。
+* Close fd 与对象销毁：close 只移除一个表项引用；最后引用归零后底层打开对象才进入最终释放。
+* fd 数值复用与对象身份：旧 fd 被关闭后同一整数可指向新对象，不能用数字相等证明身份未变。
 
 一句话结论
 ----------
 
 文件描述符只是当前任务 fd 表中的整数索引，真正的打开状态和生命周期位于共享或独立的 ``struct file`` 对象及其引用关系中。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 19，File Descriptors, VFS, Inode, Dentry, and Superblock；
-* AIBook 章节：Chapter 91，File Descriptors and the Process File Table；
-* 源文件：``docs/LinuxK/Part_19_File_Descriptors_VFS_Inode_Dentry_and_Superblock/Chapter_091_File_Descriptors_and_the_Process_File_Table.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_19_File_Descriptors_VFS_Inode_Dentry_and_Superblock/Chapter_091_File_Descriptors_and_the_Process_File_Table.md>`_。

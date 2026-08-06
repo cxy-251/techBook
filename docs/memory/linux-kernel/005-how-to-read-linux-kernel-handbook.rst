@@ -61,30 +61,13 @@
 必须区分
 --------
 
-顺序阅读与按主题查阅
-   顺序阅读建立通用坐标；按主题查阅解决已经明确的具体问题。
-
-概念与机制
-   概念说明某类功能是什么；机制说明哪些对象按照什么顺序完成它。
-
-源码可能路径与当前实际路径
-   源码给出条件下可执行的路径；运行证据确认当前环境实际选择的路径。
-
-对象证据与路径证据
-   ``/proc``、``sysfs`` 常用于确认对象和状态；ftrace、tracepoint 和 perf 用于观察事件、函数或性能表现。
-
-证据与推断
-   证据直接支撑观察到的事实；超出证据时间、版本、配置和对象范围的说法属于推断。
+* 顺序阅读与按主题查阅：顺序阅读建立通用坐标；按主题查阅解决已经明确的具体问题。
+* 概念与机制：概念说明某类功能是什么；机制说明哪些对象按照什么顺序完成它。
+* 源码可能路径与当前实际路径：源码给出条件下可执行的路径；运行证据确认当前环境实际选择的路径。
+* 对象证据与路径证据：``/proc``、``sysfs`` 常用于确认对象和状态；ftrace、tracepoint 和 perf 用于观察事件、函数或性能表现。
+* 证据与推断：证据直接支撑观察到的事实；超出证据时间、版本、配置和对象范围的说法属于推断。
 
 一句话结论
 ----------
 
 学习 Linux 内核要把概念变成对象和路径，再用运行证据验证；没有入口、对象、回调和证据的知识不能形成可靠判断。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 5，How This Handbook Should Be Read；
-* 源文件：``docs/LinuxK/Part_01_Kernel_Worldview_and_Engineering_Mental_Model/Chapter_005_How_This_Handbook_Should_Be_Read.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_01_Kernel_Worldview_and_Engineering_Mental_Model/Chapter_005_How_This_Handbook_Should_Be_Read.md>`_。

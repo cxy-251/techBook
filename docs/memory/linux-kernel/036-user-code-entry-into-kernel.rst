@@ -80,34 +80,14 @@
 必须区分
 --------
 
-用户 API 与系统调用 ABI
-   ``read()`` 是用户可见接口；调用号、寄存器和返回约定是二进制边界协议。
-
-普通 C ABI 与 syscall ABI
-   普通函数调用和用户态进入内核使用不同寄存器规则，不能混用。
-
-架构入口与通用内核逻辑
-   架构入口处理 CPU 现场；通用逻辑处理状态、过滤、审计和分发。
-
-进入内核与参数可信
-   进入内核只完成控制权转移；用户参数仍必须逐层验证。
-
-``pt_regs`` 与用户寄存器 ABI
-   ABI 规定用户怎样提交寄存器；``pt_regs`` 是内核保存和解释现场的内部结构。
-
-系统调用返回与普通函数返回
-   syscall 退出还要处理信号、调度和权限恢复，远多于普通 ``ret``。
+* 用户 API 与系统调用 ABI：``read()`` 是用户可见接口；调用号、寄存器和返回约定是二进制边界协议。
+* 普通 C ABI 与 syscall ABI：普通函数调用和用户态进入内核使用不同寄存器规则，不能混用。
+* 架构入口与通用内核逻辑：架构入口处理 CPU 现场；通用逻辑处理状态、过滤、审计和分发。
+* 进入内核与参数可信：进入内核只完成控制权转移；用户参数仍必须逐层验证。
+* ``pt_regs`` 与用户寄存器 ABI：ABI 规定用户怎样提交寄存器；``pt_regs`` 是内核保存和解释现场的内部结构。
+* 系统调用返回与普通函数返回：syscall 退出还要处理信号、调度和权限恢复，远多于普通 ``ret``。
 
 一句话结论
 ----------
 
 系统调用是一次契约化的权限转换：用户态按 ABI 提交调用号和参数，架构入口接管 CPU 现场，通用内核完成检查与分发，退出路径再安全恢复用户态。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 8，User-Kernel Boundary and System Call Path；
-* AIBook 章节：Chapter 36，User Code Entry into the Kernel；
-* 源文件：``docs/LinuxK/Part_08_User_Kernel_Boundary_and_System_Call_Path/Chapter_036_User_Code_Entry_into_the_Kernel.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_08_User_Kernel_Boundary_and_System_Call_Path/Chapter_036_User_Code_Entry_into_the_Kernel.md>`_。

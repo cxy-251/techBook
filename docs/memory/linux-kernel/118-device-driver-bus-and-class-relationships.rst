@@ -141,34 +141,14 @@ Remove：
 必须区分
 --------
 
-Bus 与 Driver
-   Bus 定义设备身份与匹配规则；driver 提供控制设备的代码和实例回调。
-
-Match 与 Probe
-   Match 只确认候选兼容；probe 申请资源并建立真正绑定能力。
-
-Driver 对象与 Per-device State
-   Driver 回调可共享；每个设备实例的寄存器、队列和运行状态必须独立。
-
-Remove 与 Shutdown
-   Remove 撤销对象绑定并完整 teardown；shutdown 主要在系统结束前停止硬件活动。
-
-Device 与 Class Device
-   Device 表达硬件/逻辑实例；class device 表达用户空间功能入口。
-
-Managed Resource 与自动生命周期正确
-   Devm 可自动释放资源；发布接口、异步 work、DMA 和业务引用仍需显式收束。
+* Bus 与 Driver：Bus 定义设备身份与匹配规则；driver 提供控制设备的代码和实例回调。
+* Match 与 Probe：Match 只确认候选兼容；probe 申请资源并建立真正绑定能力。
+* Driver 对象与 Per-device State：Driver 回调可共享；每个设备实例的寄存器、队列和运行状态必须独立。
+* Remove 与 Shutdown：Remove 撤销对象绑定并完整 teardown；shutdown 主要在系统结束前停止硬件活动。
+* Device 与 Class Device：Device 表达硬件/逻辑实例；class device 表达用户空间功能入口。
+* Managed Resource 与自动生命周期正确：Devm 可自动释放资源；发布接口、异步 work、DMA 和业务引用仍需显式收束。
 
 一句话结论
 ----------
 
 Driver core 让 device 与 driver 在 bus 匹配域中相遇，probe 按实例建立硬件和功能状态，remove 再按相反依赖顺序停止入口、排空并发并撤销全部能力。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 24，Device Model, Kobject, Sysfs, Driver Core, and Device Lifetime；
-* AIBook 章节：Chapter 118，Device, Driver, Bus, and Class Relationships；
-* 源文件：``docs/LinuxK/Part_24_Device_Model_Kobject_Sysfs_Driver_Core_and_Device_Lifetime/Chapter_118_Device_Driver_Bus_and_Class_Relationships.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_24_Device_Model_Kobject_Sysfs_Driver_Core_and_Device_Lifetime/Chapter_118_Device_Driver_Bus_and_Class_Relationships.md>`_。

@@ -157,31 +157,13 @@ skb 最终释放：
 必须区分
 --------
 
-skb 元数据与 Packet 数据
-   ``struct sk_buff`` 保存状态和指针；真实字节可位于共享 head 或 page fragments。
-
-对象共享与数据共享
-   ``skb_get`` 共享同一 skb；``skb_clone`` 通常创建新元数据但共享数据区。
-
-线性长度与总长度
-   线性区只占 ``len`` 的一部分；``data_len`` 表示非线性部分。
-
-Coherency 与可写独占
-   数据内容可见不表示当前 clone 有权直接修改共享字节。
-
-逻辑 skb 与 Wire Packet
-   GSO/GRO 会让一个 skb 代表多个发送或接收 segment。
+* skb 元数据与 Packet 数据：``struct sk_buff`` 保存状态和指针；真实字节可位于共享 head 或 page fragments。
+* 对象共享与数据共享：``skb_get`` 共享同一 skb；``skb_clone`` 通常创建新元数据但共享数据区。
+* 线性长度与总长度：线性区只占 ``len`` 的一部分；``data_len`` 表示非线性部分。
+* Coherency 与可写独占：数据内容可见不表示当前 clone 有权直接修改共享字节。
+* 逻辑 skb 与 Wire Packet：GSO/GRO 会让一个 skb 代表多个发送或接收 segment。
 
 一句话结论
 ----------
 
 ``sk_buff`` 是 packet 穿过 Linux 网络栈时携带的“护照”：它记录字节位置、协议层级、共享关系、路由/offload 状态和当前所有者，而数据复制只在路径确实需要独占或连续内容时发生。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 29，Socket Layer, sk_buff, Routing, Netfilter, and TCP IP Stack；
-* AIBook 章节：Chapter 142，sk_buff as the Network Packet Object；
-* 源文件：``docs/LinuxK/Part_29_Socket_Layer_sk_buff_Routing_Netfilter_and_TCP_IP_Stack/Chapter_142_sk_buff_as_the_Network_Packet_Object.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_29_Socket_Layer_sk_buff_Routing_Netfilter_and_TCP_IP_Stack/Chapter_142_sk_buff_as_the_Network_Packet_Object.md>`_。

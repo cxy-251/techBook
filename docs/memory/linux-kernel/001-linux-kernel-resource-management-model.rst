@@ -31,24 +31,11 @@
 必须区分
 --------
 
-``fd`` 与 ``struct file``
-   ``fd`` 是当前进程中的整数索引；``struct file`` 是内核中的打开文件对象。
-
-``struct file`` 与 ``inode``
-   ``struct file`` 表示一次打开产生的运行时对象；``inode`` 表示文件系统对象的元数据与身份。
-
-系统调用入口与具体实现
-   ``read()`` 提供统一入口；真正的数据来源和读取方式由对象的操作表决定。
+* ``fd`` 与 ``struct file``：``fd`` 是当前进程中的整数索引；``struct file`` 是内核中的打开文件对象。
+* ``struct file`` 与 ``inode``：``struct file`` 表示一次打开产生的运行时对象；``inode`` 表示文件系统对象的元数据与身份。
+* 系统调用入口与具体实现：``read()`` 提供统一入口；真正的数据来源和读取方式由对象的操作表决定。
 
 一句话结论
 ----------
 
 ``fd`` 负责定位对象，``struct file`` 保存打开状态，``file_operations`` 决定具体行为。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 1，Linux Kernel Resource Management Model；
-* 源文件：``docs/LinuxK/Part_01_Kernel_Worldview_and_Engineering_Mental_Model/Chapter_001_Linux_Kernel_Resource_Management_Model.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_01_Kernel_Worldview_and_Engineering_Mental_Model/Chapter_001_Linux_Kernel_Resource_Management_Model.md>`_。

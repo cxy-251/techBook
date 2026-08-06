@@ -147,31 +147,13 @@ Feature 更新：
 必须区分
 --------
 
-总线设备与网络接口
-   总线对象描述硬件发现和资源；``net_device`` 描述协议栈可使用的接口。
-
-Administrative Up 与 Carrier On
-   Up 是管理状态；Carrier 是链路状态，二者都不证明三层连通。
-
-``NETDEV_TX_OK`` 与 Packet 已发送
-   OK 只表示驱动接管 skb；真正发送和资源回收要等硬件 Completion。
-
-Feature 声明与实际 Packet Offload
-   Feature 表示路径能力；具体 skb 还要满足协议、Header 和设备限制。
-
-Unregister 与 Final Free
-   注销撤销接口可见性；最终释放还要等待异步路径和引用结束。
+* 总线设备与网络接口：总线对象描述硬件发现和资源；``net_device`` 描述协议栈可使用的接口。
+* Administrative Up 与 Carrier On：Up 是管理状态；Carrier 是链路状态，二者都不证明三层连通。
+* ``NETDEV_TX_OK`` 与 Packet 已发送：OK 只表示驱动接管 skb；真正发送和资源回收要等硬件 Completion。
+* Feature 声明与实际 Packet Offload：Feature 表示路径能力；具体 skb 还要满足协议、Header 和设备限制。
+* Unregister 与 Final Free：注销撤销接口可见性；最终释放还要等待异步路径和引用结束。
 
 一句话结论
 ----------
 
 ``net_device`` 是网络接口的发布与调度对象，驱动只有把回调、队列、Carrier、Feature 和可重复生命周期全部接入它，硬件才真正成为 Linux 网络接口。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 30，Network Device Drivers, NAPI, Queues, Offloads, and Packet Scheduling；
-* AIBook 章节：Chapter 146，Network Device Driver Registration and netdev_ops；
-* 源文件：``docs/LinuxK/Part_30_Network_Device_Drivers_NAPI_Queues_Offloads_and_Packet_Scheduling/Chapter_146_Network_Device_Driver_Registration_and_netdev_ops.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_30_Network_Device_Drivers_NAPI_Queues_Offloads_and_Packet_Scheduling/Chapter_146_Network_Device_Driver_Registration_and_netdev_ops.md>`_。

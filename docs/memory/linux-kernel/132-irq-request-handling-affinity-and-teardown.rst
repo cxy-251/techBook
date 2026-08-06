@@ -128,34 +128,14 @@ Threaded IRQ：
 必须区分
 --------
 
-Linux IRQ 与 Hardware IRQ
-   Linux IRQ 是内核映射编号；hwirq/vector/中断线属于控制器或总线语义。
-
-设备 ACK 与 Controller EOI
-   驱动清设备事件源；irqchip/flow handler 完成控制器侧协议。
-
-Primary Handler 与 Threaded Handler
-   Primary 在硬中断上下文快速确认事件；thread 可睡眠并执行较长处理。
-
-Disable 与 Synchronize
-   Disable 阻止后续投递；synchronize 等待已经进入的处理路径到达安全终点。
-
-Free IRQ 与停止设备
-   Free 撤销内核 action；设备侧仍必须先停止产生事件和 DMA。
-
-IRQ Affinity 与业务局部性
-   Affinity 决定通知 CPU；完整局部性还取决于队列、软中断、NUMA 和应用线程。
+* Linux IRQ 与 Hardware IRQ：Linux IRQ 是内核映射编号；hwirq/vector/中断线属于控制器或总线语义。
+* 设备 ACK 与 Controller EOI：驱动清设备事件源；irqchip/flow handler 完成控制器侧协议。
+* Primary Handler 与 Threaded Handler：Primary 在硬中断上下文快速确认事件；thread 可睡眠并执行较长处理。
+* Disable 与 Synchronize：Disable 阻止后续投递；synchronize 等待已经进入的处理路径到达安全终点。
+* Free IRQ 与停止设备：Free 撤销内核 action；设备侧仍必须先停止产生事件和 DMA。
+* IRQ Affinity 与业务局部性：Affinity 决定通知 CPU；完整局部性还取决于队列、软中断、NUMA 和应用线程。
 
 一句话结论
 ----------
 
 IRQ 正确性不止是注册 handler，而是让设备事件、控制器投递、归属确认、下半部和退出同步形成闭合状态机；teardown 必须先让硬件沉默，再等待所有软件路径结束。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 27，IRQ, DMA, MMIO, IOMMU, Cache Coherency, and Hardware Resources；
-* AIBook 章节：Chapter 132，IRQ Request, Handling, Affinity, and Teardown；
-* 源文件：``docs/LinuxK/Part_27_IRQ_DMA_MMIO_IOMMU_Cache_Coherency_and_Hardware_Resources/Chapter_132_IRQ_Request_Handling_Affinity_and_Teardown.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_27_IRQ_DMA_MMIO_IOMMU_Cache_Coherency_and_Hardware_Resources/Chapter_132_IRQ_Request_Handling_Affinity_and_Teardown.md>`_。

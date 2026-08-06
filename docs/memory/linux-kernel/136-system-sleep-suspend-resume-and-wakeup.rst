@@ -121,31 +121,13 @@
 必须区分
 --------
 
-System Sleep 与 Runtime PM
-   前者协调全机状态；后者在系统运行时控制单个设备。
-
-Wakeup Capability 与 Wakeup Policy
-   Capability 是硬件/驱动能力；policy 是当前是否允许其唤醒。
-
-Suspend Failure 与 Resume Failure
-   前者阻止进入低功耗；后者发生在低功耗返回后的状态重建。
-
-IRQ 静止与 DMA 停止
-   无 handler 执行不表示设备已停止访问内存。
-
-回调返回与硬件完成
-   回调成功必须建立下一阶段所需硬件事实，不能只更新软件状态。
+* System Sleep 与 Runtime PM：前者协调全机状态；后者在系统运行时控制单个设备。
+* Wakeup Capability 与 Wakeup Policy：Capability 是硬件/驱动能力；policy 是当前是否允许其唤醒。
+* Suspend Failure 与 Resume Failure：前者阻止进入低功耗；后者发生在低功耗返回后的状态重建。
+* IRQ 静止与 DMA 停止：无 handler 执行不表示设备已停止访问内存。
+* 回调返回与硬件完成：回调成功必须建立下一阶段所需硬件事实，不能只更新软件状态。
 
 一句话结论
 ----------
 
 系统睡眠是一场按依赖分阶段执行的全局静止与恢复协议，任何设备只有在 I/O、DMA、IRQ、固件状态和 wakeup 配置全部闭合后才具备可恢复性。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 28，Power Management, Hotplug, Firmware Loading, and Runtime PM；
-* AIBook 章节：Chapter 136，System Sleep, Suspend, Resume, and Wakeup；
-* 源文件：``docs/LinuxK/Part_28_Power_Management_Hotplug_Firmware_Loading_and_Runtime_PM/Chapter_136_System_Sleep_Suspend_Resume_and_Wakeup.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_28_Power_Management_Hotplug_Firmware_Loading_and_Runtime_PM/Chapter_136_System_Sleep_Suspend_Resume_and_Wakeup.md>`_。

@@ -142,31 +142,13 @@ Cgroup 诊断：
 必须区分
 --------
 
-容器内 PID 与宿主 PID
-   同一 Task 在不同 PID Namespace 中有不同编号，诊断入口必须使用正确宿主 Task。
-
-Memcg OOM 与全局 OOM
-   Memcg OOM 由组级限制触发，宿主仍可能有可用内存；全局 OOM 来自系统整体压力。
-
-CPU Throttle 与 CPU 饱和
-   Throttle 是 Quota 策略阻止运行；饱和是可运行任务竞争 CPU。
-
-容器内 Root 与宿主权限
-   UID 0 的权力受 User Namespace Mapping、Capability 范围、LSM 和 Seccomp 限制。
-
-配置声明与内核事实
-   YAML/OCI/Systemd 表达意图；Procfs、Cgroupfs、Audit 和对象状态证明实际生效。
+* 容器内 PID 与宿主 PID：同一 Task 在不同 PID Namespace 中有不同编号，诊断入口必须使用正确宿主 Task。
+* Memcg OOM 与全局 OOM：Memcg OOM 由组级限制触发，宿主仍可能有可用内存；全局 OOM 来自系统整体压力。
+* CPU Throttle 与 CPU 饱和：Throttle 是 Quota 策略阻止运行；饱和是可运行任务竞争 CPU。
+* 容器内 Root 与宿主权限：UID 0 的权力受 User Namespace Mapping、Capability 范围、LSM 和 Seccomp 限制。
+* 配置声明与内核事实：YAML/OCI/Systemd 表达意图；Procfs、Cgroupfs、Audit 和对象状态证明实际生效。
 
 一句话结论
 ----------
 
 容器排障必须围绕真实 Task 把视图、资源和权限三条证据链闭合，最先偏离预期的内核边界才是根因位置。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 32，Namespaces, Cgroups, Resource Control, and Container Internals；
-* AIBook 章节：Chapter 160，Debugging Isolation and Resource Limit Problems；
-* 源文件：``docs/LinuxK/Part_32_Namespaces_Cgroups_Resource_Control_and_Container_Internals/Chapter_160_Debugging_Isolation_and_Resource_Limit_Problems.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_32_Namespaces_Cgroups_Resource_Control_and_Container_Internals/Chapter_160_Debugging_Isolation_and_Resource_Limit_Problems.md>`_。

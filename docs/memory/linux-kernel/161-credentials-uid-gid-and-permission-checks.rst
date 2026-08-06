@@ -146,31 +146,13 @@ Credential 更新：
 必须区分
 --------
 
-``cred`` 与 ``real_cred``
-   前者表示当前动作主体，后者表示 Task 作为目标对象时的客观身份。
-
-Effective ID 与 Filesystem ID
-   Effective ID 表示当前特权身份；VFS 普通权限检查重点读取 FSUID/FSGID。
-
-路径名与内核对象
-   路径经过 Namespace、Mount 和 VFS 解析后才得到实际 Dentry/Inode/File。
-
-DAC 允许与最终允许
-   Capability、LSM、Mount 状态、Device Policy 和 Seccomp 仍可影响结果。
-
-关闭 fd 与 Credential 释放
-   ``struct file`` 持有的 ``f_cred`` 引用会随 File 生命周期结束，不由路径名或发送者进程退出直接决定。
+* ``cred`` 与 ``real_cred``：前者表示当前动作主体，后者表示 Task 作为目标对象时的客观身份。
+* Effective ID 与 Filesystem ID：Effective ID 表示当前特权身份；VFS 普通权限检查重点读取 FSUID/FSGID。
+* 路径名与内核对象：路径经过 Namespace、Mount 和 VFS 解析后才得到实际 Dentry/Inode/File。
+* DAC 允许与最终允许：Capability、LSM、Mount 状态、Device Policy 和 Seccomp 仍可影响结果。
+* 关闭 fd 与 Credential 释放：``struct file`` 持有的 ``f_cred`` 引用会随 File 生命周期结束，不由路径名或发送者进程退出直接决定。
 
 一句话结论
 ----------
 
 Linux 权限检查不是比较一个 UID 数字，而是用稳定 Credential 对象描述主体，再在真实内核对象访问点组合 DAC、Capability 与安全策略作出决定。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 33，Credentials, Capabilities, Permissions, LSM, Seccomp, and Audit；
-* AIBook 章节：Chapter 161，Credentials, UID GID, and Permission Checks；
-* 源文件：``docs/LinuxK/Part_33_Credentials_Capabilities_Permissions_LSM_Seccomp_and_Audit/Chapter_161_Credentials_UID_GID_and_Permission_Checks.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_33_Credentials_Capabilities_Permissions_LSM_Seccomp_and_Audit/Chapter_161_Credentials_UID_GID_and_Permission_Checks.md>`_。

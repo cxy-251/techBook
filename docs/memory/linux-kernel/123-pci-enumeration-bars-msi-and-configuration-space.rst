@@ -139,34 +139,14 @@ MSI-X 多队列：
 必须区分
 --------
 
-配置空间与 BAR 寄存器空间
-   配置空间用于标准发现和控制；BAR 映射设备专用运行寄存器。
-
-设备枚举与驱动绑定
-   枚举创建 ``pci_dev``；ID match 和 probe 决定哪个驱动接管。
-
-BAR 资源地址与 MMIO 指针
-   Resource 描述系统地址范围；映射后才得到 ``__iomem`` 访问地址。
-
-CPU MMIO 地址与 DMA 地址
-   CPU 经页表访问 BAR；设备 DMA 经 DMA API 使用总线/IOMMU 地址。
-
-MSI-X 向量数与真实并行度
-   向量提供独立通知通道；设备内部执行资源仍可能共享。
-
-Reset 与 Remove
-   Reset 目标是重建同一设备运行状态；remove 永久撤销绑定和所有功能入口。
+* 配置空间与 BAR 寄存器空间：配置空间用于标准发现和控制；BAR 映射设备专用运行寄存器。
+* 设备枚举与驱动绑定：枚举创建 ``pci_dev``；ID match 和 probe 决定哪个驱动接管。
+* BAR 资源地址与 MMIO 指针：Resource 描述系统地址范围；映射后才得到 ``__iomem`` 访问地址。
+* CPU MMIO 地址与 DMA 地址：CPU 经页表访问 BAR；设备 DMA 经 DMA API 使用总线/IOMMU 地址。
+* MSI-X 向量数与真实并行度：向量提供独立通知通道；设备内部执行资源仍可能共享。
+* Reset 与 Remove：Reset 目标是重建同一设备运行状态；remove 永久撤销绑定和所有功能入口。
 
 一句话结论
 ----------
 
 PCI core 先通过配置空间枚举并整理 ``pci_dev``，驱动再用 ID 表接管设备，完整正确性取决于 BAR、DMA、MSI、电源、reset 与热拔插资源按同一生命周期闭合。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 25，Bus Frameworks Platform, PCI, USB, I2C, SPI, ACPI, and Device Tree；
-* AIBook 章节：Chapter 123，PCI Enumeration, BARs, MSI, and Configuration Space；
-* 源文件：``docs/LinuxK/Part_25_Bus_Frameworks_Platform_PCI_USB_I2C_SPI_ACPI_and_Device_Tree/Chapter_123_PCI_Enumeration_BARs_MSI_and_Configuration_Space.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_25_Bus_Frameworks_Platform_PCI_USB_I2C_SPI_ACPI_and_Device_Tree/Chapter_123_PCI_Enumeration_BARs_MSI_and_Configuration_Space.md>`_。

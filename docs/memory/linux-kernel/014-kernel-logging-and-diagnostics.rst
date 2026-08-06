@@ -63,30 +63,13 @@
 必须区分
 --------
 
-ring buffer 与控制台
-   ring buffer 保存日志记录；控制台只实时显示满足当前级别策略的部分记录。
-
-日志级别与根因
-   日志级别表示报告者判断的严重程度；根因仍需结合对象状态、错误路径和运行时证据确定。
-
-调试调用点与实际输出
-   源码存在 ``pr_debug()`` 只说明观察点存在；是否输出取决于配置、动态开关和路径是否执行。
-
-``WARN`` 与 ``panic``
-   ``WARN`` 记录异常并可能继续执行；``panic`` 进入系统级停机或重启处理。
-
-函数符号与精确源码行
-   函数名提供稳定入口；精确行号依赖完全匹配的构建产物和符号信息。
+* ring buffer 与控制台：ring buffer 保存日志记录；控制台只实时显示满足当前级别策略的部分记录。
+* 日志级别与根因：日志级别表示报告者判断的严重程度；根因仍需结合对象状态、错误路径和运行时证据确定。
+* 调试调用点与实际输出：源码存在 ``pr_debug()`` 只说明观察点存在；是否输出取决于配置、动态开关和路径是否执行。
+* ``WARN`` 与 ``panic``：``WARN`` 记录异常并可能继续执行；``panic`` 进入系统级停机或重启处理。
+* 函数符号与精确源码行：函数名提供稳定入口；精确行号依赖完全匹配的构建产物和符号信息。
 
 一句话结论
 ----------
 
 内核日志负责给出对象、严重程度和第一处运行路径线索；日志给入口，源码给机制，跟踪工具给时序。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 14，Kernel Logging and Diagnostics Grammar；
-* 源文件：``docs/LinuxK/Part_03_Kernel_Code_Grammar_Core_APIs_and_C_Runtime_Constraints/Chapter_014_Kernel_Logging_and_Diagnostics_Grammar.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_03_Kernel_Code_Grammar_Core_APIs_and_C_Runtime_Constraints/Chapter_014_Kernel_Logging_and_Diagnostics_Grammar.md>`_。

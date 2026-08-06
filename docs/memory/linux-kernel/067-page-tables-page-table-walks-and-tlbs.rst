@@ -96,34 +96,14 @@
 必须区分
 --------
 
-VMA 权限与页表权限
-   VMA 保存范围级策略；页表项保存当前硬件实际执行的页级权限。
-
-软件五级模型与硬件层级
-   Linux 使用统一五级名称；架构可以折叠层级或在中间层形成大页映射。
-
-页表与 TLB
-   页表是内存中的权威映射结构；TLB 是 CPU 对页表翻译结果的缓存。
-
-清除页表项与撤销访问
-   软件表项改变后，旧 TLB 项仍可能生效；完成失效后才能认为硬件访问已撤销。
-
-地址空间切换与页表修改
-   切换 mm 改变当前翻译上下文；修改同一 mm 的映射需要针对相关 TLB 项失效。
-
-Page fault 与非法地址
-   Fault 可以是正常的延迟分配或 COW；只有 VMA 缺失或权限不允许等情况才形成用户错误。
+* VMA 权限与页表权限：VMA 保存范围级策略；页表项保存当前硬件实际执行的页级权限。
+* 软件五级模型与硬件层级：Linux 使用统一五级名称；架构可以折叠层级或在中间层形成大页映射。
+* 页表与 TLB：页表是内存中的权威映射结构；TLB 是 CPU 对页表翻译结果的缓存。
+* 清除页表项与撤销访问：软件表项改变后，旧 TLB 项仍可能生效；完成失效后才能认为硬件访问已撤销。
+* 地址空间切换与页表修改：切换 mm 改变当前翻译上下文；修改同一 mm 的映射需要针对相关 TLB 项失效。
+* Page fault 与非法地址：Fault 可以是正常的延迟分配或 COW；只有 VMA 缺失或权限不允许等情况才形成用户错误。
 
 一句话结论
 ----------
 
 页表把内核的地址映射与权限策略交给 MMU 执行，TLB 缓存翻译结果；任何页表修改只有在相关 TLB 失效完成后才真正对所有 CPU 生效。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 14，Virtual Memory, Address Spaces, and Page Tables；
-* AIBook 章节：Chapter 67，Page Tables, Page Table Walks, and TLBs；
-* 源文件：``docs/LinuxK/Part_14_Virtual_Memory_Address_Spaces_and_Page_Tables/Chapter_067_Page_Tables_Page_Table_Walks_and_TLBs.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_14_Virtual_Memory_Address_Spaces_and_Page_Tables/Chapter_067_Page_Tables_Page_Table_Walks_and_TLBs.md>`_。

@@ -133,38 +133,15 @@ Dynamic Debug：
 必须区分
 --------
 
-Ring Buffer 与 Console
-   Ring Buffer 保存记录；Console 是按等级和状态输出记录的设备路径。
-
-``pr_err`` 与 ``pr_debug``
-   前者记录默认应保留的失败事实；后者记录按 Callsite 开启的调试细节。
-
-日志顺序与因果顺序
-   文本提交顺序不自动证明多 CPU、异步 Worker 和硬件事件的全局因果关系。
-
-Rate Limit 与问题消失
-   限速只减少输出，不修复事件源，也不表示故障频率下降。
-
-Printk 与 Tracepoint
-   Printk 输出自由文本；Tracepoint 提供结构化事件字段与更适合统计的接口。
-
-Dynamic Debug 与模块 Debug 开关
-   Dynamic Debug 控制具体 Callsite；驱动私有 Debug 参数可能改变完全不同的代码路径。
-
-日志可见与日志产生
-   用户态没看到消息可能是权限、过滤、消费或覆盖问题，不等于 Callsite 未执行。
+* Ring Buffer 与 Console：Ring Buffer 保存记录；Console 是按等级和状态输出记录的设备路径。
+* ``pr_err`` 与 ``pr_debug``：前者记录默认应保留的失败事实；后者记录按 Callsite 开启的调试细节。
+* 日志顺序与因果顺序：文本提交顺序不自动证明多 CPU、异步 Worker 和硬件事件的全局因果关系。
+* Rate Limit 与问题消失：限速只减少输出，不修复事件源，也不表示故障频率下降。
+* Printk 与 Tracepoint：Printk 输出自由文本；Tracepoint 提供结构化事件字段与更适合统计的接口。
+* Dynamic Debug 与模块 Debug 开关：Dynamic Debug 控制具体 Callsite；驱动私有 Debug 参数可能改变完全不同的代码路径。
+* 日志可见与日志产生：用户态没看到消息可能是权限、过滤、消费或覆盖问题，不等于 Callsite 未执行。
 
 一句话结论
 ----------
 
 ``printk`` 的价值不是输出更多文字，而是在最小运行扰动下，把对象、阶段、状态和错误保存为可与其它内核证据关联的记录。
-
-来源
-----
-
-* 书籍：Linux Kernel AIBook；
-* Part：Part 35 — Kernel Debugging, printk, Dynamic Debug, ftrace, perf, kdump, and crash；
-* 章节：Chapter 171 — printk, pr_debug, and Dynamic Debug；
-* 源文件：``docs/LinuxK/Part_35_Kernel_Debugging_printk_Dynamic_Debug_ftrace_perf_kdump_and_crash/Chapter_171_printk_pr_debug_and_Dynamic_Debug.md``；
-* 固定提交：``18386764582829f2b807b7b0947785eb77b50446``；
-* 固定来源：``https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_35_Kernel_Debugging_printk_Dynamic_Debug_ftrace_perf_kdump_and_crash/Chapter_171_printk_pr_debug_and_Dynamic_Debug.md``。

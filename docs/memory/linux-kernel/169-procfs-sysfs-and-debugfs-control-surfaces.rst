@@ -180,31 +180,13 @@ Debugfs 诊断：
 必须区分
 --------
 
-procfs 与 ``/proc/sys``
-   普通 procfs 文件可绑定进程或系统状态；``/proc/sys`` 是 sysctl 策略表的文件视图。
-
-Sysfs Class Path 与规范设备路径
-   ``/sys/class`` 是功能视图，真实对象层级通常沿 Symlink 落到 ``/sys/devices``。
-
-Sysfs 与 Debugfs
-   Sysfs 面向对象属性并有 ABI 规范；Debugfs 面向调试，通常不承诺稳定格式。
-
-Set Value 与 Command Trigger
-   前者保存持续状态；后者每次写入都可能执行 Rescan、Reset、Remove 或 Fault Injection。
-
-文件节点删除与对象释放
-   撤销用户可见入口不等于回调、打开 fd、异步工作和宿主内存已经结束。
+* procfs 与 ``/proc/sys``：普通 procfs 文件可绑定进程或系统状态；``/proc/sys`` 是 sysctl 策略表的文件视图。
+* Sysfs Class Path 与规范设备路径：``/sys/class`` 是功能视图，真实对象层级通常沿 Symlink 落到 ``/sys/devices``。
+* Sysfs 与 Debugfs：Sysfs 面向对象属性并有 ABI 规范；Debugfs 面向调试，通常不承诺稳定格式。
+* Set Value 与 Command Trigger：前者保存持续状态；后者每次写入都可能执行 Rescan、Reset、Remove 或 Fault Injection。
+* 文件节点删除与对象释放：撤销用户可见入口不等于回调、打开 fd、异步工作和宿主内存已经结束。
 
 一句话结论
 ----------
 
 虚拟控制文件的真正语义来自其背后的对象与回调：先识别文件系统和作用域，再判断 ABI、状态变化与生命周期。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 34，Kernel Parameters, Sysctl, Control Interfaces, and Runtime Tuning；
-* AIBook 章节：Chapter 169，procfs, sysfs, and debugfs Control Surfaces；
-* 源文件：``docs/LinuxK/Part_34_Kernel_Parameters_Sysctl_Control_Interfaces_and_Runtime_Tuning/Chapter_169_procfs_sysfs_and_debugfs_Control_Surfaces.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_34_Kernel_Parameters_Sysctl_Control_Interfaces_and_Runtime_Tuning/Chapter_169_procfs_sysfs_and_debugfs_Control_Surfaces.md>`_。

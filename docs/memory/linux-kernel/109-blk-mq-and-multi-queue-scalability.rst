@@ -150,34 +150,14 @@ Completion：
 必须区分
 --------
 
-``blk_mq_ctx`` 与 ``blk_mq_hw_ctx``
-   前者贴近提交 CPU 的软件上下文；后者贴近驱动的硬件派发上下文。
-
-Hardware context 与设备硬件队列
-   Hctx 是 Linux 块层对象；驱动再把它映射到控制器真实队列。
-
-Scheduler tag 与 Driver tag
-   前者服务软件调度阶段；后者标识可交给驱动的在途 request。
-
-Tag depth 与应用队列深度
-   Tag 是块层/驱动资源；应用还可以在更上层积压尚未进入块层的请求。
-
-提交 CPU 与完成 CPU
-   Request 可在一个 CPU 提交，在另一个中断或 polling CPU 完成。
-
-更多队列与更高性能
-   多队列降低共享争用，收益仍取决于设备能力、映射、NUMA、请求形状和完成路径。
+* ``blk_mq_ctx`` 与 ``blk_mq_hw_ctx``：前者贴近提交 CPU 的软件上下文；后者贴近驱动的硬件派发上下文。
+* Hardware context 与设备硬件队列：Hctx 是 Linux 块层对象；驱动再把它映射到控制器真实队列。
+* Scheduler tag 与 Driver tag：前者服务软件调度阶段；后者标识可交给驱动的在途 request。
+* Tag depth 与应用队列深度：Tag 是块层/驱动资源；应用还可以在更上层积压尚未进入块层的请求。
+* 提交 CPU 与完成 CPU：Request 可在一个 CPU 提交，在另一个中断或 polling CPU 完成。
+* 更多队列与更高性能：多队列降低共享争用，收益仍取决于设备能力、映射、NUMA、请求形状和完成路径。
 
 一句话结论
 ----------
 
 blk-mq 通过 CPU 本地软件上下文、硬件派发上下文和 tag，把多核提交映射到设备并行队列；性能取决于映射、资源深度与完成回流是否匹配真实拓扑。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 22，Block Layer, Bio, Request Queues, Schedulers, and Multi-Queue；
-* AIBook 章节：Chapter 109，blk-mq and Multi-Queue Scalability；
-* 源文件：``docs/LinuxK/Part_22_Block_Layer_Bio_Request_Queues_Schedulers_and_Multi_Queue/Chapter_109_blk-mq_and_Multi-Queue_Scalability.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_22_Block_Layer_Bio_Request_Queues_Schedulers_and_Multi_Queue/Chapter_109_blk-mq_and_Multi-Queue_Scalability.md>`_。

@@ -168,31 +168,13 @@ Sysctl 读写：
 必须区分
 --------
 
-运行时值与持久化配置
-   ``/proc/sys`` 是当前内核事实；``sysctl.d`` 是下次或重载时的用户态意图。
-
-写入成功与目标改善
-   Handler 接受值不代表性能、可靠性或安全目标实现，必须用相关路径指标验证。
-
-全局参数与 Namespace 参数
-   相同路径名在不同 Namespace 中可能引用不同状态；并非所有参数都允许 Namespace 内修改。
-
-新对象默认值与已有对象状态
-   ``default`` 类参数可只影响以后创建对象，旧接口或连接保持原值。
-
-参数恢复与系统恢复
-   写回旧值不保证已创建队列、连接、缓存和对象自动回到旧状态。
+* 运行时值与持久化配置：``/proc/sys`` 是当前内核事实；``sysctl.d`` 是下次或重载时的用户态意图。
+* 写入成功与目标改善：Handler 接受值不代表性能、可靠性或安全目标实现，必须用相关路径指标验证。
+* 全局参数与 Namespace 参数：相同路径名在不同 Namespace 中可能引用不同状态；并非所有参数都允许 Namespace 内修改。
+* 新对象默认值与已有对象状态：``default`` 类参数可只影响以后创建对象，旧接口或连接保持原值。
+* 参数恢复与系统恢复：写回旧值不保证已创建队列、连接、缓存和对象自动回到旧状态。
 
 一句话结论
 ----------
 
 sysctl 是把文本策略注入正在运行的内核子系统：只有确认作用域、生命周期、处理函数和运行证据，参数值才具有工程意义。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 34，Kernel Parameters, Sysctl, Control Interfaces, and Runtime Tuning；
-* AIBook 章节：Chapter 168，sysctl as a Runtime Kernel Control Interface；
-* 源文件：``docs/LinuxK/Part_34_Kernel_Parameters_Sysctl_Control_Interfaces_and_Runtime_Tuning/Chapter_168_sysctl_as_a_Runtime_Kernel_Control_Interface.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_34_Kernel_Parameters_Sysctl_Control_Interfaces_and_Runtime_Tuning/Chapter_168_sysctl_as_a_Runtime_Kernel_Control_Interface.md>`_。

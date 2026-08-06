@@ -134,34 +134,14 @@ Direct write：
 必须区分
 --------
 
-Direct I/O 与同步持久化
-   Direct 决定 Page Cache 参与程度；sync/fsync 决定完成时需要等待哪些数据、元数据和设备顺序。
-
-用户虚拟地址与 DMA 地址
-   应用提供虚拟 buffer；内核仍需固定页面并建立设备可访问映射。
-
-对齐请求与路径保证
-   满足对齐只是必要条件之一；文件系统状态和特殊功能仍可拒绝或改变路径。
-
-绕过 Page Cache 与绕过所有缓存
-   Direct 不消除控制器、设备、服务器、虚拟块层和应用自己的缓存。
-
-提交完成与 I/O 完成
-   异步提交返回只表示请求被接受；收到 completion 后才能结束 buffer 生命周期。
-
-缓存污染减少与内存压力消失
-   少用 Page Cache 可减少缓存占用；大量页固定和在途 buffer 仍会占用并限制内存管理。
+* Direct I/O 与同步持久化：Direct 决定 Page Cache 参与程度；sync/fsync 决定完成时需要等待哪些数据、元数据和设备顺序。
+* 用户虚拟地址与 DMA 地址：应用提供虚拟 buffer；内核仍需固定页面并建立设备可访问映射。
+* 对齐请求与路径保证：满足对齐只是必要条件之一；文件系统状态和特殊功能仍可拒绝或改变路径。
+* 绕过 Page Cache 与绕过所有缓存：Direct 不消除控制器、设备、服务器、虚拟块层和应用自己的缓存。
+* 提交完成与 I/O 完成：异步提交返回只表示请求被接受；收到 completion 后才能结束 buffer 生命周期。
+* 缓存污染减少与内存压力消失：少用 Page Cache 可减少缓存占用；大量页固定和在途 buffer 仍会占用并限制内存管理。
 
 一句话结论
 ----------
 
 Direct I/O 用对齐、页固定和应用自管缓存换取较少的 Page Cache 参与，但一致性、异步完成、持久化和设备队列后果都必须由应用与文件系统共同承担。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 21，Page Cache IO, Direct IO, Async IO, and io_uring；
-* AIBook 章节：Chapter 102，Direct IO and Bypassing the Page Cache；
-* 源文件：``docs/LinuxK/Part_21_Page_Cache_IO_Direct_IO_Async_IO_and_io_uring/Chapter_102_Direct_IO_and_Bypassing_the_Page_Cache.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_21_Page_Cache_IO_Direct_IO_Async_IO_and_io_uring/Chapter_102_Direct_IO_and_Bypassing_the_Page_Cache.md>`_。

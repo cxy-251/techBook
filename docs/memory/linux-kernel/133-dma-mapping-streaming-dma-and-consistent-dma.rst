@@ -138,31 +138,13 @@ Coherent Descriptor Ring：
 必须区分
 --------
 
-CPU Virtual Address 与 DMA Address
-   前者供 CPU 解引用；后者供设备/IOMMU 发起 DMA 请求。
-
-Streaming Mapping 与 Coherent Allocation
-   Streaming 围绕阶段性交接；coherent 适合长期共享控制结构。
-
-Cache Coherency 与 Memory Ordering
-   Coherency保证最新内容可见；barrier 保证字段按协议顺序发布。
-
-Sync 与 Unmap
-   Sync 在保留映射时切换访问权；unmap 结束这次设备访问授权。
-
-IRQ Completion 与 DMA 停止
-   中断是完成通知；回收前仍须确认设备不再访问对应内存。
+* CPU Virtual Address 与 DMA Address：前者供 CPU 解引用；后者供设备/IOMMU 发起 DMA 请求。
+* Streaming Mapping 与 Coherent Allocation：Streaming 围绕阶段性交接；coherent 适合长期共享控制结构。
+* Cache Coherency 与 Memory Ordering：Coherency保证最新内容可见；barrier 保证字段按协议顺序发布。
+* Sync 与 Unmap：Sync 在保留映射时切换访问权；unmap 结束这次设备访问授权。
+* IRQ Completion 与 DMA 停止：中断是完成通知；回收前仍须确认设备不再访问对应内存。
 
 一句话结论
 ----------
 
 DMA mapping 的本质是给具体设备授予一段内存的限时访问权；CPU 地址、DMA 地址、方向、同步点和最终回收必须围绕同一 buffer 生命周期严格匹配。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 27，IRQ, DMA, MMIO, IOMMU, Cache Coherency, and Hardware Resources；
-* AIBook 章节：Chapter 133，DMA Mapping, Streaming DMA, and Consistent DMA；
-* 源文件：``docs/LinuxK/Part_27_IRQ_DMA_MMIO_IOMMU_Cache_Coherency_and_Hardware_Resources/Chapter_133_DMA_Mapping_Streaming_DMA_and_Consistent_DMA.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_27_IRQ_DMA_MMIO_IOMMU_Cache_Coherency_and_Hardware_Resources/Chapter_133_DMA_Mapping_Streaming_DMA_and_Consistent_DMA.md>`_。

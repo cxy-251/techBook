@@ -74,31 +74,13 @@
 必须区分
 --------
 
-异常与外部中断
-   异常与当前指令同步相关；外部中断由当前执行流之外的硬件事件异步触发。
-
-入口现场与 task 上下文
-   ``pt_regs`` 保存被打断现场；``current`` 只是当时运行的 task，不一定是事件发起者。
-
-Fault 与硬件故障
-   架构术语 fault 表示异常类型，不等于硬件设备一定损坏。
-
-硬中断与进程上下文
-   硬中断不能睡眠，也没有普通用户请求语义；进程上下文通常可被调度并可受控访问用户空间。
-
-关闭本地 IRQ 与多 CPU 同步
-   关中断只限制本 CPU 的可屏蔽中断，跨 CPU 共享数据仍需要锁或其它同步机制。
+* 异常与外部中断：异常与当前指令同步相关；外部中断由当前执行流之外的硬件事件异步触发。
+* 入口现场与 task 上下文：``pt_regs`` 保存被打断现场；``current`` 只是当时运行的 task，不一定是事件发起者。
+* Fault 与硬件故障：架构术语 fault 表示异常类型，不等于硬件设备一定损坏。
+* 硬中断与进程上下文：硬中断不能睡眠，也没有普通用户请求语义；进程上下文通常可被调度并可受控访问用户空间。
+* 关闭本地 IRQ 与多 CPU 同步：关中断只限制本 CPU 的可屏蔽中断，跨 CPU 共享数据仍需要锁或其它同步机制。
 
 一句话结论
 ----------
 
 异常和硬件中断都会强制改变 CPU 控制流；异常解释当前指令为何不能正常继续，硬件中断解释外部设备事件怎样快速进入、处理并退出内核。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 12，Interrupts, Exceptions, Softirq, Tasklet, and Workqueue；
-* AIBook 章节：Chapter 56，CPU Exceptions and Hardware Interrupt Entry；
-* 源文件：``docs/LinuxK/Part_12_Interrupts_Exceptions_Softirq_Tasklet_and_Workqueue/Chapter_056_CPU_Exceptions_and_Hardware_Interrupt_Entry.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_12_Interrupts_Exceptions_Softirq_Tasklet_and_Workqueue/Chapter_056_CPU_Exceptions_and_Hardware_Interrupt_Entry.md>`_。

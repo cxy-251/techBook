@@ -73,33 +73,14 @@
 必须区分
 --------
 
-结构体定义与运行时对象
-   结构体定义描述内存布局；运行时对象还包含当前状态、注册关系、引用和释放规则。
-
-分配与初始化
-   分配取得内存；初始化使字段和内部关系达到可用状态。
-
-初始化与注册
-   初始化建立内部一致性；注册把对象发布给其它执行路径。
-
-注销与释放
-   注销关闭新的发现入口；释放要等待所有旧持有者和异步执行者退出。
-
-对象存活与对象可用
-   引用可保证内存存在；状态机决定当前操作是否仍然合法。
-
-嵌入关系与生命周期保护
-   嵌入和 ``container_of()`` 解决对象转换；引用、锁或 RCU 才解决对象是否仍然有效。
+* 结构体定义与运行时对象：结构体定义描述内存布局；运行时对象还包含当前状态、注册关系、引用和释放规则。
+* 分配与初始化：分配取得内存；初始化使字段和内部关系达到可用状态。
+* 初始化与注册：初始化建立内部一致性；注册把对象发布给其它执行路径。
+* 注销与释放：注销关闭新的发现入口；释放要等待所有旧持有者和异步执行者退出。
+* 对象存活与对象可用：引用可保证内存存在；状态机决定当前操作是否仍然合法。
+* 嵌入关系与生命周期保护：嵌入和 ``container_of()`` 解决对象转换；引用、锁或 RCU 才解决对象是否仍然有效。
 
 一句话结论
 ----------
 
 内核对象不是一块带字段的内存，而是一个从分配、发布、使用、注销到最终释放的状态机。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 26，Kernel Objects as C Structures with Lifetimes；
-* 源文件：``docs/LinuxK/Part_06_Kernel_Objects_Lifetimes_References_and_Error_Paths/Chapter_026_Kernel_Objects_as_C_Structures_with_Lifetimes.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_06_Kernel_Objects_Lifetimes_References_and_Error_Paths/Chapter_026_Kernel_Objects_as_C_Structures_with_Lifetimes.md>`_。

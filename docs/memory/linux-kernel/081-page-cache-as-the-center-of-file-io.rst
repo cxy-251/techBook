@@ -122,34 +122,14 @@ Buffered write：
 必须区分
 --------
 
-文件描述符与 Page Cache
-   文件描述符属于进程句柄表；Page Cache 以 inode 的 ``address_space`` 为中心，可被多个打开实例共享。
-
-``uptodate`` 与 ``dirty``
-   前者说明内存数据可用于读取；后者说明内存数据尚未完全同步到后端。
-
-``dirty`` 与 ``writeback``
-   Dirty 表示等待提交；writeback 表示正在提交，两者可在并发写入中再次变化。
-
-Buffered write 成功与持久化成功
-   ``write`` 通常只完成缓存写入语义；持久化需要同步接口和文件系统、设备共同完成。
-
-Clean cache 与空闲内存
-   Clean cache 正在使用物理页，但在需要时通常可以丢弃并重新读取。
-
-Buffered I/O 与 Direct I/O
-   前者以 Page Cache 为中心；后者尝试直接进入后端 I/O，但仍需处理缓存一致性和文件系统边界。
+* 文件描述符与 Page Cache：文件描述符属于进程句柄表；Page Cache 以 inode 的 ``address_space`` 为中心，可被多个打开实例共享。
+* ``uptodate`` 与 ``dirty``：前者说明内存数据可用于读取；后者说明内存数据尚未完全同步到后端。
+* ``dirty`` 与 ``writeback``：Dirty 表示等待提交；writeback 表示正在提交，两者可在并发写入中再次变化。
+* Buffered write 成功与持久化成功：``write`` 通常只完成缓存写入语义；持久化需要同步接口和文件系统、设备共同完成。
+* Clean cache 与空闲内存：Clean cache 正在使用物理页，但在需要时通常可以丢弃并重新读取。
+* Buffered I/O 与 Direct I/O：前者以 Page Cache 为中心；后者尝试直接进入后端 I/O，但仍需处理缓存一致性和文件系统边界。
 
 一句话结论
 ----------
 
 普通文件 I/O 的中心是 inode 的 ``address_space`` 与 Page Cache：读先查缓存，写先形成脏缓存，后端设备成本在未命中、回写和同步阶段支付。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 17，Page Cache, Writeback, Reclaim, Compaction, and OOM；
-* AIBook 章节：Chapter 81，Page Cache as the Center of File IO；
-* 源文件：``docs/LinuxK/Part_17_Page_Cache_Writeback_Reclaim_Compaction_and_OOM/Chapter_081_Page_Cache_as_the_Center_of_File_IO.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_17_Page_Cache_Writeback_Reclaim_Compaction_and_OOM/Chapter_081_Page_Cache_as_the_Center_of_File_IO.md>`_。

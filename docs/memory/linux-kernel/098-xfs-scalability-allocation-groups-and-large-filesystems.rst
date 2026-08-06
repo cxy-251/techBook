@@ -134,34 +134,14 @@ AG 内空间分配：
 必须区分
 --------
 
-Allocation group 与目录树
-   AG 是内部元数据分配域；用户目录结构可以跨多个 AG。
-
-AG 并行性与无锁
-   不同 AG 可降低竞争；同 inode、同目录、同 AG 和日志仍需要同步。
-
-Delayed allocation 与已分配 extent
-   Delalloc 只记录未来需求；真实物理范围在后续 writeback 才确定。
-
-Metadata log 与数据日志
-   XFS 日志主要记录元数据事务；普通文件数据通常走自己的 writeback 路径。
-
-B+ tree 索引与数据内容
-   Tree 管理空间、inode 和 extent 元数据；文件实际数据仍位于对应 data extents。
-
-文件系统可恢复与应用事务完整
-   Log recovery 修复 XFS 元数据状态；多文件业务提交仍需要应用级协议。
+* Allocation group 与目录树：AG 是内部元数据分配域；用户目录结构可以跨多个 AG。
+* AG 并行性与无锁：不同 AG 可降低竞争；同 inode、同目录、同 AG 和日志仍需要同步。
+* Delayed allocation 与已分配 extent：Delalloc 只记录未来需求；真实物理范围在后续 writeback 才确定。
+* Metadata log 与数据日志：XFS 日志主要记录元数据事务；普通文件数据通常走自己的 writeback 路径。
+* B+ tree 索引与数据内容：Tree 管理空间、inode 和 extent 元数据；文件实际数据仍位于对应 data extents。
+* 文件系统可恢复与应用事务完整：Log recovery 修复 XFS 元数据状态；多文件业务提交仍需要应用级协议。
 
 一句话结论
 ----------
 
 XFS 通过 allocation group、B+ tree、延迟分配和元数据日志把大型文件系统操作拆成可并行的局部事务，但热点 inode、日志和设备仍需单独诊断。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 20，Filesystem Implementations ext4, XFS, Btrfs, and Pseudo Filesystems；
-* AIBook 章节：Chapter 98，XFS Scalability, Allocation Groups, and Large Filesystems；
-* 源文件：``docs/LinuxK/Part_20_Filesystem_Implementations_ext4_XFS_Btrfs_and_Pseudo_Filesystems/Chapter_098_XFS_Scalability_Allocation_Groups_and_Large_Filesystems.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_20_Filesystem_Implementations_ext4_XFS_Btrfs_and_Pseudo_Filesystems/Chapter_098_XFS_Scalability_Allocation_Groups_and_Large_Filesystems.md>`_。

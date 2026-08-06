@@ -122,26 +122,16 @@ Regression：
 必须区分
 --------
 
-* Review 评论的表面措辞，与背后的设计压力；
-* 新版自包含，与丢失版本演进历史；
-* Changelog，与最终 Commit Message；
-* Bisect Culprit，与经过验证的完整根因；
-* 普通 Bug，与破坏已有工作行为的 Regression；
-* Revert 恢复基线，与永久放弃功能；
-* ``Closes:`` 关闭报告，与 ``Link:`` 提供相关记录；
+* Review 评论的表面措辞，与背后的设计压力。
+* 新版自包含，与丢失版本演进历史。
+* Changelog，与最终 Commit Message。
+* Bisect Culprit，与经过验证的完整根因。
+* 普通 Bug，与破坏已有工作行为的 Regression。
+* Revert 恢复基线，与永久放弃功能。
+* ``Closes:`` 关闭报告，与 ``Link:`` 提供相关记录。
 * 跟踪工具状态，与修复真正进入目标树。
 
 一句话结论
 ----------
 
 Review 迭代把社区质疑转成更完整的设计历史，而回归处理把已有用户承诺、Culprit Commit、修复和验证记录连接成可公开追踪的闭环。
-
-来源
-----
-
-* 教材：AIBook《Linux Kernel》；
-* Part：Part 38：Kernel Patch Workflow, Maintainers, Reviews, Regressions, and Upstream Contribution；
-* 章节：Chapter 189: Handling Review Feedback, Revisions, and Regressions；
-* 源文件：``docs/LinuxK/Part_38_Kernel_Patch_Workflow_Maintainers_Reviews_Regressions_and_Upstream_Contribution/Chapter_189_Handling_Review_Feedback_Revisions_and_Regressions.md``；
-* 固定版本：``18386764582829f2b807b7b0947785eb77b50446``；
-* 固定链接：https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_38_Kernel_Patch_Workflow_Maintainers_Reviews_Regressions_and_Upstream_Contribution/Chapter_189_Handling_Review_Feedback_Revisions_and_Regressions.md

@@ -161,12 +161,3 @@ I/O 长尾诊断：
 ----------
 
 存储性能调查必须把“应用何时开始等待、成本何时进入 Writeback、Request 何时排队、设备何时服务、Completion 何时唤醒”逐段量化。
-
-来源
-----
-
-* 教材：AIBook Linux Kernel
-* Part：Part 36 — Kernel Performance Engineering for CPU, Memory, I/O, Network, and Lock Contention
-* 章节：Chapter 179 — I/O Latency, Queueing, Writeback, and Storage Bottlenecks
-* 源文件：``docs/LinuxK/Part_36_Kernel_Performance_Engineering_for_CPU_Memory_IO_Network_and_Lock_Contention/Chapter_179_IO_Latency_Queueing_Writeback_and_Storage_Bottlenecks.md``
-* 固定版本：`18386764582829f2b807b7b0947785eb77b50446 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_36_Kernel_Performance_Engineering_for_CPU_Memory_IO_Network_and_Lock_Contention/Chapter_179_IO_Latency_Queueing_Writeback_and_Storage_Bottlenecks.md>`_

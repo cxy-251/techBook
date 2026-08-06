@@ -113,25 +113,15 @@ Reproducer 阅读：
 必须区分
 --------
 
-* 随机输入，与语义化状态探索；
-* Coverage 增长，与发现 Bug；
-* Crash 标题，与经过验证的根因；
-* ``repro.syz``，与 C Reproducer；
-* 触发崩溃的最后调用，与最初破坏对象的路径；
-* 模拟设备覆盖，与真实硬件覆盖；
+* 随机输入，与语义化状态探索。
+* Coverage 增长，与发现 Bug。
+* Crash 标题，与经过验证的根因。
+* ``repro.syz``，与 C Reproducer。
+* 触发崩溃的最后调用，与最初破坏对象的路径。
+* 模拟设备覆盖，与真实硬件覆盖。
 * 报告消失，与缺陷已正确修复。
 
 一句话结论
 ----------
 
 Fuzzing 用资源感知的输入和覆盖反馈系统探索人工没有规划的内核状态，而 Reproducer 将一次随机发现收缩成可读、可修复、可回归验证的对象路径。
-
-来源
-----
-
-* 教材：AIBook《Linux Kernel》；
-* Part：Part 37：Kernel Testing KUnit, Kselftest, LTP, Fuzzing, Sanitizers, and Fault Injection；
-* 章节：Chapter 184: Fuzzing, syzkaller, and Bug Discovery；
-* 源文件：``docs/LinuxK/Part_37_Kernel_Testing_KUnit_Kselftest_LTP_Fuzzing_Sanitizers_and_Fault_Injection/Chapter_184_Fuzzing_syzkaller_and_Bug_Discovery.md``；
-* 固定版本：``18386764582829f2b807b7b0947785eb77b50446``；
-* 固定链接：https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_37_Kernel_Testing_KUnit_Kselftest_LTP_Fuzzing_Sanitizers_and_Fault_Injection/Chapter_184_Fuzzing_syzkaller_and_Bug_Discovery.md

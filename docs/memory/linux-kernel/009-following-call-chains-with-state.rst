@@ -65,27 +65,12 @@
 必须区分
 --------
 
-直接调用与间接调用
-   直接调用目标在源码中固定；间接调用目标由对象、回调表或运行状态绑定。
-
-函数链与机制
-   函数链只列出调用者和被调用者；机制还必须包含对象、状态、上下文、分支和错误语义。
-
-slow path 与错误路径
-   slow path 可能成功完成较昂贵的处理；错误路径以失败、回滚或部分完成结束。
-
-函数成功与用户目标完成
-   函数成功可能只表示数据被接受、请求被排队或当前阶段完成，不一定表示最终外部结果已经发生。
+* 直接调用与间接调用：直接调用目标在源码中固定；间接调用目标由对象、回调表或运行状态绑定。
+* 函数链与机制：函数链只列出调用者和被调用者；机制还必须包含对象、状态、上下文、分支和错误语义。
+* slow path 与错误路径：slow path 可能成功完成较昂贵的处理；错误路径以失败、回滚或部分完成结束。
+* 函数成功与用户目标完成：函数成功可能只表示数据被接受、请求被排队或当前阶段完成，不一定表示最终外部结果已经发生。
 
 一句话结论
 ----------
 
 追踪内核调用链时必须同时追踪对象状态和上下文；只有写清每个间接目标、分支条件和错误回滚，函数列表才成为机制。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 9，Following Call Chains with State and Context；
-* 源文件：``docs/LinuxK/Part_02_Kernel_Source_Tree_and_Code_Navigation/Chapter_009_Following_Call_Chains_with_State_and_Context.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_02_Kernel_Source_Tree_and_Code_Navigation/Chapter_009_Following_Call_Chains_with_State_and_Context.md>`_。

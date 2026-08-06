@@ -133,34 +133,14 @@ Remove：
 必须区分
 --------
 
-Platform Device 与 Platform Driver
-   前者是已描述的设备实例；后者是声明支持某类实例并实现控制逻辑的驱动。
-
-Resource 描述与 MMIO 映射
-   ``reg``/``struct resource`` 只描述范围；驱动经申请和映射后才获得 ``__iomem`` 地址。
-
-必需资源与可选资源
-   缺少必需资源必须失败；可选资源的缺失应按 binding 明确处理。
-
-永久错误与 Probe Defer
-   永久错误表示描述或硬件不成立；defer 表示 supplier 暂未准备好。
-
-Devm 释放与完整 Remove
-   Devres 归还托管资源；驱动仍要停止硬件、异步回调和已发布功能对象。
-
-Platform Controller 与其下挂设备
-   Controller 可是 platform device；挂在其协议总线上的外设应由 I2C、SPI 等总线模型表示。
+* Platform Device 与 Platform Driver：前者是已描述的设备实例；后者是声明支持某类实例并实现控制逻辑的驱动。
+* Resource 描述与 MMIO 映射：``reg``/``struct resource`` 只描述范围；驱动经申请和映射后才获得 ``__iomem`` 地址。
+* 必需资源与可选资源：缺少必需资源必须失败；可选资源的缺失应按 binding 明确处理。
+* 永久错误与 Probe Defer：永久错误表示描述或硬件不成立；defer 表示 supplier 暂未准备好。
+* Devm 释放与完整 Remove：Devres 归还托管资源；驱动仍要停止硬件、异步回调和已发布功能对象。
+* Platform Controller 与其下挂设备：Controller 可是 platform device；挂在其协议总线上的外设应由 I2C、SPI 等总线模型表示。
 
 一句话结论
 ----------
 
 Platform bus 把无法自枚举的板级硬件描述转换成 ``platform_device``，驱动再按固件身份取得 MMIO、IRQ 与电源依赖，并以严格的上电和 teardown 顺序建立设备能力。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 25，Bus Frameworks Platform, PCI, USB, I2C, SPI, ACPI, and Device Tree；
-* AIBook 章节：Chapter 122，Platform Devices and Board-Level Description；
-* 源文件：``docs/LinuxK/Part_25_Bus_Frameworks_Platform_PCI_USB_I2C_SPI_ACPI_and_Device_Tree/Chapter_122_Platform_Devices_and_Board_Level_Description.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_25_Bus_Frameworks_Platform_PCI_USB_I2C_SPI_ACPI_and_Device_Tree/Chapter_122_Platform_Devices_and_Board_Level_Description.md>`_。

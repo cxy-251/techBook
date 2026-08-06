@@ -115,25 +115,15 @@ Rust 内核调用路径：
 必须区分
 --------
 
-* Safe Rust 调用面，与内部 ``unsafe`` 条件已经正确；
-* 所有权保护存储生命周期，与硬件和业务状态仍有效；
-* ``Pin`` 地址稳定，与对象已经初始化和同步；
-* Generated Binding 可调用，与调用满足 C API 合同；
-* Rust 编译通过，与 FFI、并发和设备行为正确；
-* 减少部分内存安全错误，与不再需要 Sanitizer 和故障测试；
+* Safe Rust 调用面，与内部 ``unsafe`` 条件已经正确。
+* 所有权保护存储生命周期，与硬件和业务状态仍有效。
+* ``Pin`` 地址稳定，与对象已经初始化和同步。
+* Generated Binding 可调用，与调用满足 C API 合同。
+* Rust 编译通过，与 FFI、并发和设备行为正确。
+* 减少部分内存安全错误，与不再需要 Sanitizer 和故障测试。
 * Rust 作为选择性第二语言，与重写整个 Linux 内核。
 
 一句话结论
 ----------
 
 Rust for Linux 通过 Safe Abstraction、所有权、生命周期和 Pin 把部分内核对象不变量移入类型系统，同时把无法静态证明的 C、并发和硬件风险集中到可审查的 ``unsafe`` 边界。
-
-来源
-----
-
-* 教材：AIBook《Linux Kernel》；
-* Part：Part 39：Modern Kernel Evolution PREEMPT_RT, Livepatching, Rust, Confidential Computing, and Future Directions；
-* 章节：Chapter 193: Rust for Linux and Memory-Safe Kernel Components；
-* 源文件：``docs/LinuxK/Part_39_Modern_Kernel_Evolution_PREEMPT_RT_Livepatching_Rust_Confidential_Computing_and_Future_Directions/Chapter_193_Rust_for_Linux_and_Memory_Safe_Kernel_Components.md``；
-* 固定版本：``18386764582829f2b807b7b0947785eb77b50446``；
-* 固定链接：https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_39_Modern_Kernel_Evolution_PREEMPT_RT_Livepatching_Rust_Confidential_Computing_and_Future_Directions/Chapter_193_Rust_for_Linux_and_Memory_Safe_Kernel_Components.md

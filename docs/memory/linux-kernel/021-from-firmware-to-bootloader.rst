@@ -80,30 +80,13 @@ arm64 常见交接：
 必须区分
 --------
 
-固件与 bootloader
-   固件首先建立最小平台环境并选择下一段程序；bootloader 选择和放置内核启动材料，并完成内核入口交接。
-
-硬件已初始化与内核已接管
-   固件初始化只为继续启动提供条件；Linux 接管后仍要建立自己的对象、策略和驱动状态。
-
-镜像已加载与内核已启动
-   镜像进入内存只表示 loader 完成文件放置；内核还要经过入口、解压、页表和通用初始化。
-
-启动协议与运行时 ABI
-   启动协议约束 bootloader 到内核入口的短暂交接；系统调用 ABI 约束内核启动后的用户态接口。
-
-Secure Boot 与系统正确性
-   Secure Boot 验证签名信任链；它不验证代码没有 bug，也不保证配置、模块和运行状态符合预期。
+* 固件与 bootloader：固件首先建立最小平台环境并选择下一段程序；bootloader 选择和放置内核启动材料，并完成内核入口交接。
+* 硬件已初始化与内核已接管：固件初始化只为继续启动提供条件；Linux 接管后仍要建立自己的对象、策略和驱动状态。
+* 镜像已加载与内核已启动：镜像进入内存只表示 loader 完成文件放置；内核还要经过入口、解压、页表和通用初始化。
+* 启动协议与运行时 ABI：启动协议约束 bootloader 到内核入口的短暂交接；系统调用 ABI 约束内核启动后的用户态接口。
+* Secure Boot 与系统正确性：Secure Boot 验证签名信任链；它不验证代码没有 bug，也不保证配置、模块和运行状态符合预期。
 
 一句话结论
 ----------
 
 Linux 启动的第一步不是 ``start_kernel()``，而是固件和 bootloader 按架构协议把镜像、参数、硬件描述与 CPU 状态可靠交给内核入口。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 21，From Firmware to Bootloader；
-* 源文件：``docs/LinuxK/Part_05_Boot_Sequence_Initcalls_and_Early_Kernel_Initialization/Chapter_021_From_Firmware_to_Bootloader.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_05_Boot_Sequence_Initcalls_and_Early_Kernel_Initialization/Chapter_021_From_Firmware_to_Bootloader.md>`_。

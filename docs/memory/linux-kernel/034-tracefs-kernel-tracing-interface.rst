@@ -88,33 +88,14 @@
 必须区分
 --------
 
-源码路径与运行路径
-   源码表示可能分支；trace 表示本次运行实际命中的观察点。
-
-函数 tracing 与事件 tracing
-   函数 tracing 关注调用入口和嵌套；事件 tracing 关注预先定义的结构化语义与字段。
-
-``trace`` 与 ``trace_pipe``
-   ``trace`` 读取 buffer 快照；``trace_pipe`` 持续消费新记录。
-
-函数持续时间与 CPU 执行时间
-   function graph duration 可能包含睡眠、抢占和中断，需要调度事件补证据。
-
-没有记录与路径没有发生
-   过滤错误、buffer 覆盖、权限、配置和 tracer 能力都可能造成记录缺失。
-
-时间相邻与因果关系
-   两个事件接近只能证明时序接近；因果关系还要由对象、调用链和状态转换证明。
+* 源码路径与运行路径：源码表示可能分支；trace 表示本次运行实际命中的观察点。
+* 函数 tracing 与事件 tracing：函数 tracing 关注调用入口和嵌套；事件 tracing 关注预先定义的结构化语义与字段。
+* ``trace`` 与 ``trace_pipe``：``trace`` 读取 buffer 快照；``trace_pipe`` 持续消费新记录。
+* 函数持续时间与 CPU 执行时间：function graph duration 可能包含睡眠、抢占和中断，需要调度事件补证据。
+* 没有记录与路径没有发生：过滤错误、buffer 覆盖、权限、配置和 tracer 能力都可能造成记录缺失。
+* 时间相邻与因果关系：两个事件接近只能证明时序接近；因果关系还要由对象、调用链和状态转换证明。
 
 一句话结论
 ----------
 
 ``tracefs`` 把内核运行路径变成可过滤的函数与事件时间线；可靠 tracing 必须缩小范围、检查丢失、记录配置，并把运行证据重新映射到源码和对象状态。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 34，tracefs and the Kernel Tracing Interface；
-* 源文件：``docs/LinuxK/Part_07_Observability_Interfaces_procfs_sysfs_debugfs_tracefs_and_dmesg/Chapter_034_tracefs_and_the_Kernel_Tracing_Interface.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_07_Observability_Interfaces_procfs_sysfs_debugfs_tracefs_and_dmesg/Chapter_034_tracefs_and_the_Kernel_Tracing_Interface.md>`_。

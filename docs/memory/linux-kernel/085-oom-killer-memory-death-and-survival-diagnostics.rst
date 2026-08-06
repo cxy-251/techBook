@@ -137,34 +137,14 @@ OOM 后恢复：
 必须区分
 --------
 
-分配失败与 OOM
-   很多请求可以直接失败或回退；只有当前策略进入最终内存死亡裁决时才是 OOM。
-
-Global OOM 与 Memcg OOM
-   前者在系统分配域内裁决；后者由 cgroup 硬限制触发并只在该域内选择 victim。
-
-Trigger task 与 Victim
-   Trigger 发起无法满足的分配；victim 是内核认为杀掉后更适合恢复资源的候选。
-
-虚拟内存与驻留内存
-   total-vm 是地址空间规模；RSS、swap、页表和内核对象更接近实际压力构成。
-
-发送 ``SIGKILL`` 与内存已经释放
-   信号只启动死亡过程；真正释放需要 OOM reaper 和完整退出、引用清理。
-
-改变 victim 优先级与修复压力
-   ``oom_score_adj`` 只影响牺牲对象，不改变容量、回收效率或工作负载增长。
+* 分配失败与 OOM：很多请求可以直接失败或回退；只有当前策略进入最终内存死亡裁决时才是 OOM。
+* Global OOM 与 Memcg OOM：前者在系统分配域内裁决；后者由 cgroup 硬限制触发并只在该域内选择 victim。
+* Trigger task 与 Victim：Trigger 发起无法满足的分配；victim 是内核认为杀掉后更适合恢复资源的候选。
+* 虚拟内存与驻留内存：total-vm 是地址空间规模；RSS、swap、页表和内核对象更接近实际压力构成。
+* 发送 ``SIGKILL`` 与内存已经释放：信号只启动死亡过程；真正释放需要 OOM reaper 和完整退出、引用清理。
+* 改变 victim 优先级与修复压力：``oom_score_adj`` 只影响牺牲对象，不改变容量、回收效率或工作负载增长。
 
 一句话结论
 ----------
 
 OOM killer 是当前约束域无法通过回收继续推进时的生存裁决；诊断必须先确定 OOM 域和触发分配，再解释回收失败、victim 选择及内存为何持续增长。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 17，Page Cache, Writeback, Reclaim, Compaction, and OOM；
-* AIBook 章节：Chapter 85，OOM Killer, Memory Death, and Survival Diagnostics；
-* 源文件：``docs/LinuxK/Part_17_Page_Cache_Writeback_Reclaim_Compaction_and_OOM/Chapter_085_OOM_Killer_Memory_Death_and_Survival_Diagnostics.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_17_Page_Cache_Writeback_Reclaim_Compaction_and_OOM/Chapter_085_OOM_Killer_Memory_Death_and_Survival_Diagnostics.md>`_。

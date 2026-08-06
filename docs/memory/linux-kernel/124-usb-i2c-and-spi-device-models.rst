@@ -143,34 +143,14 @@ SPI Message：
 必须区分
 --------
 
-USB Device 与 USB Interface
-   Device 表示物理外设；功能驱动通常绑定其中一个 interface。
-
-I2C Adapter 与 I2C Client
-   Adapter 是控制器；client 是某个地址上的外设实例。
-
-SPI Controller 与 SPI Device
-   Controller 执行总线传输；device 表示一个 chip-select 上的外设。
-
-同步调用返回与异步请求完成
-   同步 helper 返回时请求结束；URB、``spi_async`` 等必须等 completion 才能释放资源。
-
-总线地址与设备身份
-   I2C 地址、SPI chip-select 只定位外设；硬件类型仍来自固件与匹配表。
-
-总线错误与设备业务错误
-   Bus core 报告传输状态；寄存器内容、协议状态和芯片错误仍由设备驱动解释。
+* USB Device 与 USB Interface：Device 表示物理外设；功能驱动通常绑定其中一个 interface。
+* I2C Adapter 与 I2C Client：Adapter 是控制器；client 是某个地址上的外设实例。
+* SPI Controller 与 SPI Device：Controller 执行总线传输；device 表示一个 chip-select 上的外设。
+* 同步调用返回与异步请求完成：同步 helper 返回时请求结束；URB、``spi_async`` 等必须等 completion 才能释放资源。
+* 总线地址与设备身份：I2C 地址、SPI chip-select 只定位外设；硬件类型仍来自固件与匹配表。
+* 总线错误与设备业务错误：Bus core 报告传输状态；寄存器内容、协议状态和芯片错误仍由设备驱动解释。
 
 一句话结论
 ----------
 
 USB、I2C、SPI 共享 driver core 外壳，却分别由 interface/endpoint、adapter/client、controller/chip-select 模型塑造请求、完成和移除路径，驱动必须按真实总线语义设计。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 25，Bus Frameworks Platform, PCI, USB, I2C, SPI, ACPI, and Device Tree；
-* AIBook 章节：Chapter 124，USB, I2C, and SPI Device Models；
-* 源文件：``docs/LinuxK/Part_25_Bus_Frameworks_Platform_PCI_USB_I2C_SPI_ACPI_and_Device_Tree/Chapter_124_USB_I2C_and_SPI_Device_Models.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_25_Bus_Frameworks_Platform_PCI_USB_I2C_SPI_ACPI_and_Device_Tree/Chapter_124_USB_I2C_and_SPI_Device_Models.md>`_。

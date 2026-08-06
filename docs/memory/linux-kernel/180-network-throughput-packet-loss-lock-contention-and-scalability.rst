@@ -170,12 +170,3 @@
 ----------
 
 网络可扩展性调查必须先找 Packet 停在哪个 Queue，再判断该层是 CPU/设备服务率不足、应用消费慢，还是共享锁与 Cacheline 把多核路径重新串行化。
-
-来源
-----
-
-* 教材：AIBook Linux Kernel
-* Part：Part 36 — Kernel Performance Engineering for CPU, Memory, I/O, Network, and Lock Contention
-* 章节：Chapter 180 — Network Throughput, Packet Loss, Lock Contention, and Scalability
-* 源文件：``docs/LinuxK/Part_36_Kernel_Performance_Engineering_for_CPU_Memory_IO_Network_and_Lock_Contention/Chapter_180_Network_Throughput_Packet_Loss_Lock_Contention_and_Scalability.md``
-* 固定版本：`18386764582829f2b807b7b0947785eb77b50446 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_36_Kernel_Performance_Engineering_for_CPU_Memory_IO_Network_and_Lock_Contention/Chapter_180_Network_Throughput_Packet_Loss_Lock_Contention_and_Scalability.md>`_

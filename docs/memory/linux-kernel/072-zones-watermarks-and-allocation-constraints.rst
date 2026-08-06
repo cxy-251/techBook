@@ -97,34 +97,14 @@
 必须区分
 --------
 
-Node 与 Zone
-   Node 表示访问拓扑和距离；Zone 表示页的硬件可达性、映射和迁移约束。
-
-全局空闲与可分配页
-   全局容量可能充足，目标 node/zone 在水位和 reserve 约束下仍不可用。
-
-``GFP_KERNEL`` 与 ``GFP_ATOMIC``
-   前者允许睡眠和普通回收；后者只能快速尝试并要求调用者处理失败。
-
-Watermark 与空闲块形状
-   Watermark 判断安全余量；buddy order 判断是否存在所需连续块，两者必须同时满足。
-
-Zone fallback 与无限制借用
-   Fallback 只在允许范围和 reserve 规则内放宽候选，不能突破设备、cpuset 和策略约束。
-
-迁移类型与分配优先级
-   Migratetype 用于反碎片和可迁移性组织，不是简单的请求优先级数字。
+* Node 与 Zone：Node 表示访问拓扑和距离；Zone 表示页的硬件可达性、映射和迁移约束。
+* 全局空闲与可分配页：全局容量可能充足，目标 node/zone 在水位和 reserve 约束下仍不可用。
+* ``GFP_KERNEL`` 与 ``GFP_ATOMIC``：前者允许睡眠和普通回收；后者只能快速尝试并要求调用者处理失败。
+* Watermark 与空闲块形状：Watermark 判断安全余量；buddy order 判断是否存在所需连续块，两者必须同时满足。
+* Zone fallback 与无限制借用：Fallback 只在允许范围和 reserve 规则内放宽候选，不能突破设备、cpuset 和策略约束。
+* 迁移类型与分配优先级：Migratetype 用于反碎片和可迁移性组织，不是简单的请求优先级数字。
 
 一句话结论
 ----------
 
 页分配是约束求解：GFP 描述调用者能做什么，node 与 zone 描述页能从哪里来，watermark 和 order 决定当前状态能否交付。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 15，Physical Memory, Zones, NUMA, and Page Allocator；
-* AIBook 章节：Chapter 72，Zones, Watermarks, and Allocation Constraints；
-* 源文件：``docs/LinuxK/Part_15_Physical_Memory_Zones_NUMA_and_Page_Allocator/Chapter_072_Zones_Watermarks_and_Allocation_Constraints.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_15_Physical_Memory_Zones_NUMA_and_Page_Allocator/Chapter_072_Zones_Watermarks_and_Allocation_Constraints.md>`_。

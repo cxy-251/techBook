@@ -169,34 +169,14 @@ Flush + FUA：
 必须区分
 --------
 
-``write`` 成功与持久化成功
-   Write 可只修改内存或易失缓存；持久化需要同步协议和最终设备承诺。
-
-Page Cache 与设备 Write Cache
-   前者由内核管理文件缓存；后者可在块命令完成后仍保存易失数据。
-
-Flush 与 FUA
-   Flush 约束此前写；FUA 约束当前写在完成前稳定。
-
-存储 Barrier 与内存 Barrier
-   前者建立 I/O 持久化顺序；后者约束 CPU 和内存访问可见顺序。
-
-日志一致性与应用事务
-   文件系统日志保护文件系统恢复；应用多对象原子性仍需业务事务协议。
-
-原子 Rename 与目录项持久化
-   Rename 在运行时原子切换名字；崩溃后存在性通常还需要同步父目录。
+* ``write`` 成功与持久化成功：Write 可只修改内存或易失缓存；持久化需要同步协议和最终设备承诺。
+* Page Cache 与设备 Write Cache：前者由内核管理文件缓存；后者可在块命令完成后仍保存易失数据。
+* Flush 与 FUA：Flush 约束此前写；FUA 约束当前写在完成前稳定。
+* 存储 Barrier 与内存 Barrier：前者建立 I/O 持久化顺序；后者约束 CPU 和内存访问可见顺序。
+* 日志一致性与应用事务：文件系统日志保护文件系统恢复；应用多对象原子性仍需业务事务协议。
+* 原子 Rename 与目录项持久化：Rename 在运行时原子切换名字；崩溃后存在性通常还需要同步父目录。
 
 一句话结论
 ----------
 
 崩溃一致性要求应用、文件系统、块层、虚拟设备和最终硬件对完成与持久化作出同一条可传递承诺，Flush/FUA 只是把这条承诺明确送到设备的关键控制点。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 23，Storage Devices, NVMe, SCSI, Device Mapper, and Filesystem Reliability；
-* AIBook 章节：Chapter 115，Reliability, Flush, FUA, Barriers, and Crash Consistency；
-* 源文件：``docs/LinuxK/Part_23_Storage_Devices_NVMe_SCSI_Device_Mapper_and_Filesystem_Reliability/Chapter_115_Reliability_Flush_FUA_Barriers_and_Crash_Consistency.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_23_Storage_Devices_NVMe_SCSI_Device_Mapper_and_Filesystem_Reliability/Chapter_115_Reliability_Flush_FUA_Barriers_and_Crash_Consistency.md>`_。

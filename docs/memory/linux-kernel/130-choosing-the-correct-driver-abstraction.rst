@@ -150,34 +150,14 @@
 必须区分
 --------
 
-Bus 抽象与功能抽象
-   Bus 决定发现、资源和绑定；字符、块、网络或专业子系统决定设备如何被使用。
-
-可实现与适合
-   一个设备可以被包装成字符节点，不表示字符 ABI 能正确表达其业务模型。
-
-数据面与控制面
-   数据面搬运 stream/block/packet/frame；控制面配置状态、策略和生命周期。
-
-Mmap 与设备类型
-   Mmap 是 buffer 访问机制，不是字符、块、网络或媒体之外的新设备分类。
-
-私有节点与低维护成本
-   注册代码可以很少；长期 ABI、安全、工具和 teardown 成本可能很高。
-
-内部接口与用户 ABI
-   内核内部 API 可演进；已发布的用户态结构、命令和行为必须兼容。
+* Bus 抽象与功能抽象：Bus 决定发现、资源和绑定；字符、块、网络或专业子系统决定设备如何被使用。
+* 可实现与适合：一个设备可以被包装成字符节点，不表示字符 ABI 能正确表达其业务模型。
+* 数据面与控制面：数据面搬运 stream/block/packet/frame；控制面配置状态、策略和生命周期。
+* Mmap 与设备类型：Mmap 是 buffer 访问机制，不是字符、块、网络或媒体之外的新设备分类。
+* 私有节点与低维护成本：注册代码可以很少；长期 ABI、安全、工具和 teardown 成本可能很高。
+* 内部接口与用户 ABI：内核内部 API 可演进；已发布的用户态结构、命令和行为必须兼容。
 
 一句话结论
 ----------
 
 正确驱动抽象由用户态业务对象决定：优先复用能准确表达该对象的内核子系统，再以最小私有控制面补充，并把 ABI、安全、性能和 teardown 作为同一项长期设计。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 26，Character Devices, Block Devices, Network Devices, and Misc Drivers；
-* AIBook 章节：Chapter 130，Choosing the Correct Driver Abstraction；
-* 源文件：``docs/LinuxK/Part_26_Character_Devices_Block_Devices_Network_Devices_and_Misc_Drivers/Chapter_130_Choosing_the_Correct_Driver_Abstraction.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_26_Character_Devices_Block_Devices_Network_Devices_and_Misc_Drivers/Chapter_130_Choosing_the_Correct_Driver_Abstraction.md>`_。

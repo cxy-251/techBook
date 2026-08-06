@@ -157,31 +157,13 @@ Verifier Pointer 证明：
 必须区分
 --------
 
-Program Type 与 Attach Point
-   Program Type 定义 Context、Helper 和返回值；Attach Point 决定实际触发位置。
-
-Verifier 安全与业务正确
-   Verifier 证明低层访问满足规则，不证明过滤策略、计数或并发逻辑正确。
-
-Map fd 与 Map 生命周期
-   Fd 是一个引用；Program、Link、Pin 或其它进程仍可让 Map 继续存在。
-
-Per-CPU Map 与全局 Map
-   Per-CPU 写入减少共享竞争，读取必须聚合；全局 Map 便于共享，可能产生同步热点。
-
-加载失败与运行期失败
-   Verifier 拒绝发生在对象创建前；Map 满、Redirect 失败和 Helper 返回错误发生在事件执行时。
+* Program Type 与 Attach Point：Program Type 定义 Context、Helper 和返回值；Attach Point 决定实际触发位置。
+* Verifier 安全与业务正确：Verifier 证明低层访问满足规则，不证明过滤策略、计数或并发逻辑正确。
+* Map fd 与 Map 生命周期：Fd 是一个引用；Program、Link、Pin 或其它进程仍可让 Map 继续存在。
+* Per-CPU Map 与全局 Map：Per-CPU 写入减少共享竞争，读取必须聚合；全局 Map 便于共享，可能产生同步热点。
+* 加载失败与运行期失败：Verifier 拒绝发生在对象创建前；Map 满、Redirect 失败和 Helper 返回错误发生在事件执行时。
 
 一句话结论
 ----------
 
 eBPF 的可编程性由类型化 Hook、Verifier、受限 Helper 和 Map 生命周期共同约束；只有 Program Type、Attach Point、共享状态和对象引用全部明确，扩展才是可证明且可维护的。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 31，High Performance Networking XDP, eBPF, Zero Copy, and AF_XDP；
-* AIBook 章节：Chapter 153，eBPF Programs, Maps, Verifier, and Attach Points；
-* 源文件：``docs/LinuxK/Part_31_High_Performance_Networking_XDP_eBPF_Zero_Copy_and_AF_XDP/Chapter_153_eBPF_Programs_Maps_Verifier_and_Attach_Points.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_31_High_Performance_Networking_XDP_eBPF_Zero_Copy_and_AF_XDP/Chapter_153_eBPF_Programs_Maps_Verifier_and_Attach_Points.md>`_。

@@ -90,31 +90,13 @@ Threaded IRQ 路径：
 必须区分
 --------
 
-Softirq 与 ``ksoftirqd``
-   ``ksoftirqd`` 提供可调度执行容器；softirq handler 本身仍遵守不可睡眠语义。
-
-Tasklet 串行化与对象互斥
-   同一 tasklet 实例不并发，不代表整个设备对象没有其它并发访问者。
-
-Workqueue 与 IRQ thread
-   Workqueue 是通用异步执行框架；IRQ thread 与具体 IRQ 的屏蔽、唤醒和优先级协议直接绑定。
-
-Bound 与 unbound workqueue
-   Bound 强调 per-CPU 局部性；unbound 强调跨 CPU 执行弹性。
-
-排队成功与工作完成
-   ``queue_work()`` 只说明工作进入或已经处于 pending 状态，不说明回调已经运行完毕。
+* Softirq 与 ``ksoftirqd``：``ksoftirqd`` 提供可调度执行容器；softirq handler 本身仍遵守不可睡眠语义。
+* Tasklet 串行化与对象互斥：同一 tasklet 实例不并发，不代表整个设备对象没有其它并发访问者。
+* Workqueue 与 IRQ thread：Workqueue 是通用异步执行框架；IRQ thread 与具体 IRQ 的屏蔽、唤醒和优先级协议直接绑定。
+* Bound 与 unbound workqueue：Bound 强调 per-CPU 局部性；unbound 强调跨 CPU 执行弹性。
+* 排队成功与工作完成：``queue_work()`` 只说明工作进入或已经处于 pending 状态，不说明回调已经运行完毕。
 
 一句话结论
 ----------
 
 Softirq 和 tasklet 适合不可睡眠的低层延迟工作，workqueue 和 threaded IRQ 提供可调度线程上下文；正确选择取决于上下文、并发和生命周期，而不是机制名称。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 12，Interrupts, Exceptions, Softirq, Tasklet, and Workqueue；
-* AIBook 章节：Chapter 59，Softirq, Tasklet, Workqueue, and Threaded IRQs；
-* 源文件：``docs/LinuxK/Part_12_Interrupts_Exceptions_Softirq_Tasklet_and_Workqueue/Chapter_059_Softirq_Tasklet_Workqueue_and_Threaded_IRQs.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_12_Interrupts_Exceptions_Softirq_Tasklet_and_Workqueue/Chapter_059_Softirq_Tasklet_Workqueue_and_Threaded_IRQs.md>`_。

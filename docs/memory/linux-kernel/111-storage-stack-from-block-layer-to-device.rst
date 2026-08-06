@@ -143,34 +143,14 @@ Timeout 与恢复：
 必须区分
 --------
 
-物理块设备与虚拟块设备
-   前者由控制器和介质执行；后者把请求映射、转换或转发到其它对象。
-
-Page Cache 与设备写缓存
-   前者位于内核文件路径；后者位于控制器或设备内部，持久化语义不同。
-
-Block completion 与稳定持久化
-   Request 完成符合当前命令语义；只有正确的 flush/FUA 与设备兑现才能支持断电后仍存在。
-
-Timeout 与永久介质错误
-   Timeout 是未按时完成的状态；原因可以是拥塞、路径、固件、reset 或介质故障。
-
-Retry 与新请求
-   Retry 延续原请求的完成责任；新请求拥有新的身份、顺序和生命周期。
-
-上层设备统计与下层设备统计
-   分层设备可能重复表示同一逻辑 I/O 的不同阶段，不能直接相加解释业务字节。
+* 物理块设备与虚拟块设备：前者由控制器和介质执行；后者把请求映射、转换或转发到其它对象。
+* Page Cache 与设备写缓存：前者位于内核文件路径；后者位于控制器或设备内部，持久化语义不同。
+* Block completion 与稳定持久化：Request 完成符合当前命令语义；只有正确的 flush/FUA 与设备兑现才能支持断电后仍存在。
+* Timeout 与永久介质错误：Timeout 是未按时完成的状态；原因可以是拥塞、路径、固件、reset 或介质故障。
+* Retry 与新请求：Retry 延续原请求的完成责任；新请求拥有新的身份、顺序和生命周期。
+* 上层设备统计与下层设备统计：分层设备可能重复表示同一逻辑 I/O 的不同阶段，不能直接相加解释业务字节。
 
 一句话结论
 ----------
 
 Linux 存储栈是一组分层块翻译和承诺，只有地址映射、错误恢复、完成与持久化语义沿所有虚拟层传到最终设备，上层文件系统的可靠性才成立。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 23，Storage Devices, NVMe, SCSI, Device Mapper, and Filesystem Reliability；
-* AIBook 章节：Chapter 111，Storage Stack from Block Layer to Device；
-* 源文件：``docs/LinuxK/Part_23_Storage_Devices_NVMe_SCSI_Device_Mapper_and_Filesystem_Reliability/Chapter_111_Storage_Stack_from_Block_Layer_to_Device.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_23_Storage_Devices_NVMe_SCSI_Device_Mapper_and_Filesystem_Reliability/Chapter_111_Storage_Stack_from_Block_Layer_to_Device.md>`_。

@@ -107,37 +107,15 @@
 必须区分
 --------
 
-CPU 执行慢与等待 CPU
-   前者 task 已在 CPU 上运行；后者 task 已 runnable 但仍在 runqueue 中排队。
-
-Load average 与 CPU utilization
-   load 包含 runnable 和不可中断等待；utilization 描述 CPU 时间被怎样使用。
-
-Runnable 与 sleeping
-   runnable task 参与 CPU 竞争；sleeping task 等待的是条件、资源或事件。
-
-调度延迟与系统调用耗时
-   调度延迟只是 syscall 墙钟时间中的一个可能组成部分。
-
-普通竞争与优先级反转
-   普通竞争是多个 runnable task 排队；优先级反转是高优先级 task 被低优先级持有资源阻塞。
-
-Affinity 限制与 quota 节流
-   affinity 限制可运行位置；quota 限制一定周期内可使用的 CPU 时间。
-
-平均延迟与长尾延迟
-   平均值描述总体水平；P99、最大值和单次时间线决定实时与交互体验。
+* CPU 执行慢与等待 CPU：前者 task 已在 CPU 上运行；后者 task 已 runnable 但仍在 runqueue 中排队。
+* Load average 与 CPU utilization：load 包含 runnable 和不可中断等待；utilization 描述 CPU 时间被怎样使用。
+* Runnable 与 sleeping：runnable task 参与 CPU 竞争；sleeping task 等待的是条件、资源或事件。
+* 调度延迟与系统调用耗时：调度延迟只是 syscall 墙钟时间中的一个可能组成部分。
+* 普通竞争与优先级反转：普通竞争是多个 runnable task 排队；优先级反转是高优先级 task 被低优先级持有资源阻塞。
+* Affinity 限制与 quota 节流：affinity 限制可运行位置；quota 限制一定周期内可使用的 CPU 时间。
+* 平均延迟与长尾延迟：平均值描述总体水平；P99、最大值和单次时间线决定实时与交互体验。
 
 一句话结论
 ----------
 
 诊断调度延迟必须证明 task 已经 runnable，并用 wakeup、迁移和 sched-in 时间线说明它在哪里等待、谁占用了 CPU，以及哪项策略阻止它及时运行。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 10，Scheduler Architecture, CFS, Real-Time Classes, and CPU Time；
-* AIBook 章节：Chapter 50，Diagnosing Scheduling Latency and Starvation；
-* 源文件：``docs/LinuxK/Part_10_Scheduler_Architecture_CFS_Real_Time_Classes_and_CPU_Time/Chapter_050_Diagnosing_Scheduling_Latency_and_Starvation.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_10_Scheduler_Architecture_CFS_Real_Time_Classes_and_CPU_Time/Chapter_050_Diagnosing_Scheduling_Latency_and_Starvation.md>`_。

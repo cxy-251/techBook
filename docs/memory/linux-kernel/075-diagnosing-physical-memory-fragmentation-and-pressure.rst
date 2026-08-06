@@ -106,34 +106,14 @@ Compaction 恢复：
 必须区分
 --------
 
-容量不足与形状不足
-   容量不足缺少总页数；形状不足缺少目标 order 的连续块。
-
-``buddyinfo`` 与 ``zoneinfo``
-   前者展示各 order 空闲形状；后者展示水位、reserve 和 zone 压力。
-
-Reclaim 与 Compaction
-   Reclaim 释放页增加容量；compaction 迁移页形成连续形状。
-
-高阶失败与系统 OOM
-   高阶块可以因碎片失败；OOM 主要表示约束范围内连普通容量也无法恢复。
-
-全局空闲与约束内可用
-   其它 node 或 zone 的空闲页可能不满足 DMA、cpuset、mempolicy 或当前上下文。
-
-日志抑制与问题修复
-   ``__GFP_NOWARN`` 只减少日志，不改变碎片、压力或调用者恢复能力。
+* 容量不足与形状不足：容量不足缺少总页数；形状不足缺少目标 order 的连续块。
+* ``buddyinfo`` 与 ``zoneinfo``：前者展示各 order 空闲形状；后者展示水位、reserve 和 zone 压力。
+* Reclaim 与 Compaction：Reclaim 释放页增加容量；compaction 迁移页形成连续形状。
+* 高阶失败与系统 OOM：高阶块可以因碎片失败；OOM 主要表示约束范围内连普通容量也无法恢复。
+* 全局空闲与约束内可用：其它 node 或 zone 的空闲页可能不满足 DMA、cpuset、mempolicy 或当前上下文。
+* 日志抑制与问题修复：``__GFP_NOWARN`` 只减少日志，不改变碎片、压力或调用者恢复能力。
 
 一句话结论
 ----------
 
 物理内存故障要先还原请求约束，再用 zone 水位判断容量、用 buddy order 判断形状，最后证明回收和压缩为何能或不能恢复。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 15，Physical Memory, Zones, NUMA, and Page Allocator；
-* AIBook 章节：Chapter 75，Diagnosing Physical Memory Fragmentation and Pressure；
-* 源文件：``docs/LinuxK/Part_15_Physical_Memory_Zones_NUMA_and_Page_Allocator/Chapter_075_Diagnosing_Physical_Memory_Fragmentation_and_Pressure.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_15_Physical_Memory_Zones_NUMA_and_Page_Allocator/Chapter_075_Diagnosing_Physical_Memory_Fragmentation_and_Pressure.md>`_。

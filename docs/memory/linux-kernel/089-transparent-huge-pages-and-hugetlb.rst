@@ -129,34 +129,14 @@ HugeTLB 显式分配：
 必须区分
 --------
 
-THP 与 HugeTLB
-   THP 自动尝试并通常可回退；HugeTLB 使用显式资源池和 reservation，失败语义更严格。
-
-策略允许与实际映射
-   Sysfs 或 madvise 只表达许可；实际大页还依赖 VMA、对齐、物理形状和运行状态。
-
-大页映射与大 folio
-   页表可以先拆映射而底层 folio仍保持复合状态；两种 split 层次不能混写。
-
-Fallback 与应用失败
-   THP fallback 通常继续使用基础页；HugeTLB 资源不足可能让显式映射或 fault 失败。
-
-翻译收益与分配成本
-   大页降低 TLB/page walk 成本，同时可能提高 fault、compaction、COW、回收和内部碎片成本。
-
-Reservation 与驻留页
-   HugeTLB reservation 是未来资源承诺；真正驻留和建立页表通常发生在后续 fault 或 population。
+* THP 与 HugeTLB：THP 自动尝试并通常可回退；HugeTLB 使用显式资源池和 reservation，失败语义更严格。
+* 策略允许与实际映射：Sysfs 或 madvise 只表达许可；实际大页还依赖 VMA、对齐、物理形状和运行状态。
+* 大页映射与大 folio：页表可以先拆映射而底层 folio仍保持复合状态；两种 split 层次不能混写。
+* Fallback 与应用失败：THP fallback 通常继续使用基础页；HugeTLB 资源不足可能让显式映射或 fault 失败。
+* 翻译收益与分配成本：大页降低 TLB/page walk 成本，同时可能提高 fault、compaction、COW、回收和内部碎片成本。
+* Reservation 与驻留页：HugeTLB reservation 是未来资源承诺；真正驻留和建立页表通常发生在后续 fault 或 population。
 
 一句话结论
 ----------
 
 THP 与 HugeTLB 都用更粗粒度页面换取地址翻译效率，但前者依赖自动策略和回退，后者依赖显式页池与 reservation，性能必须把长期 TLB 收益和 fault、压缩、拆分、COW 成本放在同一时间线上评估。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 18，Memory Mapping, Page Faults, Copy-on-Write, and Huge Pages；
-* AIBook 章节：Chapter 89，Transparent Huge Pages and HugeTLB；
-* 源文件：``docs/LinuxK/Part_18_Memory_Mapping_Page_Faults_Copy_on_Write_and_Huge_Pages/Chapter_089_Transparent_Huge_Pages_and_HugeTLB.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_18_Memory_Mapping_Page_Faults_Copy_on_Write_and_Huge_Pages/Chapter_089_Transparent_Huge_Pages_and_HugeTLB.md>`_。

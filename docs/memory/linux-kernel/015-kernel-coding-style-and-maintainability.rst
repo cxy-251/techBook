@@ -65,30 +65,13 @@
 必须区分
 --------
 
-风格正确与语义正确
-   风格检查减少基础噪声；并发、生命周期、错误路径和硬件语义仍需人工与测试验证。
-
-重构与行为修改
-   重构应保持外部行为不变；行为修改会改变状态、返回值、时序或调用者可见结果，应单独审查。
-
-代码注释与代码翻译
-   有效注释解释隐藏约束和设计原因；无效注释只是重复源码表面动作。
-
-抽象复用与关键路径显式性
-   抽象可以减少重复；关键路径仍需让成本、分支和错误语义容易确认。
-
-构建通过与补丁完成
-   构建通过只证明代码可编译；补丁还需要测试、接口文档、风险说明和维护者评审。
+* 风格正确与语义正确：风格检查减少基础噪声；并发、生命周期、错误路径和硬件语义仍需人工与测试验证。
+* 重构与行为修改：重构应保持外部行为不变；行为修改会改变状态、返回值、时序或调用者可见结果，应单独审查。
+* 代码注释与代码翻译：有效注释解释隐藏约束和设计原因；无效注释只是重复源码表面动作。
+* 抽象复用与关键路径显式性：抽象可以减少重复；关键路径仍需让成本、分支和错误语义容易确认。
+* 构建通过与补丁完成：构建通过只证明代码可编译；补丁还需要测试、接口文档、风险说明和维护者评审。
 
 一句话结论
 ----------
 
 Linux 内核的风格、补丁拆分、文档和评审规则都服务于同一个目标：让未来维护者能够快速确认代码行为、风险边界和回退方式。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 15，Coding Style, Review Expectations, and Maintainability；
-* 源文件：``docs/LinuxK/Part_03_Kernel_Code_Grammar_Core_APIs_and_C_Runtime_Constraints/Chapter_015_Coding_Style_Review_Expectations_and_Maintainability.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_03_Kernel_Code_Grammar_Core_APIs_and_C_Runtime_Constraints/Chapter_015_Coding_Style_Review_Expectations_and_Maintainability.md>`_。

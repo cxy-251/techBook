@@ -121,34 +121,14 @@ CPU 下线：
 必须区分
 --------
 
-Per-CPU 副本与全局对象
-   前者每个 CPU 一份并需聚合；后者只有一份并要求共享同步。
-
-单次 ``this_cpu_*`` 操作与长期本地指针
-   单次操作在执行 CPU 上完成；跨多步使用普通指针必须固定 CPU，防止 task 迁移。
-
-关闭抢占与关闭中断
-   关闭抢占阻止 task 换 CPU；不能阻止同 CPU IRQ、softirq 或 NMI 重入。
-
-近似聚合与一致快照
-   普通逐 CPU 求和可能混合不同时刻；一致字段组需要序列计数、锁或专用统计协议。
-
-Possible CPU 与 Online CPU
-   Possible 决定副本分配范围；online 表示当前可执行 CPU 集合，两者不相等。
-
-本地更新与远程访问
-   本地写是 per-CPU 的主要性能收益；远程写会重新引入一致性和竞争问题。
+* Per-CPU 副本与全局对象：前者每个 CPU 一份并需聚合；后者只有一份并要求共享同步。
+* 单次 ``this_cpu_*`` 操作与长期本地指针：单次操作在执行 CPU 上完成；跨多步使用普通指针必须固定 CPU，防止 task 迁移。
+* 关闭抢占与关闭中断：关闭抢占阻止 task 换 CPU；不能阻止同 CPU IRQ、softirq 或 NMI 重入。
+* 近似聚合与一致快照：普通逐 CPU 求和可能混合不同时刻；一致字段组需要序列计数、锁或专用统计协议。
+* Possible CPU 与 Online CPU：Possible 决定副本分配范围；online 表示当前可执行 CPU 集合，两者不相等。
+* 本地更新与远程访问：本地写是 per-CPU 的主要性能收益；远程写会重新引入一致性和竞争问题。
 
 一句话结论
 ----------
 
 Per-CPU 内存用每 CPU 独立副本换取热路径本地更新，但必须显式处理 task 迁移、同 CPU 上下文并发、聚合一致性和 CPU hotplug 生命周期。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 16，Kernel Memory Allocation Slab, Slub, Vmalloc, and Per-CPU Memory；
-* AIBook 章节：Chapter 80，Per-CPU Memory and Scalable Allocation Patterns；
-* 源文件：``docs/LinuxK/Part_16_Kernel_Memory_Allocation_Slab_Slub_Vmalloc_and_Per_CPU_Memory/Chapter_080_Per_CPU_Memory_and_Scalable_Allocation_Patterns.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_16_Kernel_Memory_Allocation_Slab_Slub_Vmalloc_and_Per_CPU_Memory/Chapter_080_Per_CPU_Memory_and_Scalable_Allocation_Patterns.md>`_。

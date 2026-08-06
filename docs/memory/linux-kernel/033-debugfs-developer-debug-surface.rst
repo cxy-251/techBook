@@ -84,33 +84,14 @@
 必须区分
 --------
 
-调试接口与稳定 ABI
-   debugfs 服务当前版本的开发诊断；稳定 ABI 要长期维护名称、格式和语义。
-
-路径位于 ``/sys`` 与文件系统属于 sysfs
-   ``/sys/kernel/debug`` 常挂载独立 debugfs，不能仅按路径前缀判断文件系统类型。
-
-读取文件与无副作用观察
-   某些读取会访问硬件、唤醒设备或计算高成本状态，必须阅读对应回调。
-
-删除调试文件与对象安全释放
-   删除文件关闭用户入口；对象释放还要同步回调、异步工作和其它持有者。
-
-文件缺失与功能缺失
-   文件缺失可能发生在构建、启动、挂载、初始化或权限任一层，不能直接判定核心功能不存在。
-
-权限受限与接口安全
-   权限减少访问者；回调仍必须进行正确验证和生命周期保护。
+* 调试接口与稳定 ABI：debugfs 服务当前版本的开发诊断；稳定 ABI 要长期维护名称、格式和语义。
+* 路径位于 ``/sys`` 与文件系统属于 sysfs：``/sys/kernel/debug`` 常挂载独立 debugfs，不能仅按路径前缀判断文件系统类型。
+* 读取文件与无副作用观察：某些读取会访问硬件、唤醒设备或计算高成本状态，必须阅读对应回调。
+* 删除调试文件与对象安全释放：删除文件关闭用户入口；对象释放还要同步回调、异步工作和其它持有者。
+* 文件缺失与功能缺失：文件缺失可能发生在构建、启动、挂载、初始化或权限任一层，不能直接判定核心功能不存在。
+* 权限受限与接口安全：权限减少访问者；回调仍必须进行正确验证和生命周期保护。
 
 一句话结论
 ----------
 
 ``debugfs`` 是为开发者快速暴露内核内部状态而存在的版本敏感调试面；使用时必须同时管理接口不稳定性、副作用、安全权限和宿主对象生命周期。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 33，debugfs as a Developer-Controlled Debug Surface；
-* 源文件：``docs/LinuxK/Part_07_Observability_Interfaces_procfs_sysfs_debugfs_tracefs_and_dmesg/Chapter_033_debugfs_as_a_Developer_Controlled_Debug_Surface.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_07_Observability_Interfaces_procfs_sysfs_debugfs_tracefs_and_dmesg/Chapter_033_debugfs_as_a_Developer_Controlled_Debug_Surface.md>`_。

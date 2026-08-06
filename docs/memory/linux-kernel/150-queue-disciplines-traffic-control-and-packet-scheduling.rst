@@ -157,31 +157,13 @@ Bufferbloat：
 必须区分
 --------
 
-qdisc 与 Driver Ring
-   qdisc 负责策略排队；Ring 负责 DMA Descriptor 执行，两层可同时积压。
-
-Shaping 与 Policing
-   Shaping 延迟发送以控制速率；Policing 通常超限即 Drop/Remark。
-
-Drop 与 Overlimit
-   Drop 是 Packet 被丢弃；Overlimit 表示策略边界被触发，未必每次都丢包。
-
-FQ 与 HTB
-   FQ 主要提供 Flow 公平/Pacing；HTB 主要表达层级带宽保证和上限。
-
-配置存在与实际执行
-   规则可能未命中、位于错误 Namespace/方向，或已下沉硬件，必须结合 Counter 与状态确认。
+* qdisc 与 Driver Ring：qdisc 负责策略排队；Ring 负责 DMA Descriptor 执行，两层可同时积压。
+* Shaping 与 Policing：Shaping 延迟发送以控制速率；Policing 通常超限即 Drop/Remark。
+* Drop 与 Overlimit：Drop 是 Packet 被丢弃；Overlimit 表示策略边界被触发，未必每次都丢包。
+* FQ 与 HTB：FQ 主要提供 Flow 公平/Pacing；HTB 主要表达层级带宽保证和上限。
+* 配置存在与实际执行：规则可能未命中、位于错误 Namespace/方向，或已下沉硬件，必须结合 Counter 与状态确认。
 
 一句话结论
 ----------
 
 qdisc 是发送路径的时间与顺序控制器：它在驱动前组织 Flow、公平性、带宽和主动丢弃，而端到端延迟必须继续把 Socket、qdisc、Ring 与硬件队列分层测量。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 30，Network Device Drivers, NAPI, Queues, Offloads, and Packet Scheduling；
-* AIBook 章节：Chapter 150，Queue Disciplines, Traffic Control, and Packet Scheduling；
-* 源文件：``docs/LinuxK/Part_30_Network_Device_Drivers_NAPI_Queues_Offloads_and_Packet_Scheduling/Chapter_150_Queue_Disciplines_Traffic_Control_and_Packet_Scheduling.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_30_Network_Device_Drivers_NAPI_Queues_Offloads_and_Packet_Scheduling/Chapter_150_Queue_Disciplines_Traffic_Control_and_Packet_Scheduling.md>`_。

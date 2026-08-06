@@ -87,33 +87,14 @@
 必须区分
 --------
 
-Ring buffer 与 console
-   Ring buffer 保存日志记录；console 只显示满足当前输出策略的部分消息。
-
-日志级别与故障结果
-   级别表达调用点意图；系统是否继续运行还受对象状态、错误处理和 panic 策略影响。
-
-WARN、Oops 与 panic
-   WARN 报告违反预期；Oops 表示严重执行错误；panic 表示系统停止安全运行。
-
-日志缺失与事件未发生
-   限速、once、buffer 覆盖、权限和调试开关都可能造成日志不可见。
-
-调用栈符号与精确源码位置
-   函数名提供路径入口；精确行号要求匹配同一构建的符号和二进制。
-
-报告点与根因
-   日志显示代码在哪里发现问题；根因可能发生在更早的状态修改、资源失败或并发窗口。
+* Ring buffer 与 console：Ring buffer 保存日志记录；console 只显示满足当前输出策略的部分消息。
+* 日志级别与故障结果：级别表达调用点意图；系统是否继续运行还受对象状态、错误处理和 panic 策略影响。
+* WARN、Oops 与 panic：WARN 报告违反预期；Oops 表示严重执行错误；panic 表示系统停止安全运行。
+* 日志缺失与事件未发生：限速、once、buffer 覆盖、权限和调试开关都可能造成日志不可见。
+* 调用栈符号与精确源码位置：函数名提供路径入口；精确行号要求匹配同一构建的符号和二进制。
+* 报告点与根因：日志显示代码在哪里发现问题；根因可能发生在更早的状态修改、资源失败或并发窗口。
 
 一句话结论
 ----------
 
 ``printk`` 把内核事件写成有限容量的运行时日志，``dmesg`` 负责读取；可靠诊断必须保存完整时间线，并把报告点与对象状态、源码路径和 tracing 证据结合起来。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 35，dmesg, printk, and Runtime Evidence Collection；
-* 源文件：``docs/LinuxK/Part_07_Observability_Interfaces_procfs_sysfs_debugfs_tracefs_and_dmesg/Chapter_035_dmesg_printk_and_Runtime_Evidence_Collection.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_07_Observability_Interfaces_procfs_sysfs_debugfs_tracefs_and_dmesg/Chapter_035_dmesg_printk_and_Runtime_Evidence_Collection.md>`_。

@@ -119,31 +119,13 @@ Platform MMIO Probe：
 必须区分
 --------
 
-资源地址与 MMIO 指针
-   Resource 描述物理窗口；ioremap 后才得到供 I/O accessor 使用的 ``__iomem`` token。
-
-MMIO Barrier 与 Posted Write Flush
-   屏障约束访问顺序；read-back 或总线 flush 才用于确认写事务到达设备。
-
-普通内存与设备寄存器
-   RAM 保存数据；寄存器读写可能具有副作用并推动硬件状态机。
-
-CPU MMIO 地址与设备 DMA 地址
-   CPU 用 MMIO 映射控制设备；设备用 DMA address 访问系统内存。
-
-Managed Resource 与硬件停止
-   Devres 可自动释放映射；驱动仍须主动停止 IRQ、DMA 和异步访问。
+* 资源地址与 MMIO 指针：Resource 描述物理窗口；ioremap 后才得到供 I/O accessor 使用的 ``__iomem`` token。
+* MMIO Barrier 与 Posted Write Flush：屏障约束访问顺序；read-back 或总线 flush 才用于确认写事务到达设备。
+* 普通内存与设备寄存器：RAM 保存数据；寄存器读写可能具有副作用并推动硬件状态机。
+* CPU MMIO 地址与设备 DMA 地址：CPU 用 MMIO 映射控制设备；设备用 DMA address 访问系统内存。
+* Managed Resource 与硬件停止：Devres 可自动释放映射；驱动仍须主动停止 IRQ、DMA 和异步访问。
 
 一句话结论
 ----------
 
 MMIO 表面是地址读写，实质是带副作用、访问宽度、顺序和完成规则的硬件协议；资源、映射、访问器和 teardown 必须按同一设备生命周期闭合。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 27，IRQ, DMA, MMIO, IOMMU, Cache Coherency, and Hardware Resources；
-* AIBook 章节：Chapter 131，MMIO and Register-Level Hardware Control；
-* 源文件：``docs/LinuxK/Part_27_IRQ_DMA_MMIO_IOMMU_Cache_Coherency_and_Hardware_Resources/Chapter_131_MMIO_and_Register_Level_Hardware_Control.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_27_IRQ_DMA_MMIO_IOMMU_Cache_Coherency_and_Hardware_Resources/Chapter_131_MMIO_and_Register_Level_Hardware_Control.md>`_。

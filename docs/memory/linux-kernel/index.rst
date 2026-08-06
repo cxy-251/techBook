@@ -358,5 +358,4 @@ Part 39：PREEMPT_RT、Livepatching、Rust、Confidential Computing 与 Future D
 阅读方式
 --------
 
-按编号直接阅读和记忆即可。正文不设置问题、练习和互动环节。需要完整推导、源码例子或实验时，
-使用每章末尾的 AIBook 来源链接。
+按编号直接阅读和记忆即可。正文不设置问题、练习、互动环节或来源元数据。

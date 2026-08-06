@@ -136,26 +136,16 @@
 必须区分
 --------
 
-* 新功能数量增加，与复杂度被约束；
-* 硬件容量扩大，与访问延迟和同步成本下降；
-* eBPF 程序通过 Verifier，与业务逻辑正确；
-* Rust 减少部分内存安全错误，与所有内核风险消失；
-* 更多观测接口，与低开销、稳定和安全的观测；
-* 自动化测试覆盖，与维护者语义判断；
-* 某项技术存在于源码树，与它已适合所有生产环境；
+* 新功能数量增加，与复杂度被约束。
+* 硬件容量扩大，与访问延迟和同步成本下降。
+* eBPF 程序通过 Verifier，与业务逻辑正确。
+* Rust 减少部分内存安全错误，与所有内核风险消失。
+* 更多观测接口，与低开销、稳定和安全的观测。
+* 自动化测试覆盖，与维护者语义判断。
+* 某项技术存在于源码树，与它已适合所有生产环境。
 * 局部性能最优，与系统级吞吐、尾延迟、功耗和安全最优。
 
 一句话结论
 ----------
 
 Linux 内核的未来演进，本质上是把不断扩大的硬件规模、攻击面和生产复杂度，压缩为更少共享、更强验证、更完整观测和可持续回归的工程基础设施。
-
-来源
-----
-
-* 教材：AIBook《Linux Kernel》；
-* Part：Part 39：Modern Kernel Evolution PREEMPT_RT, Livepatching, Rust, Confidential Computing, and Future Directions；
-* 章节：Chapter 195: Future Directions of Linux Kernel Engineering；
-* 源文件：``docs/LinuxK/Part_39_Modern_Kernel_Evolution_PREEMPT_RT_Livepatching_Rust_Confidential_Computing_and_Future_Directions/Chapter_195_Future_Directions_of_Linux_Kernel_Engineering.md``；
-* 固定版本：``18386764582829f2b807b7b0947785eb77b50446``；
-* 固定链接：https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_39_Modern_Kernel_Evolution_PREEMPT_RT_Livepatching_Rust_Confidential_Computing_and_Future_Directions/Chapter_195_Future_Directions_of_Linux_Kernel_Engineering.md

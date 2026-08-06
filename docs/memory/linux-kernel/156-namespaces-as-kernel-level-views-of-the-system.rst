@@ -133,31 +133,13 @@ Namespace 生命周期：
 必须区分
 --------
 
-Namespace 与 Cgroup
-   Namespace 控制资源视图；Cgroup 负责资源统计、分配和限制。
-
-资源视图与资源副本
-   Namespace 改变查找和编号关系，底层 Inode、Task、Page 或设备并不一定复制。
-
-Namespace inode 与永久身份
-   nsfs inode 适合比较活动对象，不能作为跨销毁和跨重启的永久 ID。
-
-当前 PID Namespace 与 ``pid_for_children``
-   当前 Task 的 PID 视图保持稳定；后者决定以后创建的子进程进入哪一层。
-
-最后一个成员退出与 Namespace 释放
-   成员数归零不保证释放，fd、Bind Mount 和其它引用仍可延长生命周期。
+* Namespace 与 Cgroup：Namespace 控制资源视图；Cgroup 负责资源统计、分配和限制。
+* 资源视图与资源副本：Namespace 改变查找和编号关系，底层 Inode、Task、Page 或设备并不一定复制。
+* Namespace inode 与永久身份：nsfs inode 适合比较活动对象，不能作为跨销毁和跨重启的永久 ID。
+* 当前 PID Namespace 与 ``pid_for_children``：当前 Task 的 PID 视图保持稳定；后者决定以后创建的子进程进入哪一层。
+* 最后一个成员退出与 Namespace 释放：成员数归零不保证释放，fd、Bind Mount 和其它引用仍可延长生命周期。
 
 一句话结论
 ----------
 
 Namespace 是 Task 持有的一组内核资源视图引用：它改变进程如何看见和命名对象，而对象何时销毁仍由真实引用生命周期决定。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 32，Namespaces, Cgroups, Resource Control, and Container Internals；
-* AIBook 章节：Chapter 156，Namespaces as Kernel-Level Views of the System；
-* 源文件：``docs/LinuxK/Part_32_Namespaces_Cgroups_Resource_Control_and_Container_Internals/Chapter_156_Namespaces_as_Kernel_Level_Views_of_the_System.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_32_Namespaces_Cgroups_Resource_Control_and_Container_Internals/Chapter_156_Namespaces_as_Kernel_Level_Views_of_the_System.md>`_。

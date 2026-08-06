@@ -144,34 +144,14 @@ Request 派发：
 必须区分
 --------
 
-``bio`` 与 ``request``
-   Bio 描述面向块设备的数据移动；request 是队列、调度器、tag 和驱动处理的执行单位。
-
-``bio_vec`` 与 DMA segment
-   Bio_vec 是页片段描述；DMA 映射后片段数量和边界还可变化。
-
-Split 与 Clone
-   Split 把一个范围切成子区间；clone 创建共享数据描述的另一个映射视图。
-
-Bio completion 与 Request completion
-   驱动通常结束 request；块层再推进并完成其中一个或多个 bio。
-
-Request tag 与设备命令 ID
-   Tag 标识 blk-mq 在途 request；协议控制器可能使用另一套命令标识。
-
-完成对象与资源所有权
-   ``bio_put`` 归还 bio 存储；页、用户 pin、文件和上层对象仍需按各自协议释放。
+* ``bio`` 与 ``request``：Bio 描述面向块设备的数据移动；request 是队列、调度器、tag 和驱动处理的执行单位。
+* ``bio_vec`` 与 DMA segment：Bio_vec 是页片段描述；DMA 映射后片段数量和边界还可变化。
+* Split 与 Clone：Split 把一个范围切成子区间；clone 创建共享数据描述的另一个映射视图。
+* Bio completion 与 Request completion：驱动通常结束 request；块层再推进并完成其中一个或多个 bio。
+* Request tag 与设备命令 ID：Tag 标识 blk-mq 在途 request；协议控制器可能使用另一套命令标识。
+* 完成对象与资源所有权：``bio_put`` 归还 bio 存储；页、用户 pin、文件和上层对象仍需按各自协议释放。
 
 一句话结论
 ----------
 
 ``bio`` 用 block device、sector 和 biovec 描述数据怎样移动，块层通过 merge、split、clone 把它塑形成 ``request``，再交给驱动和硬件队列执行。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 22，Block Layer, Bio, Request Queues, Schedulers, and Multi-Queue；
-* AIBook 章节：Chapter 107，bio Request and the Block IO Data Model；
-* 源文件：``docs/LinuxK/Part_22_Block_Layer_Bio_Request_Queues_Schedulers_and_Multi_Queue/Chapter_107_bio_Request_and_the_Block_IO_Data_Model.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_22_Block_Layer_Bio_Request_Queues_Schedulers_and_Multi_Queue/Chapter_107_bio_Request_and_the_Block_IO_Data_Model.md>`_。

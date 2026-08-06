@@ -103,30 +103,13 @@ Initcall 故障判断：
 必须区分
 --------
 
-消息产生与消息可见
-   ``printk`` 可能已经产生记录；console、loglevel 和设备状态决定观察者是否立即看到它。
-
-``earlycon`` 与普通 console
-   ``earlycon`` 服务普通驱动就绪前的输出；``console=`` 指定后续正式控制台。
-
-启动卡死与输出卡死
-   机器可能仍在执行但没有可见输出；必须先验证输出通道，再判断执行是否停止。
-
-Initcall 返回成功与设备可用
-   Initcall 成功可能只完成驱动注册；设备匹配、probe、异步初始化和资源获取仍可能失败。
-
-根文件系统失败与用户态 init 失败
-   根文件系统失败表示尚未得到最终根目录；init 失败表示根目录已更接近可用，但 PID 1 无法执行。
+* 消息产生与消息可见：``printk`` 可能已经产生记录；console、loglevel 和设备状态决定观察者是否立即看到它。
+* ``earlycon`` 与普通 console：``earlycon`` 服务普通驱动就绪前的输出；``console=`` 指定后续正式控制台。
+* 启动卡死与输出卡死：机器可能仍在执行但没有可见输出；必须先验证输出通道，再判断执行是否停止。
+* Initcall 返回成功与设备可用：Initcall 成功可能只完成驱动注册；设备匹配、probe、异步初始化和资源获取仍可能失败。
+* 根文件系统失败与用户态 init 失败：根文件系统失败表示尚未得到最终根目录；init 失败表示根目录已更接近可用，但 PID 1 无法执行。
 
 一句话结论
 ----------
 
 早期启动调试不是从错误文本猜根因，而是先恢复最小输出，确定最后成功的启动阶段，再把阶段映射到对应镜像、参数、initcall、根文件系统或 init 路径。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 25，Debugging Early Boot Failures；
-* 源文件：``docs/LinuxK/Part_05_Boot_Sequence_Initcalls_and_Early_Kernel_Initialization/Chapter_025_Debugging_Early_Boot_Failures.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_05_Boot_Sequence_Initcalls_and_Early_Kernel_Initialization/Chapter_025_Debugging_Early_Boot_Failures.md>`_。

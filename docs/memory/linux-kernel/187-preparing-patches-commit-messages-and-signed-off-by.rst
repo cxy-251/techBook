@@ -118,25 +118,15 @@ Commit Message：
 必须区分
 --------
 
-* 一个逻辑变更，与一个文件；
-* Diff，与工程论证；
-* Subject，与完整问题说明；
-* ``Signed-off-by`` DCO 声明，与 ``Reviewed-by`` 技术认可；
-* ``Fixes:`` 引入问题的 Commit，与普通相关历史；
-* 永久 Commit Message，与 ``---`` 后的版本 Commentary；
+* 一个逻辑变更，与一个文件。
+* Diff，与工程论证。
+* Subject，与完整问题说明。
+* ``Signed-off-by`` DCO 声明，与 ``Reviewed-by`` 技术认可。
+* ``Fixes:`` 引入问题的 Commit，与普通相关历史。
+* 永久 Commit Message，与 ``---`` 后的版本 Commentary。
 * Checkpatch 通过，与补丁技术正确。
 
 一句话结论
 ----------
 
 可上游评审的内核 Patch 必须把一个逻辑代码变化、一个自包含问题论证和一条真实责任与证据 Trailer 链整理成同一个可长期追溯的提交。
-
-来源
-----
-
-* 教材：AIBook《Linux Kernel》；
-* Part：Part 38：Kernel Patch Workflow, Maintainers, Reviews, Regressions, and Upstream Contribution；
-* 章节：Chapter 187: Preparing Patches, Commit Messages, and Signed-off-by；
-* 源文件：``docs/LinuxK/Part_38_Kernel_Patch_Workflow_Maintainers_Reviews_Regressions_and_Upstream_Contribution/Chapter_187_Preparing_Patches_Commit_Messages_and_Signed_off_by.md``；
-* 固定版本：``18386764582829f2b807b7b0947785eb77b50446``；
-* 固定链接：https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_38_Kernel_Patch_Workflow_Maintainers_Reviews_Regressions_and_Upstream_Contribution/Chapter_187_Preparing_Patches_Commit_Messages_and_Signed_off_by.md

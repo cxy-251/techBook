@@ -96,34 +96,14 @@ COW 写入：
 必须区分
 --------
 
-``fork`` 与完整内存复制
-   fork 复制地址空间结构并使用 COW；物理页通常在后续写入时才复制。
-
-``fork`` 与 ``clone``
-   fork 使用传统进程式默认共享策略；clone 通过 flags 显式定义资源边界。
-
-创建 task 与执行新程序
-   fork/clone 创建新的 task；exec 在当前 task 内替换程序映像。
-
-独立 fd 表与共享 ``struct file``
-   fork 后 fd 表通常独立，但对应打开对象可以继续共享偏移和状态。
-
-共享地址空间与独立栈
-   多线程 task 可以共享同一个 ``mm_struct``，同时各自在其中使用独立栈区域。
-
-exec 身份保留与映像保留
-   exec 通常保留 PID 和部分资源身份，但原用户代码、数据和栈被新映像替换。
+* ``fork`` 与完整内存复制：fork 复制地址空间结构并使用 COW；物理页通常在后续写入时才复制。
+* ``fork`` 与 ``clone``：fork 使用传统进程式默认共享策略；clone 通过 flags 显式定义资源边界。
+* 创建 task 与执行新程序：fork/clone 创建新的 task；exec 在当前 task 内替换程序映像。
+* 独立 fd 表与共享 ``struct file``：fork 后 fd 表通常独立，但对应打开对象可以继续共享偏移和状态。
+* 共享地址空间与独立栈：多线程 task 可以共享同一个 ``mm_struct``，同时各自在其中使用独立栈区域。
+* exec 身份保留与映像保留：exec 通常保留 PID 和部分资源身份，但原用户代码、数据和栈被新映像替换。
 
 一句话结论
 ----------
 
 Linux 先用同一套 task 创建机制生成执行实体，再用 clone flags 决定资源共享；``fork`` 偏复制，线程偏共享，``exec`` 则在原 task 中替换用户态程序映像。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 9，Process, Thread, Task Struct, and Execution Context；
-* AIBook 章节：Chapter 42，Process Creation with fork, clone, and exec；
-* 源文件：``docs/LinuxK/Part_09_Process_Thread_Task_Struct_and_Execution_Context/Chapter_042_Process_Creation_with_fork_clone_and_exec.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_09_Process_Thread_Task_Struct_and_Execution_Context/Chapter_042_Process_Creation_with_fork_clone_and_exec.md>`_。

@@ -93,34 +93,14 @@
 必须区分
 --------
 
-物理页内容与 ``struct page``
-   物理页保存实际数据；``struct page`` 保存管理这页所需的元数据。
-
-PFN 与物理地址
-   PFN 是页粒度编号；物理地址是字节粒度地址。
-
-页面引用与页表映射
-   引用保证页面仍被持有；mapcount 描述页表映射关系，二者不能互相替代。
-
-普通页与复合页
-   普通页单独管理；复合页由 head page 统一承载主要状态，tail page 不能独立解释。
-
-直接映射与 ``vmalloc`` / ``ioremap``
-   直接映射地址可按普通 RAM 规则转换；虚拟映射和设备映射必须使用匹配接口。
-
-FLATMEM 与 SPARSEMEM
-   二者决定页描述符怎样组织和定位，不改变 PFN 与物理页框的基本关系。
+* 物理页内容与 ``struct page``：物理页保存实际数据；``struct page`` 保存管理这页所需的元数据。
+* PFN 与物理地址：PFN 是页粒度编号；物理地址是字节粒度地址。
+* 页面引用与页表映射：引用保证页面仍被持有；mapcount 描述页表映射关系，二者不能互相替代。
+* 普通页与复合页：普通页单独管理；复合页由 head page 统一承载主要状态，tail page 不能独立解释。
+* 直接映射与 ``vmalloc`` / ``ioremap``：直接映射地址可按普通 RAM 规则转换；虚拟映射和设备映射必须使用匹配接口。
+* FLATMEM 与 SPARSEMEM：二者决定页描述符怎样组织和定位，不改变 PFN 与物理页框的基本关系。
 
 一句话结论
 ----------
 
 Linux 先把物理内存编号为 PFN，再用 ``struct page`` 把每个可管理页框变成具有状态、引用、归属和生命周期的内核对象。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 15，Physical Memory, Zones, NUMA, and Page Allocator；
-* AIBook 章节：Chapter 71，Physical Pages, struct page, and Memory Models；
-* 源文件：``docs/LinuxK/Part_15_Physical_Memory_Zones_NUMA_and_Page_Allocator/Chapter_071_Physical_Pages_struct_page_and_Memory_Models.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_15_Physical_Memory_Zones_NUMA_and_Page_Allocator/Chapter_071_Physical_Pages_struct_page_and_Memory_Models.md>`_。

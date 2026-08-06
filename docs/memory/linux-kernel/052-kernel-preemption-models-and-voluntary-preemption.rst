@@ -81,34 +81,14 @@
 必须区分
 --------
 
-``need_resched`` 与实际切换
-   前者记录调度需求；实际切换仍要等待合法调度边界。
-
-非抢占内核与用户态不可抢占
-   非抢占模型限制普通内核态抢占，不取消用户态调度。
-
-自愿抢占与完全可抢占
-   自愿模式依赖显式让出点；完全可抢占模式允许临界区外更细粒度切换。
-
-禁止抢占与禁止中断
-   禁止抢占阻止 task 切换；禁止中断还会推迟 IRQ 和 timer 交付。
-
-可抢占与可睡眠
-   内核可以被抢占不代表当前函数可以主动睡眠，睡眠规则仍由上下文和锁决定。
-
-``spinlock_t`` 与 ``raw_spinlock_t`` 在 PREEMPT_RT 下
-   前者可能采用可调度实现；后者保留不可睡眠的原始自旋语义。
+* ``need_resched`` 与实际切换：前者记录调度需求；实际切换仍要等待合法调度边界。
+* 非抢占内核与用户态不可抢占：非抢占模型限制普通内核态抢占，不取消用户态调度。
+* 自愿抢占与完全可抢占：自愿模式依赖显式让出点；完全可抢占模式允许临界区外更细粒度切换。
+* 禁止抢占与禁止中断：禁止抢占阻止 task 切换；禁止中断还会推迟 IRQ 和 timer 交付。
+* 可抢占与可睡眠：内核可以被抢占不代表当前函数可以主动睡眠，睡眠规则仍由上下文和锁决定。
+* ``spinlock_t`` 与 ``raw_spinlock_t`` 在 PREEMPT_RT 下：前者可能采用可调度实现；后者保留不可睡眠的原始自旋语义。
 
 一句话结论
 ----------
 
 内核抢占由配置模型和当前临界状态共同决定：``need_resched`` 只提出切换请求，只有退出不可抢占区并到达合法检查点后，CPU 才能真正交给另一个 task。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 11，Context Switching, Preemption, Timers, and Timekeeping；
-* AIBook 章节：Chapter 52，Kernel Preemption Models and Voluntary Preemption；
-* 源文件：``docs/LinuxK/Part_11_Context_Switching_Preemption_Timers_and_Timekeeping/Chapter_052_Kernel_Preemption_Models_and_Voluntary_Preemption.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_11_Context_Switching_Preemption_Timers_and_Timekeeping/Chapter_052_Kernel_Preemption_Models_and_Voluntary_Preemption.md>`_。

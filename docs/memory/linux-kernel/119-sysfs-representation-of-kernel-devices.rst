@@ -142,34 +142,14 @@
 必须区分
 --------
 
-``/sys/devices`` 与 ``/sys/class``
-   前者展示设备父子层级；后者按用户功能提供交叉入口。
-
-``/sys/bus`` 与 Driver 目录
-   Bus 视图组织匹配域；driver 目录展示当前驱动及其绑定设备。
-
-Sysfs 属性与普通文件
-   属性内容由内核回调即时生成或处理，不是磁盘上的持久文件数据。
-
-对象内存有效与设备可操作
-   Sysfs 访问可保护软件对象；属性回调仍要检查硬件是否在线和允许操作。
-
-Uevent 与 Sysfs 状态
-   Uevent 通知发生了变化；sysfs 提供变化后对象关系和属性的可查询视图。
-
-Sysfs 与 Debugfs
-   Sysfs 面向对象属性和 ABI；debugfs 面向开发调试，通常不保证稳定接口。
+* ``/sys/devices`` 与 ``/sys/class``：前者展示设备父子层级；后者按用户功能提供交叉入口。
+* ``/sys/bus`` 与 Driver 目录：Bus 视图组织匹配域；driver 目录展示当前驱动及其绑定设备。
+* Sysfs 属性与普通文件：属性内容由内核回调即时生成或处理，不是磁盘上的持久文件数据。
+* 对象内存有效与设备可操作：Sysfs 访问可保护软件对象；属性回调仍要检查硬件是否在线和允许操作。
+* Uevent 与 Sysfs 状态：Uevent 通知发生了变化；sysfs 提供变化后对象关系和属性的可查询视图。
+* Sysfs 与 Debugfs：Sysfs 面向对象属性和 ABI；debugfs 面向开发调试，通常不保证稳定接口。
 
 一句话结论
 ----------
 
 Sysfs 不是设备数据库，而是 ``kobject`` 和 driver core 对象关系的实时投影；正确读法是从 class/bus 链接回到 canonical device，再沿 parent、driver、module 和属性还原真实状态。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 24，Device Model, Kobject, Sysfs, Driver Core, and Device Lifetime；
-* AIBook 章节：Chapter 119，Sysfs Representation of Kernel Devices；
-* 源文件：``docs/LinuxK/Part_24_Device_Model_Kobject_Sysfs_Driver_Core_and_Device_Lifetime/Chapter_119_Sysfs_Representation_of_Kernel_Devices.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_24_Device_Model_Kobject_Sysfs_Driver_Core_and_Device_Lifetime/Chapter_119_Sysfs_Representation_of_Kernel_Devices.md>`_。

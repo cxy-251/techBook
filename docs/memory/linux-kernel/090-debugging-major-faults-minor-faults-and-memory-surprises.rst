@@ -143,34 +143,14 @@ Fault 第一层分类：
 必须区分
 --------
 
-Major fault 与文件映射
-   文件 VMA 既可 minor 也可 major；是否需要后端读入取决于 Page Cache 当前状态。
-
-Minor fault 与低延迟
-   Minor 不等待后端内容读入，但 COW、大页和 reclaim 仍可能让单次处理昂贵。
-
-VMA 存在与页面驻留
-   Maps 说明地址语义；驻留和 PTE 状态需要 smaps、fault 与后端证据。
-
-RSS 与真实独占内存
-   RSS 包含共享页；PSS、Private_Dirty 和映射分类更适合分析 fork/COW。
-
-THP 策略与 THP 结果
-   Sysfs/madvise 表达尝试规则；smaps 和 vmstat 才显示实际映射与生命周期事件。
-
-Fault 数量与 Fault 成本
-   计数说明频率；处理时间、I/O、复制和 compaction 决定每次 fault 的实际延迟。
+* Major fault 与文件映射：文件 VMA 既可 minor 也可 major；是否需要后端读入取决于 Page Cache 当前状态。
+* Minor fault 与低延迟：Minor 不等待后端内容读入，但 COW、大页和 reclaim 仍可能让单次处理昂贵。
+* VMA 存在与页面驻留：Maps 说明地址语义；驻留和 PTE 状态需要 smaps、fault 与后端证据。
+* RSS 与真实独占内存：RSS 包含共享页；PSS、Private_Dirty 和映射分类更适合分析 fork/COW。
+* THP 策略与 THP 结果：Sysfs/madvise 表达尝试规则；smaps 和 vmstat 才显示实际映射与生命周期事件。
+* Fault 数量与 Fault 成本：计数说明频率；处理时间、I/O、复制和 compaction 决定每次 fault 的实际延迟。
 
 一句话结论
 ----------
 
 诊断内存异常必须先用时间窗口区分 major 与 minor fault，再把事件落到具体 VMA、后端驻留、COW 和大页状态，并与 I/O、回收及业务延迟形成同一证据链。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 18，Memory Mapping, Page Faults, Copy-on-Write, and Huge Pages；
-* AIBook 章节：Chapter 90，Debugging Major Faults, Minor Faults, and Memory Surprises；
-* 源文件：``docs/LinuxK/Part_18_Memory_Mapping_Page_Faults_Copy_on_Write_and_Huge_Pages/Chapter_090_Debugging_Major_Faults_Minor_Faults_and_Memory_Surprises.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_18_Memory_Mapping_Page_Faults_Copy_on_Write_and_Huge_Pages/Chapter_090_Debugging_Major_Faults_Minor_Faults_and_Memory_Surprises.md>`_。

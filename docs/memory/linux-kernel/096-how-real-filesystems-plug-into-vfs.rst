@@ -122,34 +122,14 @@
 必须区分
 --------
 
-文件系统类型与挂载实例
-   ``file_system_type`` 描述一种实现；``super_block`` 描述该实现的一次具体挂载。
-
-VFS 合同与文件系统现实
-   VFS 统一系统调用和对象；真实分配、日志、恢复和性能由具体文件系统决定。
-
-磁盘元数据与内存对象
-   前者是持久化格式；后者是缓存、锁、引用和操作表组成的运行时视图。
-
-Operation table 与固定调用链
-   操作表提供动态分发；同一 VFS 入口会因对象所属文件系统和状态进入不同实现。
-
-``write`` 成功与持久化完成
-   Write 返回表示当前写入路径完成；稳定介质语义还要看 fsync、日志、写回和设备顺序。
-
-注册类型与卸载实例
-   类型可以继续存在而没有实例；实例未退出时不能安全移除其实现代码。
+* 文件系统类型与挂载实例：``file_system_type`` 描述一种实现；``super_block`` 描述该实现的一次具体挂载。
+* VFS 合同与文件系统现实：VFS 统一系统调用和对象；真实分配、日志、恢复和性能由具体文件系统决定。
+* 磁盘元数据与内存对象：前者是持久化格式；后者是缓存、锁、引用和操作表组成的运行时视图。
+* Operation table 与固定调用链：操作表提供动态分发；同一 VFS 入口会因对象所属文件系统和状态进入不同实现。
+* ``write`` 成功与持久化完成：Write 返回表示当前写入路径完成；稳定介质语义还要看 fsync、日志、写回和设备顺序。
+* 注册类型与卸载实例：类型可以继续存在而没有实例；实例未退出时不能安全移除其实现代码。
 
 一句话结论
 ----------
 
 真实文件系统通过类型注册、挂载实例和多层操作表接入 VFS，而持久化、恢复、空间和性能语义必须继续追到具体文件系统及其后端实现。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 20，Filesystem Implementations ext4, XFS, Btrfs, and Pseudo Filesystems；
-* AIBook 章节：Chapter 96，How Real Filesystems Plug into VFS；
-* 源文件：``docs/LinuxK/Part_20_Filesystem_Implementations_ext4_XFS_Btrfs_and_Pseudo_Filesystems/Chapter_096_How_Real_Filesystems_Plug_into_VFS.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_20_Filesystem_Implementations_ext4_XFS_Btrfs_and_Pseudo_Filesystems/Chapter_096_How_Real_Filesystems_Plug_into_VFS.md>`_。

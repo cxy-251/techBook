@@ -155,34 +155,14 @@ Readiness 事件循环：
 必须区分
 --------
 
-提交成功与请求完成
-   提交成功只说明请求被接收；完成结果要从 completion 对象取得。
-
-Readiness 与 Completion
-   Readiness 表示现在可能可做 I/O；completion 表示先前指定请求已经产生结果。
-
-异步接口与异步执行
-   API 允许提交/完成分离；具体路径可能直接异步、在提交点工作或转交 worker。
-
-完成通知与完整结果
-   Eventfd/唤醒只提示有事件；请求身份、字节数和错误通常仍在完成队列中。
-
-取消请求与回滚数据
-   Cancel 管理未完成请求状态，不能自动撤销已经发生的设备写入。
-
-Close fd 与结束异步 I/O
-   Close 移除 fd 表项；在途请求可能仍持有 file 引用并继续完成。
+* 提交成功与请求完成：提交成功只说明请求被接收；完成结果要从 completion 对象取得。
+* Readiness 与 Completion：Readiness 表示现在可能可做 I/O；completion 表示先前指定请求已经产生结果。
+* 异步接口与异步执行：API 允许提交/完成分离；具体路径可能直接异步、在提交点工作或转交 worker。
+* 完成通知与完整结果：Eventfd/唤醒只提示有事件；请求身份、字节数和错误通常仍在完成队列中。
+* 取消请求与回滚数据：Cancel 管理未完成请求状态，不能自动撤销已经发生的设备写入。
+* Close fd 与结束异步 I/O：Close 移除 fd 表项；在途请求可能仍持有 file 引用并继续完成。
 
 一句话结论
 ----------
 
 异步 I/O 的本质是管理有界的未完成工作：提交、执行、完成入队、通知、消费和资源释放必须由同一请求身份与背压协议闭合。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 21，Page Cache IO, Direct IO, Async IO, and io_uring；
-* AIBook 章节：Chapter 103，Asynchronous IO and Completion Models；
-* 源文件：``docs/LinuxK/Part_21_Page_Cache_IO_Direct_IO_Async_IO_and_io_uring/Chapter_103_Asynchronous_IO_and_Completion_Models.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_21_Page_Cache_IO_Direct_IO_Async_IO_and_io_uring/Chapter_103_Asynchronous_IO_and_Completion_Models.md>`_。

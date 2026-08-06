@@ -151,34 +151,14 @@
 必须区分
 --------
 
-SCSI 协议模型与物理接口
-   SCSI 是命令、目标、LUN 和错误模型，可运行在多种传输之上。
-
-Block request 与 ``scsi_cmnd``
-   前者表达块层工作；后者表达发送给 SCSI target 的协议命令。
-
-Sense data 与 errno
-   Sense 是设备级结构化原因；errno 是上层最终看到的压缩错误结果。
-
-Timeout 与 Medium Error
-   Timeout 表示未按时完成；Medium Error 更明确指向介质访问失败。
-
-Path 与 LUN
-   Path 是到存储对象的传输路线；LUN 是被访问的逻辑对象。
-
-Reset 恢复与数据正确
-   Reset 恢复命令通路；数据是否完整仍需由命令状态、阵列和文件系统验证。
+* SCSI 协议模型与物理接口：SCSI 是命令、目标、LUN 和错误模型，可运行在多种传输之上。
+* Block request 与 ``scsi_cmnd``：前者表达块层工作；后者表达发送给 SCSI target 的协议命令。
+* Sense data 与 errno：Sense 是设备级结构化原因；errno 是上层最终看到的压缩错误结果。
+* Timeout 与 Medium Error：Timeout 表示未按时完成；Medium Error 更明确指向介质访问失败。
+* Path 与 LUN：Path 是到存储对象的传输路线；LUN 是被访问的逻辑对象。
+* Reset 恢复与数据正确：Reset 恢复命令通路；数据是否完整仍需由命令状态、阵列和文件系统验证。
 
 一句话结论
 ----------
 
 Linux SCSI 栈用 ``Scsi_Host``、``scsi_device``、``scsi_cmnd`` 和 sense/EH 模型，把统一块请求连接到多种企业存储传输，并以结构化状态决定重试、重置、切换路径或失败。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 23，Storage Devices, NVMe, SCSI, Device Mapper, and Filesystem Reliability；
-* AIBook 章节：Chapter 112，SCSI and the Legacy Storage Model；
-* 源文件：``docs/LinuxK/Part_23_Storage_Devices_NVMe_SCSI_Device_Mapper_and_Filesystem_Reliability/Chapter_112_SCSI_and_the_Legacy_Storage_Model.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_23_Storage_Devices_NVMe_SCSI_Device_Mapper_and_Filesystem_Reliability/Chapter_112_SCSI_and_the_Legacy_Storage_Model.md>`_。

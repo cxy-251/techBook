@@ -49,27 +49,12 @@
 必须区分
 --------
 
-目录归属与调用顺序
-   目录说明代码由哪个工程边界负责；调用顺序由函数、对象、回调和状态决定。
-
-通用代码与架构代码
-   通用代码表达 Linux 统一机制；架构代码实现 CPU 和平台相关细节。
-
-内核内部接口与用户态 ABI
-   ``include/linux/`` 面向内核内部；``include/uapi/`` 面向用户程序和工具链。
-
-手写头文件与生成头文件
-   手写头文件是源码接口；生成头文件是某次配置和构建产生的结果。
+* 目录归属与调用顺序：目录说明代码由哪个工程边界负责；调用顺序由函数、对象、回调和状态决定。
+* 通用代码与架构代码：通用代码表达 Linux 统一机制；架构代码实现 CPU 和平台相关细节。
+* 内核内部接口与用户态 ABI：``include/linux/`` 面向内核内部；``include/uapi/`` 面向用户程序和工具链。
+* 手写头文件与生成头文件：手写头文件是源码接口；生成头文件是某次配置和构建产生的结果。
 
 一句话结论
 ----------
 
 Linux 源码目录是工程地图：先用目录确定归属，再用对象、接口和回调还原真正的跨目录运行路径。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 6，The Shape of the Kernel Source Tree；
-* 源文件：``docs/LinuxK/Part_02_Kernel_Source_Tree_and_Code_Navigation/Chapter_006_The_Shape_of_the_Kernel_Source_Tree.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_02_Kernel_Source_Tree_and_Code_Navigation/Chapter_006_The_Shape_of_the_Kernel_Source_Tree.md>`_。

@@ -158,34 +158,14 @@ RAID 降级与重建：
 必须区分
 --------
 
-Device Mapper 与 LVM
-   DM 是内核映射框架；LVM 是用户空间策略和元数据管理层。
-
-映射表与 Target
-   Table 选择某段虚拟 sector 的处理者；target 定义实际转换语义。
-
-Thin 逻辑容量与 Pool 实际容量
-   Thin device 可显示很大逻辑空间；真正可写性取决于 data 和 metadata pool。
-
-Snapshot 与备份
-   Snapshot 共享故障域和底层数据，只提供时间点映射，不等于独立备份。
-
-RAID 冗余与数据备份
-   RAID 提高在线容错和可用性，不能替代离线、异地或版本化备份。
-
-上层请求与下层工作量
-   一个逻辑 I/O 可被缓存、镜像、校验和元数据机制放大为多个子请求。
+* Device Mapper 与 LVM：DM 是内核映射框架；LVM 是用户空间策略和元数据管理层。
+* 映射表与 Target：Table 选择某段虚拟 sector 的处理者；target 定义实际转换语义。
+* Thin 逻辑容量与 Pool 实际容量：Thin device 可显示很大逻辑空间；真正可写性取决于 data 和 metadata pool。
+* Snapshot 与备份：Snapshot 共享故障域和底层数据，只提供时间点映射，不等于独立备份。
+* RAID 冗余与数据备份：RAID 提高在线容错和可用性，不能替代离线、异地或版本化备份。
+* 上层请求与下层工作量：一个逻辑 I/O 可被缓存、镜像、校验和元数据机制放大为多个子请求。
 
 一句话结论
 ----------
 
 Device Mapper 通过 target 把块设备能力组合成新的虚拟设备，LVM 与 RAID 提供策略、空间和冗余，但每增加一层都会同时增加地址、缓存、持久化、性能和故障传播复杂度。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 23，Storage Devices, NVMe, SCSI, Device Mapper, and Filesystem Reliability；
-* AIBook 章节：Chapter 114，Device Mapper, LVM, RAID, and Layered Block Devices；
-* 源文件：``docs/LinuxK/Part_23_Storage_Devices_NVMe_SCSI_Device_Mapper_and_Filesystem_Reliability/Chapter_114_Device_Mapper_LVM_RAID_and_Layered_Block_Devices.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_23_Storage_Devices_NVMe_SCSI_Device_Mapper_and_Filesystem_Reliability/Chapter_114_Device_Mapper_LVM_RAID_and_Layered_Block_Devices.md>`_。

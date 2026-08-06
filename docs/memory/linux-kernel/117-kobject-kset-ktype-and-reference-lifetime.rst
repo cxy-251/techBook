@@ -136,34 +136,14 @@ Kset 组织成员：
 必须区分
 --------
 
-Kobject 与宿主业务对象
-   Kobject 提供通用身份和引用；宿主结构体保存真正业务状态与资源。
-
-Kset 与 Ktype
-   Kset 组织对象集合和事件语境；ktype 定义对象类型、属性操作和最终 release。
-
-Sysfs 删除与对象释放
-   删除目录阻止新可见访问；对象要等全部引用归零后才释放。
-
-引用保护与状态保护
-   引用保证内存仍在；锁和状态机保证字段、硬件和业务操作仍合法。
-
-Remove 与 Release
-   Remove 撤销功能并停止异步路径；release 在最后引用归零后释放宿主存储。
-
-裸 Kobject API 与高层对象 API
-   Device、driver、class 等对象应使用各自高层 get/put 和注册接口，以维护完整关系。
+* Kobject 与宿主业务对象：Kobject 提供通用身份和引用；宿主结构体保存真正业务状态与资源。
+* Kset 与 Ktype：Kset 组织对象集合和事件语境；ktype 定义对象类型、属性操作和最终 release。
+* Sysfs 删除与对象释放：删除目录阻止新可见访问；对象要等全部引用归零后才释放。
+* 引用保护与状态保护：引用保证内存仍在；锁和状态机保证字段、硬件和业务操作仍合法。
+* Remove 与 Release：Remove 撤销功能并停止异步路径；release 在最后引用归零后释放宿主存储。
+* 裸 Kobject API 与高层对象 API：Device、driver、class 等对象应使用各自高层 get/put 和注册接口，以维护完整关系。
 
 一句话结论
 ----------
 
 ``kobject`` 把内核对象的名称、层级、sysfs 可见性和引用终点绑在一起，安全销毁必须先结束业务可见性和并发使用，再由最后一次 put 进入 ``ktype->release()`` 释放宿主对象。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 24，Device Model, Kobject, Sysfs, Driver Core, and Device Lifetime；
-* AIBook 章节：Chapter 117，kobject, kset, ktype, and Reference Lifetime；
-* 源文件：``docs/LinuxK/Part_24_Device_Model_Kobject_Sysfs_Driver_Core_and_Device_Lifetime/Chapter_117_kobject_kset_ktype_and_Reference_Lifetime.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_24_Device_Model_Kobject_Sysfs_Driver_Core_and_Device_Lifetime/Chapter_117_kobject_kset_ktype_and_Reference_Lifetime.md>`_。

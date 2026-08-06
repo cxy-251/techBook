@@ -157,31 +157,13 @@ Exec 权限变换：
 必须区分
 --------
 
-Permitted 与 Effective
-   Permitted 是可启用资格上限；Effective 才是当前大多数 Capability 检查使用的集合。
-
-Bounding 与当前权限
-   Bounding 主要限制未来 Exec 获得路径，不一定立即删除已有 Effective 位。
-
-File Capability 与 Ambient Capability
-   前者由可执行文件 xattr 注入 Exec 计算；后者由线程在非特权 Exec 链中传播。
-
-容器内 Capability 与宿主全局 Capability
-   授权必须带 User Namespace 和目标对象所有权语境判断。
-
-Capability 允许与最终成功
-   对象状态、DAC、LSM、Seccomp、Lockdown 和子系统规则仍可能拒绝。
+* Permitted 与 Effective：Permitted 是可启用资格上限；Effective 才是当前大多数 Capability 检查使用的集合。
+* Bounding 与当前权限：Bounding 主要限制未来 Exec 获得路径，不一定立即删除已有 Effective 位。
+* File Capability 与 Ambient Capability：前者由可执行文件 xattr 注入 Exec 计算；后者由线程在非特权 Exec 链中传播。
+* 容器内 Capability 与宿主全局 Capability：授权必须带 User Namespace 和目标对象所有权语境判断。
+* Capability 允许与最终成功：对象状态、DAC、LSM、Seccomp、Lockdown 和子系统规则仍可能拒绝。
 
 一句话结论
 ----------
 
 Capability 把 Root 权力拆成按对象路径检查的授权位，但每个位仍是真实内核权力，必须结合 Effective Set、Exec 来源、Bounding 和 User Namespace 精确判断。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 33，Credentials, Capabilities, Permissions, LSM, Seccomp, and Audit；
-* AIBook 章节：Chapter 162，Capabilities and Privilege Decomposition；
-* 源文件：``docs/LinuxK/Part_33_Credentials_Capabilities_Permissions_LSM_Seccomp_and_Audit/Chapter_162_Capabilities_and_Privilege_Decomposition.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_33_Credentials_Capabilities_Permissions_LSM_Seccomp_and_Audit/Chapter_162_Capabilities_and_Privilege_Decomposition.md>`_。

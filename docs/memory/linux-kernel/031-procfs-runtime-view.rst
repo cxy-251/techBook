@@ -79,33 +79,14 @@
 必须区分
 --------
 
-伪文件与磁盘文件
-   procfs 文件是内核对象的动态接口；普通文件的数据由文件系统和存储介质保存。
-
-虚拟内存与物理内存
-   ``maps`` 描述虚拟区域；RSS、PSS 和页级统计描述当前物理页贡献。
-
-状态与计数
-   状态表示当前对象处境；累计计数表示某类事件从某个起点以来发生的次数。
-
-快照与趋势
-   单次读取是局部证据；趋势需要固定时间间隔和相同口径的连续采样。
-
-读取与控制
-   大部分 ``/proc`` 条目用于观察；``/proc/sys`` 和少数控制文件的写入会改变系统状态。
-
-条目不可见与对象不存在
-   权限、namespace、挂载选项和配置都可能隐藏条目，不能仅凭路径缺失下结论。
+* 伪文件与磁盘文件：procfs 文件是内核对象的动态接口；普通文件的数据由文件系统和存储介质保存。
+* 虚拟内存与物理内存：``maps`` 描述虚拟区域；RSS、PSS 和页级统计描述当前物理页贡献。
+* 状态与计数：状态表示当前对象处境；累计计数表示某类事件从某个起点以来发生的次数。
+* 快照与趋势：单次读取是局部证据；趋势需要固定时间间隔和相同口径的连续采样。
+* 读取与控制：大部分 ``/proc`` 条目用于观察；``/proc/sys`` 和少数控制文件的写入会改变系统状态。
+* 条目不可见与对象不存在：权限、namespace、挂载选项和配置都可能隐藏条目，不能仅凭路径缺失下结论。
 
 一句话结论
 ----------
 
 ``procfs`` 把进程对象、内存状态、文件表和系统计数器转换成可查询文本；读取结果是运行时证据，不是静态真相，也不是根因本身。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 31，procfs as a Runtime View of Processes and Kernel State；
-* 源文件：``docs/LinuxK/Part_07_Observability_Interfaces_procfs_sysfs_debugfs_tracefs_and_dmesg/Chapter_031_procfs_as_a_Runtime_View_of_Processes_and_Kernel_State.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_07_Observability_Interfaces_procfs_sysfs_debugfs_tracefs_and_dmesg/Chapter_031_procfs_as_a_Runtime_View_of_Processes_and_Kernel_State.md>`_。

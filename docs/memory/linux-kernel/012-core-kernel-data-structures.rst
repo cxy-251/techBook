@@ -65,33 +65,14 @@
 必须区分
 --------
 
-集合删除与对象释放
-   从链表、树或哈希表删除节点只解除索引关系；对象释放还取决于引用、RCU 和所有权规则。
-
-哈希桶与最终匹配
-   哈希值用于选择 bucket；桶中的候选对象仍需比较完整 key。
-
-XArray、IDR 与 IDA
-   XArray按整数索引保存条目；IDR管理 ID 到指针的映射；IDA只管理 ID 占用状态。
-
-引用计数与字段同步
-   引用计数保证对象不会过早释放；锁和 RCU 保证并发访问字段或集合关系时的一致性。
-
-等待队列与完成量
-   等待队列适合任意条件反复检查；completion 适合明确的完成事件或完成状态。
-
-唤醒与条件成立
-   唤醒只让等待者重新运行并检查条件；真正的事件由共享状态变化表达。
+* 集合删除与对象释放：从链表、树或哈希表删除节点只解除索引关系；对象释放还取决于引用、RCU 和所有权规则。
+* 哈希桶与最终匹配：哈希值用于选择 bucket；桶中的候选对象仍需比较完整 key。
+* XArray、IDR 与 IDA：XArray按整数索引保存条目；IDR管理 ID 到指针的映射；IDA只管理 ID 占用状态。
+* 引用计数与字段同步：引用计数保证对象不会过早释放；锁和 RCU 保证并发访问字段或集合关系时的一致性。
+* 等待队列与完成量：等待队列适合任意条件反复检查；completion 适合明确的完成事件或完成状态。
+* 唤醒与条件成立：唤醒只让等待者重新运行并检查条件；真正的事件由共享状态变化表达。
 
 一句话结论
 ----------
 
 内核通用数据结构是对象关系语言：集合字段说明怎样找到对象，引用字段说明对象何时存活，等待字段说明状态怎样在不同执行路径之间交接。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 12，Core Kernel Data Structures；
-* 源文件：``docs/LinuxK/Part_03_Kernel_Code_Grammar_Core_APIs_and_C_Runtime_Constraints/Chapter_012_Core_Kernel_Data_Structures.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_03_Kernel_Code_Grammar_Core_APIs_and_C_Runtime_Constraints/Chapter_012_Core_Kernel_Data_Structures.md>`_。

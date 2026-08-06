@@ -86,31 +86,13 @@
 必须区分
 --------
 
-局部执行控制与跨 CPU 同步
-   关抢占、关 IRQ 和关 bottom half只影响本 CPU；跨 CPU 共享数据仍需要锁、原子或其它协议。
-
-互斥与生命周期
-   锁防止临界区并发修改；引用、RCU 和同步取消保证对象在访问期间仍然存在。
-
-原子性与内存顺序
-   原子性保护一个内存位置的更新；顺序约束多个内存位置在其它 CPU 上的观察关系。
-
-删除与释放
-   删除使新查找者看不到对象；释放必须等所有旧使用者和异步路径结束。
-
-可抢占与可睡眠
-   可抢占表示调度器可能切换 task；可睡眠表示当前路径允许主动阻塞等待，二者不能混为一谈。
+* 局部执行控制与跨 CPU 同步：关抢占、关 IRQ 和关 bottom half只影响本 CPU；跨 CPU 共享数据仍需要锁、原子或其它协议。
+* 互斥与生命周期：锁防止临界区并发修改；引用、RCU 和同步取消保证对象在访问期间仍然存在。
+* 原子性与内存顺序：原子性保护一个内存位置的更新；顺序约束多个内存位置在其它 CPU 上的观察关系。
+* 删除与释放：删除使新查找者看不到对象；释放必须等所有旧使用者和异步路径结束。
+* 可抢占与可睡眠：可抢占表示调度器可能切换 task；可睡眠表示当前路径允许主动阻塞等待，二者不能混为一谈。
 
 一句话结论
 ----------
 
 内核并发不是“加一把锁”即可解决的问题；任何共享对象都必须同时闭合上下文、生命周期和内存顺序三条证明链。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 13，Concurrency, Locking, Atomics, Memory Barriers, and RCU；
-* AIBook 章节：Chapter 61，Kernel Concurrency Context Lifetime and Ordering；
-* 源文件：``docs/LinuxK/Part_13_Concurrency_Locking_Atomics_Memory_Barriers_and_RCU/Chapter_061_Kernel_Concurrency_Context_Lifetime_and_Ordering.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_13_Concurrency_Locking_Atomics_Memory_Barriers_and_RCU/Chapter_061_Kernel_Concurrency_Context_Lifetime_and_Ordering.md>`_。

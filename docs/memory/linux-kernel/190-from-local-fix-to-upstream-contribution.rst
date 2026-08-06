@@ -125,26 +125,16 @@
 必须区分
 --------
 
-* Local Hack 恢复当前环境，与 Upstreamable Fix 恢复通用不变量；
-* 本地症状消失，与根因已修复；
-* 构建通过，与运行和错误路径正确；
-* Mock/VM 覆盖，与真实硬件覆盖；
-* Mainline 修复，与 Stable Backport；
-* ``Cc: stable`` 候选提示，与 Stable 已接受；
-* Patch 已发送，与贡献已完成；
+* Local Hack 恢复当前环境，与 Upstreamable Fix 恢复通用不变量。
+* 本地症状消失，与根因已修复。
+* 构建通过，与运行和错误路径正确。
+* Mock/VM 覆盖，与真实硬件覆盖。
+* Mainline 修复，与 Stable Backport。
+* ``Cc: stable`` 候选提示，与 Stable 已接受。
+* Patch 已发送，与贡献已完成。
 * 一次测试通过，与长期维护责任结束。
 
 一句话结论
 ----------
 
 把本地修补变成上游贡献，必须将局部现象还原为通用对象不变量，用可审查的最小 Patch 和风险匹配的测试证明修复，并持续跟进到主线、回归和 Stable 生命周期。
-
-来源
-----
-
-* 教材：AIBook《Linux Kernel》；
-* Part：Part 38：Kernel Patch Workflow, Maintainers, Reviews, Regressions, and Upstream Contribution；
-* 章节：Chapter 190: From Local Fix to Upstream Contribution；
-* 源文件：``docs/LinuxK/Part_38_Kernel_Patch_Workflow_Maintainers_Reviews_Regressions_and_Upstream_Contribution/Chapter_190_From_Local_Fix_to_Upstream_Contribution.md``；
-* 固定版本：``18386764582829f2b807b7b0947785eb77b50446``；
-* 固定链接：https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_38_Kernel_Patch_Workflow_Maintainers_Reviews_Regressions_and_Upstream_Contribution/Chapter_190_From_Local_Fix_to_Upstream_Contribution.md

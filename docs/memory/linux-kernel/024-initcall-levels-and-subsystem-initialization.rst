@@ -91,30 +91,13 @@ Provider 与 consumer：
 必须区分
 --------
 
-Initcall 层级与精确依赖
-   层级只提供启动阶段的大方向；真实依赖还要由对象注册、固件描述、资源查找和驱动模型表达。
-
-同层级与同时执行
-   同一层级表示处于同一阶段，不表示函数并发执行，也不表示顺序无关；通常仍按链接后的排列扫描。
-
-Initcall 成功与子系统完全可用
-   返回成功只覆盖初始化函数自己的契约；异步任务、设备匹配、probe 和消费者可能仍未完成。
-
-内建初始化与模块初始化
-   内建代码在启动 initcall 路径执行；模块代码在模块加载路径执行。
-
-Deferred probe 与永久失败
-   Deferred probe 表示资源可能稍后出现；永久缺失、错误描述和真实硬件失败需要返回并处理对应错误。
+* Initcall 层级与精确依赖：层级只提供启动阶段的大方向；真实依赖还要由对象注册、固件描述、资源查找和驱动模型表达。
+* 同层级与同时执行：同一层级表示处于同一阶段，不表示函数并发执行，也不表示顺序无关；通常仍按链接后的排列扫描。
+* Initcall 成功与子系统完全可用：返回成功只覆盖初始化函数自己的契约；异步任务、设备匹配、probe 和消费者可能仍未完成。
+* 内建初始化与模块初始化：内建代码在启动 initcall 路径执行；模块代码在模块加载路径执行。
+* Deferred probe 与永久失败：Deferred probe 表示资源可能稍后出现；永久缺失、错误描述和真实硬件失败需要返回并处理对应错误。
 
 一句话结论
 ----------
 
 Initcall 用链接 section 把分散的初始化函数排成粗粒度启动顺序；真正的启动正确性仍取决于 provider、framework、consumer 的对象依赖和失败处理。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 24，Initcall Levels and Subsystem Initialization；
-* 源文件：``docs/LinuxK/Part_05_Boot_Sequence_Initcalls_and_Early_Kernel_Initialization/Chapter_024_Initcall_Levels_and_Subsystem_Initialization.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_05_Boot_Sequence_Initcalls_and_Early_Kernel_Initialization/Chapter_024_Initcall_Levels_and_Subsystem_Initialization.md>`_。

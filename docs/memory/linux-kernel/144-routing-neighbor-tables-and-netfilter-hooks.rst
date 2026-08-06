@@ -180,31 +180,13 @@ Neighbor 解析：
 必须区分
 --------
 
-Routing 与 Neighbor Resolution
-   Route 选择三层下一跳和设备；邻居表解析下一跳的链路层地址。
-
-Netfilter Hook 与规则工具
-   Hook 是内核路径位置；nftables/iptables 是配置规则的机制。
-
-Conntrack State 与 TCP State
-   Conntrack 跟踪 packet flow；TCP socket 状态跟踪端点协议生命周期。
-
-NAT 映射与 Firewall 放行
-   NAT 改写地址；filter verdict 独立决定 packet 是否继续。
-
-抓到 Packet 与成功转发
-   抓包只证明 packet 到达抓取点，后续 route、Hook、neighbor 或设备仍可失败。
+* Routing 与 Neighbor Resolution：Route 选择三层下一跳和设备；邻居表解析下一跳的链路层地址。
+* Netfilter Hook 与规则工具：Hook 是内核路径位置；nftables/iptables 是配置规则的机制。
+* Conntrack State 与 TCP State：Conntrack 跟踪 packet flow；TCP socket 状态跟踪端点协议生命周期。
+* NAT 映射与 Firewall 放行：NAT 改写地址；filter verdict 独立决定 packet 是否继续。
+* 抓到 Packet 与成功转发：抓包只证明 packet 到达抓取点，后续 route、Hook、neighbor 或设备仍可失败。
 
 一句话结论
 ----------
 
 Routing 决定 packet 的三层去向，Neighbor table 把下一跳变成可发送的二层地址，Netfilter/Conntrack/NAT 则在固定路径点决定 packet 是否继续以及它将以什么身份继续。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 29，Socket Layer, sk_buff, Routing, Netfilter, and TCP IP Stack；
-* AIBook 章节：Chapter 144，Routing, Neighbor Tables, and Netfilter Hooks；
-* 源文件：``docs/LinuxK/Part_29_Socket_Layer_sk_buff_Routing_Netfilter_and_TCP_IP_Stack/Chapter_144_Routing_Neighbor_Tables_and_Netfilter_Hooks.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_29_Socket_Layer_sk_buff_Routing_Netfilter_and_TCP_IP_Stack/Chapter_144_Routing_Neighbor_Tables_and_Netfilter_Hooks.md>`_。

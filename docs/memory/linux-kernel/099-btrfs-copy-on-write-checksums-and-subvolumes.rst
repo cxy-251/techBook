@@ -138,34 +138,14 @@ Send/Receive：
 必须区分
 --------
 
-COW 更新与原地覆盖
-   普通 Btrfs 路径写新 extent 并切换引用；NODATACOW 等特殊路径会改变该模型。
-
-快照与备份
-   快照保留文件系统内部旧 root，通常仍处于相同设备和故障域；备份需要独立副本与恢复验证。
-
-Checksum 检测与自动修复
-   校验和能发现内容不匹配；修复还要求存在可验证的冗余好副本。
-
-Subvolume 与独立文件系统
-   Subvolume 有独立 tree root 和目录层级，但共享同一个 Btrfs 存储池、事务和设备集合。
-
-逻辑大小与物理占用
-   压缩、快照和 reflink 使一个文件的逻辑长度不能直接推导独占磁盘空间。
-
-设备空闲与可分配空间
-   未分配设备字节不保证当前 profile 和 metadata/data 域能立即满足 COW 请求。
+* COW 更新与原地覆盖：普通 Btrfs 路径写新 extent 并切换引用；NODATACOW 等特殊路径会改变该模型。
+* 快照与备份：快照保留文件系统内部旧 root，通常仍处于相同设备和故障域；备份需要独立副本与恢复验证。
+* Checksum 检测与自动修复：校验和能发现内容不匹配；修复还要求存在可验证的冗余好副本。
+* Subvolume 与独立文件系统：Subvolume 有独立 tree root 和目录层级，但共享同一个 Btrfs 存储池、事务和设备集合。
+* 逻辑大小与物理占用：压缩、快照和 reflink 使一个文件的逻辑长度不能直接推导独占磁盘空间。
+* 设备空闲与可分配空间：未分配设备字节不保证当前 profile 和 metadata/data 域能立即满足 COW 请求。
 
 一句话结论
 ----------
 
 Btrfs 用 COW 状态树、extent 引用和校验和统一管理写入、快照与完整性，因此空间、性能和恢复都必须按共享关系、事务根和设备 profile 联合判断。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 20，Filesystem Implementations ext4, XFS, Btrfs, and Pseudo Filesystems；
-* AIBook 章节：Chapter 99，Btrfs Copy-on-Write, Checksums, and Subvolumes；
-* 源文件：``docs/LinuxK/Part_20_Filesystem_Implementations_ext4_XFS_Btrfs_and_Pseudo_Filesystems/Chapter_099_Btrfs_Copy_on_Write_Checksums_and_Subvolumes.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_20_Filesystem_Implementations_ext4_XFS_Btrfs_and_Pseudo_Filesystems/Chapter_099_Btrfs_Copy_on_Write_Checksums_and_Subvolumes.md>`_。

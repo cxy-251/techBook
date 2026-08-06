@@ -90,31 +90,13 @@ Threaded IRQ 路径：
 必须区分
 --------
 
-Top half 与 bottom half
-   Top half 负责立即确认和排队；bottom half 负责稍后完成较多工作。
-
-延迟执行与可睡眠
-   Softirq 和 tasklet 延后执行但仍不能睡眠；workqueue 和 IRQ thread 通常可以睡眠。
-
-确认控制器与清除设备状态
-   Generic IRQ 层处理控制器流控；驱动还要按设备协议清除具体 pending 原因。
-
-排队点与执行点
-   调度工作的位置决定排队上下文；回调实际运行位置决定 API 约束。
-
-工作转移与工作减少
-   移到下半部可以缩短 hardirq，却不会自动降低总 CPU 工作量。
+* Top half 与 bottom half：Top half 负责立即确认和排队；bottom half 负责稍后完成较多工作。
+* 延迟执行与可睡眠：Softirq 和 tasklet 延后执行但仍不能睡眠；workqueue 和 IRQ thread 通常可以睡眠。
+* 确认控制器与清除设备状态：Generic IRQ 层处理控制器流控；驱动还要按设备协议清除具体 pending 原因。
+* 排队点与执行点：调度工作的位置决定排队上下文；回调实际运行位置决定 API 约束。
+* 工作转移与工作减少：移到下半部可以缩短 hardirq，却不会自动降低总 CPU 工作量。
 
 一句话结论
 ----------
 
 中断设计的核心是让 top half 只完成必须立即做的硬件动作，并把其余工作放到具备合适睡眠、并发和调度能力的下半部。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 12，Interrupts, Exceptions, Softirq, Tasklet, and Workqueue；
-* AIBook 章节：Chapter 58，Top Halves, Bottom Halves, and Deferred Execution；
-* 源文件：``docs/LinuxK/Part_12_Interrupts_Exceptions_Softirq_Tasklet_and_Workqueue/Chapter_058_Top_Halves_Bottom_Halves_and_Deferred_Execution.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_12_Interrupts_Exceptions_Softirq_Tasklet_and_Workqueue/Chapter_058_Top_Halves_Bottom_Halves_and_Deferred_Execution.md>`_。

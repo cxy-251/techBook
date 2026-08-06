@@ -89,31 +89,13 @@ CPU 与设备交互：
 必须区分
 --------
 
-编译器屏障与 CPU 屏障
-   前者限制优化器移动访问；后者限制运行时内存系统的观察顺序。
-
-``READ_ONCE`` / ``WRITE_ONCE`` 与同步
-   它们固定单次访问形态；跨 CPU 发布仍需要 acquire/release、锁或其它协议。
-
-SMP 屏障与设备屏障
-   ``smp_*`` 面向 CPU 共享内存；DMA 和 MMIO 需要相应设备与 I/O 顺序接口。
-
-Acquire/release 与全屏障
-   Acquire/release 是单向约束；全屏障同时约束两侧多种读写方向。
-
-顺序与生命周期
-   屏障保证观察顺序；引用、RCU 和同步取消保证被观察对象仍然存在。
+* 编译器屏障与 CPU 屏障：前者限制优化器移动访问；后者限制运行时内存系统的观察顺序。
+* ``READ_ONCE`` / ``WRITE_ONCE`` 与同步：它们固定单次访问形态；跨 CPU 发布仍需要 acquire/release、锁或其它协议。
+* SMP 屏障与设备屏障：``smp_*`` 面向 CPU 共享内存；DMA 和 MMIO 需要相应设备与 I/O 顺序接口。
+* Acquire/release 与全屏障：Acquire/release 是单向约束；全屏障同时约束两侧多种读写方向。
+* 顺序与生命周期：屏障保证观察顺序；引用、RCU 和同步取消保证被观察对象仍然存在。
 
 一句话结论
 ----------
 
 内存屏障不是为了让本 CPU “按顺序执行”，而是为了限制其它 CPU 或设备被允许以什么顺序看到共享状态。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 13，Concurrency, Locking, Atomics, Memory Barriers, and RCU；
-* AIBook 章节：Chapter 64，Memory Barriers and CPU Reordering；
-* 源文件：``docs/LinuxK/Part_13_Concurrency_Locking_Atomics_Memory_Barriers_and_RCU/Chapter_064_Memory_Barriers_and_CPU_Reordering.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_13_Concurrency_Locking_Atomics_Memory_Barriers_and_RCU/Chapter_064_Memory_Barriers_and_CPU_Reordering.md>`_。

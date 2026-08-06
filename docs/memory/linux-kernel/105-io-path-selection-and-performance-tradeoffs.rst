@@ -148,34 +148,14 @@
 必须区分
 --------
 
-缓存策略与提交接口
-   Buffered/Direct 决定 Page Cache；同步/AIO/``io_uring`` 决定请求和完成管理。
-
-吞吐与单次延迟
-   更多在途请求可提高设备利用率，也会增加排队和尾延迟。
-
-复制减少与总成本减少
-   少一次 copy 可能换来 pinning、对齐、缓存自管和更多设备 I/O。
-
-Page Cache 占用与缓存污染
-   占用是缓存工作状态；污染需要证明无复用数据挤出热点并造成额外成本。
-
-I/O 完成与持久化完成
-   请求完成表示接口操作结束；崩溃恢复保证还取决于 fsync、文件系统和设备顺序。
-
-工具现象与根因
-   Syscall、CPU、块层和设备工具观察不同阶段，必须按同一时间线交叉验证。
+* 缓存策略与提交接口：Buffered/Direct 决定 Page Cache；同步/AIO/``io_uring`` 决定请求和完成管理。
+* 吞吐与单次延迟：更多在途请求可提高设备利用率，也会增加排队和尾延迟。
+* 复制减少与总成本减少：少一次 copy 可能换来 pinning、对齐、缓存自管和更多设备 I/O。
+* Page Cache 占用与缓存污染：占用是缓存工作状态；污染需要证明无复用数据挤出热点并造成额外成本。
+* I/O 完成与持久化完成：请求完成表示接口操作结束；崩溃恢复保证还取决于 fsync、文件系统和设备顺序。
+* 工具现象与根因：Syscall、CPU、块层和设备工具观察不同阶段，必须按同一时间线交叉验证。
 
 一句话结论
 ----------
 
 I/O 性能优化本质上是让缓存策略、请求形状、完成模型、队列深度、内存成本和设备能力匹配，并用分层证据证明真实请求走了预期路径。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 21，Page Cache IO, Direct IO, Async IO, and io_uring；
-* AIBook 章节：Chapter 105，IO Path Selection and Performance Tradeoffs；
-* 源文件：``docs/LinuxK/Part_21_Page_Cache_IO_Direct_IO_Async_IO_and_io_uring/Chapter_105_IO_Path_Selection_and_Performance_Tradeoffs.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_21_Page_Cache_IO_Direct_IO_Async_IO_and_io_uring/Chapter_105_IO_Path_Selection_and_Performance_Tradeoffs.md>`_。

@@ -89,31 +89,13 @@
 必须区分
 --------
 
-hwirq 与 Linux IRQ
-   hwirq 是某个控制器局部编号；Linux IRQ 是内核描述符空间中的管理编号。
-
-``irq_desc`` 与 ``irq_chip``
-   ``irq_desc`` 描述一个 Linux IRQ 的运行状态；``irq_chip`` 封装控制器硬件操作。
-
-Flow handler 与设备 handler
-   Flow handler 处理通用 edge/level/EOI 协议；设备 handler 处理设备业务状态。
-
-ACK、EOI 与设备状态清除
-   ACK/EOI 多属于控制器协议；设备 pending 位通常还要由驱动访问设备寄存器清除。
-
-IRQ 编号与 CPU 向量
-   Linux IRQ 是内核对象编号；CPU 向量是架构入口编号，二者可能通过控制器和架构代码映射。
+* hwirq 与 Linux IRQ：hwirq 是某个控制器局部编号；Linux IRQ 是内核描述符空间中的管理编号。
+* ``irq_desc`` 与 ``irq_chip``：``irq_desc`` 描述一个 Linux IRQ 的运行状态；``irq_chip`` 封装控制器硬件操作。
+* Flow handler 与设备 handler：Flow handler 处理通用 edge/level/EOI 协议；设备 handler 处理设备业务状态。
+* ACK、EOI 与设备状态清除：ACK/EOI 多属于控制器协议；设备 pending 位通常还要由驱动访问设备寄存器清除。
+* IRQ 编号与 CPU 向量：Linux IRQ 是内核对象编号；CPU 向量是架构入口编号，二者可能通过控制器和架构代码映射。
 
 一句话结论
 ----------
 
 Linux 用 ``irq_domain`` 把控制器局部 hwirq 映射成 Linux IRQ，再由 ``irq_desc``、flow handler、``irq_chip`` 和驱动 action 把硬件事件变成统一可管理的处理路径。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 12，Interrupts, Exceptions, Softirq, Tasklet, and Workqueue；
-* AIBook 章节：Chapter 57，Interrupt Controllers, IRQ Domains, and IRQ Descriptors；
-* 源文件：``docs/LinuxK/Part_12_Interrupts_Exceptions_Softirq_Tasklet_and_Workqueue/Chapter_057_Interrupt_Controllers_IRQ_Domains_and_IRQ_Descriptors.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_12_Interrupts_Exceptions_Softirq_Tasklet_and_Workqueue/Chapter_057_Interrupt_Controllers_IRQ_Domains_and_IRQ_Descriptors.md>`_。

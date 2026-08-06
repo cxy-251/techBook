@@ -107,25 +107,15 @@ kselftest 执行链：
 必须区分
 --------
 
-* kselftest，与 KUnit；
-* 测试源码版本，与当前运行内核版本；
-* 构建成功，与行为验证成功；
-* ``SKIP``，与 ``PASS``；
-* TAP/KTAP 测试结果，与完整 Kernel Log 健康；
-* Root 环境通过，与非特权安全合同正确；
+* kselftest，与 KUnit。
+* 测试源码版本，与当前运行内核版本。
+* 构建成功，与行为验证成功。
+* ``SKIP``，与 ``PASS``。
+* TAP/KTAP 测试结果，与完整 Kernel Log 健康。
+* Root 环境通过，与非特权安全合同正确。
 * 用户态稳定行为，与内核内部实现细节。
 
 一句话结论
 ----------
 
 kselftest 从普通用户进程能够触达的接口出发，把 Linux 内核对用户态承诺的返回值、事件、权限和状态语义固定成可持续运行的回归测试。
-
-来源
-----
-
-* 教材：AIBook《Linux Kernel》；
-* Part：Part 37：Kernel Testing KUnit, Kselftest, LTP, Fuzzing, Sanitizers, and Fault Injection；
-* 章节：Chapter 183: kselftest and User-Space Driven Kernel Tests；
-* 源文件：``docs/LinuxK/Part_37_Kernel_Testing_KUnit_Kselftest_LTP_Fuzzing_Sanitizers_and_Fault_Injection/Chapter_183_kselftest_and_User_Space_Driven_Kernel_Tests.md``；
-* 固定版本：``18386764582829f2b807b7b0947785eb77b50446``；
-* 固定链接：https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_37_Kernel_Testing_KUnit_Kselftest_LTP_Fuzzing_Sanitizers_and_Fault_Injection/Chapter_183_kselftest_and_User_Space_Driven_Kernel_Tests.md

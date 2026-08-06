@@ -138,34 +138,14 @@ Tmpfs 文件：
 必须区分
 --------
 
-伪文件系统与普通磁盘文件系统
-   二者都走 VFS；伪文件的内容可能动态来自内核对象，而不是持久化数据块。
-
-Procfs 与 Sysfs
-   Procfs 主要展示进程和系统状态；sysfs 主要展示 kobject 与设备模型属性。
-
-Sysfs 与 Debugfs
-   文档化 sysfs 属性可作为用户 ABI；debugfs 默认不承诺长期兼容。
-
-Tmpfs 与动态状态文件
-   Tmpfs 保存用户态写入的真实文件内容；procfs/sysfs 常在读取时动态生成数据。
-
-Devtmpfs 节点与设备驱动
-   Devtmpfs 提供名字和设备号入口；实际设备操作由驱动定义。
-
-路径存在与接口稳定
-   文件能被读取不表示格式受稳定 ABI 保护，必须查接口文档和维护承诺。
+* 伪文件系统与普通磁盘文件系统：二者都走 VFS；伪文件的内容可能动态来自内核对象，而不是持久化数据块。
+* Procfs 与 Sysfs：Procfs 主要展示进程和系统状态；sysfs 主要展示 kobject 与设备模型属性。
+* Sysfs 与 Debugfs：文档化 sysfs 属性可作为用户 ABI；debugfs 默认不承诺长期兼容。
+* Tmpfs 与动态状态文件：Tmpfs 保存用户态写入的真实文件内容；procfs/sysfs 常在读取时动态生成数据。
+* Devtmpfs 节点与设备驱动：Devtmpfs 提供名字和设备号入口；实际设备操作由驱动定义。
+* 路径存在与接口稳定：文件能被读取不表示格式受稳定 ABI 保护，必须查接口文档和维护承诺。
 
 一句话结论
 ----------
 
 伪文件系统把 VFS 文件语义映射到进程、设备、调试、内存和驱动对象，使用前必须同时确认后端对象、ABI 等级、命名空间和生命周期。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 20，Filesystem Implementations ext4, XFS, Btrfs, and Pseudo Filesystems；
-* AIBook 章节：Chapter 100，Pseudo Filesystems as Kernel Interfaces；
-* 源文件：``docs/LinuxK/Part_20_Filesystem_Implementations_ext4_XFS_Btrfs_and_Pseudo_Filesystems/Chapter_100_Pseudo_Filesystems_as_Kernel_Interfaces.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_20_Filesystem_Implementations_ext4_XFS_Btrfs_and_Pseudo_Filesystems/Chapter_100_Pseudo_Filesystems_as_Kernel_Interfaces.md>`_。

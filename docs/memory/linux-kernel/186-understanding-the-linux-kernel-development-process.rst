@@ -112,25 +112,15 @@
 必须区分
 --------
 
-* Mainline，与子系统维护者树；
-* 邮件列表 Review，与最终 Git 合入；
-* ``linux-next`` 集成，与 Mainline 永久历史；
-* Merge Window 功能合入，与 ``-rc`` 阶段修复；
-* Maintainer 责任，与历史作者上下文；
-* ``get_maintainer.pl`` 候选输出，与最终收件人判断；
+* Mainline，与子系统维护者树。
+* 邮件列表 Review，与最终 Git 合入。
+* ``linux-next`` 集成，与 Mainline 永久历史。
+* Merge Window 功能合入，与 ``-rc`` 阶段修复。
+* Maintainer 责任，与历史作者上下文。
+* ``get_maintainer.pl`` 候选输出，与最终收件人判断。
 * 补丁已经发送，与补丁已经被接受。
 
 一句话结论
 ----------
 
 Linux 内核开发把一段本地改动放进维护者路由、公开邮件评审、分层 Git 树和发布节奏中，使代码、设计理由与责任历史一起进入主线。
-
-来源
-----
-
-* 教材：AIBook《Linux Kernel》；
-* Part：Part 38：Kernel Patch Workflow, Maintainers, Reviews, Regressions, and Upstream Contribution；
-* 章节：Chapter 186: Understanding the Linux Kernel Development Process；
-* 源文件：``docs/LinuxK/Part_38_Kernel_Patch_Workflow_Maintainers_Reviews_Regressions_and_Upstream_Contribution/Chapter_186_Understanding_the_Linux_Kernel_Development_Process.md``；
-* 固定版本：``18386764582829f2b807b7b0947785eb77b50446``；
-* 固定链接：https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_38_Kernel_Patch_Workflow_Maintainers_Reviews_Regressions_and_Upstream_Contribution/Chapter_186_Understanding_the_Linux_Kernel_Development_Process.md

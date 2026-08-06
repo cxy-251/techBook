@@ -101,34 +101,14 @@
 必须区分
 --------
 
-不可抢占与关中断
-   不可抢占阻止 task 切换；关中断还会阻止 timer 和设备 IRQ 及时进入 CPU。
-
-Timer 精度与 timer 交付
-   精度表示时间表达粒度；交付仍可能被 IRQ 和执行路径延迟。
-
-Timer 交付延迟与回调耗时
-   前者是到期到回调入口；后者是回调入口到退出。
-
-回调唤醒与 task 实际运行
-   回调使 task runnable 后，task 仍可能继续在 runqueue 中等待。
-
-延后工作与消除延迟
-   Workqueue 保护 atomic 时间路径，但复杂工作本身仍需要 CPU 和调度时间。
-
-平均延迟与最坏延迟
-   平均值反映总体水平；最坏值和高分位决定实时抖动边界。
+* 不可抢占与关中断：不可抢占阻止 task 切换；关中断还会阻止 timer 和设备 IRQ 及时进入 CPU。
+* Timer 精度与 timer 交付：精度表示时间表达粒度；交付仍可能被 IRQ 和执行路径延迟。
+* Timer 交付延迟与回调耗时：前者是到期到回调入口；后者是回调入口到退出。
+* 回调唤醒与 task 实际运行：回调使 task runnable 后，task 仍可能继续在 runqueue 中等待。
+* 延后工作与消除延迟：Workqueue 保护 atomic 时间路径，但复杂工作本身仍需要 CPU 和调度时间。
+* 平均延迟与最坏延迟：平均值反映总体水平；最坏值和高分位决定实时抖动边界。
 
 一句话结论
 ----------
 
 抢占和 timer 延迟必须按“事件交付、回调执行、任务调度”三段测量；长关中断区、长不可抢占区和重回调分别阻塞不同阶段。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 11，Context Switching, Preemption, Timers, and Timekeeping；
-* AIBook 章节：Chapter 55，Latency Sources in Preemption and Timer Paths；
-* 源文件：``docs/LinuxK/Part_11_Context_Switching_Preemption_Timers_and_Timekeeping/Chapter_055_Latency_Sources_in_Preemption_and_Timer_Paths.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_11_Context_Switching_Preemption_Timers_and_Timekeeping/Chapter_055_Latency_Sources_in_Preemption_and_Timer_Paths.md>`_。

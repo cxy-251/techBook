@@ -60,27 +60,12 @@
 必须区分
 --------
 
-系统调用入口与最终实现
-   系统调用入口接收用户请求；最终实现通常由对象类型和回调表决定。
-
-``probe`` 与运行期操作
-   ``probe`` 建立设备状态；运行期回调处理后续用户请求或硬件事件。
-
-日志位置与根本原因
-   日志指出症状或检测位置；根本原因可能发生在更早的对象、状态或并发路径中。
-
-tracepoint 定义与实际事件
-   定义表示事件可被记录；跟踪输出才表示该事件在目标时间窗口真实发生。
+* 系统调用入口与最终实现：系统调用入口接收用户请求；最终实现通常由对象类型和回调表决定。
+* ``probe`` 与运行期操作：``probe`` 建立设备状态；运行期回调处理后续用户请求或硬件事件。
+* 日志位置与根本原因：日志指出症状或检测位置；根本原因可能发生在更早的对象、状态或并发路径中。
+* tracepoint 定义与实际事件：定义表示事件可被记录；跟踪输出才表示该事件在目标时间窗口真实发生。
 
 一句话结论
 ----------
 
 先给线索分类，再沿对应入口模型找到第一个可信对象；入口定位完成后，调用链才能有稳定方向。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 7，Finding Entry Points in a Huge Codebase；
-* 源文件：``docs/LinuxK/Part_02_Kernel_Source_Tree_and_Code_Navigation/Chapter_007_Finding_Entry_Points_in_a_Huge_Codebase.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_02_Kernel_Source_Tree_and_Code_Navigation/Chapter_007_Finding_Entry_Points_in_a_Huge_Codebase.md>`_。

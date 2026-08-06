@@ -156,12 +156,3 @@ NUMA 局部性：
 ----------
 
 内存性能调查必须同时回答“分配是否被回收拖住、工作集是否持续缺页、CPU 是否等待内存层级、页面是否位于正确 NUMA Node”。
-
-来源
-----
-
-* 教材：AIBook Linux Kernel
-* Part：Part 36 — Kernel Performance Engineering for CPU, Memory, I/O, Network, and Lock Contention
-* 章节：Chapter 178 — Memory Pressure, Reclaim, Cache Misses, and NUMA Effects
-* 源文件：``docs/LinuxK/Part_36_Kernel_Performance_Engineering_for_CPU_Memory_IO_Network_and_Lock_Contention/Chapter_178_Memory_Pressure_Reclaim_Cache_Misses_NUMA_Effects.md``
-* 固定版本：`18386764582829f2b807b7b0947785eb77b50446 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_36_Kernel_Performance_Engineering_for_CPU_Memory_IO_Network_and_Lock_Contention/Chapter_178_Memory_Pressure_Reclaim_Cache_Misses_NUMA_Effects.md>`_

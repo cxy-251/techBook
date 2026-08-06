@@ -141,34 +141,14 @@ Binding 验证：
 必须区分
 --------
 
-硬件描述与驱动实现
-   ACPI/DT 说明设备存在、资源和依赖；驱动实现寄存器、协议和运行状态机。
-
-Device Tree 节点与 Linux Device
-   节点是固件数据对象；population 后才形成可绑定的 ``struct device``。
-
-``compatible`` 与节点名称
-   Compatible 是驱动匹配合同；节点名称主要表达设备类型和 unit-address。
-
-ACPI Namespace 与 Sysfs Tree
-   ACPI 是固件对象层级；sysfs 是 Linux 设备模型投影，二者通过 companion 关系连接。
-
-Schema 通过与硬件正确
-   Schema 验证格式和合同；真实地址、连线、时序仍需板级运行验证。
-
-通用 Property API 与完全相同语义
-   Fwnode API 统一属性查询；ACPI 方法和 DT 声明式依赖仍有本质差异。
+* 硬件描述与驱动实现：ACPI/DT 说明设备存在、资源和依赖；驱动实现寄存器、协议和运行状态机。
+* Device Tree 节点与 Linux Device：节点是固件数据对象；population 后才形成可绑定的 ``struct device``。
+* ``compatible`` 与节点名称：Compatible 是驱动匹配合同；节点名称主要表达设备类型和 unit-address。
+* ACPI Namespace 与 Sysfs Tree：ACPI 是固件对象层级；sysfs 是 Linux 设备模型投影，二者通过 companion 关系连接。
+* Schema 通过与硬件正确：Schema 验证格式和合同；真实地址、连线、时序仍需板级运行验证。
+* 通用 Property API 与完全相同语义：Fwnode API 统一属性查询；ACPI 方法和 DT 声明式依赖仍有本质差异。
 
 一句话结论
 ----------
 
 ACPI 与 Device Tree 把平台硬件事实转成 Linux 可创建、匹配、取资源和管理电源的设备对象；正确性依赖描述 ABI、provider 关系、driver match 与运行验证同时成立。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 25，Bus Frameworks Platform, PCI, USB, I2C, SPI, ACPI, and Device Tree；
-* AIBook 章节：Chapter 125，ACPI and Device Tree as Hardware Description Mechanisms；
-* 源文件：``docs/LinuxK/Part_25_Bus_Frameworks_Platform_PCI_USB_I2C_SPI_ACPI_and_Device_Tree/Chapter_125_ACPI_and_Device_Tree_as_Hardware_Description_Mechanisms.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_25_Bus_Frameworks_Platform_PCI_USB_I2C_SPI_ACPI_and_Device_Tree/Chapter_125_ACPI_and_Device_Tree_as_Hardware_Description_Mechanisms.md>`_。

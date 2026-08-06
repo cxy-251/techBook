@@ -101,34 +101,14 @@
 必须区分
 --------
 
-``jiffies`` 与高精度时间
-   ``jiffies`` 是 tick 单位的粗粒度计数；``ktime_get*`` 返回由 clocksource 支撑的高分辨率时间。
-
-Clocksource 与 clockevents
-   Clocksource 读取现在；clockevents 安排未来中断。
-
-Monotonic 与 realtime
-   Monotonic 适合间隔和超时；realtime 适合日历时间并可能跳变。
-
-Monotonic 与 boottime
-   Monotonic 通常排除 suspend；boottime 包含 suspend 经过时间。
-
-Tickless 与无定时事件
-   Tickless 省去无用周期 tick，必要的 timer 和 IRQ 仍会发生。
-
-时钟精度与事件交付延迟
-   时间源可以准确，但关中断和执行拥塞仍会让回调晚到。
+* ``jiffies`` 与高精度时间：``jiffies`` 是 tick 单位的粗粒度计数；``ktime_get*`` 返回由 clocksource 支撑的高分辨率时间。
+* Clocksource 与 clockevents：Clocksource 读取现在；clockevents 安排未来中断。
+* Monotonic 与 realtime：Monotonic 适合间隔和超时；realtime 适合日历时间并可能跳变。
+* Monotonic 与 boottime：Monotonic 通常排除 suspend；boottime 包含 suspend 经过时间。
+* Tickless 与无定时事件：Tickless 省去无用周期 tick，必要的 timer 和 IRQ 仍会发生。
+* 时钟精度与事件交付延迟：时间源可以准确，但关中断和执行拥塞仍会让回调晚到。
 
 一句话结论
 ----------
 
 Linux 用 clocksource 测量时间、用 clockevents 安排未来中断、用 jiffies 保留低成本 tick 语义，并通过 NO_HZ 在没有周期工作时减少无用 tick。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 11，Context Switching, Preemption, Timers, and Timekeeping；
-* AIBook 章节：Chapter 54，Timekeeping, Jiffies, Clocksource, and Clockevents；
-* 源文件：``docs/LinuxK/Part_11_Context_Switching_Preemption_Timers_and_Timekeeping/Chapter_054_Timekeeping_Jiffies_Clocksource_and_Clockevents.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_11_Context_Switching_Preemption_Timers_and_Timekeeping/Chapter_054_Timekeeping_Jiffies_Clocksource_and_Clockevents.md>`_。

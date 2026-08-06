@@ -150,31 +150,13 @@ CPU Quota：
 必须区分
 --------
 
-Namespace 与 Cgroup
-   Namespace 管视图和命名；Cgroup 管进程组资源统计、分配和限制。
-
-``cpu.weight`` 与 ``cpu.max``
-   Weight 是竞争时相对份额；Max 是周期性硬带宽上限。
-
-``memory.high`` 与 ``memory.max``
-   High 主要施加回收和节流压力；Max 是硬上限并可能触发 Memcg OOM。
-
-进程 RSS 与 ``memory.current``
-   RSS 是进程视角的一部分内存；Memory Controller 还计费共享、缓存和内核对象等范围。
-
-子节点显示无限与实际无限
-   当前节点的 ``max`` 仍受祖先 Cgroup 更严格边界约束。
+* Namespace 与 Cgroup：Namespace 管视图和命名；Cgroup 管进程组资源统计、分配和限制。
+* ``cpu.weight`` 与 ``cpu.max``：Weight 是竞争时相对份额；Max 是周期性硬带宽上限。
+* ``memory.high`` 与 ``memory.max``：High 主要施加回收和节流压力；Max 是硬上限并可能触发 Memcg OOM。
+* 进程 RSS 与 ``memory.current``：RSS 是进程视角的一部分内存；Memory Controller 还计费共享、缓存和内核对象等范围。
+* 子节点显示无限与实际无限：当前节点的 ``max`` 仍受祖先 Cgroup 更严格边界约束。
 
 一句话结论
 ----------
 
 Cgroup 用统一成员树把 Task 交给资源 Controller：真实限制来自目标节点和全部祖先的共同状态，而不是容器配置中的一个孤立数字。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 32，Namespaces, Cgroups, Resource Control, and Container Internals；
-* AIBook 章节：Chapter 158，Cgroups as Resource Accounting and Control；
-* 源文件：``docs/LinuxK/Part_32_Namespaces_Cgroups_Resource_Control_and_Container_Internals/Chapter_158_Cgroups_as_Resource_Accounting_and_Control.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_32_Namespaces_Cgroups_Resource_Control_and_Container_Internals/Chapter_158_Cgroups_as_Resource_Accounting_and_Control.md>`_。

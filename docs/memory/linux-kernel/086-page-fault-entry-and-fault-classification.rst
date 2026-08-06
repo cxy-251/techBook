@@ -125,34 +125,14 @@ Fault 重试：
 必须区分
 --------
 
-TLB miss 与 Page fault
-   TLB miss 可由合法页表遍历解决；page fault 表示当前页表或权限条件无法让访问直接继续。
-
-VMA 权限与 PTE 权限
-   VMA 描述进程语义；PTE 描述当前硬件映射，COW 中 VMA 可写而 PTE 暂时只读。
-
-Valid/invalid 与 Minor/major
-   前者判断访问是否合法；后者只对可处理 fault 判断是否需要后端读入。
-
-``SIGSEGV`` 与 ``SIGBUS``
-   前者常见于地址或权限错误；后者常见于映射存在但后端对象无法完成访问，具体结果由 fault 路径决定。
-
-用户 fault 与内核 fault
-   用户 fault 通常转换为信号；内核 fault 还要检查异常表、uaccess 和当前上下文，无法修复时可能 Oops。
-
-Fault 返回与对象状态不变
-   ``VM_FAULT_RETRY`` 等返回会允许锁释放和并发变化，重试必须重新验证所有对象。
+* TLB miss 与 Page fault：TLB miss 可由合法页表遍历解决；page fault 表示当前页表或权限条件无法让访问直接继续。
+* VMA 权限与 PTE 权限：VMA 描述进程语义；PTE 描述当前硬件映射，COW 中 VMA 可写而 PTE 暂时只读。
+* Valid/invalid 与 Minor/major：前者判断访问是否合法；后者只对可处理 fault 判断是否需要后端读入。
+* ``SIGSEGV`` 与 ``SIGBUS``：前者常见于地址或权限错误；后者常见于映射存在但后端对象无法完成访问，具体结果由 fault 路径决定。
+* 用户 fault 与内核 fault：用户 fault 通常转换为信号；内核 fault 还要检查异常表、uaccess 和当前上下文，无法修复时可能 Oops。
+* Fault 返回与对象状态不变：``VM_FAULT_RETRY`` 等返回会允许锁释放和并发变化，重试必须重新验证所有对象。
 
 一句话结论
 ----------
 
 Page fault 是硬件异常事实经 VMA、页表和后端对象逐层解释后的内存构造或错误报告事件，分类时必须先判断访问是否合法，再判断修复是否需要后端 I/O。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 18，Memory Mapping, Page Faults, Copy-on-Write, and Huge Pages；
-* AIBook 章节：Chapter 86，Page Fault Entry and Fault Classification；
-* 源文件：``docs/LinuxK/Part_18_Memory_Mapping_Page_Faults_Copy_on_Write_and_Huge_Pages/Chapter_086_Page_Fault_Entry_and_Fault_Classification.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_18_Memory_Mapping_Page_Faults_Copy_on_Write_and_Huge_Pages/Chapter_086_Page_Fault_Entry_and_Fault_Classification.md>`_。

@@ -82,34 +82,14 @@ vDSO 快速路径：
 必须区分
 --------
 
-系统调用 ABI 与内核内部实现
-   ABI 面向用户二进制长期稳定；内部 wrapper、函数名和源码位置可以演进。
-
-系统调用名称与调用号
-   名称可以相同；编号属于具体架构和 ABI 的编号空间。
-
-native 与 compat
-   native 按内核主要字长解释参数；compat 按较旧或较窄用户 ABI 转换数据布局。
-
-实现函数存在与接口可用
-   源码中有函数不代表当前架构表项、配置和运行内核已经暴露该系统调用。
-
-vDSO 与普通 syscall
-   vDSO 在用户态执行受支持辅助操作；普通 syscall 通过 CPU 指令进入内核。
-
-``-ENOSYS`` 与普通业务失败
-   ``-ENOSYS`` 表示接口不可用；``-EINVAL``、``-EFAULT`` 等表示接口存在但请求失败。
+* 系统调用 ABI 与内核内部实现：ABI 面向用户二进制长期稳定；内部 wrapper、函数名和源码位置可以演进。
+* 系统调用名称与调用号：名称可以相同；编号属于具体架构和 ABI 的编号空间。
+* native 与 compat：native 按内核主要字长解释参数；compat 按较旧或较窄用户 ABI 转换数据布局。
+* 实现函数存在与接口可用：源码中有函数不代表当前架构表项、配置和运行内核已经暴露该系统调用。
+* vDSO 与普通 syscall：vDSO 在用户态执行受支持辅助操作；普通 syscall 通过 CPU 指令进入内核。
+* ``-ENOSYS`` 与普通业务失败：``-ENOSYS`` 表示接口不可用；``-EINVAL``、``-EFAULT`` 等表示接口存在但请求失败。
 
 一句话结论
 ----------
 
 系统调用表把具体 ABI 的编号连接到内核入口；表和 wrapper 可以重构，已经发布的调用号、参数布局与返回语义必须长期稳定。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 8，User-Kernel Boundary and System Call Path；
-* AIBook 章节：Chapter 37，System Call Tables, Entry Code, and ABI Stability；
-* 源文件：``docs/LinuxK/Part_08_User_Kernel_Boundary_and_System_Call_Path/Chapter_037_System_Call_Tables_Entry_Code_and_ABI_Stability.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_08_User_Kernel_Boundary_and_System_Call_Path/Chapter_037_System_Call_Tables_Entry_Code_and_ABI_Stability.md>`_。

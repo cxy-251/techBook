@@ -153,38 +153,15 @@ Pstore 补充：
 必须区分
 --------
 
-Panic 触发与 Vmcore 成功
-   进入崩溃路径不代表第二内核、存储和收集脚本全部成功。
-
-Crash Kernel 与崩溃内核
-   前者负责收集；后者是发生故障并被保存在 Vmcore 中的第一内核。
-
-Vmcore 与 Vmlinux
-   Vmcore 提供冻结内存；Vmlinux 提供符号、类型和结构布局。
-
-Pstore 与 Kdump
-   Pstore 保存少量持久文本；Kdump 保存完整或过滤后的内存镜像。
-
-完整 Dump 与过滤 Dump
-   完整 Dump 信息多、体积大；过滤 Dump 体积小但可能缺少目标页面。
-
-配置存在与端到端可用
-   服务、参数和 Loaded 状态只是准备证据；真正验收必须触发并打开一次 Dump。
-
-Capture Kernel 日志与第一内核日志
-   前者描述收集环境；后者描述崩溃现场，时间线和对象不同。
+* Panic 触发与 Vmcore 成功：进入崩溃路径不代表第二内核、存储和收集脚本全部成功。
+* Crash Kernel 与崩溃内核：前者负责收集；后者是发生故障并被保存在 Vmcore 中的第一内核。
+* Vmcore 与 Vmlinux：Vmcore 提供冻结内存；Vmlinux 提供符号、类型和结构布局。
+* Pstore 与 Kdump：Pstore 保存少量持久文本；Kdump 保存完整或过滤后的内存镜像。
+* 完整 Dump 与过滤 Dump：完整 Dump 信息多、体积大；过滤 Dump 体积小但可能缺少目标页面。
+* 配置存在与端到端可用：服务、参数和 Loaded 状态只是准备证据；真正验收必须触发并打开一次 Dump。
+* Capture Kernel 日志与第一内核日志：前者描述收集环境；后者描述崩溃现场，时间线和对象不同。
 
 一句话结论
 ----------
 
 Kdump 的本质是在系统仍健康时预先隔离一条最小崩溃收集路径，使 Panic 后不再依赖已经失去可信度的生产内核运行环境。
-
-来源
-----
-
-* 书籍：Linux Kernel AIBook；
-* Part：Part 35 — Kernel Debugging, printk, Dynamic Debug, ftrace, perf, kdump, and crash；
-* 章节：Chapter 174 — kdump and vmcore Collection；
-* 源文件：``docs/LinuxK/Part_35_Kernel_Debugging_printk_Dynamic_Debug_ftrace_perf_kdump_and_crash/Chapter_174_kdump_and_vmcore_Collection.md``；
-* 固定提交：``18386764582829f2b807b7b0947785eb77b50446``；
-* 固定来源：``https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_35_Kernel_Debugging_printk_Dynamic_Debug_ftrace_perf_kdump_and_crash/Chapter_174_kdump_and_vmcore_Collection.md``。

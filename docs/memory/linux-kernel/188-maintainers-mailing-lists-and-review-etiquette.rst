@@ -112,25 +112,15 @@
 必须区分
 --------
 
-* ``MAINTAINERS`` 当前责任，与 Git 历史作者；
-* ``get_maintainer.pl`` 候选，与最终收件人；
-* ``git format-patch`` 生成邮件，与 ``git send-email`` 投递；
-* Cover Letter 整体说明，与单枚 Commit Message；
-* Inline Review 技术回应，与无上下文 Top-post；
-* 新版自包含，与丢失旧版演进线索；
+* ``MAINTAINERS`` 当前责任，与 Git 历史作者。
+* ``get_maintainer.pl`` 候选，与最终收件人。
+* ``git format-patch`` 生成邮件，与 ``git send-email`` 投递。
+* Cover Letter 整体说明，与单枚 Commit Message。
+* Inline Review 技术回应，与无上下文 Top-post。
+* 新版自包含，与丢失旧版演进线索。
 * 邮件已经发送，与邮件已经进入正确公开归档。
 
 一句话结论
 ----------
 
 内核邮件工作流通过路径驱动的维护者路由、纯文本 Patch Thread、可追踪版本迭代和逐项 Review 回复，把本地提交转成社区能够长期共同维护的设计记录。
-
-来源
-----
-
-* 教材：AIBook《Linux Kernel》；
-* Part：Part 38：Kernel Patch Workflow, Maintainers, Reviews, Regressions, and Upstream Contribution；
-* 章节：Chapter 188: MAINTAINERS, Mailing Lists, and Review Etiquette；
-* 源文件：``docs/LinuxK/Part_38_Kernel_Patch_Workflow_Maintainers_Reviews_Regressions_and_Upstream_Contribution/Chapter_188_MAINTAINERS_Mailing_Lists_and_Review_Etiquette.md``；
-* 固定版本：``18386764582829f2b807b7b0947785eb77b50446``；
-* 固定链接：https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_38_Kernel_Patch_Workflow_Maintainers_Reviews_Regressions_and_Upstream_Contribution/Chapter_188_MAINTAINERS_Mailing_Lists_and_Review_Etiquette.md

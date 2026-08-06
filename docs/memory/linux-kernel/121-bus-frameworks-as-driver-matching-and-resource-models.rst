@@ -133,34 +133,14 @@
 必须区分
 --------
 
-设备发现与驱动匹配
-   发现创建设备对象；匹配只在已有 device 和 driver 之间建立候选关系。
-
-Match 与 Probe
-   Match 比较身份；probe 取得资源、初始化实例并注册功能接口。
-
-资源描述与资源所有权
-   Bus/firmware 描述资源；驱动申请并负责运行期启停和错误回滚。
-
-Bus 与 Class
-   Bus 定义发现和匹配语义；class 按用户空间功能组织设备。
-
-Modalias 与成功绑定
-   Modalias 支持加载候选模块；最终仍需 match 和 probe 成功。
-
-Driver core 共性与 Bus-specific 语义
-   Driver core 统一对象生命周期；地址、传输、错误和热插拔规则仍由具体总线决定。
+* 设备发现与驱动匹配：发现创建设备对象；匹配只在已有 device 和 driver 之间建立候选关系。
+* Match 与 Probe：Match 比较身份；probe 取得资源、初始化实例并注册功能接口。
+* 资源描述与资源所有权：Bus/firmware 描述资源；驱动申请并负责运行期启停和错误回滚。
+* Bus 与 Class：Bus 定义发现和匹配语义；class 按用户空间功能组织设备。
+* Modalias 与成功绑定：Modalias 支持加载候选模块；最终仍需 match 和 probe 成功。
+* Driver core 共性与 Bus-specific 语义：Driver core 统一对象生命周期；地址、传输、错误和热插拔规则仍由具体总线决定。
 
 一句话结论
 ----------
 
 Linux 总线框架把设备来源、身份匹配、资源交付和移除规则组合成驱动合同，正确读驱动必须先读清总线怎样创建设备，再进入 ``probe`` 的硬件实现。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 25，Bus Frameworks Platform, PCI, USB, I2C, SPI, ACPI, and Device Tree；
-* AIBook 章节：Chapter 121，Bus Frameworks as Driver Matching and Resource Models；
-* 源文件：``docs/LinuxK/Part_25_Bus_Frameworks_Platform_PCI_USB_I2C_SPI_ACPI_and_Device_Tree/Chapter_121_Bus_Frameworks_as_Driver_Matching_and_Resource_Models.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_25_Bus_Frameworks_Platform_PCI_USB_I2C_SPI_ACPI_and_Device_Tree/Chapter_121_Bus_Frameworks_as_Driver_Matching_and_Resource_Models.md>`_。

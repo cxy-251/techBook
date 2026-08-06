@@ -93,31 +93,13 @@
 必须区分
 --------
 
-高事件率与错误风暴
-   高负载设备可能正常产生大量 IRQ；空闲状态下持续高速 IRQ 更指向设备或驱动错误。
-
-Hardirq 压力与 softirq 压力
-   前者来自入口和 top half；后者来自延迟批处理、协议栈和 timer 等下半部。
-
-Affinity 允许集合与实际落点
-   ``smp_affinity`` 表示允许 CPU；实际计数分布由控制器、队列和运行负载决定。
-
-IRQ 次数与处理对象数量
-   一次 IRQ 或 softirq 可以批量处理多个对象，不能把计数直接当作 packet 或请求数。
-
-吞吐优化与延迟优化
-   Coalescing 和大 budget 可能提高吞吐，却增加单批处理时间和尾延迟。
+* 高事件率与错误风暴：高负载设备可能正常产生大量 IRQ；空闲状态下持续高速 IRQ 更指向设备或驱动错误。
+* Hardirq 压力与 softirq 压力：前者来自入口和 top half；后者来自延迟批处理、协议栈和 timer 等下半部。
+* Affinity 允许集合与实际落点：``smp_affinity`` 表示允许 CPU；实际计数分布由控制器、队列和运行负载决定。
+* IRQ 次数与处理对象数量：一次 IRQ 或 softirq 可以批量处理多个对象，不能把计数直接当作 packet 或请求数。
+* 吞吐优化与延迟优化：Coalescing 和大 budget 可能提高吞吐，却增加单批处理时间和尾延迟。
 
 一句话结论
 ----------
 
 中断风暴诊断必须先量化 IRQ 事件率，再沿 softirq 和 CPU 分布追踪实际工作，最后用调度时间线证明事件压力怎样转化成系统延迟。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 12，Interrupts, Exceptions, Softirq, Tasklet, and Workqueue；
-* AIBook 章节：Chapter 60，Interrupt Storms, Latency, and Debugging Strategies；
-* 源文件：``docs/LinuxK/Part_12_Interrupts_Exceptions_Softirq_Tasklet_and_Workqueue/Chapter_060_Interrupt_Storms_Latency_and_Debugging_Strategies.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_12_Interrupts_Exceptions_Softirq_Tasklet_and_Workqueue/Chapter_060_Interrupt_Storms_Latency_and_Debugging_Strategies.md>`_。

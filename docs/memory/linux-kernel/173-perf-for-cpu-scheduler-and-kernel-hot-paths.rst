@@ -152,41 +152,16 @@ PMU 解释：
 必须区分
 --------
 
-Counting 与 Sampling
-   Counting 给出事件总量；Sampling 给出事件样本分布。
-
-On-CPU 与 Off-CPU
-   Cycles 采样观察正在 CPU 上执行的时间；调度、锁和 I/O 事件补充等待时间。
-
-Flat Hotspot 与 Call Graph
-   Flat View 显示样本落点；Call Graph 显示进入来源和调用关系。
-
-Overhead 百分比与绝对成本
-   百分比受其它路径变化影响；绝对成本要结合总事件、工作量和 Wall Time。
-
-PMU Event 名称与真实硬件事件
-   通用名称是抽象入口；精确含义取决于 CPU Model 和事件映射。
-
-Perf Event 与 Tracepoint
-   Perf Event 是统一计数/采样对象；Tracepoint 是其中一种结构化数据源。
-
-符号缺失与路径不存在
-   裸地址或断栈表示解析证据不足，不证明源码路径不存在。
-
-热点与根因
-   热点是样本集中位置；根因还需对象、调用来源、等待和业务证据。
+* Counting 与 Sampling：Counting 给出事件总量；Sampling 给出事件样本分布。
+* On-CPU 与 Off-CPU：Cycles 采样观察正在 CPU 上执行的时间；调度、锁和 I/O 事件补充等待时间。
+* Flat Hotspot 与 Call Graph：Flat View 显示样本落点；Call Graph 显示进入来源和调用关系。
+* Overhead 百分比与绝对成本：百分比受其它路径变化影响；绝对成本要结合总事件、工作量和 Wall Time。
+* PMU Event 名称与真实硬件事件：通用名称是抽象入口；精确含义取决于 CPU Model 和事件映射。
+* Perf Event 与 Tracepoint：Perf Event 是统一计数/采样对象；Tracepoint 是其中一种结构化数据源。
+* 符号缺失与路径不存在：裸地址或断栈表示解析证据不足，不证明源码路径不存在。
+* 热点与根因：热点是样本集中位置；根因还需对象、调用来源、等待和业务证据。
 
 一句话结论
 ----------
 
 ``perf`` 的核心价值是把“系统慢”分解为事件总量、样本落点、调用来源、调度等待和硬件成本，再把这些证据放回真实内核对象路径解释。
-
-来源
-----
-
-* 书籍：Linux Kernel AIBook；
-* Part：Part 35 — Kernel Debugging, printk, Dynamic Debug, ftrace, perf, kdump, and crash；
-* 章节：Chapter 173 — perf for CPU, Scheduler, and Kernel Hot Paths；
-* 源文件：``docs/LinuxK/Part_35_Kernel_Debugging_printk_Dynamic_Debug_ftrace_perf_kdump_and_crash/Chapter_173_perf_for_CPU_Scheduler_and_Kernel_Hot_Paths.md``；
-* 固定提交：``18386764582829f2b807b7b0947785eb77b50446``；
-* 固定来源：``https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_35_Kernel_Debugging_printk_Dynamic_Debug_ftrace_perf_kdump_and_crash/Chapter_173_perf_for_CPU_Scheduler_and_Kernel_Hot_Paths.md``。

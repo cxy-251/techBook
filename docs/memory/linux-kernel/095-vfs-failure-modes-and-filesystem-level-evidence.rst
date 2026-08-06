@@ -138,34 +138,14 @@
 必须区分
 --------
 
-错误码与根因
-   Errno 只定位失败类别和阶段；完整根因需要路径、对象、namespace 与后端证据。
-
-``ENOENT`` 与目标文件缺失
-   可能缺失的是任一中间目录、符号链接目标或最终组件。
-
-目录内容与 Busy mount
-   Busy 来自活动对象引用和子挂载，不由目录是否为空直接决定。
-
-Fd 关闭与文件引用结束
-   mmap、其它 fd、cwd/root 和内核路径仍可保持对象和 mount 存活。
-
-缓存增长与内存泄漏
-   Dentry/inode 是正常元数据缓存；只有无界增长、不可回收和业务损害才指向异常。
-
-用户态工具与内核事实
-   strace/lsof/procfs 提供不同视角，必须和 trace、日志及具体文件系统状态交叉验证。
+* 错误码与根因：Errno 只定位失败类别和阶段；完整根因需要路径、对象、namespace 与后端证据。
+* ``ENOENT`` 与目标文件缺失：可能缺失的是任一中间目录、符号链接目标或最终组件。
+* 目录内容与 Busy mount：Busy 来自活动对象引用和子挂载，不由目录是否为空直接决定。
+* Fd 关闭与文件引用结束：mmap、其它 fd、cwd/root 和内核路径仍可保持对象和 mount 存活。
+* 缓存增长与内存泄漏：Dentry/inode 是正常元数据缓存；只有无界增长、不可回收和业务损害才指向异常。
+* 用户态工具与内核事实：strace/lsof/procfs 提供不同视角，必须和 trace、日志及具体文件系统状态交叉验证。
 
 一句话结论
 ----------
 
 VFS 故障诊断必须把 errno 放回目标进程的路径起点、挂载命名空间、dentry/inode、打开 file 引用和具体文件系统后端中还原。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 19，File Descriptors, VFS, Inode, Dentry, and Superblock；
-* AIBook 章节：Chapter 95，VFS Failure Modes and Filesystem-Level Evidence；
-* 源文件：``docs/LinuxK/Part_19_File_Descriptors_VFS_Inode_Dentry_and_Superblock/Chapter_095_VFS_Failure_Modes_and_Filesystem_Level_Evidence.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_19_File_Descriptors_VFS_Inode_Dentry_and_Superblock/Chapter_095_VFS_Failure_Modes_and_Filesystem_Level_Evidence.md>`_。

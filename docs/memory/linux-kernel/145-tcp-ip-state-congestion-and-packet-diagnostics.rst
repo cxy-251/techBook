@@ -177,31 +177,13 @@
 必须区分
 --------
 
-TCP State 与 Conntrack State
-   TCP state 属于 socket 协议生命周期；conntrack state 属于网络规则的 flow 跟踪。
-
-Receive Window 与 Congestion Window
-   前者保护接收端缓存；后者控制发送端对网络的在途负载。
-
-RTT 与 RTO
-   RTT 是路径时间样本；RTO 是基于估计与方差形成的超时阈值。
-
-Send 返回与 ACK 确认
-   Send 表示本地接受字节；ACK 才表示远端 TCP 已确认对应序列范围。
-
-抓包推断与内核事实
-   分析器标记的重传/乱序是基于抓取点数据推断，需要与 Socket 状态和双向证据验证。
+* TCP State 与 Conntrack State：TCP state 属于 socket 协议生命周期；conntrack state 属于网络规则的 flow 跟踪。
+* Receive Window 与 Congestion Window：前者保护接收端缓存；后者控制发送端对网络的在途负载。
+* RTT 与 RTO：RTT 是路径时间样本；RTO 是基于估计与方差形成的超时阈值。
+* Send 返回与 ACK 确认：Send 表示本地接受字节；ACK 才表示远端 TCP 已确认对应序列范围。
+* 抓包推断与内核事实：分析器标记的重传/乱序是基于抓取点数据推断，需要与 Socket 状态和双向证据验证。
 
 一句话结论
 ----------
 
 TCP 诊断必须把连接状态、接收窗口、拥塞窗口、在途数据、ACK/SACK、重传定时器和本机各层队列放到同一时间线上，才能判断连接究竟受应用、主机还是网络路径限制。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 29，Socket Layer, sk_buff, Routing, Netfilter, and TCP IP Stack；
-* AIBook 章节：Chapter 145，TCP IP State, Congestion, and Packet Diagnostics；
-* 源文件：``docs/LinuxK/Part_29_Socket_Layer_sk_buff_Routing_Netfilter_and_TCP_IP_Stack/Chapter_145_TCP_IP_State_Congestion_and_Packet_Diagnostics.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_29_Socket_Layer_sk_buff_Routing_Netfilter_and_TCP_IP_Stack/Chapter_145_TCP_IP_State_Congestion_and_Packet_Diagnostics.md>`_。

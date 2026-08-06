@@ -104,25 +104,15 @@
 必须区分
 --------
 
-* 平均延迟，与最坏情况延迟；
-* 实时调度优先级，与 CPU 当前是否可被抢占；
-* Threaded IRQ 主体，与 Hardirq Primary Handler；
-* ``spinlock_t`` 的 RT 语义，与 ``raw_spinlock_t`` 的严格原子语义；
-* Priority Inheritance，与消除所有延迟来源；
-* CPU Isolation，与完全没有硬件和固件干扰；
+* 平均延迟，与最坏情况延迟。
+* 实时调度优先级，与 CPU 当前是否可被抢占。
+* Threaded IRQ 主体，与 Hardirq Primary Handler。
+* ``spinlock_t`` 的 RT 语义，与 ``raw_spinlock_t`` 的严格原子语义。
+* Priority Inheritance，与消除所有延迟来源。
+* CPU Isolation，与完全没有硬件和固件干扰。
 * 一次 Benchmark 最大值，与经过足够负载和时长验证的延迟上界。
 
 一句话结论
 ----------
 
 PREEMPT_RT 通过线程化中断、缩短不可抢占区间和引入优先级继承，把高优先级任务的等待路径变成可调度、可追踪并可约束的最坏延迟问题。
-
-来源
-----
-
-* 教材：AIBook《Linux Kernel》；
-* Part：Part 39：Modern Kernel Evolution PREEMPT_RT, Livepatching, Rust, Confidential Computing, and Future Directions；
-* 章节：Chapter 191: PREEMPT_RT and the Push Toward Deterministic Latency；
-* 源文件：``docs/LinuxK/Part_39_Modern_Kernel_Evolution_PREEMPT_RT_Livepatching_Rust_Confidential_Computing_and_Future_Directions/Chapter_191_PREEMPT_RT_and_the_Push_Toward_Deterministic_Latency.md``；
-* 固定版本：``18386764582829f2b807b7b0947785eb77b50446``；
-* 固定链接：https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_39_Modern_Kernel_Evolution_PREEMPT_RT_Livepatching_Rust_Confidential_Computing_and_Future_Directions/Chapter_191_PREEMPT_RT_and_the_Push_Toward_Deterministic_Latency.md

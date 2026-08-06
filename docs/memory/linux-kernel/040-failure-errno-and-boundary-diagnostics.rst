@@ -93,37 +93,15 @@
 必须区分
 --------
 
-内核负错误码与用户态 ``errno``
-   内核路径返回负值；常见 libc 包装返回 ``-1`` 并设置正 ``errno``。
-
-失败与部分成功
-   返回正字节数表示已有进展；只有失败返回才进入 errno 处理。
-
-短读与 EOF
-   短读返回正数；EOF 或对象结束语义通常返回零。
-
-``EINTR`` 与底层对象损坏
-   ``EINTR`` 表示信号边界结果；对象损坏需要其它错误、日志或 trace 证明。
-
-内部 ``-ERESTART*`` 与用户 ABI
-   内部重启码控制退出路径；应用通常看到重启后的结果或 ``EINTR``。
-
-syscall 总耗时与 CPU 执行时间
-   调用耗时可能包含睡眠、I/O、锁等待和调度，不等于内核函数一直占用 CPU。
-
-最后 errno 与最早根因
-   errno 是最终边界结果；真正原因可能发生在更早的资源、设备或并发路径。
+* 内核负错误码与用户态 ``errno``：内核路径返回负值；常见 libc 包装返回 ``-1`` 并设置正 ``errno``。
+* 失败与部分成功：返回正字节数表示已有进展；只有失败返回才进入 errno 处理。
+* 短读与 EOF：短读返回正数；EOF 或对象结束语义通常返回零。
+* ``EINTR`` 与底层对象损坏：``EINTR`` 表示信号边界结果；对象损坏需要其它错误、日志或 trace 证明。
+* 内部 ``-ERESTART*`` 与用户 ABI：内部重启码控制退出路径；应用通常看到重启后的结果或 ``EINTR``。
+* syscall 总耗时与 CPU 执行时间：调用耗时可能包含睡眠、I/O、锁等待和调度，不等于内核函数一直占用 CPU。
+* 最后 errno 与最早根因：errno 是最终边界结果；真正原因可能发生在更早的资源、设备或并发路径。
 
 一句话结论
 ----------
 
 errno 是系统调用边界的失败分类，短操作是成功进展；诊断必须先固定返回值、参数、信号和耗时，再用 trace、perf 与日志进入真正的内核路径。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook Part：Part 8，User-Kernel Boundary and System Call Path；
-* AIBook 章节：Chapter 40，Failure, errno, and Boundary-Level Diagnostics；
-* 源文件：``docs/LinuxK/Part_08_User_Kernel_Boundary_and_System_Call_Path/Chapter_040_Failure_errno_and_Boundary_Level_Diagnostics.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_08_User_Kernel_Boundary_and_System_Call_Path/Chapter_040_Failure_errno_and_Boundary_Level_Diagnostics.md>`_。

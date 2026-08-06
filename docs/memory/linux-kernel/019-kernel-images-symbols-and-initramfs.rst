@@ -82,30 +82,13 @@ initramfs 启动路径：
 必须区分
 --------
 
-``vmlinux`` 与启动镜像
-   ``vmlinux`` 是链接后的 ELF；启动镜像是符合目标架构启动协议、供 bootloader 使用的文件。
-
-``vmlinux`` 与 ``vmlinuz``
-   ``vmlinux`` 通常是未压缩调试友好的链接产物；``vmlinuz`` 通常是发行版对可启动压缩镜像的文件命名。
-
-``System.map`` 与 ``kallsyms``
-   ``System.map`` 是构建输出文件；``kallsyms`` 是运行内核内部的符号解析设施。
-
-initramfs 与最终根文件系统
-   initramfs 是临时早期用户空间，用于准备最终根文件系统；它通常不是系统长期运行的根文件系统。
-
-内核镜像更新与系统启动更新
-   生成新镜像只是构建完成；还必须安装匹配模块和 initramfs，并更新 bootloader 的实际启动入口。
+* ``vmlinux`` 与启动镜像：``vmlinux`` 是链接后的 ELF；启动镜像是符合目标架构启动协议、供 bootloader 使用的文件。
+* ``vmlinux`` 与 ``vmlinuz``：``vmlinux`` 通常是未压缩调试友好的链接产物；``vmlinuz`` 通常是发行版对可启动压缩镜像的文件命名。
+* ``System.map`` 与 ``kallsyms``：``System.map`` 是构建输出文件；``kallsyms`` 是运行内核内部的符号解析设施。
+* initramfs 与最终根文件系统：initramfs 是临时早期用户空间，用于准备最终根文件系统；它通常不是系统长期运行的根文件系统。
+* 内核镜像更新与系统启动更新：生成新镜像只是构建完成；还必须安装匹配模块和 initramfs，并更新 bootloader 的实际启动入口。
 
 一句话结论
 ----------
 
 ``vmlinux`` 描述链接后的内核程序，架构镜像负责启动，符号文件负责解释地址，initramfs 负责在最终根文件系统可用前提供早期用户空间。
-
-来源
-----
-
-* AIBook 书籍：LinuxK；
-* AIBook 章节：Chapter 19，Kernel Images, vmlinux, bzImage, and initramfs；
-* 源文件：``docs/LinuxK/Part_04_Kconfig_Kbuild_Modules_and_Kernel_Images/Chapter_019_Kernel_Images_vmlinux_bzImage_and_initramfs.md``；
-* `固定提交中的完整章节 <https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_04_Kconfig_Kbuild_Modules_and_Kernel_Images/Chapter_019_Kernel_Images_vmlinux_bzImage_and_initramfs.md>`_。
