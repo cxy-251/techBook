@@ -1,0 +1,133 @@
+第181章：内核测试边界与失败模型
+================================
+
+本章必须记住
+------------
+
+#. 内核测试首先要定义失败边界，其次才选择测试框架。
+#. 内核代码共享地址空间、调度器、设备状态和全局对象，缺少用户进程崩溃时天然存在的进程级隔离边界。
+#. 一个局部错误可能扩散为半初始化对象、残留异步回调、内存破坏、死锁、数据损坏或系统级 Panic。
+#. 测试不能只断言函数返回负错误码，还要验证失败返回后系统对象是否恢复到可信状态。
+#. 可信失败状态至少要求：未发布半初始化对象、已撤销外部入口、已收束异步活动、资源释放顺序正确、后续重试可从干净状态开始。
+#. 错误路径是内核测试的第一等对象；成功路径通过不能证明清理路径正确。
+#. 失败模型至少分为：可返回错误、对象状态错误、异步后果、全局可信度丧失。
+#. ``-ENOMEM``、``-EINVAL``、``-EIO`` 属于可返回错误；它们是否安全取决于调用者是否完整处理部分成功状态。
+#. 注册失败但对象仍留在全局表，属于发布状态错误，不是普通返回值问题。
+#. IRQ、Timer、Workqueue、Tasklet、URB、Bio 或 DMA 在失败返回后仍能访问私有对象，属于异步生命周期错误。
+#. Panic、死锁、静默数据破坏和文件系统损坏属于系统级失败边界。
+#. 测试必须说明代码运行的 Context：进程、Hardirq、Softirq、NMI、Kernel Thread、持锁区或 RCU Read-side。
+#. 同一个 Helper 在进程上下文可睡眠，在中断上下文可能违反原子性约束。
+#. 测试中使用的 GFP Flag、Preemption 状态、IRQ 状态和锁前提都是输入的一部分。
+#. 只在单 CPU 上通过的测试不能证明多 CPU 竞态不存在。
+#. 并发测试必须考虑 Callback 已经开始、正在排队、正在取消和刚刚完成这些状态。
+#. ``cancel_work_sync()``、``del_timer_sync()``、``synchronize_irq()``、RCU Grace Period 等同步点应被测试为生命周期协议，而不是只检查函数被调用。
+#. 设备测试必须声明真实硬件、虚拟设备、Fake Device、Mock Bus 或纯逻辑环境的覆盖边界。
+#. MSI/MSI-X、Shared IRQ、DMA Coherency、IOMMU、Firmware、Reset 和 Hotplug 都可能改变同一驱动路径的行为。
+#. 架构内存模型、对齐、页大小、Endianness 和 Cache Coherency 会限制测试结论的可移植范围。
+#. 内核测试结果必须绑定 Kernel Commit、Config、Architecture、Compiler、Boot 参数和测试环境。
+#. “本次没有复现”只证明当前运行未触发，不证明竞态、内存破坏或硬件时序缺陷不存在。
+#. 测试层级应按对象边界选择：Unit、Integration、System、Regression。
+#. 单元测试适合纯函数、小状态机、解析器、边界条件、局部数据结构与错误转换。
+#. 集成测试适合多个内核对象或框架的协作，例如 Driver Core、IRQ、Device Model 与资源清理。
+#. 系统测试适合用户态接口、真实设备、完整 Boot、热插拔、Suspend/Resume、压力与多架构行为。
+#. 回归测试固定一个已知 Bug 的触发条件、旧错误信号和修复后的预期行为。
+#. KUnit 属于内核内部白盒单元测试，适合直接调用内部函数和构造局部对象。
+#. kselftest 属于用户态驱动的内核行为测试，适合验证 Syscall、Ioctl、Netlink、Procfs、Sysfs、BPF、Namespace 和 Cgroup 契约。
+#. LTP 更接近系统调用、兼容性和完整系统回归层，不能替代局部白盒测试。
+#. Fuzzing 负责探索人工测试未枚举的输入组合、对象顺序和并发路径。
+#. Sanitizer、Lockdep、Refcount、RCU 检查器把运行时违规转换成可观察报告。
+#. Fault Injection 主动制造内存分配、I/O、函数返回、设备初始化和超时失败，使错误路径稳定可达。
+#. 一条高质量测试应同时说明 Arrange、Act、Assert 和 Cleanup。
+#. Arrange 构造对象、Context、故障点和初始状态。
+#. Act 触发一个明确的入口或状态转换。
+#. Assert 验证返回值、状态、所有权、引用、队列和可见性。
+#. Cleanup 必须即使在测试自身失败时也能撤销资源，避免测试污染后续 Case。
+#. 测试输出应包含第一个失败事实，而不是只打印“Failed”。
+#. 错误码、对象 ID、状态、CPU、PID、设备、测试 Case 和触发故障点应能关联。
+#. 测试导致 Kernel Warning、KASAN、KCSAN、Lockdep、RCU Stall 或 Refcount Warning 时，即使功能断言通过也不能判定成功。
+#. 内核日志没有警告不等于对象状态正确；还应验证发布集合、引用计数、异步队列和可重复执行。
+#. 测试一次 Probe 失败后，还应验证第二次 Probe、Remove、Module Reload 或设备重枚举是否正常。
+#. 错误路径测试应覆盖每个资源申请点之后的失败，而不只是最后一个返回点。
+#. 若初始化顺序为 A → B → C，至少应验证 A 失败、B 失败后撤销 A、C 失败后按 C/B/A 的逆序回滚。
+#. Managed Resource 能减少手工清理，但不能自动收束未纳入 Devres 的 Worker、DMA、Firmware 和外部引用。
+#. 测试不能把 Mock 行为写成实现细节复刻，否则实现和测试可能共同犯错。
+#. Mock 应只替换真正外部依赖，并保留被测状态机、所有权和错误语义。
+#. 可测试性是设计属性：小接口、显式依赖、分离纯逻辑、清晰状态机和集中清理路径都能降低测试成本。
+#. 隐式全局变量、隐藏异步工作、跨层副作用和无返回状态会降低可测试性。
+#. 为测试增加的 Hook 不应扩大生产攻击面或形成不稳定用户 ABI。
+#. Debugfs 测试入口适合开发诊断，不应默认成为稳定生产接口。
+#. 测试专用配置、模块和 Fault Hook 必须在正常构建中可关闭。
+#. 不应为了“容易测试”改变真实同步和生命周期语义；测试应验证生产路径，而不是旁路实现。
+#. 覆盖率说明代码被执行，不说明行为被正确断言。
+#. 行覆盖高但错误状态、并发顺序和资源回滚未验证，仍可能留下严重缺陷。
+#. 性能测试应和功能测试分开定义成功标准；功能正确不等于延迟、吞吐和扩展性达标。
+#. 时间敏感测试不能依赖单次固定 Sleep 证明异步完成，应使用明确 Completion、Event、Poll 或有上限等待。
+#. Timeout 是测试失败边界，不应无限等待掩盖死锁。
+#. Flaky Test 通常意味着环境未固定、时序假设错误、共享状态污染或真实竞态，需要调查而不是简单重跑。
+#. 跳过测试必须给出缺失前提，例如 Config、Hardware、Privilege、Namespace 或工具版本。
+#. ``SKIP`` 不等于 ``PASS``；持续跳过会形成真实覆盖缺口。
+#. CI 应保存 Kernel Log、TAP/KTAP 输出、Config、测试二进制、故障注入参数和崩溃证据。
+#. 测试机发生 Panic 后，应结合 Pstore、Kdump 或串口保存现场，否则系统级失败可能只留下“Job Lost”。
+#. 修复一个 Bug 后，优先把最小触发条件放入最接近根因的测试层，再由更高层测试验证集成行为。
+#. 稳定测试设计顺序是：影响面 → 对象状态机 → Context/Concurrency → 故障点 → 测试层级 → 证据 → Cleanup → 回归。
+
+必背路径
+--------
+
+失败边界：
+
+::
+
+   局部操作失败
+   → 检查已成功申请的资源
+   → 阻止新外部入口
+   → 收束 IRQ / Timer / Work / DMA
+   → 从发布集合撤销对象
+   → 按逆序释放资源
+   → 验证没有残留引用和回调
+   → 再次初始化仍从干净状态开始
+
+测试层级：
+
+::
+
+   纯逻辑与小状态机
+   → KUnit
+
+   多个内核对象协作
+   → Integration Test
+
+   用户态可见契约
+   → kselftest / LTP
+
+   未规划输入与顺序
+   → Fuzzing
+
+   内存、锁、竞争与生命周期违规
+   → Sanitizer / Lockdep / Refcount / RCU Checker
+
+必须区分
+--------
+
+* 返回错误码，与失败后系统仍可信；
+* 单元测试，与用户态契约测试；
+* 测试未复现，与缺陷不存在；
+* Coverage，与正确性断言；
+* ``SKIP``，与 ``PASS``；
+* Mock 环境结论，与真实硬件结论；
+* 同步函数被调用，与异步活动真正收束。
+
+一句话结论
+----------
+
+内核测试的核心不是让某个函数返回预期值，而是在危险 Context、并发和失败条件下证明对象、资源与整个系统仍保持可信。
+
+来源
+----
+
+* 教材：AIBook《Linux Kernel》；
+* Part：Part 37：Kernel Testing KUnit, Kselftest, LTP, Fuzzing, Sanitizers, and Fault Injection；
+* 章节：Chapter 181: Kernel Testing Boundary and Failure Model；
+* 源文件：``docs/LinuxK/Part_37_Kernel_Testing_KUnit_Kselftest_LTP_Fuzzing_Sanitizers_and_Fault_Injection/Chapter_181_Kernel_Testing_Boundary_and_Failure_Model.md``；
+* 固定版本：``18386764582829f2b807b7b0947785eb77b50446``；
+* 固定链接：https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_37_Kernel_Testing_KUnit_Kselftest_LTP_Fuzzing_Sanitizers_and_Fault_Injection/Chapter_181_Kernel_Testing_Boundary_and_Failure_Model.md
