@@ -112,13 +112,13 @@
 必须区分
 --------
 
-* Memory Encryption，与 Attestation。
-* Private Memory，与 Shared Communication Buffer。
-* Host 无法读取 Guest 私有页，与 Host 无法拒绝服务。
-* IOMMU 地址隔离，与 Host/Device 数据可信。
-* Secure Boot，与远程证明。
-* Confidential VM 边界，与 Guest 内部进程隔离。
-* 平台支持某技术，与目标实例整条信任链已正确配置。
+* Memory Encryption 与 Attestation：内存加密限制宿主读取运行中私有页；Attestation 让远端验证平台、镜像和初始状态后再释放密钥。
+* Private Memory 与 Shared Communication Buffer：Private Memory 受硬件保护且不应直接暴露给 Host；Shared Buffer 主动进入 Host/Device 可读写边界，内容必须校验。
+* Host 无法读取 Guest 私有页与 Host 无法拒绝服务：机密计算保护机密性和部分完整性；Host 仍能暂停 vCPU、延迟 I/O 或撤销资源造成 DoS。
+* IOMMU 地址隔离与 Host/Device 数据可信：IOMMU 限制 DMA 可达地址；它不证明设备响应、Descriptor、长度和完成状态可信。
+* Secure Boot 与远程证明：Secure Boot 在本机启动时验证签名链；远程证明向外部 Owner 报告实际度量和 TCB 状态。
+* Confidential VM 边界与 Guest 内部进程隔离：Confidential VM 保护整个 Guest 免受 Host 读取；Guest 内部仍依赖 Credential、LSM、Namespace 和应用权限隔离进程。
+* 平台支持某技术与目标实例整条信任链已正确配置：硬件能力只是前提；Firmware、Kernel、VMM、证书、Attestation Service 和密钥策略都必须匹配。
 
 一句话结论
 ----------
