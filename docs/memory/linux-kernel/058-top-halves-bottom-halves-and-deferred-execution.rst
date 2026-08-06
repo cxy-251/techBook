@@ -1,39 +1,46 @@
 第058章：上半部、下半部与延迟执行
 =================================
 
-本章必须记住
-------------
+核心知识点
+----------
 
-#. 中断处理要拆成必须立即完成的 top half 和可以稍后完成的 bottom half。
-#. Top half 通常运行在 hardirq context，目标是尽快把硬件事件收敛成内核可继续处理的状态。
-#. Bottom half 是 top half 安排的延迟工作，具体能力取决于它运行在 softirq、tasklet、workqueue 还是 IRQ thread 中。
-#. Top half 的稳定职责是：确认中断来源、确认或屏蔽硬件、保存最小状态、安排后续处理。
-#. Shared IRQ 中，handler 必须先读取设备状态；事件不属于当前设备时返回 ``IRQ_NONE``。
-#. 设备状态属于当前设备时，handler 才完成 ACK、mask、clear 或其它必要硬件动作。
-#. Top half 应避免长循环、复杂状态机、大量日志、阻塞等待和可能睡眠的内存分配。
-#. Top half 持续时间越长，被打断的 task、其它 IRQ 和同 CPU 延迟路径等待越久。
-#. 设备事件确认不完整时，电平中断可能重复触发；确认过早或状态保存不完整时，边沿事件可能丢失。
-#. Top half 的输出通常是状态位、ring 指针、队列项、唤醒动作或延迟工作调度。
-#. Bottom half 的输入通常是 top half 已经保存的内核对象状态，而不是临时寄存器值或用户指针。
-#. 延迟执行不等于普通线程；softirq 和 tasklet 仍属于不可睡眠的中断相关上下文。
-#. Workqueue 与 threaded IRQ 使用内核线程执行主体工作，通常允许睡眠、mutex 和 ``GFP_KERNEL``。
-#. Softirq 适合高频、低延迟、可跨 CPU 并发的内核级批处理，例如网络和 timer 路径。
-#. Tasklet 建立在 softirq 之上，为单个 tasklet 实例提供串行化执行，但仍不能睡眠。
-#. Tasklet 主要用于理解存量代码；新增代码应优先比较 NAPI、workqueue 和 threaded IRQ 等机制。
-#. Workqueue 适合需要睡眠、等待资源、复杂错误恢复和较长处理的异步工作。
-#. Threaded IRQ 把 primary handler 与 ``thread_fn`` 绑定在同一 IRQ 注册协议中，适合设备确认后由可调度线程完成主体处理。
-#. ``IRQ_WAKE_THREAD`` 表示 primary handler 已完成必要硬中断动作，并请求唤醒 IRQ thread。
-#. ``IRQF_ONESHOT`` 常用于在线程处理完成前保持 IRQ line 屏蔽，避免线程尚未处理完就再次进入。
-#. 网络高负载路径常用 NAPI：硬中断安排 poll，softirq 按预算批量处理数据，处理完成后再恢复中断。
-#. 批处理可以减少每个事件都进入完整 IRQ 和协议栈的开销，但预算过大也会压缩用户 task 运行机会。
-#. 选择机制时必须先判断：能否睡眠、允许怎样并发、延迟要求、对象生命周期和拆除协议。
-#. 排队动作和执行动作可能在不同上下文，例如 IRQ 中 ``queue_work()``，实际 work function 在 kworker 中执行。
-#. 延迟工作必须持有宿主对象的有效引用或由拆除顺序保证对象在回调结束前存活。
-#. 设备 remove 路径应先阻止新 IRQ，再同步 handler、关闭 bottom half、取消 work/timer，最后释放对象。
-#. 只删除 IRQ handler 不能自动取消已经排队的 softirq、tasklet、workqueue 或线程工作。
-#. Bottom half 过重仍会造成 softirq backlog、worker 拥塞和调度延迟；移动工作只改变执行边界，不会消除工作量。
+中断处理必须分层
+   立即完成的工作放在 top half，能够稍后完成的工作放到 bottom half。分层目标是缩短 hardirq 占用时间，同时保证硬件状态不会丢失或反复触发。
 
-必背路径
+Top half 负责收敛硬件事件
+   它通常运行在 hardirq context，必须确认事件来源、读取最小状态、执行必要的 ACK、mask 或 clear，并把后续处理所需信息保存到内核对象中。
+
+共享 IRQ 必须先判断来源
+   Handler 只有确认事件属于本设备后才能处理状态；不属于当前设备时应返回 ``IRQ_NONE``，避免误清除其它设备的共享事件。
+
+Top half 必须保持短小
+   长循环、复杂状态机、大量日志、阻塞等待和可能睡眠的分配都会延长 hardirq 时间，推迟被打断 task、其它 IRQ 和同 CPU 延迟路径。
+
+Bottom half 是执行能力的选择
+   延迟处理可以运行在 softirq、tasklet、NAPI、workqueue 或 IRQ thread 中。它们都能推迟工作，但睡眠能力、并发模型和调度方式不同。
+
+Softirq 与 tasklet 仍不可睡眠
+   二者属于中断相关的 atomic context。Tasklet 只保证同一实例通常不并发执行，不能因此忽略其它 IRQ、CPU 或拆除路径对宿主对象的访问。
+
+Workqueue 提供线程上下文
+   Work function 由 kworker 执行，通常可以使用 mutex、等待条件和 ``GFP_KERNEL``。它适合复杂状态机、错误恢复和可能阻塞的设备操作。
+
+Threaded IRQ 绑定 IRQ 生命周期
+   Primary handler 在 hardirq 中确认来源并返回 ``IRQ_WAKE_THREAD``，``thread_fn`` 随后在线程上下文完成主体处理。``IRQF_ONESHOT`` 可在处理完成前维持屏蔽语义。
+
+NAPI 用预算批量处理事件
+   网络路径常由硬中断安排 poll，再在 softirq 中按 budget 批量处理。它能降低每包中断成本，但过大预算会增加 softirq 占用和用户 task 延迟。
+
+排队上下文与执行上下文不同
+   IRQ 中调用 ``queue_work()`` 只说明工作在 hardirq 中被提交；真正 work function 运行在 kworker 中，API 约束应以执行点为准。
+
+延迟工作必须持有对象生命期
+   Top half 保存的状态、队列项和宿主对象必须在 bottom half 完成前保持有效。Remove 路径要先阻止新 IRQ，再同步所有已排队和正在运行的后续工作。
+
+工作转移不会消除工作量
+   把复杂处理移出 hardirq 能改善响应边界，却不会减少总 CPU 成本。Bottom half 过重仍可能造成 softirq backlog、worker 拥塞和调度延迟。
+
+关键路径
 --------
 
 一次分层中断处理：
@@ -42,12 +49,12 @@
 
    设备产生 IRQ
    → generic IRQ 调用 top half
-   → 检查中断是否属于本设备
+   → 检查事件是否属于本设备
    → 读取并确认最小硬件状态
    → 保存 ring、状态位或队列项
-   → 安排 softirq、tasklet、workqueue 或 IRQ thread
+   → 安排 softirq、NAPI、workqueue 或 IRQ thread
    → top half 快速返回
-   → bottom half 批量或复杂处理
+   → bottom half 完成批量或复杂处理
    → 更新对象状态并恢复设备事件入口
 
 选择延迟执行机制：
@@ -55,12 +62,12 @@
 ::
 
    判断工作是否需要睡眠
-   → 需要睡眠时选 workqueue 或 threaded IRQ
-   → 不需睡眠且属于高频核心路径时考虑 softirq/NAPI
+   → 需要睡眠时选择 workqueue 或 threaded IRQ
+   → 不需睡眠且属于高频核心路径时选择 softirq 或 NAPI
    → 存量串行 bottom half 可能使用 tasklet
-   → 判断是否允许多 CPU 并发
-   → 判断 latency、吞吐和缓存局部性
-   → 设计取消、flush 和对象释放顺序
+   → 判断允许的并发与 CPU 局部性
+   → 评估延迟、吞吐和生命周期
+   → 设计 cancel、flush 与拆除顺序
 
 Threaded IRQ 路径：
 
@@ -68,11 +75,11 @@ Threaded IRQ 路径：
 
    设备产生 IRQ
    → primary handler 确认来源并保存状态
-   → 必要时 mask 设备或 IRQ line
+   → 必要时屏蔽设备或 IRQ line
    → 返回 IRQ_WAKE_THREAD
-   → generic IRQ 唤醒 irq/<n>-<name> 线程
-   → thread_fn 执行可睡眠主体处理
-   → 处理完成后恢复设备和 IRQ
+   → generic IRQ 唤醒 IRQ thread
+   → thread_fn 在可调度上下文处理主体工作
+   → 完成后恢复设备和 IRQ
 
 安全拆除：
 
@@ -81,22 +88,31 @@ Threaded IRQ 路径：
    对象进入 stopping 状态
    → 禁止设备产生新中断
    → disable 或 mask IRQ
-   → synchronize_irq 等待 top half 和 thread
+   → 等待 top half 与 IRQ thread 退出
    → 停止 NAPI、tasklet、workqueue 和 timer
-   → flush 或 cancel 已排队工作
+   → cancel 或 flush 已排队工作
    → free_irq
    → 最后释放宿主对象
 
-必须区分
+概念辨析
 --------
 
-* Top half 与 bottom half：Top half 负责立即确认和排队；bottom half 负责稍后完成较多工作。
-* 延迟执行与可睡眠：Softirq 和 tasklet 延后执行但仍不能睡眠；workqueue 和 IRQ thread 通常可以睡眠。
-* 确认控制器与清除设备状态：Generic IRQ 层处理控制器流控；驱动还要按设备协议清除具体 pending 原因。
-* 排队点与执行点：调度工作的位置决定排队上下文；回调实际运行位置决定 API 约束。
-* 工作转移与工作减少：移到下半部可以缩短 hardirq，却不会自动降低总 CPU 工作量。
+Top half 与 bottom half
+   Top half 负责必须立即完成的硬件动作；bottom half 负责可以延后的批量或复杂处理。
 
-一句话结论
-----------
+延迟执行与可睡眠
+   Softirq 和 tasklet 虽然延后执行，仍不能睡眠；workqueue 和 IRQ thread 通常可以睡眠。
 
-中断设计的核心是让 top half 只完成必须立即做的硬件动作，并把其余工作放到具备合适睡眠、并发和调度能力的下半部。
+控制器确认与设备清除
+   Generic IRQ 层处理控制器流控；驱动仍需按设备协议清除具体 pending 原因。
+
+排队点与执行点
+   工作在哪里被提交决定排队上下文；回调在哪里运行决定真正的 API 能力。
+
+工作转移与工作减少
+   转移工作缩短 hardirq 临界时间，不会自动降低总处理成本。
+
+本章结论
+--------
+
+中断分层的本质是让 top half 只完成无法推迟的硬件动作，再把其余工作放到具备合适睡眠、并发和调度能力的 bottom half 中。
