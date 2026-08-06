@@ -346,6 +346,15 @@ Part 38：Kernel Patch Workflow、Maintainers、Reviews、Regressions 与 Upstre
 * `第189章：处理 Review 反馈、版本迭代与回归 <189-handling-review-feedback-revisions-and-regressions.rst>`_；
 * `第190章：从本地修复到 Upstream Contribution <190-from-local-fix-to-upstream-contribution.rst>`_。
 
+Part 39：PREEMPT_RT、Livepatching、Rust、Confidential Computing 与 Future Directions
+------------------------------------------------------------------------------------
+
+* `第191章：PREEMPT_RT 与确定性延迟 <191-preempt-rt-and-the-push-toward-deterministic-latency.rst>`_；
+* `第192章：Livepatching 与运行中内核更新 <192-livepatching-and-updating-a-running-kernel.rst>`_；
+* `第193章：Rust for Linux 与内存安全内核组件 <193-rust-for-linux-and-memory-safe-kernel-components.rst>`_；
+* `第194章：机密计算与硬件辅助隔离 <194-confidential-computing-and-hardware-assisted-isolation.rst>`_；
+* `第195章：Linux 内核工程的未来方向 <195-future-directions-of-linux-kernel-engineering.rst>`_。
+
 阅读方式
 --------
 
