@@ -1,0 +1,172 @@
+name: Finalize Linux memory textbook once
+
+on:
+  create:
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.event.ref_type == 'branch' && github.event.ref == 'linux-memory-normalize-trigger'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Restore and normalize the complete textbook
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from __future__ import annotations
+
+          import re
+          import subprocess
+          from pathlib import Path
+          from textwrap import dedent
+
+          BASE = '1bdbedbf1a1a8ec925c8675e18c4eb1ebadd2755'
+          ROOT = Path('docs/memory/linux-kernel')
+          MARKER = '\n必须区分\n--------\n'
+          NEXT = '\n一句话结论\n----------\n'
+
+          files = sorted(ROOT.glob('[0-9][0-9][0-9]-*.rst'))
+          if len(files) != 195:
+              raise SystemExit(f'expected 195 chapters, found {len(files)}')
+
+          def extract(text: str) -> str:
+              start = text.index(MARKER) + len(MARKER)
+              end = text.index(NEXT, start)
+              return text[start:end]
+
+          def replace_section(text: str, section: str) -> str:
+              start = text.index(MARKER) + len(MARKER)
+              end = text.index(NEXT, start)
+              return text[:start] + '\n' + section.strip() + '\n' + text[end:]
+
+          def normalize_original(section: str) -> str:
+              lines = section.strip('\n').splitlines()
+
+              # Chapters 176-180 already used direct-answer bullet lists.
+              if any(line.startswith('* ') for line in lines):
+                  items: list[str] = []
+                  current: list[str] = []
+                  for line in lines:
+                      if line.startswith('* '):
+                          if current:
+                              items.append(' '.join(current).strip())
+                          current = [line[2:].strip()]
+                      elif current and line.strip():
+                          current.append(line.strip())
+                  if current:
+                      items.append(' '.join(current).strip())
+                  if not items:
+                      raise ValueError('empty bullet distinction section')
+                  return '\n'.join('* ' + item.rstrip('；。') + '。' for item in items)
+
+              # Chapters 001-175 used RST definition lists: term + indented answer.
+              entries: list[tuple[str, str]] = []
+              term: str | None = None
+              answer: list[str] = []
+
+              def flush() -> None:
+                  nonlocal term, answer
+                  if term is not None:
+                      body = ' '.join(answer).strip()
+                      if not body:
+                          raise ValueError(f'distinction term has no answer: {term}')
+                      entries.append((term.rstrip('：'), body.rstrip('；。')))
+                  term = None
+                  answer = []
+
+              for line in lines:
+                  if not line.strip():
+                      continue
+                  if line[:1].isspace():
+                      if term is None:
+                          raise ValueError(f'orphan distinction answer: {line}')
+                      answer.append(line.strip())
+                  else:
+                      flush()
+                      term = line.strip()
+              flush()
+
+              if not entries:
+                  raise ValueError('empty definition-list distinction section')
+              return '\n'.join(f'* {term}：{body}。' for term, body in entries)
+
+          # Restore the trustworthy pre-revision distinction answers for 001-180.
+          for path in files[:180]:
+              original = subprocess.check_output(
+                  ['git', 'show', f'{BASE}:{path.as_posix()}'],
+                  text=True,
+                  encoding='utf-8',
+              )
+              current = path.read_text(encoding='utf-8')
+              current = replace_section(current, normalize_original(extract(original)))
+              current = re.sub(r'\n来源\n----\n.*\Z', '\n', current, flags=re.S)
+              path.write_text(current.rstrip() + '\n', encoding='utf-8')
+
+          # Apply the manually written direct answers prepared for chapters 181-195.
+          helper = Path('.github/workflows/bulk-rewrite-linux-memory.yml')
+          helper_text = helper.read_text(encoding='utf-8')
+          code_start = helper_text.index("          python3 <<'PY'\n") + len("          python3 <<'PY'\n")
+          code_end = helper_text.index("\n          PY\n", code_start)
+          helper_code = dedent(helper_text[code_start:code_end])
+          exec(compile(helper_code, str(helper), 'exec'))
+
+          # Enforce the no-source rule after every rewrite.
+          for path in files:
+              text = path.read_text(encoding='utf-8')
+              text = re.sub(r'\n来源\n----\n.*\Z', '\n', text, flags=re.S)
+              path.write_text(text.rstrip() + '\n', encoding='utf-8')
+
+          # Remove all one-off automation and trigger artifacts.
+          for temp in (
+              '.github/workflows/finalize-linux-memory.yml',
+              '.github/workflows/bulk-rewrite-linux-memory.yml',
+              '.github/workflows/complete-distinctions-20260806.yml',
+              'project/.linux-memory-normalization-trigger',
+          ):
+              Path(temp).unlink(missing_ok=True)
+
+          # Whole-book validation.
+          for path in files:
+              text = path.read_text(encoding='utf-8')
+              if '\n来源\n----\n' in text:
+                  raise SystemExit(f'source section remains: {path}')
+              section = extract(text).strip()
+              if not section:
+                  raise SystemExit(f'empty distinction section: {path}')
+              lines = [line for line in section.splitlines() if line.strip()]
+              if not all(line.startswith('* ') for line in lines):
+                  raise SystemExit(f'non-bullet distinction line: {path}')
+              for line in lines:
+                  if '：' not in line:
+                      raise SystemExit(f'distinction lacks a direct answer: {path}: {line}')
+                  left, right = line[2:].split('：', 1)
+                  if not left.strip() or len(right.strip().rstrip('。')) < 4:
+                      raise SystemExit(f'incomplete distinction answer: {path}: {line}')
+
+          index = (ROOT / 'index.rst').read_text(encoding='utf-8')
+          if '来源链接' in index or '每章末尾的 AIBook 来源' in index:
+              raise SystemExit('index still references chapter sources')
+
+          contract = Path('project/MEMORY_CONTENT_CONTRACT.rst').read_text(encoding='utf-8')
+          if '``来源``' in contract or '\n来源规则\n' in contract:
+              raise SystemExit('content contract still requires sources')
+
+          print('validated 195 chapters: direct distinctions, no source sections')
+          PY
+
+      - name: Commit the finalized textbook
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "docs: finalize Linux memory textbook"
+          git push origin HEAD:main
+          git push origin --delete linux-memory-normalize-trigger
