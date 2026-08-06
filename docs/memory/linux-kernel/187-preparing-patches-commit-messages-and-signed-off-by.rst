@@ -118,13 +118,13 @@ Commit Message：
 必须区分
 --------
 
-* 一个逻辑变更，与一个文件。
-* Diff，与工程论证。
-* Subject，与完整问题说明。
-* ``Signed-off-by`` DCO 声明，与 ``Reviewed-by`` 技术认可。
-* ``Fixes:`` 引入问题的 Commit，与普通相关历史。
-* 永久 Commit Message，与 ``---`` 后的版本 Commentary。
-* Checkpatch 通过，与补丁技术正确。
+* 一个逻辑变更与一个文件：逻辑变更由同一问题和必要修复边界决定，可以跨多个文件；单个文件也可能包含多个应拆分的问题。
+* Diff 与工程论证：Diff 说明代码如何变化；Commit Message 说明问题、根因、修复理由、影响和测试证据。
+* Subject 与完整问题说明：Subject 只负责快速定位子系统、对象和动作；Body 必须保存可独立理解的因果链和边界。
+* ``Signed-off-by`` DCO 声明与 ``Reviewed-by`` 技术认可：前者声明贡献权利和传递责任；后者表示 Reviewer 对特定版本技术内容的认可。
+* ``Fixes:`` 引入问题的 Commit 与普通相关历史：``Fixes:`` 必须指向真正引入缺陷的提交；普通相关提交只能作为背景，不能替代 Culprit 判断。
+* 永久 Commit Message 与 ``---`` 后的版本 Commentary：Commit Message 进入 Git 永久历史；``---`` 后内容服务当前邮件 Review，通常不随提交入树。
+* Checkpatch 通过与补丁技术正确：Checkpatch 只检查格式、风格和部分常见模式；并发、生命周期、ABI 和硬件语义仍需人工 Review 与测试。
 
 一句话结论
 ----------
