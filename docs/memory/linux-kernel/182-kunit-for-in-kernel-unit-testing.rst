@@ -111,12 +111,12 @@ KUnit 对象链：
 必须区分
 --------
 
-* ``KUNIT_EXPECT_*``，与 ``KUNIT_ASSERT_*``。
-* 测试 Resource 生命周期，与生产对象生命周期。
-* UML 快速测试，与真实硬件验证。
-* 内建执行器，与 ``kunit.py`` 用户态工具。
-* KTAP ``ok``，与没有任何内核运行时警告。
-* 内部逻辑正确，与用户态接口契约正确。
+* ``KUNIT_EXPECT_*`` 与 ``KUNIT_ASSERT_*``：Expectation 记录失败后继续当前 Case；Assertion 在必要前置条件失败时立即终止当前 Case。
+* 测试 Resource 生命周期与生产对象生命周期：KUnit Resource 管理 Fixture 和测试期资源；生产对象仍必须按真实注册、引用、异步收束和释放协议验证。
+* UML 快速测试与真实硬件验证：UML 适合快速运行纯逻辑和错误路径；它不能代表真实架构、IRQ、DMA、Firmware 和设备时序。
+* 内建执行器与 ``kunit.py`` 用户态工具：内建执行器在内核中发现并运行 Suite；``kunit.py`` 负责配置、构建、启动环境和解析 KTAP。
+* KTAP ``ok`` 与没有任何内核运行时警告：``ok`` 只表示 Case 断言通过；KASAN、Lockdep、WARN、Oops 等日志仍会使整次运行失败。
+* 内部逻辑正确与用户态接口契约正确：KUnit 能证明内部函数和对象行为；稳定 UAPI、权限和端到端交互仍需 kselftest 或系统测试。
 
 一句话结论
 ----------
