@@ -319,6 +319,15 @@ Part 35：Kernel Debugging、printk、Dynamic Debug、ftrace、perf、kdump 与 
 * `第174章：kdump 与 vmcore 收集 <174-kdump-and-vmcore-collection.rst>`_；
 * `第175章：crash 工具与事后内核分析 <175-crash-utility-and-post-mortem-kernel-analysis.rst>`_。
 
+Part 36：CPU、Memory、I/O、Network 与 Lock Contention 内核性能工程
+-----------------------------------------------------------------
+
+* `第176章：建立内核性能调查模型 <176-building-a-kernel-performance-investigation-model.rst>`_；
+* `第177章：CPU 热路径、调度延迟与 Runqueue 压力 <177-cpu-hot-paths-scheduler-latency-and-runqueue-pressure.rst>`_；
+* `第178章：内存压力、回收、Cache Miss 与 NUMA 影响 <178-memory-pressure-reclaim-cache-misses-and-numa-effects.rst>`_；
+* `第179章：I/O 延迟、排队、Writeback 与存储瓶颈 <179-io-latency-queueing-writeback-and-storage-bottlenecks.rst>`_；
+* `第180章：网络吞吐、丢包、锁争用与可扩展性 <180-network-throughput-packet-loss-lock-contention-and-scalability.rst>`_。
+
 阅读方式
 --------
 
