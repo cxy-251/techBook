@@ -1,0 +1,79 @@
+name: Finalize chapter 195 once
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.event.issue.number == 2 && github.event.comment.body == 'finalize chapter 195'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Write the final direct distinctions and validate all chapters
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          root = Path('docs/memory/linux-kernel')
+          marker = '\n必须区分\n--------\n'
+          next_marker = '\n一句话结论\n----------\n'
+          path = root / '195-future-directions-of-linux-kernel-engineering.rst'
+
+          section = '''* 新功能数量增加与复杂度被约束：新增机制扩大能力；受约束的接口、状态机和测试才控制新增复杂度的长期成本。
+* 硬件容量扩大与访问延迟和同步成本下降：更多 CPU、内存和设备只增加规模；局部性、分片和减少共享协调才降低单位访问与同步成本。
+* eBPF 程序通过 Verifier 与业务逻辑正确：Verifier 证明程序满足当前安全模型；业务策略、语义结果和性能目标仍需独立验证。
+* Rust 减少部分内存安全错误与所有内核风险消失：Rust 可把部分所有权和生命周期错误转成编译期约束；FFI、unsafe、并发、硬件协议和设计错误仍然存在。
+* 更多观测接口与低开销、稳定和安全的观测：接口数量扩大可见范围；生产可用性还要求控制开销、兼容承诺、权限和信息泄漏。
+* 自动化测试覆盖与维护者语义判断：自动化能扩大配置和输入覆盖；ABI、对象模型、长期兼容和设计取舍仍需维护者判断。
+* 某项技术存在于源码树与它已适合所有生产环境：源码存在只证明能力正在实现；成熟度还取决于配置、架构、维护状态、测试和部署风险。
+* 局部性能最优与系统级吞吐、尾延迟、功耗和安全最优：子系统局部指标改善可能把成本转移到其它路径；系统结论必须同时衡量端到端目标和副作用。'''
+
+          text = path.read_text(encoding='utf-8')
+          start = text.index(marker) + len(marker)
+          end = text.index(next_marker, start)
+          text = text[:start] + '\n' + section + '\n' + text[end:]
+          path.write_text(text.rstrip() + '\n', encoding='utf-8')
+
+          Path('.github/workflows/finalize-chapter-195.yml').unlink()
+
+          files = sorted(root.glob('[0-9][0-9][0-9]-*.rst'))
+          if len(files) != 195:
+              raise SystemExit(f'expected 195 chapters, found {len(files)}')
+
+          for chapter in files:
+              body = chapter.read_text(encoding='utf-8')
+              if '\n来源\n----\n' in body:
+                  raise SystemExit(f'source section remains: {chapter}')
+              start = body.index(marker) + len(marker)
+              end = body.index(next_marker, start)
+              lines = [line for line in body[start:end].splitlines() if line.strip()]
+              if not lines:
+                  raise SystemExit(f'empty distinction section: {chapter}')
+              for line in lines:
+                  if not line.startswith('* ') or '：' not in line:
+                      raise SystemExit(f'distinction lacks direct answer: {chapter}: {line}')
+                  left, right = line[2:].split('：', 1)
+                  if not left.strip() or len(right.strip().rstrip('。')) < 4:
+                      raise SystemExit(f'incomplete distinction answer: {chapter}: {line}')
+
+          print('validated all 195 chapters')
+          PY
+
+      - name: Commit the final chapter
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "docs: answer chapter 195 distinctions"
+          git pull --rebase origin main
+          git push origin HEAD:main
