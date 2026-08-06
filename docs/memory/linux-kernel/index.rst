@@ -337,6 +337,15 @@ Part 37：Kernel Testing、KUnit、kselftest、LTP、Fuzzing、Sanitizers 与 Fa
 * `第184章：Fuzzing、syzkaller 与缺陷发现 <184-fuzzing-syzkaller-and-bug-discovery.rst>`_；
 * `第185章：Sanitizer、Fault Injection 与回归防止 <185-sanitizers-fault-injection-and-regression-prevention.rst>`_。
 
+Part 38：Kernel Patch Workflow、Maintainers、Reviews、Regressions 与 Upstream Contribution
+------------------------------------------------------------------------------------------
+
+* `第186章：理解 Linux 内核开发流程 <186-understanding-the-linux-kernel-development-process.rst>`_；
+* `第187章：准备 Patch、Commit Message 与 Signed-off-by <187-preparing-patches-commit-messages-and-signed-off-by.rst>`_；
+* `第188章：MAINTAINERS、邮件列表与 Review 礼仪 <188-maintainers-mailing-lists-and-review-etiquette.rst>`_；
+* `第189章：处理 Review 反馈、版本迭代与回归 <189-handling-review-feedback-revisions-and-regressions.rst>`_；
+* `第190章：从本地修复到 Upstream Contribution <190-from-local-fix-to-upstream-contribution.rst>`_。
+
 阅读方式
 --------
 
