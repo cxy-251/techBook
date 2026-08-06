@@ -125,14 +125,14 @@
 必须区分
 --------
 
-* Local Hack 恢复当前环境，与 Upstreamable Fix 恢复通用不变量。
-* 本地症状消失，与根因已修复。
-* 构建通过，与运行和错误路径正确。
-* Mock/VM 覆盖，与真实硬件覆盖。
-* Mainline 修复，与 Stable Backport。
-* ``Cc: stable`` 候选提示，与 Stable 已接受。
-* Patch 已发送，与贡献已完成。
-* 一次测试通过，与长期维护责任结束。
+* Local Hack 恢复当前环境与 Upstreamable Fix 恢复通用不变量：Local Hack 可以依赖私有条件绕过症状；Upstreamable Fix 必须解释根因、适用范围、兼容性和长期维护成本。
+* 本地症状消失与根因已修复：症状消失可能只是触发条件变化；根因修复必须恢复对象、状态机或同步不变量。
+* 构建通过与运行和错误路径正确：构建只验证语法、类型和链接；运行测试还要验证正常路径、失败回滚和并发 Teardown。
+* Mock/VM 覆盖与真实硬件覆盖：Mock/VM 适合验证逻辑和虚拟接口；真实硬件还包含 Firmware、IRQ、DMA、电源和总线时序。
+* Mainline 修复与 Stable Backport：Mainline 修复面向当前上游代码；Stable Backport 要在旧版本依赖和对象模型上重新适配并验证。
+* ``Cc: stable`` 候选提示与 Stable 已接受：Trailer 只通知 Stable Maintainer 评估；补丁出现在具体 Stable Branch 才表示接受。
+* Patch 已发送与贡献已完成：发送只是 Review 开始；贡献还包括修改、测试、入树确认、回归响应和后续维护。
+* 一次测试通过与长期维护责任结束：一次通过只覆盖当前环境；新接口和修复仍需持续接受其它配置、硬件和用户反馈。
 
 一句话结论
 ----------
