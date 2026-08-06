@@ -310,6 +310,15 @@ Part 34：Kernel Parameters、Sysctl、Control Interfaces 与 Runtime Tuning
 * `第169章：procfs、sysfs 与 debugfs 控制面 <169-procfs-sysfs-and-debugfs-control-surfaces.rst>`_；
 * `第170章：在运行系统上安全调优 <170-tuning-safely-on-a-live-system.rst>`_。
 
+Part 35：Kernel Debugging、printk、Dynamic Debug、ftrace、perf、kdump 与 crash
+----------------------------------------------------------------------------
+
+* `第171章：printk、pr_debug 与 Dynamic Debug <171-printk-pr-debug-and-dynamic-debug.rst>`_；
+* `第172章：ftrace、Function Graph Tracing 与 Tracepoints <172-ftrace-function-graph-tracing-and-tracepoints.rst>`_；
+* `第173章：perf：CPU、Scheduler 与 Kernel Hot Paths <173-perf-for-cpu-scheduler-and-kernel-hot-paths.rst>`_；
+* `第174章：kdump 与 vmcore 收集 <174-kdump-and-vmcore-collection.rst>`_；
+* `第175章：crash 工具与事后内核分析 <175-crash-utility-and-post-mortem-kernel-analysis.rst>`_。
+
 阅读方式
 --------
 
