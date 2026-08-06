@@ -122,14 +122,14 @@ Regression：
 必须区分
 --------
 
-* Review 评论的表面措辞，与背后的设计压力。
-* 新版自包含，与丢失版本演进历史。
-* Changelog，与最终 Commit Message。
-* Bisect Culprit，与经过验证的完整根因。
-* 普通 Bug，与破坏已有工作行为的 Regression。
-* Revert 恢复基线，与永久放弃功能。
-* ``Closes:`` 关闭报告，与 ``Link:`` 提供相关记录。
-* 跟踪工具状态，与修复真正进入目标树。
+* Review 评论的表面措辞与背后的设计压力：评论文字可能很短；真正要回应的是 ABI、并发、错误路径、兼容性、测试或维护成本。
+* 新版自包含与丢失版本演进历史：当前版本必须独立说明完整方案；Changelog 和邮件线程必须保留从旧版到新版的修改原因。
+* Changelog 与最终 Commit Message：Changelog 记录本轮 Review 变化且不进入 Git 历史；Commit Message 保存最终问题和修复论证。
+* Bisect Culprit 与经过验证的完整根因：Bisect 找到最早出现坏行为的提交；仍需分析该提交如何破坏对象或用户合同，才能确定根因。
+* 普通 Bug 与破坏已有工作行为的 Regression：普通 Bug 可能长期存在；Regression 破坏此前可工作的行为，因此优先级和恢复责任更高。
+* Revert 恢复基线与永久放弃功能：Revert 先恢复用户可用状态；功能可在重新设计和验证后再次提交。
+* ``Closes:`` 关闭报告与 ``Link:`` 提供相关记录：``Closes:`` 表示该提交解决指定报告；``Link:`` 只建立相关讨论或证据链接。
+* 跟踪工具状态与修复真正进入目标树：Tracker 的 resolved 状态是流程记录；必须检查目标 Mainline 或 Stable Branch 中的实际 Commit。
 
 一句话结论
 ----------
