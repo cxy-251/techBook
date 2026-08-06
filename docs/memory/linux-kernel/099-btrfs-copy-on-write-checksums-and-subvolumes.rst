@@ -1,151 +1,117 @@
 第099章：Btrfs COW、校验和与子卷
 ================================
 
-本章必须记住
-------------
+核心知识点
+----------
 
-#. Btrfs 应按“版本化状态树”理解：数据 extent、元数据 B-tree、tree root、事务和引用关系共同表达文件系统状态。
-#. 普通 COW 更新先写入新的物理位置，再把上层元数据引用切换到新版本。
-#. Btrfs 的 COW 同时可以作用于文件数据 extent 和元数据 B-tree 节点。
-#. 旧 extent 只要仍被快照、reflink 或其它 tree 引用，就不能释放。
-#. Extent tree、backref 和 refcount 关系用于说明某段物理空间被哪些对象共享。
-#. 文件长度不等于独占物理占用；多个文件或快照可以共享同一 extent。
-#. 覆盖少量逻辑数据可能引起新 data extent、file extent item、checksum 和多层 tree node 更新。
-#. COW 让快照和 reflink 低成本建立共享，也可能增加随机写碎片、元数据开销和写放大。
-#. Btrfs 使用通用 B-tree key space 组织 inode item、目录项、file extent、checksum 和 root 等对象。
-#. Key 通常由 objectid、type 和 offset 组成，具体对象语义由 item type 决定。
-#. 一个 subvolume 对应一个独立 filesystem tree root，拥有自己的目录层级和 inode number namespace。
-#. Subvolume 不是独立块设备或独立存储池；多个 subvolume 共享同一个 Btrfs 文件系统空间与设备集合。
-#. Snapshot 是基于已有 subvolume root 创建的新 root 关系，初始共享大量数据和元数据 extent。
-#. Snapshot 创建快不等于未来空间成本为零；源和快照继续分歧时会产生新 extent 和元数据。
-#. 删除快照只释放不再被任何 root 或 reflink 引用的 extent，空间回收可能明显滞后于目录删除。
-#. Read-only snapshot 可以作为 send 的稳定父/源状态，但不能代替离线或异地备份。
-#. Btrfs send 根据两个 subvolume/snapshot 状态生成逻辑变更流，receive 在目标文件系统重建对象关系。
-#. Send stream 是文件系统级逻辑操作序列，不是原始块设备镜像。
-#. Incremental send 依赖发送端和接收端对 parent 状态具有一致理解，错误 parent 会导致失败或错误恢复计划。
-#. COW 提交不是每个 write 单独产生一个全局稳定版本；多个修改通常聚合进 Btrfs transaction。
-#. Transaction commit 把一组新 tree blocks、extent 引用、checksum 和 root 更新推进到可恢复边界。
-#. Superblock 保存可定位当前已提交 tree roots 的关键指针与 generation 信息，具体格式有多个镜像位置。
-#. 崩溃恢复依赖最后完整提交的事务和可验证树结构，不保证应用所有未 fsync 修改都可见。
-#. Tree log 可以加速部分 fsync 持久化，避免每次都提交整个全局 transaction；具体适用和恢复路径具有版本差异。
-#. ``fsync()`` 的 Btrfs 语义必须结合 tree log、transaction commit、rename 和目录项依赖理解。
-#. Btrfs 默认对数据和元数据使用 checksum，但具体算法在创建文件系统时确定。
-#. 数据 checksum 通常存放在独立 checksum tree，元数据 block 在 header 中包含 checksum 等自描述字段。
-#. 读取时 checksum mismatch 说明内容与记录摘要不符，能够检测损坏，不自动保证可修复。
-#. 只有存在可用冗余副本并且能通过校验验证时，Btrfs 才可能从另一副本修复坏块。
-#. RAID1/10、DUP 等 profile 表达块组副本布局；不同 profile 的容错能力不能只按传统 RAID 名称机械推断。
-#. Scrub 主动读取已分配数据和元数据、验证 checksum，并在有冗余时尝试修复。
-#. Scrub 不等于离线结构检查，也不能恢复所有副本都损坏、误删除或应用写入错误。
-#. Checksum 验证“读回内容是否等于文件系统记录的内容”，不能判断应用写入的业务数据是否正确。
-#. NODATACOW 会改变普通数据 COW 路径，常同时影响 data checksum、压缩、快照共享和恢复特征。
-#. NODATASUM 表示数据不使用普通 checksum 语义；必须在使用前理解其完整性代价。
-#. 不能把“Btrfs 是 COW 文件系统”绝对化到所有 inode、direct I/O、swapfile 和特殊 extent 路径。
-#. Compression 在写入时把逻辑范围压缩成较少物理数据，读出时解压，实际收益取决于数据可压缩性和 CPU 成本。
-#. 压缩会让逻辑大小、已分配物理大小、extent 边界和实际 I/O 量之间关系更复杂。
-#. 不同压缩算法和级别具有版本、CPU、兼容性和 workload 边界，必须从实际挂载/文件属性确认。
-#. Btrfs 的 chunk/block group 将逻辑地址映射到一个或多个设备上的物理范围，profile 决定副本或条带布局。
-#. 一个多设备 Btrfs 文件系统不等于所有数据都按同一种 profile 分布；data、metadata、system 可以使用不同 profile。
-#. ``df`` 的通用 VFS 可用空间视图不能完整解释 Btrfs chunk 分配、profile、未分配设备空间和 metadata reserve。
-#. Btrfs 出现 ENOSPC 时，设备仍可能显示未用字节，但当前 data/metadata chunk、profile 或 reserve 无法满足请求。
-#. Metadata ENOSPC 与 data ENOSPC 必须分开分析；COW 更新即使只改小文件也可能需要额外 metadata 空间。
-#. Global reserve 用于帮助关键元数据路径推进，不是普通应用可自由使用的剩余空间。
-#. Balance 重新分配 chunk 中的数据以改变使用率或 profile，不是通用“整理碎片”或无风险日常命令。
-#. Balance 需要额外工作空间，文件系统非常满时可能反而更难执行。
-#. Device add/remove/replace 会改变 chunk 布局和副本位置，操作期间必须同时考虑故障域和剩余容量。
-#. Reflink 让两个文件共享 extent；任一文件后续写入共享范围时才通过 COW 分裂。
-#. Deduplication 若由用户态或其它机制建立共享 extent，也会改变物理占用与后续写放大。
-#. ``du``、``df``、exclusive/shared qgroup 数值回答的问题不同，不能互相替代。
-#. Qgroup 试图统计 subvolume 的 referenced/exclusive 空间，快照和共享关系多时更新成本和解释都更复杂。
-#. 配额启用、rescan 和关系更新会增加元数据工作，生产环境应评估实际版本行为。
-#. Btrfs metadata 自描述字段、checksum、owner 和 generation 帮助识别错误块和旧版本节点。
-#. Tree checker 报错说明读取到的结构不能满足当前格式约束，常需结合设备错误、内存、内核日志和离线工具判断。
-#. Read-only mount 可以阻止继续修改，但不等于损坏已经修复或所有数据都可安全读取。
-#. ``btrfs check --repair`` 具有高风险，不能作为看到错误后的默认第一步；必须按官方建议、版本和备份状态执行。
-#. Scrub、device stats、filesystem usage、subvolume list 和 kernel log 提供不同证据层。
-#. 诊断空间问题应先看 filesystem usage 与 device usage，再看 data/metadata/system profile、reserve、qgroup 和快照共享。
-#. 诊断 checksum 错误应记录 logical address、device、mirror、文件路径映射、scrub 状态和是否有可用好副本。
-#. 诊断写放大应观察 COW、压缩、快照/reflink 数量、随机写模式、transaction commit 和底层设备延迟。
-#. Btrfs 不能替代备份；快照与源数据通常共享同一设备和故障域。
-#. 最稳定阅读顺序是：VFS 写入 → data extent → file extent item → checksum → COW tree nodes → extent refs → transaction commit → root/snapshot/send。
+Btrfs 应按版本化状态树理解
+   文件数据 extent、元数据 B-tree、tree root、事务和引用关系共同表达一个可提交的文件系统状态，而不是一组彼此独立的原地更新块。
 
-必背路径
+普通更新采用 Copy-on-Write
+   新数据或元数据先写入新的物理位置，上层引用随后切换到新版本。旧 extent 只要仍被快照、reflink 或其它 root 引用，就不能释放。
+
+COW 同时作用于数据和元数据
+   修改少量文件内容可能产生新 data extent、file extent item、checksum item 以及多层 B-tree 节点更新，因此小随机写也可能形成明显写放大。
+
+Extent 引用定义共享关系
+   Extent tree、backref 和 refcount 记录物理范围被哪些文件、树根或快照引用。文件逻辑大小不能直接推导其独占物理占用。
+
+Subvolume 是独立 tree root
+   子卷拥有自己的目录树和 inode 编号空间，但仍共享同一 Btrfs 文件系统、事务、设备集合和空间池。
+
+Snapshot 复制根关系而非数据
+   快照初始共享大量元数据和数据 extent，因此创建快速；源和快照后续分歧时才逐步产生新的 COW 空间。
+
+快照删除不等于立即释放空间
+   只有某个 extent 的所有 root、reflink 和快照引用都消失后，它才可回收。目录项删除与真实空间回收可能存在明显时间差。
+
+事务提交切换稳定根
+   多个修改通常聚合进一个 Btrfs transaction。提交过程写出新 tree blocks、extent 引用和 checksum，再让 superblock 指向新的已提交 roots。
+
+Tree log 优化部分 ``fsync``
+   某些文件同步可通过 tree log 记录必要变化，避免每次提交完整全局事务。其恢复仍需正确处理文件、目录项和 rename 依赖。
+
+校验和负责发现内容不一致
+   数据 checksum 通常保存在 checksum tree，元数据块携带自描述校验字段。读回内容不匹配时，内核能够检测损坏。
+
+检测不等于修复
+   自动修复要求存在另一份可读取且校验正确的副本。所有副本都坏、误删除或应用写入错误时，checksum 无法恢复原始业务数据。
+
+Scrub 验证已分配内容
+   Scrub 主动读取数据和元数据并校验，在有冗余时尝试修复。它不是离线结构检查，也不能替代独立备份。
+
+Profile 决定逻辑块到设备布局
+   Data、metadata 和 system block group 可以使用不同 RAID profile。多设备文件系统不能按单一传统 RAID 名称推断所有数据的容错能力。
+
+Btrfs 空间不是单一数字
+   Chunk、block group、profile、metadata reserve、global reserve、快照共享和 qgroup 都影响可分配性。设备仍有未用字节时也可能出现 ``ENOSPC``。
+
+关键路径
 --------
 
 普通 COW 写入：
 
 ::
 
-   用户写入文件逻辑范围
+   用户修改文件逻辑范围
    → Page Cache 形成 dirty data
-   → Btrfs 分配新 data extent
-   → 计算并记录 data checksum
+   → 分配新的 data extent
+   → 计算并记录 checksum
    → 更新 file extent item
-   → COW 修改 filesystem tree leaf/node
+   → COW 修改 filesystem tree 节点
    → 更新 extent refs 与 backrefs
-   → transaction commit 切换到新 root
-   → 旧 extent 由旧快照或其它引用继续持有
+   → transaction commit 写出新 roots
+   → 旧 extent 按剩余引用继续保留或释放
 
-创建快照：
-
-::
-
-   选择源 subvolume
-   → 建立新的 subvolume root
-   → 初始共享源 tree 与 data extents
-   → 快照创建快速完成
-   → 源或快照后续写入触发 COW 分裂
-   → extent 引用计数增加或减少
-   → 最后引用消失时空间才能释放
-
-Checksum 读取与修复：
+创建与分裂快照：
 
 ::
 
-   文件逻辑范围映射到 data extent
-   → 从设备读取目标副本
+   选择源 subvolume root
+   → 创建新的 snapshot root
+   → 初始共享 tree nodes 与 data extents
+   → 源或快照继续读取共享内容
+   → 任一方写入共享范围
+   → 分配新 extent 并切换该方引用
+   → 最后共享引用消失后回收旧 extent
+
+校验与冗余修复：
+
+::
+
+   逻辑范围映射到目标 extent
+   → 从某个设备副本读取数据
    → 计算 checksum
-   → 与 checksum tree 中记录比较
-   → 匹配则返回数据
-   → 不匹配时尝试其它 mirror
-   → 找到好副本则返回并可能修复坏副本
-   → 全部副本失败则报告 I/O / checksum error
+   → 与记录值比较
+   → 匹配则返回内容
+   → 不匹配时读取其它 mirror
+   → 找到好副本时返回并可修复坏副本
+   → 无有效副本时报告 I/O 或 checksum 错误
 
-Send/Receive：
-
-::
-
-   准备只读源 snapshot
-   → 可选指定共同 parent snapshot
-   → send 遍历两个状态树差异
-   → 生成创建、写入、rename、clone 等逻辑命令流
-   → 传输到目标
-   → receive 重建 subvolume 状态
-   → 验证目标快照、parent 链和业务完整性
-
-诊断 Btrfs ENOSPC：
+诊断 ``ENOSPC``：
 
 ::
 
-   保存失败操作和 kernel log
-   → 查看 filesystem usage
-   → 区分 data / metadata / system
-   → 查看各 profile 与设备未分配空间
-   → 检查 global reserve 和 qgroup
+   保存失败操作与内核日志
+   → 区分 data、metadata 和 system 空间
+   → 查看 chunk/profile 与设备未分配空间
+   → 检查 metadata/global reserve
    → 检查快照、reflink 与共享 extent
-   → 判断 chunk 分配、profile 约束或真实容量不足
-   → 保留工作空间后再选择删除、扩容或受控 balance
+   → 检查 qgroup 和 transaction 状态
+   → 判断容量、profile 或分配域限制
+   → 保留工作空间后再删除、扩容或受控 balance
 
-必须区分
+概念辨析
 --------
 
-* COW 更新与原地覆盖：普通 Btrfs 路径写新 extent 并切换引用；NODATACOW 等特殊路径会改变该模型。
-* 快照与备份：快照保留文件系统内部旧 root，通常仍处于相同设备和故障域；备份需要独立副本与恢复验证。
-* Checksum 检测与自动修复：校验和能发现内容不匹配；修复还要求存在可验证的冗余好副本。
-* Subvolume 与独立文件系统：Subvolume 有独立 tree root 和目录层级，但共享同一个 Btrfs 存储池、事务和设备集合。
-* 逻辑大小与物理占用：压缩、快照和 reflink 使一个文件的逻辑长度不能直接推导独占磁盘空间。
-* 设备空闲与可分配空间：未分配设备字节不保证当前 profile 和 metadata/data 域能立即满足 COW 请求。
+* COW 与原地覆盖：普通 Btrfs 写新位置并切换引用；NODATACOW 等特殊路径会改变该模型。
+* Subvolume 与独立文件系统：子卷有独立 root 和目录层级，但共享同一存储池、事务与设备。
+* Snapshot 与备份：快照通常与源处于相同设备和故障域；备份要求独立副本和恢复验证。
+* Checksum 检测与自动修复：校验和能发现不一致；修复还依赖可验证的冗余副本。
+* 逻辑大小与物理占用：压缩、快照和 reflink 会让多个对象共享 extent，二者不能直接换算。
+* 设备空闲与可分配空间：剩余设备字节不保证当前 profile、chunk 和 metadata 域能够满足新的 COW 更新。
 
-一句话结论
-----------
+本章结论
+--------
 
-Btrfs 用 COW 状态树、extent 引用和校验和统一管理写入、快照与完整性，因此空间、性能和恢复都必须按共享关系、事务根和设备 profile 联合判断。
+Btrfs 用 COW 状态树、extent 引用和校验和统一组织写入、快照与完整性；空间、恢复和性能必须按事务根、共享关系与设备 profile 联合分析。
