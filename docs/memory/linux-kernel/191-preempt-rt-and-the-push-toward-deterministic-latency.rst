@@ -104,13 +104,13 @@
 必须区分
 --------
 
-* 平均延迟，与最坏情况延迟。
-* 实时调度优先级，与 CPU 当前是否可被抢占。
-* Threaded IRQ 主体，与 Hardirq Primary Handler。
-* ``spinlock_t`` 的 RT 语义，与 ``raw_spinlock_t`` 的严格原子语义。
-* Priority Inheritance，与消除所有延迟来源。
-* CPU Isolation，与完全没有硬件和固件干扰。
-* 一次 Benchmark 最大值，与经过足够负载和时长验证的延迟上界。
+* 平均延迟与最坏情况延迟：平均值描述总体水平；实时系统是否满足 Deadline 由最大值和长尾上界决定。
+* 实时调度优先级与 CPU 当前是否可被抢占：高优先级决定调度点上的选择；Hardirq、Raw Spinlock 和 Preempt-off 区间仍会阻止立即切换。
+* Threaded IRQ 主体与 Hardirq Primary Handler：Primary Handler 在硬中断上下文完成最小确认并唤醒线程；Threaded Handler 在可调度线程中执行设备主体工作。
+* ``spinlock_t`` 的 RT 语义与 ``raw_spinlock_t`` 的严格原子语义：PREEMPT_RT 下普通 ``spinlock_t`` 可映射为可睡眠并支持 PI 的锁；``raw_spinlock_t`` 始终保持不可睡眠的低级自旋语义。
+* Priority Inheritance 与消除所有延迟来源：PI 缩短支持锁上的优先级反转；它不能解决 IRQ-off、Raw Lock、Firmware、设备或算法执行时间。
+* CPU Isolation 与完全没有硬件和固件干扰：Isolation 减少调度、Tick、IRQ 和 RCU 干扰；NMI、SMI、Machine Check 和硬件事件仍可能出现。
+* 一次 Benchmark 最大值与经过足够负载和时长验证的延迟上界：单次最大值只是样本；可用上界必须在目标硬件、长期压力和真实干扰下重复验证。
 
 一句话结论
 ----------
