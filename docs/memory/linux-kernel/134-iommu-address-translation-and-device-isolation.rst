@@ -1,119 +1,80 @@
 第134章：IOMMU、地址转换与设备隔离
 ==================================
 
-本章必须记住
-------------
+核心知识点
+----------
 
-#. IOMMU 位于设备 DMA 请求与系统内存之间，为设备提供地址翻译、权限检查和隔离。
-#. CPU MMU 翻译 CPU 虚拟地址；IOMMU 翻译设备发出的 IOVA/DMA address。
-#. IOVA 是设备视角地址，不是 CPU virtual address，也不必等于 CPU physical address。
-#. 普通驱动通常只调用 DMA API，由 DMA mapping 层和 IOMMU core 建立设备映射。
-#. ``struct iommu_domain`` 表示一组设备可见地址空间、页表和权限状态。
-#. 设备必须 attachment 到某个 domain，之后 DMA 请求才按该 domain 的映射和权限处理。
-#. Domain attachment 的生命周期通常长于单次 DMA mapping；每次 map 只在当前 domain 中建立映射窗口。
-#. ``dma_map_*()`` 的 ``struct device`` 参数决定使用哪个 DMA mask、IOMMU domain 和后端。
-#. ``dma_addr_t`` 在启用 IOMMU 时通常是 IOVA；驱动只应依赖 DMA API 合同，不能猜物理地址。
-#. ``iommu_map()``、``iommu_unmap()`` 是 IOMMU core 的低层操作，普通设备驱动不应绕过 DMA API直接管理。
-#. IOMMU 映射需要 IOVA、物理页、长度、页粒度和读写权限全部匹配。
-#. ``DMA_TO_DEVICE`` 通常要求设备读权限；``DMA_FROM_DEVICE`` 通常要求设备写权限。
-#. Direction 错误可能在严格 IOMMU 平台上表现为权限 fault，而不是静默数据错误。
-#. IOMMU 能把不连续物理页映射成连续 IOVA，但仍受设备 segment、长度和边界限制。
-#. 连续 IOVA 不表示连续物理内存，也不表示 CPU 获得连续虚拟映射。
-#. IOMMU aperture、保留区和设备 DMA mask 共同限制可分配 IOVA 范围。
-#. 32 位 DMA 设备即使系统内存位于高地址，也可能借助 IOMMU/bounce 获得可表达的低 IOVA。
-#. 映射失败时必须检查 ``dma_mapping_error()``，不能继续把无效地址提交给设备。
-#. Unmap 撤销设备访问授权；设备仍在使用旧 IOVA 时 unmap 会触发 fault 或数据损坏。
-#. 过早 unmap、重复 unmap、长度错误和 direction 不匹配是常见 fault 根因。
-#. 设备 reset 后旧 descriptor 仍可能发出 DMA，请在撤销 mapping 前确认 DMA engine 真正停止。
-#. IOMMU 提供隔离能力，但隔离粒度取决于硬件拓扑、requester ID 和 IOMMU group。
-#. IOMMU group 表示无法被软件安全拆分的最小设备隔离集合，常受 PCIe ACS、桥和平台拓扑影响。
-#. Group 不是性能队列，也不是一个进程；它表达设备间 DMA 隔离边界。
-#. 两个 function 位于同一 group 时，设备直通通常需要把整个 group 作为安全单元处理。
-#. SR-IOV VF 是否能独立隔离取决于 requester ID、ACS、IOMMU 和平台实现，不能只看 sysfs function 数量。
-#. VFIO 使用 IOMMU group/domain 将设备 DMA 限制到用户空间显式映射的内存。
-#. IOMMUFD 是较新的用户空间 I/O 地址空间管理接口，具体能力和对象模型具有版本边界。
-#. Passthrough 模式可能减少翻译成本，但弱化或取消 DMA 隔离，不能当作无风险性能开关。
-#. Identity mapping 让 IOVA 与物理地址数值接近，但仍可能有权限、保留区和平台限制。
-#. IOMMU 开启不等于所有设备都在严格 translated domain；需检查实际 domain/type 和内核配置。
-#. 部分设备可能 bypass IOMMU、使用 identity domain 或因平台限制不能被 remap。
-#. IOMMU 不解决 CPU cache coherency；地址翻译正确后仍需 DMA API 同步和内存顺序。
-#. IOMMU 也不保证设备协议正确；错误长度、越界 descriptor 和固件 bug 仍可访问被映射窗口内的错误位置。
-#. 映射粒度和 IOTLB 会影响性能；大量短生命周期 mapping 会增加 IOVA 分配、页表和失效成本。
-#. Streaming DMA map/unmap 可以触发 IOMMU map/unmap 和 IOTLB invalidation，具体优化由后端决定。
-#. 长期 coherent ring 通常保持稳定 IOVA，减少热路径映射开销，但会长期占用地址空间和内存。
-#. Batch mapping、SG mapping 和固定 buffer 可减少映射频率，但扩大生命周期与内存占用。
-#. Device TLB/IOTLB 缓存设备地址翻译，unmap 后必须完成必要 invalidation 才能安全重用 IOVA。
-#. 驱动通常不直接执行 IOTLB flush；IOMMU/DMA 后端负责映射可见性和失效顺序。
-#. ATS 允许部分 PCIe 设备缓存地址翻译，PASID/SVA 可提供更细地址空间语义，均属硬件与版本敏感能力。
-#. SVA/PASID 让设备请求关联进程地址空间时，页错误、进程退出和设备取消路径更复杂。
-#. 不能从“支持 ATS/PASID”推断设备可任意访问进程地址；仍受绑定、权限和生命周期管理。
-#. IOMMU fault 是设备 DMA 地址空间异常，常包含设备身份、地址、访问方向和原因。
-#. Intel 平台日志常出现 DMAR，AMD 平台常见 AMD-Vi，Arm 常见 SMMU；字段格式随硬件驱动变化。
-#. Fault address 应按 IOVA 解释，不要直接当作 CPU virtual address 在进程 maps 中查找。
-#. Fault 中的 requester/device identity 应先映射回 PCI BDF、platform device 或具体 queue。
-#. Read fault 常对应设备读取无权限/未映射内存；write fault 常对应设备写入无权限/未映射内存。
-#. Fault 地址在合法 mapping 边界附近时，应检查长度、segment、off-by-one 和 descriptor 编码。
-#. Fault 指向已释放区域时，应检查提前 unmap、旧 completion、reset race 和对象复用。
-#. Fault 随高负载出现时，应检查 ring wrap、producer/consumer、tag 重用和并发 teardown。
-#. 没有 fault 也不证明 DMA 正确；bypass、宽映射或同 domain 内越界可能不触发隔离错误。
-#. IOMMU strict/lazy invalidation 策略影响 fault 时机和性能，精确选项依内核与平台。
-#. DMA API debug 与 IOMMU fault 是互补证据：前者检查 API 生命周期，后者报告设备硬件访问异常。
-#. Sysfs ``iommu_group`` 链接可观察 group；启动日志和内核参数可确认 IOMMU 是否启用。
-#. ``lspci -t/-vv``、sysfs driver/group、IOMMU 日志可共同还原设备拓扑与隔离边界。
-#. 虚拟机直通故障应区分 guest IOVA、host IOVA、VFIO mapping 和最终物理页多个层级。
-#. 设备直通前还需处理 BAR、IRQ remapping、reset isolation 和 host driver unbind，不只 DMA domain。
-#. Interrupt remapping 与 DMA remapping 是相关但不同能力；IOMMU 名称不能概括所有中断隔离细节。
-#. Shared group 中任一设备可影响同一隔离边界，因此安全判断不能只审查目标 function。
-#. IOMMU 自身页表和命令队列也有生命周期，系统 suspend/resume/reset 时需由核心重建。
-#. Resume 后设备若恢复旧 DMA 地址而 domain 映射尚未恢复，会触发 fault 或超时。
-#. 热拔插时应先停止设备 DMA，再解除 domain/mapping，最后移除对象。
-#. ``iommu_detach_device`` 或 group teardown 不会替驱动停止硬件发出的请求。
-#. 精确 domain 类型、group 形成、IOTLB、ATS/PASID 和 fault API 属于版本/硬件敏感实现。
-#. 稳定源码阅读顺序是：设备身份 → DMA API → domain attachment → IOVA mapping → device request → fault/unmap → teardown。
+IOMMU 管理设备地址空间
+   CPU MMU 翻译 CPU 虚拟地址；IOMMU 翻译设备发出的 IOVA/DMA address，并执行页表、权限和隔离检查。
 
-必背路径
+IOVA 不是 CPU 地址
+   IOVA 属于设备视角，既不是 CPU virtual address，也不必等于 CPU physical address。驱动只应使用 DMA API 返回的 ``dma_addr_t``。
+
+Domain 保存翻译与权限状态
+   ``struct iommu_domain`` 表示一组设备可见页表、地址空间和访问权限。设备先 attachment 到 domain，单次 DMA mapping 再在其中建立授权窗口。
+
+DMA API 是普通驱动入口
+   ``dma_map_*()`` 根据 ``struct device`` 选择 DMA mask、IOMMU domain 和后端。``iommu_map/unmap`` 属于更低层接口，普通驱动不应绕过 DMA API。
+
+Direction 可以转化为权限
+   ``DMA_TO_DEVICE`` 通常需要设备读权限，``DMA_FROM_DEVICE`` 通常需要设备写权限。Direction 错误在严格平台上可能直接产生 IOMMU fault。
+
+连续 IOVA 不代表连续物理页
+   IOMMU 可以把分散页映射成连续设备地址，但设备 segment、长度、边界和 DMA mask 约束仍然存在。
+
+Mapping 是限时授权
+   Unmap 会撤销设备访问。设备若仍使用旧 IOVA，会产生 fault 或数据破坏，因此必须先确认 DMA engine 和旧 descriptor 已停止。
+
+Group 表达最小安全隔离边界
+   IOMMU group 由 requester ID、桥和 ACS 等拓扑决定，表示无法被软件安全拆分的设备集合，不是性能队列或进程。
+
+VFIO 依赖完整隔离合同
+   设备直通需要 group/domain、用户内存映射、IRQ remapping、reset 隔离和 host driver 解绑共同成立，不能只检查“系统已开启 IOMMU”。
+
+Translated、identity 与 bypass 不同
+   系统存在 IOMMU 不表示每个设备都处于严格 translated domain。Identity mapping、passthrough 或 bypass 会提供不同的地址与隔离语义。
+
+IOMMU 不负责 cache coherency
+   地址翻译只决定设备访问哪一页；CPU/设备何时看到最新内容仍由 DMA sync、coherency 和 barrier 协议保证。
+
+映射与 IOTLB 有性能成本
+   高频短生命周期 map/unmap 会增加 IOVA 分配、页表更新和失效开销。长期映射减少热路径成本，也会长期占用地址空间与内存。
+
+Fault 必须按设备时间线解释
+   日志中的 device/requester、IOVA、方向和原因要映射回具体 queue、descriptor 和 mapping 生命周期，不能拿 IOVA 去查进程虚拟地址。
+
+没有 Fault 不代表 DMA 正确
+   Bypass、过宽映射或合法窗口内越界可能不触发 IOMMU fault。DMA API debug、descriptor 证据和数据校验仍然必要。
+
+关键路径
 --------
 
-普通 DMA 映射经过 IOMMU：
+普通 DMA 映射：
 
 ::
 
    驱动持有 CPU buffer
    → dma_map_single(dev, ...)
-   → DMA backend 选择 IOVA
-   → IOMMU domain 建立 IOVA→physical 映射
+   → DMA backend 分配 IOVA
+   → domain 建立 IOVA→physical 映射
    → 返回 dma_addr_t
-   → 驱动写入 descriptor
+   → 驱动发布 descriptor
    → 设备向 IOVA 发起 DMA
    → IOMMU 检查权限并翻译
-   → 访问系统 RAM
    → 完成后 dma_unmap_single
 
 IOMMU Fault 诊断：
 
 ::
 
-   保存 fault 日志中的设备、IOVA、读写方向和原因
-   → 映射到 PCI BDF / platform device / queue
-   → 查找当前 DMA mapping 生命周期
+   保存 device、IOVA、方向和原因
+   → 映射到 BDF/platform device/queue
+   → 查找当前 mapping 生命周期
    → 检查 direction 与权限
    → 检查长度、边界和地址截断
-   → 检查是否提前 unmap/free
+   → 检查提前 unmap/free
    → 检查 reset/teardown 后旧 DMA
-   → 对齐 descriptor、IRQ 和对象 generation
-
-VFIO 直通：
-
-::
-
-   确认 IOMMU group 隔离边界
-   → 从 host driver 解绑设备
-   → 建立 VFIO/IOMMUFD context
-   → 把 group/device 接入受控 domain
-   → 用户映射 guest/user memory 为 IOVA
-   → 设备只访问已授权窗口
-   → 注入/路由中断
-   → 停止设备后撤销映射和绑定
+   → 对齐 descriptor 与 generation
 
 安全移除：
 
@@ -121,23 +82,23 @@ VFIO 直通：
 
    阻止新请求
    → mask IRQ
-   → 停止并确认 DMA engine idle
-   → 等待 completion/worker
+   → 停止 DMA engine 并确认 idle
+   → 等待 completion 和 worker
    → unmap 所有 IOVA
-   → 解除长期 coherent/pinned memory
+   → 释放 coherent/pinned memory
    → detach/release domain 关系
    → 释放设备对象
 
-必须区分
+概念辨析
 --------
 
-* IOVA 与 CPU Physical Address：IOVA 是设备请求地址；IOMMU 将它翻译到物理页，数值不必相同。
-* IOMMU Domain 与 IOMMU Group：Domain 是翻译与权限状态；group 是最小安全隔离设备集合。
-* 地址翻译与 Cache Coherency：IOMMU 决定访问哪一页；DMA coherency 决定 CPU/设备何时看见最新内容。
-* Mapping 存在与设备已停止：Unmap 前必须确认设备不再使用 IOVA；撤销页表不会主动停止硬件。
-* IOMMU 启用与严格隔离：系统存在 IOMMU 不代表每个设备都处于 translated、独立、安全 domain。
+* IOVA 与 CPU physical address：前者是设备请求地址；IOMMU 将其翻译到物理页。
+* IOMMU domain 与 IOMMU group：Domain 保存翻译和权限；group 表示最小安全隔离设备集合。
+* Address translation 与 cache coherency：前者决定访问哪一页；后者决定双方看到哪一版内容。
+* Mapping 存在与设备已停止：页表授权仍在不代表设备正在使用；撤销映射也不会主动停止硬件。
+* IOMMU enabled 与 strict isolation：启用基础设施不代表所有设备都处于独立 translated domain。
 
-一句话结论
-----------
+本章结论
+--------
 
-IOMMU 把设备 DMA 变成受 domain 页表和权限约束的地址空间访问；可靠性要求设备身份、IOVA mapping、权限和硬件停止顺序在同一生命周期中严格闭合。
+IOMMU 把设备 DMA 变成受 domain 页表和权限约束的地址空间访问。安全性依赖设备身份、IOVA mapping、访问权限、group 边界和硬件停止顺序完整闭合。
