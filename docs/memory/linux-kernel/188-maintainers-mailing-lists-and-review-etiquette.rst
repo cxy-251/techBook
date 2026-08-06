@@ -112,13 +112,13 @@
 必须区分
 --------
 
-* ``MAINTAINERS`` 当前责任，与 Git 历史作者。
-* ``get_maintainer.pl`` 候选，与最终收件人。
-* ``git format-patch`` 生成邮件，与 ``git send-email`` 投递。
-* Cover Letter 整体说明，与单枚 Commit Message。
-* Inline Review 技术回应，与无上下文 Top-post。
-* 新版自包含，与丢失旧版演进线索。
-* 邮件已经发送，与邮件已经进入正确公开归档。
+* ``MAINTAINERS`` 当前责任与 Git 历史作者：``MAINTAINERS`` 表示当前维护边界；历史作者只说明谁曾修改过代码，不自动拥有当前决策责任。
+* ``get_maintainer.pl`` 候选与最终收件人：脚本输出路径和历史匹配候选；最终 To/Cc 必须按实际接口影响、子系统文档和 Review 责任筛选。
+* ``git format-patch`` 生成邮件与 ``git send-email`` 投递：前者把 Commit 转换为纯文本 Patch；后者保持收件人和线程关系把 Patch 发往列表。
+* Cover Letter 整体说明与单枚 Commit Message：Cover Letter 解释整个 Series 的目标、顺序和测试；每枚 Commit Message 仍必须自包含地解释自身逻辑变化。
+* Inline Review 技术回应与无上下文 Top-post：Inline Reply 把答复绑定到具体评论和代码；Top-post 会切断问题与回答的对应关系。
+* 新版自包含与保留旧版演进线索：v2/v3 必须独立可读；Changelog 和原线程同时保留相对上一版的变化原因。
+* 邮件已经发送与邮件已经进入正确公开归档：客户端显示发送成功不证明列表收到；应以目标归档中的 Message-ID 和线程为准。
 
 一句话结论
 ----------
