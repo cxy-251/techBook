@@ -1,0 +1,132 @@
+第192章：Livepatching 与运行中内核更新
+=====================================
+
+本章必须记住
+------------
+
+#. Livepatching 的目标是在内核继续运行的条件下，对有限范围函数实施受控替换。
+#. 它主要服务高可用生产系统中的安全修复和严重缺陷修复，不是任意升级机制。
+#. Livepatch 的第一层能力是函数入口重定向，第二层难题是新旧语义一致性。
+#. “新函数已经注册”不等于所有 Task 已经安全切换到新实现。
+#. 运行中内核拥有共享对象、持锁 Task、睡眠调用栈、异步 Callback 和模块依赖，补丁必须尊重这些状态。
+#. ``struct klp_patch`` 表示一个 Livepatch 补丁集合。
+#. ``struct klp_object`` 表示目标对象，可指向 ``vmlinux`` 或某个内核模块。
+#. ``struct klp_func`` 表示旧函数到新函数的替换关系。
+#. 旧符号名、新函数地址、目标对象和补丁模式共同构成函数替换元数据。
+#. ``include/linux/livepatch.h`` 定义主要对象与接口，``kernel/livepatch/`` 承载核心实现。
+#. Livepatch 模块加载只是把补丁代码和元数据带入内核。
+#. Core 层随后完成对象解析、符号定位、Sysfs 发布、函数替换准备和 Transition 启动。
+#. Linux Livepatch 常利用 ftrace 在函数入口处选择旧实现或新实现。
+#. ftrace 重定向只能接管控制流，不能自动理解数据结构和业务状态。
+#. 新旧函数必须保持调用约定、参数含义、返回值、锁前提和引用合同兼容。
+#. 修改函数内部边界检查通常比改变跨函数对象协议更适合 Livepatch。
+#. 大规模结构体布局变化、锁层级重写、初始化顺序重排和 ABI 改动通常不适合简单 Livepatch。
+#. 一个 Patch 同时替换多个函数时，应证明过渡期允许 Task 看到新旧实现组合。
+#. Livepatch 一致性模型通常按 Task 推进，而非瞬间全局切换。
+#. 每个 Task 具有自己的 Patch State，决定调用时选择旧函数还是新函数。
+#. Transition 期间可以同时存在已切换 Task 和尚未切换 Task。
+#. 补丁作者必须证明这种并存状态不会破坏共享对象语义。
+#. Task 到达安全点后，内核才能把它推进到新 Patch State。
+#. 用户 Task 返回用户态时可形成自然切换边界。
+#. Idle Task 和部分内核路径可通过显式 Patch Point 更新状态。
+#. 对睡眠 Task，可借助可靠 Stack Trace 判断受影响函数是否仍在调用栈上。
+#. ``CONFIG_HAVE_RELIABLE_STACKTRACE`` 等架构能力会影响安全栈检查范围。
+#. 栈回溯不可靠时，某些内核线程可能长期阻塞 Transition 完成。
+#. “Patch 已 Enable”与“Transition 已完成”必须分开观察。
+#. Sysfs 中的 Enabled、Transition 和 Task 状态接口用于观测补丁生命周期，精确路径随版本和实现变化。
+#. Transition 完成意味着相关 Task 已收敛到目标 Patch State，不代表业务测试自动完成。
+#. Livepatch 模块的 Init 和 Enable 路径必须处理部分注册和错误回滚。
+#. 目标模块尚未加载时，Livepatch Core 需要在对象出现后再应用对应函数替换。
+#. 目标模块卸载、重载和补丁对象生命周期必须协调。
+#. Livepatch 模块不能在仍被函数重定向和对象引用使用时直接卸载。
+#. Patch Stack 允许多个补丁累积，当前函数实现可能来自最上层补丁。
+#. ``replace`` 类模式可表示用新补丁集合替换旧累积状态，具体语义按目标版本确认。
+#. 多补丁叠加会增加回滚、依赖和函数来源判断复杂度。
+#. 回滚不是简单卸载模块，而是启动从 Patched State 到 Unpatched State 的反向 Transition。
+#. 回滚时同样要证明 Task 能安全退出新语义。
+#. 新函数若已经改变不可逆共享状态，恢复旧函数入口不等于恢复旧系统状态。
+#. Livepatch 设计必须提前区分代码替换是否可逆、数据迁移是否可逆和业务副作用是否可逆。
+#. 安全修复需要考虑攻击者是否能故意阻塞 Task Transition 或利用旧状态窗口。
+#. Transition 长期未完成时，应定位阻塞 Task、调用栈和受影响函数。
+#. 强制推进或忽略安全检查可能破坏一致性，只能在明确风险模型下使用。
+#. Livepatch 不能替代重启后的完整新内核验证。
+#. 某些补丁只能降低紧急风险，最终仍应安排常规升级和重启。
+#. 一个适合 Livepatch 的修复通常范围小、函数边界清楚、状态语义兼容、依赖少并可独立验证。
+#. 安全漏洞修复仍需先进入正常上游历史，再由发行版或运维体系生成目标内核对应 Livepatch。
+#. Livepatch 二进制必须严格匹配目标 Kernel Build、符号、配置和对象布局。
+#. 同一源代码版本在不同编译器、Config、LTO 或架构下可能产生不同函数和符号条件。
+#. Livepatch 构建、签名、分发和加载链属于供应链安全的一部分。
+#. Secure Boot、Module Signature 和 Lockdown 策略可能限制 Livepatch 模块加载。
+#. 补丁加载权限应限制在可信管理面，并完整审计补丁身份和激活时间。
+#. 生产启用前应验证补丁模块、目标 Build ID、依赖、Transition 和回滚流程。
+#. 测试应覆盖补丁前复现、激活期间并发、激活后功能、回滚和再次激活。
+#. 对锁和引用修复，应验证新旧 Task 并存时共享对象仍满足不变量。
+#. 对网络、存储和文件系统路径，应叠加真实 I/O 和故障负载观察 Transition。
+#. 对长期睡眠 Task 和内核线程，应验证它们不会永久阻塞补丁收敛。
+#. 可观测证据至少包括 Patch 状态、Transition 状态、阻塞 Task、Kernel Log 和业务健康指标。
+#. 函数是否已重定向只能证明代码路径变化，不能证明漏洞不可触发或系统状态已修复。
+#. 业务验证必须检查原始故障、错误码、数据一致性、延迟和资源状态。
+#. Livepatch 失败时，应区分模块加载失败、符号解析失败、函数替换失败、Transition 卡住和业务回归。
+#. 符号不存在可能来自配置裁剪、编译优化、目标模块未加载或版本不匹配。
+#. Transition 卡住通常需要检查 Task 栈、内核线程循环和安全点可达性。
+#. 激活后业务异常可能来自新函数自身错误，也可能来自新旧语义并存假设不成立。
+#. 回滚后异常仍存在可能意味着补丁已经修改不可逆共享状态。
+#. Livepatch 的运维 Runbook 应包含加载、验证、阻塞诊断、回滚、升级和重启决策。
+#. Patch 状态必须纳入资产管理，避免机器间补丁栈不一致。
+#. 多台主机滚动启用时，应先小范围 Canary，再扩大覆盖并保留回滚窗口。
+#. Livepatch 不能消除生产变更风险，只是把重启风险转换为运行时转场风险。
+#. 稳定分析顺序是：目标函数 → 外部合同 → 共享状态 → Task Transition → 依赖/叠加 → 回滚 → 生产验证。
+
+必背路径
+--------
+
+补丁激活：
+
+::
+
+   Livepatch Module Load
+   → 注册 struct klp_patch / klp_object / klp_func
+   → 解析 vmlinux 或目标 Module 符号
+   → 准备 ftrace 函数重定向
+   → 启动 Per-task Transition
+   → Task 在安全点更新 Patch State
+   → 所有 Task 收敛
+   → Transition 完成
+   → 功能与业务验证
+
+回滚路径：
+
+::
+
+   发现业务回归或需要撤销
+   → 确认补丁依赖和不可逆状态
+   → 启动反向 Transition
+   → Task 逐步回到旧 Patch State
+   → 函数入口恢复旧实现
+   → 验证共享对象和业务状态
+   → 卸载补丁模块或安排重启升级
+
+必须区分
+--------
+
+* 函数入口可替换，与系统语义一致；
+* 补丁模块已加载，与补丁已对所有 Task 生效；
+* Transition 完成，与业务修复验证完成；
+* 恢复旧函数入口，与恢复旧共享状态；
+* Livepatch 紧急修复，与完整内核升级；
+* 源码补丁相同，与不同 Kernel Build 可共用同一 Livepatch 二进制。
+
+一句话结论
+----------
+
+Livepatching 在共享内核状态持续运行时按 Task 安全切换函数实现，因此真正的核心不是函数替换本身，而是新旧语义并存、收敛和回滚的一致性证明。
+
+来源
+----
+
+* 教材：AIBook《Linux Kernel》；
+* Part：Part 39：Modern Kernel Evolution PREEMPT_RT, Livepatching, Rust, Confidential Computing, and Future Directions；
+* 章节：Chapter 192: Livepatching and Updating a Running Kernel；
+* 源文件：``docs/LinuxK/Part_39_Modern_Kernel_Evolution_PREEMPT_RT_Livepatching_Rust_Confidential_Computing_and_Future_Directions/Chapter_192_Livepatching_and_Updating_a_Running_Kernel.md``；
+* 固定版本：``18386764582829f2b807b7b0947785eb77b50446``；
+* 固定链接：https://github.com/cxy-251/aiBook/blob/18386764582829f2b807b7b0947785eb77b50446/docs/LinuxK/Part_39_Modern_Kernel_Evolution_PREEMPT_RT_Livepatching_Rust_Confidential_Computing_and_Future_Directions/Chapter_192_Livepatching_and_Updating_a_Running_Kernel.md
