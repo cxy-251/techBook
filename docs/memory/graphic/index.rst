@@ -147,7 +147,16 @@ Part 16：动画与运动系统
 * `第079章：骨骼动画数据路径与 GPU Skinning <079-skeletal-animation-data-path-and-gpu-skinning.rst>`_；
 * `第080章：动画压缩、重定向与运行时流式加载 <080-animation-compression-retargeting-and-runtime-streaming.rst>`_。
 
+Part 17：OpenGL 图形 API 生态
+----------------------------
+
+* `第081章：OpenGL 状态机与 Context 生命周期 <081-opengl-state-machine-and-context-lifecycle.rst>`_；
+* `第082章：OpenGL Pipeline 到 Workflow 的映射 <082-pipeline-mapping-to-workflow.rst>`_；
+* `第083章：OpenGL 状态管理与 Context <083-state-management-and-contexts.rst>`_；
+* `第084章：OpenGL Buffer 与 Texture <084-buffers-and-textures.rst>`_；
+* `第085章：OpenGL 调试与扩展 <085-debugging-and-extensions.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 skeleton/rig、state/blend、physics writeback、skinning data path 还是 compression/retarget/streaming，再沿 local pose、global pose、palette、root motion、constraint、buffer 与 cache 路径寻找第一处失真，最后用骨架调试、pose A/B、GPU binding、stream/cache 与动画预算指标验证结果。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 context 生命周期、draw state、跨 context 所有权、buffer/texture 更新还是 debug/capability 边界，再沿 framebuffer、program、VAO、resource binding、sync 与 feature profile 路径寻找第一处失配，最后用 debug callback、state snapshot、frame capture、fence 和 CPU/GPU timing 验证结论。
