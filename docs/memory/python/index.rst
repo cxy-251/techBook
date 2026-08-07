@@ -98,6 +98,16 @@ Part 10：标准库设计
 * `第054章：Filesystem and OS Abstraction <054-filesystem-os-abstraction.rst>`_；
 * `第055章：Concurrency Abstraction <055-concurrency-abstraction.rst>`_。
 
+Part 11：Python C API
+--------------------
+
+* `第056章：Python C API Entry Points and Runtime Contract <056-python-c-api-entry-points-runtime-contract.rst>`_；
+* `第057章：Extension Type System <057-extension-type-system.rst>`_；
+* `第058章：Embedding and Interop <058-embedding-and-interop.rst>`_；
+* `第059章：Reference Ownership and Error Path Discipline <059-reference-ownership-error-path-discipline.rst>`_；
+* `第060章：Stable ABI, Limited API, and Extension Compatibility <060-stable-abi-limited-api-extension-compatibility.rst>`_；
+* `第061章：Buffer Protocol, Capsules, and Native Boundary Design <061-buffer-protocol-capsules-native-boundary-design.rst>`_。
+
 阅读方式
 --------
 
