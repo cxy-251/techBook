@@ -20,6 +20,16 @@ Part 2：STL Core Mechanisms
 * `第008章：Generic Algorithm Design <008-generic-algorithm-design.rst>`_；
 * `第009章：Exception Safety <009-exception-safety.rst>`_。
 
+Part 3：Sequence Containers
+--------------------------
+
+* `第010章：Vector <010-vector.rst>`_；
+* `第011章：Array <011-array.rst>`_；
+* `第012章：Deque <012-deque.rst>`_；
+* `第013章：List <013-list.rst>`_；
+* `第014章：Forward List <014-forward-list.rst>`_；
+* `第015章：String <015-string.rst>`_。
+
 阅读方式
 --------
 
