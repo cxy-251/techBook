@@ -251,7 +251,16 @@ Part 27：图形学中的机器学习
 * `第139章：ML 材质与着色 <139-ml-for-material-and-shading.rst>`_；
 * `第140章：混合渲染管线 <140-hybrid-rendering-pipelines.rst>`_。
 
+Part 28：虚拟现实与增强现实图形
+-----------------------------
+
+* `第141章：VR 渲染模型 <141-vr-rendering-models.rst>`_；
+* `第142章：Foveated Rendering <142-foveated-rendering.rst>`_；
+* `第143章：延迟降低技术 <143-latency-reduction-techniques.rst>`_；
+* `第144章：Stereo 与 Multi-View Rendering <144-stereo-and-multi-view-rendering.rst>`_；
+* `第145章：VR 与 AR 平台图形 <145-vr-and-ar-platform-graphics.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 neural scene/material/denoise/upscale 的角色与 inference contract、noisy signal/guide/history 去噪链、differentiable forward/loss/gradient 优化、ML material 的生成/验证/artist override，还是 raster/ray/neural/fallback 的 hybrid frame graph，再沿 training/validation data、feature buffer、motion/history、parameter gradient、material package、GPU pass、temporary memory 与 fallback threshold 寻找第一处失配，最后用 reference/held-out render、temporal artifact、GPU timestamp、peak memory、quality metric 和传统路径 A/B 验证结论。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 XR runtime/frame timing 与 predicted pose、per-eye stereo/view resource、gaze/foveated rate map、prediction/late latching/reprojection 延迟链、multi-view sharing/viewIndex，还是 passthrough/anchor/input/composition layer 的平台集成，再沿 predicted display time、eye pose/FOV、swapchain layer、depth/motion、gaze age、GPU/compositor timing、capability/fallback 与 thermal profile 寻找第一处失配，最后用 stereo debug scene、rate-map overlay、motion-to-photon/reprojection/dropped-frame 指标、frame capture 和跨平台 A/B 验证结论。
