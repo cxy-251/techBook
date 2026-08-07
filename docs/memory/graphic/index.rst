@@ -222,7 +222,17 @@ Part 24：跨 API 抽象与统一框架
 * `第122章：GPU 资源抽象与生命周期模型 <122-gpu-resource-abstraction-and-lifetime-model.rst>`_；
 * `第123章：框架集成策略 <123-framework-integration-strategies.rst>`_。
 
+Part 25：科学可视化
+------------------
+
+* `第124章：科学可视化基础 <124-visualization-fundamentals.rst>`_；
+* `第125章：体渲染 <125-volume-rendering.rst>`_；
+* `第126章：流场与流线可视化 <126-flow-and-streamline-visuals.rst>`_；
+* `第127章：大规模数据集渲染 <127-large-dataset-rendering.rst>`_；
+* `第128章：交互模型 <128-interaction-models.rst>`_；
+* `第129章：交互式可视化与 UX 设计 <129-interactive-visualization-and-ux-design.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 RHI/Backend 抽象边界、resource usage/state/view、Shader source/reflection/binding/variant、GPU resource lifetime/aliasing，还是 capability/fallback 与框架模块集成，再沿 device profile、resource/pipeline handle、pass dependency、barrier/queue、shader identity、frame fence 与 backend diagnostics 寻找第一处失配，最后用 validation、frame capture、pipeline/cache statistics、GPU timestamp 和跨 backend A/B 结果验证结论。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于科学数据的字段/单位/坐标与视觉映射、volume ray marching/transfer function、vector field/streamline integration、Out-of-Core/LOD/streaming，还是 interaction state/versioning/multi-view UX，再沿 dataset metadata、mapping、GPU resource、sampling/LOD、cache/upload、semantic state、dirty/invalidation 与 frame feedback 寻找第一处失配，最后用数值抽样、legend/selection 检查、resident/cache/IO 指标、GPU timestamp、input-to-feedback latency 和任务完成准确率验证结论。
