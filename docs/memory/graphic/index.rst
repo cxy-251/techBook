@@ -175,7 +175,17 @@ Part 19：Vulkan 与 Metal 图形 API 生态
 * `第095章：同步与内存 <095-synchronization-and-memory.rst>`_；
 * `第096章：高级 Pipeline 特性——Ray Tracing 与 Mesh Shading <096-advanced-pipeline-features-ray-tracing-and-mesh-shading.rst>`_。
 
+Part 20：Web 图形 API
+--------------------
+
+* `第097章：WebGL 基础 <097-webgl-fundamentals.rst>`_；
+* `第098章：WebGPU Device、Queue 与 Pipeline 模型 <098-webgpu-device-queue-and-pipeline-model.rst>`_；
+* `第099章：WebGPU 高级特性 <099-webgpu-advanced-features.rst>`_；
+* `第100章：将 Web API 映射到渲染 Pipeline <100-mapping-web-apis-to-pipeline.rst>`_；
+* `第101章：浏览器渲染约束 <101-browser-rendering-constraints.rst>`_；
+* `第102章：Web 图形性能 <102-web-performance.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 Vulkan/Metal 设备与提交对象链、pipeline key/cache、shader resource table、资源同步/内存，还是 RT/Mesh Shading 高级路径，再沿 device、queue、command buffer、pipeline、descriptor/argument table、barrier/layout/ownership、AS/meshlet 与 frame fence 寻找第一处失配，最后用 validation/debug layer、RenderDoc/Xcode GPU Capture、资源历史和 CPU/GPU timeline 验证结论。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 WebGL context/state、WebGPU device/pipeline/bind group、GPU-driven compute/indirect、Web asset→upload→submit 数据路径、浏览器主线程/DOM 合成还是持续性能/内存，再沿 canvas/context/device、shader interface、buffer/texture、command encoder/queue、rAF/worker、upload/GC 与 telemetry 路径寻找第一处失配，最后用 validation/error、Performance/LoAF、GPU timestamp、context/device loss 和 frame percentile 验证结论。
