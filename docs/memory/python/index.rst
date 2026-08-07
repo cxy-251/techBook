@@ -42,7 +42,17 @@ Part 4：编译流水线
 * `第022章：Tokenizer 与 PEG 解析器 <022-tokenizer-and-peg-parser.rst>`_；
 * `第023章：AST 与符号表 <023-ast-and-symbol-table.rst>`_；
 * `第024章：CFG 与字节码生成 <024-cfg-and-bytecode-generation.rst>`_；
-* `第025章：字节码架构 <025-bytecode-architecture.rst>`_。
+* `第025章：字节码架构 <025-bytecode-architecture.rst>`_；
+* `第026章：Adaptive Runtime（PEP 659） <026-adaptive-runtime-pep-659.rst>`_。
+
+Part 5：求值运行时
+-----------------
+
+* `第027章：Execution Engine <027-execution-engine.rst>`_；
+* `第028章：Execution State and Frame <028-execution-state-and-frame.rst>`_；
+* `第029章：Callable Runtime <029-callable-runtime.rst>`_；
+* `第030章：Suspended Execution Model <030-suspended-execution-model.rst>`_；
+* `第031章：Async Runtime <031-async-runtime.rst>`_。
 
 阅读方式
 --------
