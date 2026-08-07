@@ -122,6 +122,15 @@ Part 12：CPython 源码阅读
 * `第070章：gcmodule.c and obmalloc.c <070-gcmodule-obmalloc.rst>`_；
 * `第071章：importlib asyncio and contextlib <071-importlib-asyncio-contextlib.rst>`_。
 
+Part 13：Runtime Evolution
+-------------------------
+
+* `第072章：Parser and Compiler Pipeline Evolution <072-parser-compiler-pipeline-evolution.rst>`_；
+* `第073章：Adaptive Interpreter, Specialization, and JIT Direction <073-adaptive-interpreter-specialization-jit-direction.rst>`_；
+* `第074章：Immortal Objects, Memory Model, and Free-Threaded Python <074-immortal-objects-memory-model-free-threaded-python.rst>`_；
+* `第075章：Subinterpreters, Isolation, and Runtime Parallelism <075-subinterpreters-isolation-runtime-parallelism.rst>`_；
+* `第076章：Reading Future CPython Changes with Stable Models <076-reading-future-cpython-changes-stable-models.rst>`_。
+
 阅读方式
 --------
 
