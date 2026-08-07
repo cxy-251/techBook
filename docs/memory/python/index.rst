@@ -108,6 +108,20 @@ Part 11：Python C API
 * `第060章：Stable ABI, Limited API, and Extension Compatibility <060-stable-abi-limited-api-extension-compatibility.rst>`_；
 * `第061章：Buffer Protocol, Capsules, and Native Boundary Design <061-buffer-protocol-capsules-native-boundary-design.rst>`_。
 
+Part 12：CPython 源码阅读
+------------------------
+
+* `第062章：CPython Source Tree <062-cpython-source-tree.rst>`_；
+* `第063章：typeobject.c <063-typeobject-c.rst>`_；
+* `第064章：dictobject.c <064-dictobject-c.rst>`_；
+* `第065章：listobject.c and unicodeobject.c <065-listobject-c-unicodeobject-c.rst>`_；
+* `第066章：descrobject.c and funcobject.c <066-descrobject-c-funcobject-c.rst>`_；
+* `第067章：genobject.c and frameobject.c <067-genobject-c-frameobject-c.rst>`_；
+* `第068章：compile.c and symtable.c <068-compile-c-symtable-c.rst>`_；
+* `第069章：ceval.c <069-ceval-c.rst>`_；
+* `第070章：gcmodule.c and obmalloc.c <070-gcmodule-obmalloc.rst>`_；
+* `第071章：importlib asyncio and contextlib <071-importlib-asyncio-contextlib.rst>`_。
+
 阅读方式
 --------
 
