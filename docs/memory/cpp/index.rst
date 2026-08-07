@@ -63,6 +63,13 @@ Part 7：STL Algorithms
 * `第031章：Heap Algorithms <031-heap-algorithms.rst>`_；
 * `第032章：Numeric Algorithms <032-numeric-algorithms.rst>`_。
 
+Part 8：Callable Objects and Invocation
+---------------------------------------
+
+* `第033章：Function Objects <033-function-objects.rst>`_；
+* `第034章：Lambda Expressions <034-lambda-expressions.rst>`_；
+* `第035章：Std Function <035-std-function.rst>`_。
+
 阅读方式
 --------
 
