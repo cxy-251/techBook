@@ -111,7 +111,16 @@ Part 12：空间数据结构
 * `第059章：Scene Graph <059-scene-graphs.rst>`_；
 * `第060章：空间加速策略对比 <060-acceleration-strategy-comparison.rst>`_。
 
+Part 13：高级渲染算法
+--------------------
+
+* `第061章：屏幕空间效果 <061-screen-space-effects.rst>`_；
+* `第062章：体积渲染 <062-volumetric-rendering.rst>`_；
+* `第063章：粒子系统 <063-particle-systems.rst>`_；
+* `第064章：Hair、Fur 与 Cloth 渲染 <064-hair-fur-cloth-rendering.rst>`_；
+* `第065章：后处理管线 <065-post-processing-pipelines.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定结构按对象还是按空间组织，再沿关键路径复盘构建、更新、遍历、payload 与 Scene Graph/空间索引边界，最后用 build、update、query、memory 和 bandwidth 指标验证空间结构是否真正降低了当前查询成本。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定算法依赖的是屏幕 buffer、体积介质、粒子状态、动态细几何还是 HDR 图像链，再沿关键路径复盘采样、历史复用、GPU buffer、LOD、透明与 frame graph 资源边界，最后用中间资源、GPU pass 时间和 fallback 证据验证高级渲染算法是否稳定。
