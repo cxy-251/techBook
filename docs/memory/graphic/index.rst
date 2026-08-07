@@ -68,7 +68,16 @@ Part 7：Ray Tracing 与真实感渲染
 * `第036章：Monte Carlo 积分 <036-monte-carlo-integration.rst>`_；
 * `第037章：Ray Tracing 优化 <037-ray-tracing-optimization.rst>`_。
 
+Part 8：全局光照技术
+-------------------
+
+* `第038章：Radiosity 方法 <038-radiosity-methods.rst>`_；
+* `第039章：Path Tracing <039-path-tracing.rst>`_；
+* `第040章：Photon Mapping <040-photon-mapping.rst>`_；
+* `第041章：双向渲染技术 <041-bidirectional-techniques.rst>`_；
+* `第042章：Irradiance Caching <042-irradiance-caching.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定 ray 类型、命中语义、采样分布、能量权重和加速结构，再沿关键路径复盘 generation、intersection、shading、递归与 traversal，最后用概念边界检查真实感渲染判断是否准确。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定光照表示、采样方向、概率权重、空间缓存和动态边界，再沿关键路径复盘能量传播、路径构造、样本复用与误差控制，最后用概念边界检查全局光照判断是否准确。
