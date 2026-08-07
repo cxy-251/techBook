@@ -156,7 +156,16 @@ Part 17：OpenGL 图形 API 生态
 * `第084章：OpenGL Buffer 与 Texture <084-buffers-and-textures.rst>`_；
 * `第085章：OpenGL 调试与扩展 <085-debugging-and-extensions.rst>`_。
 
+Part 18：Direct3D 与 HLSL 图形 API 生态
+--------------------------------------
+
+* `第086章：Direct3D 设备、管线与资源模型 <086-direct3d-device-pipeline-and-resource-model.rst>`_；
+* `第087章：Direct3D Pipeline Mapping <087-pipeline-mapping.rst>`_；
+* `第088章：Direct3D 资源绑定模型 <088-resource-binding-models.rst>`_；
+* `第089章：HLSL Shader 系统 <089-hlsl-shader-system.rst>`_；
+* `第090章：多线程渲染 <090-multi-threaded-rendering.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 context 生命周期、draw state、跨 context 所有权、buffer/texture 更新还是 debug/capability 边界，再沿 framebuffer、program、VAO、resource binding、sync 与 feature profile 路径寻找第一处失配，最后用 debug callback、state snapshot、frame capture、fence 和 CPU/GPU timing 验证结论。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 device/swap-chain 对象链、PSO 与 draw state、descriptor/root binding、HLSL 编译契约还是多线程 ownership，再沿 adapter、resource/view、command list、barrier、descriptor、DXIL、queue 与 fence 路径寻找第一处失配，最后用 debug layer、PIX/RenderDoc、shader reflection、resource history 和 CPU/GPU timeline 验证结论。
