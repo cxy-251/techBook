@@ -84,7 +84,16 @@ Part 9：SSA Form and Modern IR Design
 * `第044章：SSA-Based Optimizations <044-ssa-based-optimizations.rst>`_；
 * `第045章：SSA as the Language of Modern Optimizers <045-ssa-as-the-language-of-modern-optimizers.rst>`_。
 
+Part 10：Optimization Passes and Transformation Pipelines
+----------------------------------------------------------
+
+* `第046章：Semantics Preserving Transformation Criteria <046-semantics-preserving-transformation-criteria.rst>`_；
+* `第047章：Analysis Passes vs Transform Passes <047-analysis-passes-vs-transform-passes.rst>`_；
+* `第048章：Constant Folding, DCE, CSE, and Inlining <048-constant-folding-dce-cse-and-inlining.rst>`_；
+* `第049章：Pass Ordering and Optimization Pipelines <049-pass-ordering-and-optimization-pipelines.rst>`_；
+* `第050章：Miscompilation as the Dark Side of Optimization <050-miscompilation-as-the-dark-side-of-optimization.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先定位当前 representation、CFG 与 value identity，再沿 predecessor/successor、fact merge、transfer function、SSA definition/use、phi/block argument、dominance 和 memory/effect boundary 复盘事实如何形成，最后用 verifier、reachability、side-effect 与 conservative proof 检查优化是否合法。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先定位当前 representation、analysis fact 与 transform precondition，再沿 observable behavior、value/CFG rewrite、analysis preservation、pass ordering 和 pipeline interaction 复盘优化证明链，最后用 verifier、UB/effect boundary、IR diff 与最小反例检查改写是否合法。
