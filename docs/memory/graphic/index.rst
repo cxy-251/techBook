@@ -77,7 +77,15 @@ Part 8：全局光照技术
 * `第041章：双向渲染技术 <041-bidirectional-techniques.rst>`_；
 * `第042章：Irradiance Caching <042-irradiance-caching.rst>`_。
 
+Part 9：纹理映射与采样
+---------------------
+
+* `第043章：纹理坐标、Texel 与采样数据 <043-texture-coordinates-texels-and-sampling-data.rst>`_；
+* `第044章：过滤与 Mipmapping <044-filtering-and-mipmapping.rst>`_；
+* `第045章：纹理压缩 <045-texture-compression.rst>`_；
+* `第046章：高级纹理技术 <046-advanced-texture-techniques.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定光照表示、采样方向、概率权重、空间缓存和动态边界，再沿关键路径复盘能量传播、路径构造、样本复用与误差控制，最后用概念边界检查全局光照判断是否准确。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定采样坐标、纹理语义、颜色空间、sampler 与 mip，再沿关键路径复盘过滤、压缩、投影、环境与体积采样，最后用概念边界检查纹理画质和性能判断是否准确。
