@@ -48,6 +48,15 @@ Part 5：Type Systems, Type Checking, and Type Inference
 * `第024章：Generics, Templates, and Parametric Polymorphism <024-generics-templates-and-parametric-polymorphism.rst>`_；
 * `第025章：Type Inference and Constraint Solving <025-type-inference-and-constraint-solving.rst>`_。
 
+Part 6：Intermediate Representation and Program Lowering
+--------------------------------------------------------
+
+* `第026章：Intermediate Representation as Compiler Working Language <026-intermediate-representation-as-compiler-working-language.rst>`_；
+* `第027章：High-Level IR vs Low-Level IR <027-high-level-ir-vs-low-level-ir.rst>`_；
+* `第028章：Lowering as Controlled Loss of Abstraction <028-lowering-as-controlled-loss-of-abstraction.rst>`_；
+* `第029章：IR Verification and Structural Invariants <029-ir-verification-and-structural-invariants.rst>`_；
+* `第030章：Designing IR for Analysis and Transformation <030-designing-ir-for-analysis-and-transformation.rst>`_。
+
 阅读方式
 --------
 
