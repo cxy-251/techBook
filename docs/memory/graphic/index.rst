@@ -49,7 +49,17 @@ Part 5：Shader 系统与编程
 * `第025章：Compute Shader <025-compute-shaders.rst>`_；
 * `第026章：动态 Shader 生成与热更新 <026-dynamic-shader-generation-and-hot-reloading.rst>`_。
 
+Part 6：光照与材质模型
+---------------------
+
+* `第027章：局部光照模型 <027-local-illumination-models.rst>`_；
+* `第028章：BRDF 与材质系统 <028-brdf-and-material-systems.rst>`_；
+* `第029章：反射与 Fresnel <029-reflection-and-fresnel.rst>`_；
+* `第030章：次表面散射 <030-subsurface-scattering.rst>`_；
+* `第031章：阴影技术 <031-shadowing-techniques.rst>`_；
+* `第032章：高级材质模型与微表面 BRDF <032-advanced-material-models-and-microfacet-brdf.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定对象、数据输入、资源绑定、执行粒度与管线阶段，再沿关键路径复盘编译、执行、同步和输出，最后用概念边界检查 Shader 判断是否准确。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定材质输入、光照方向、能量路径、颜色空间与资源阶段，再沿关键路径复盘直接光、反射、散射、阴影和材质分层，最后用概念边界检查光照判断是否准确。
