@@ -93,7 +93,16 @@ Part 10：可见性与剔除算法
 * `第049章：Portal 与 Cell 剔除 <049-portal-and-cell-culling.rst>`_；
 * `第050章：硬件遮挡剔除 <050-hardware-occlusion.rst>`_。
 
+Part 11：图像处理与视觉感知
+--------------------------
+
+* `第051章：色彩理论与色彩空间 <051-color-theory-and-color-spaces.rst>`_；
+* `第052章：图像过滤与重建 <052-image-filtering-and-reconstruction.rst>`_；
+* `第053章：Tone Mapping、HDR 与曝光控制 <053-tone-mapping-hdr-and-exposure-control.rst>`_；
+* `第054章：感知指标、Gamma 与显示校准 <054-perceptual-metrics-gamma-and-display-calibration.rst>`_；
+* `第055章：后处理管线与图像质量调试 <055-post-processing-pipeline-and-image-quality-debugging.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定可见性证据来自视锥、空间拓扑还是深度，再沿关键路径复盘 bounds、portal、query/HZB、状态缓存与 GPU-driven 消费，最后用误剔除、同步成本和真实 pass 收益检查剔除策略是否成立。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定图像当前处于 scene-linear、temporal reconstruction 还是 display output 阶段，再沿关键路径复盘颜色空间、filter footprint、HDR/曝光、history、显示校准与 frame graph 资源边界，最后用中间纹理和连续帧证据定位最早出错的图像处理阶段。
