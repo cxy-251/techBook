@@ -80,6 +80,14 @@ Part 9：Traits and Template Metaprogramming
 * `第040章：SFINAE <040-sfinae.rst>`_；
 * `第041章：Concepts <041-concepts.rst>`_。
 
+Part 10：Modern STL
+-------------------
+
+* `第042章：Ranges <042-ranges.rst>`_；
+* `第043章：Views <043-views.rst>`_；
+* `第044章：Span <044-span.rst>`_；
+* `第045章：String View <045-string-view.rst>`_。
+
 阅读方式
 --------
 
