@@ -54,6 +54,14 @@ Part 5：求值运行时
 * `第030章：Suspended Execution Model <030-suspended-execution-model.rst>`_；
 * `第031章：Async Runtime <031-async-runtime.rst>`_。
 
+Part 6：内存系统
+---------------
+
+* `第032章：引用计数 <032-reference-counting.rst>`_；
+* `第033章：垃圾回收 <033-garbage-collection.rst>`_；
+* `第034章：Pymalloc 架构 <034-pymalloc-architecture.rst>`_；
+* `第035章：Immortal Objects（PEP 683） <035-immortal-objects-pep-683.rst>`_。
+
 阅读方式
 --------
 
