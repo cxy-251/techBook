@@ -102,7 +102,16 @@ Part 11：Memory, Alias Analysis, and Side Effects
 * `第054章：Side Effects, Volatile, and Observable Behavior <054-side-effects-volatile-and-observable-behavior.rst>`_；
 * `第055章：Optimization Under Memory Uncertainty <055-optimization-under-memory-uncertainty.rst>`_。
 
+Part 12：Loop Optimization, Vectorization, and Parallelism
+----------------------------------------------------------
+
+* `第056章：Loop Dominance in Performance Engineering <056-loop-dominance-in-performance-engineering.rst>`_；
+* `第057章：Loop Invariant Code Motion and Strength Reduction <057-loop-invariant-code-motion-and-strength-reduction.rst>`_；
+* `第058章：Loop Unrolling, Fusion, Fission, and Tiling <058-loop-unrolling-fusion-fission-and-tiling.rst>`_；
+* `第059章：Auto-Vectorization and SIMD Code Generation <059-auto-vectorization-and-simd-code-generation.rst>`_；
+* `第060章：Parallelism, Dependence Analysis, and Safety <060-parallelism-dependence-analysis-and-safety.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先区分 SSA value 与 memory state，再沿 address/range、alias、MemorySSA/clobber、escape/lifetime、effect/observable behavior 和 memory ordering 复盘内存事实，最后用 no-alias、effect contract、volatile/atomic、异常与并发语义检查优化是否合法。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先定位 loop hotness、CFG/canonical form 与 induction/dependence，再沿 LICM、strength reduction、unroll/fusion/fission/tiling、vectorization 和 runtime guard 复盘重复工作如何被移出、重组或并行，最后用 alias/effect、loop-carried dependence、reduction 语义和 target cost model 检查改写是否合法且值得。
