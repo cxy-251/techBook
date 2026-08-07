@@ -36,6 +36,14 @@ Part 3：内置能力与核心协议
 * `第020章：数值、比较与哈希协议 <020-numeric-comparison-hashing-protocols.rst>`_；
 * `第021章：调用、上下文、异步与缓冲区协议 <021-callable-context-async-buffer-protocols.rst>`_。
 
+Part 4：编译流水线
+-----------------
+
+* `第022章：Tokenizer 与 PEG 解析器 <022-tokenizer-and-peg-parser.rst>`_；
+* `第023章：AST 与符号表 <023-ast-and-symbol-table.rst>`_；
+* `第024章：CFG 与字节码生成 <024-cfg-and-bytecode-generation.rst>`_；
+* `第025章：字节码架构 <025-bytecode-architecture.rst>`_。
+
 阅读方式
 --------
 
