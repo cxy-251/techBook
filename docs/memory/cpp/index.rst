@@ -68,7 +68,8 @@ Part 8：Callable Objects and Invocation
 
 * `第033章：Function Objects <033-function-objects.rst>`_；
 * `第034章：Lambda Expressions <034-lambda-expressions.rst>`_；
-* `第035章：Std Function <035-std-function.rst>`_。
+* `第035章：Std Function <035-std-function.rst>`_；
+* `第036章：Bind Mem Fn and Invoke <036-bind-mem-fn-and-invoke.rst>`_。
 
 阅读方式
 --------
