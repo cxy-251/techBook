@@ -87,6 +87,17 @@ Part 9：并发运行时
 * `第047章：Subinterpreters（PEP 684） <047-subinterpreters-pep-684.rst>`_；
 * `第048章：Free-Threaded Python <048-free-threaded-python.rst>`_。
 
+Part 10：标准库设计
+------------------
+
+* `第049章：Functional Abstraction <049-functional-abstraction.rst>`_；
+* `第050章：Runtime Introspection <050-runtime-introspection.rst>`_；
+* `第051章：Typing and Runtime Boundary <051-typing-runtime-boundary.rst>`_；
+* `第052章：Context Managers and Resource Cleanup Architecture <052-context-managers-resource-cleanup-architecture.rst>`_；
+* `第053章：Serialization Boundary <053-serialization-boundary.rst>`_；
+* `第054章：Filesystem and OS Abstraction <054-filesystem-os-abstraction.rst>`_；
+* `第055章：Concurrency Abstraction <055-concurrency-abstraction.rst>`_。
+
 阅读方式
 --------
 
