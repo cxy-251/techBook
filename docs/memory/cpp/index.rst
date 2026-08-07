@@ -86,7 +86,9 @@ Part 10：Modern STL
 * `第042章：Ranges <042-ranges.rst>`_；
 * `第043章：Views <043-views.rst>`_；
 * `第044章：Span <044-span.rst>`_；
-* `第045章：String View <045-string-view.rst>`_。
+* `第045章：String View <045-string-view.rst>`_；
+* `第046章：PMR <046-pmr.rst>`_；
+* `第047章：Constexpr STL <047-constexpr-stl.rst>`_。
 
 阅读方式
 --------
