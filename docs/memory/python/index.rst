@@ -70,6 +70,15 @@ Part 7：核心容器
 * `第038章：Set Architecture <038-set-architecture.rst>`_；
 * `第039章：Buffer and Binary Architecture <039-buffer-and-binary-architecture.rst>`_。
 
+Part 8：导入系统
+---------------
+
+* `第040章：Import Semantics <040-import-semantics.rst>`_；
+* `第041章：Import Machinery <041-import-machinery.rst>`_；
+* `第042章：Module Object、sys.modules 与 Import Cache <042-module-object-sys-modules-import-cache.rst>`_；
+* `第043章：Packages、Namespace Packages 与 Resource Loading <043-packages-namespace-packages-resource-loading.rst>`_；
+* `第044章：Import Failure、Finder/Loader Contracts 与 Diagnostics <044-import-failure-finder-loader-diagnostics.rst>`_。
+
 阅读方式
 --------
 
