@@ -18,12 +18,12 @@
 * `Linux Kernel 必背课本 <linux-kernel/index.rst>`_；
 * `Python 必背课本 <python/index.rst>`_；
 * `Graphic 必背课本 <graphic/index.rst>`_；
-* `C++ 必背课本 <cpp/index.rst>`_。
+* `C++ 必背课本 <cpp/index.rst>`_；
+* `Compiler 必背课本 <compiler/index.rst>`_。
 
 与 AIBook 对应的后续书籍
 -----------------------
 
-* Compiler；
 * Mobile OS；
 * Web Architecture。
 
