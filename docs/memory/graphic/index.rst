@@ -120,7 +120,16 @@ Part 13：高级渲染算法
 * `第064章：Hair、Fur 与 Cloth 渲染 <064-hair-fur-cloth-rendering.rst>`_；
 * `第065章：后处理管线 <065-post-processing-pipelines.rst>`_。
 
+Part 14：图形物理模拟
+--------------------
+
+* `第066章：刚体模拟 <066-rigid-body-simulation.rst>`_；
+* `第067章：软体动力学 <067-soft-body-dynamics.rst>`_；
+* `第068章：流体模拟 <068-fluid-simulation.rst>`_；
+* `第069章：碰撞检测 <069-collision-detection.rst>`_；
+* `第070章：模拟驱动渲染 <070-simulation-driven-rendering.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定算法依赖的是屏幕 buffer、体积介质、粒子状态、动态细几何还是 HDR 图像链，再沿关键路径复盘采样、历史复用、GPU buffer、LOD、透明与 frame graph 资源边界，最后用中间资源、GPU pass 时间和 fallback 证据验证高级渲染算法是否稳定。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定问题属于刚体状态、软体约束、流体场、碰撞管线还是 simulation-to-render 数据边界，再沿关键路径复盘 timestep、solver、collision、buffer、barrier 与 render payload，最后用中间状态、debug draw 和 pass/step 指标定位最早失效的阶段。
