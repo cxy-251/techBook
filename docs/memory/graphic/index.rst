@@ -185,7 +185,16 @@ Part 20：Web 图形 API
 * `第101章：浏览器渲染约束 <101-browser-rendering-constraints.rst>`_；
 * `第102章：Web 图形性能 <102-web-performance.rst>`_。
 
+Part 21：游戏引擎渲染架构
+------------------------
+
+* `第103章：渲染管线模式 <103-rendering-pipeline-patterns.rst>`_；
+* `第104章：Forward Rendering <104-forward-rendering.rst>`_；
+* `第105章：Deferred Rendering <105-deferred-rendering.rst>`_；
+* `第106章：Scriptable Render Pipelines <106-scriptable-render-pipelines.rst>`_；
+* `第107章：引擎集成 <107-engine-integration.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 WebGL context/state、WebGPU device/pipeline/bind group、GPU-driven compute/indirect、Web asset→upload→submit 数据路径、浏览器主线程/DOM 合成还是持续性能/内存，再沿 canvas/context/device、shader interface、buffer/texture、command encoder/queue、rAF/worker、upload/GC 与 telemetry 路径寻找第一处失配，最后用 validation/error、Performance/LoAF、GPU timestamp、context/device loss 和 frame percentile 验证结论。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 frame/pass/resource graph、Forward 灯光与透明路径、Deferred G-buffer/带宽、SRP feature/pass/resource graph，还是引擎 frame boundary、snapshot、streaming 与多线程集成，再沿 scene input、visibility/LOD、render queue、pass/resource declaration、backend command、resource lifetime 与 CPU/GPU timeline 寻找第一处失配，最后用 debug view、frame capture、GPU timestamp、job/queue timeline 和 frame percentile 验证结论。
