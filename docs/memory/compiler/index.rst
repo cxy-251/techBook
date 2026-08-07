@@ -66,7 +66,16 @@ Part 7：Control Flow Graphs, Basic Blocks, and Program Structure
 * `第034章：Structured Control Flow vs Unstructured Jumps <034-structured-control-flow-vs-unstructured-jumps.rst>`_；
 * `第035章：Control Flow Evidence in Real Compiler Pipelines <035-control-flow-evidence-in-real-compiler-pipelines.rst>`_。
 
+Part 8：Data Flow Analysis, Def-Use Chains, and Program Facts
+------------------------------------------------------------
+
+* `第036章：Program Facts and Fixed-Point Thinking <036-program-facts-and-fixed-point-thinking.rst>`_；
+* `第037章：Reaching Definitions and Live Variables <037-reaching-definitions-and-live-variables.rst>`_；
+* `第038章：Use-Def Chains and Value Tracking <038-use-def-chains-and-value-tracking.rst>`_；
+* `第039章：Forward vs Backward Data Flow Analysis <039-forward-vs-backward-data-flow-analysis.rst>`_；
+* `第040章：Data Flow as the Basis of Optimization <040-data-flow-as-the-basis-of-optimization.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先定位当前表示和对象，再沿转换路径复盘语义保持与新增约束，最后用概念边界检查判断是否准确。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先定位当前 representation、CFG 与 value identity，再沿 predecessor/successor、fact merge、transfer function、forward/backward propagation、use-def/def-use 和 fixed point 复盘事实如何形成，最后用 liveness、constant/availability、side-effect 与 conservative proof 检查优化是否合法。
