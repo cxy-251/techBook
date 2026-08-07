@@ -85,7 +85,15 @@ Part 9：纹理映射与采样
 * `第045章：纹理压缩 <045-texture-compression.rst>`_；
 * `第046章：高级纹理技术 <046-advanced-texture-techniques.rst>`_。
 
+Part 10：可见性与剔除算法
+------------------------
+
+* `第047章：视锥体剔除 <047-view-frustum-culling.rst>`_；
+* `第048章：Occlusion Query <048-occlusion-queries.rst>`_；
+* `第049章：Portal 与 Cell 剔除 <049-portal-and-cell-culling.rst>`_；
+* `第050章：硬件遮挡剔除 <050-hardware-occlusion.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定采样坐标、纹理语义、颜色空间、sampler 与 mip，再沿关键路径复盘过滤、压缩、投影、环境与体积采样，最后用概念边界检查纹理画质和性能判断是否准确。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定可见性证据来自视锥、空间拓扑还是深度，再沿关键路径复盘 bounds、portal、query/HZB、状态缓存与 GPU-driven 消费，最后用误剔除、同步成本和真实 pass 收益检查剔除策略是否成立。
