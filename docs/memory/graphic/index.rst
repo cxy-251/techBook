@@ -242,7 +242,16 @@ Part 26：交互式可视化与 UX
 * `第134章：延迟、渐进反馈与交互性能 <134-latency-progressive-feedback-and-interaction-performance.rst>`_；
 * `第135章：视觉系统中的可访问性与可读性 <135-accessibility-and-readability-in-visual-systems.rst>`_。
 
+Part 27：图形学中的机器学习
+--------------------------
+
+* `第136章：神经渲染 <136-neural-rendering.rst>`_；
+* `第137章：去噪网络 <137-denoising-networks.rst>`_；
+* `第138章：可微渲染 <138-differentiable-rendering.rst>`_；
+* `第139章：ML 材质与着色 <139-ml-for-material-and-shading.rst>`_；
+* `第140章：混合渲染管线 <140-hybrid-rendering-pipelines.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 tool/selection state 与 UI 控件映射、event/intent/preview/commit 实时交互、feedback/loading/error 状态、screen-to-scene picking 与 gizmo 约束、input-to-photon/progressive refinement，还是视觉编码/对比/label/navigation 可读性，再沿 viewport/DPI/camera、hit record、dirty scheduling、resource version、GPU pass、present、legend/overlay 与 task metric 寻找第一处失配，最后用 interaction timeline、P95/P99、selection/debug overlay、capture/HUD、对比与任务完成准确率验证结论。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 neural scene/material/denoise/upscale 的角色与 inference contract、noisy signal/guide/history 去噪链、differentiable forward/loss/gradient 优化、ML material 的生成/验证/artist override，还是 raster/ray/neural/fallback 的 hybrid frame graph，再沿 training/validation data、feature buffer、motion/history、parameter gradient、material package、GPU pass、temporary memory 与 fallback threshold 寻找第一处失配，最后用 reference/held-out render、temporal artifact、GPU timestamp、peak memory、quality metric 和传统路径 A/B 验证结论。
