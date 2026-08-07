@@ -62,6 +62,14 @@ Part 6：内存系统
 * `第034章：Pymalloc 架构 <034-pymalloc-architecture.rst>`_；
 * `第035章：Immortal Objects（PEP 683） <035-immortal-objects-pep-683.rst>`_。
 
+Part 7：核心容器
+---------------
+
+* `第036章：Dict Architecture <036-dict-architecture.rst>`_；
+* `第037章：List and Tuple Architecture <037-list-and-tuple-architecture.rst>`_；
+* `第038章：Set Architecture <038-set-architecture.rst>`_；
+* `第039章：Buffer and Binary Architecture <039-buffer-and-binary-architecture.rst>`_。
+
 阅读方式
 --------
 
