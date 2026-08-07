@@ -111,7 +111,16 @@ Part 12：Loop Optimization, Vectorization, and Parallelism
 * `第059章：Auto-Vectorization and SIMD Code Generation <059-auto-vectorization-and-simd-code-generation.rst>`_；
 * `第060章：Parallelism, Dependence Analysis, and Safety <060-parallelism-dependence-analysis-and-safety.rst>`_。
 
+Part 13：Backend Fundamentals and Instruction Selection
+-------------------------------------------------------
+
+* `第061章：From IR Operations to Target Instructions <061-from-ir-operations-to-target-instructions.rst>`_；
+* `第062章：Instruction Selection and Pattern Matching <062-instruction-selection-and-pattern-matching.rst>`_；
+* `第063章：Legalization and Target Constraints <063-legalization-and-target-constraints.rst>`_；
+* `第064章：Machine IR and Target-Specific Lowering <064-machine-ir-and-target-specific-lowering.rst>`_；
+* `第065章：Backend Correctness and Target Semantics <065-backend-correctness-and-target-semantics.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先定位 loop hotness、CFG/canonical form 与 induction/dependence，再沿 LICM、strength reduction、unroll/fusion/fission/tiling、vectorization 和 runtime guard 复盘重复工作如何被移出、重组或并行，最后用 alias/effect、loop-carried dependence、reduction 语义和 target cost model 检查改写是否合法且值得。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先定位 IR operation semantics 与 target description，再沿 legality、pattern matching、instruction selection、Machine IR、virtual/physical register 与 ABI boundary 复盘抽象语义如何逐步服从硬件约束，最后用 flags、memory effects、target semantics 和执行测试检查后端转换是否保持正确性。
