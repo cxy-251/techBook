@@ -37,6 +37,13 @@ Part 4：Ordered Associative Containers
 * `第017章：Map and Set <017-map-and-set.rst>`_；
 * `第018章：Multimap and Multiset <018-multimap-and-multiset.rst>`_。
 
+Part 5：Unordered Hash Containers
+---------------------------------
+
+* `第019章：Hash Table Foundations <019-hash-table-foundations.rst>`_；
+* `第020章：Unordered Map and Unordered Set <020-unordered-map-and-unordered-set.rst>`_；
+* `第021章：Unordered Multimap and Unordered Multiset <021-unordered-multimap-and-unordered-multiset.rst>`_。
+
 阅读方式
 --------
 
