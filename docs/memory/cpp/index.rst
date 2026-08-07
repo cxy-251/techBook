@@ -90,6 +90,18 @@ Part 10：Modern STL
 * `第046章：PMR <046-pmr.rst>`_；
 * `第047章：Constexpr STL <047-constexpr-stl.rst>`_。
 
+Part 11：Mini STL Implementation
+--------------------------------
+
+* `第048章：Mini Allocator <048-mini-allocator.rst>`_；
+* `第049章：Mini Iterator <049-mini-iterator.rst>`_；
+* `第050章：Mini Vector <050-mini-vector.rst>`_；
+* `第051章：Mini List <051-mini-list.rst>`_；
+* `第052章：Mini Deque <052-mini-deque.rst>`_；
+* `第053章：Mini Red-Black Tree <053-mini-red-black-tree.rst>`_；
+* `第054章：Mini Hash Table <054-mini-hash-table.rst>`_；
+* `第055章：Mini Algorithm <055-mini-algorithm.rst>`_。
+
 阅读方式
 --------
 
