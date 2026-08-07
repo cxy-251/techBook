@@ -44,6 +44,13 @@ Part 5：Unordered Hash Containers
 * `第020章：Unordered Map and Unordered Set <020-unordered-map-and-unordered-set.rst>`_；
 * `第021章：Unordered Multimap and Unordered Multiset <021-unordered-multimap-and-unordered-multiset.rst>`_。
 
+Part 6：Container Adaptors
+--------------------------
+
+* `第022章：Stack <022-stack.rst>`_；
+* `第023章：Queue <023-queue.rst>`_；
+* `第024章：Priority Queue <024-priority-queue.rst>`_。
+
 阅读方式
 --------
 
