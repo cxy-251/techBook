@@ -12,6 +12,15 @@ Part 1：Compiler Worldview and Engineering Mental Model
 * `第004章：Interpreter, Compiler, Transpiler, and JIT <004-interpreter-compiler-transpiler-and-jit.rst>`_；
 * `第005章：Compiler Correctness, Performance, and Developer Experience <005-compiler-correctness-performance-and-developer-experience.rst>`_。
 
+Part 2：Source Text, Tokens, and Lexical Analysis
+-------------------------------------------------
+
+* `第006章：Source Text as Raw Characters <006-source-text-as-raw-characters.rst>`_；
+* `第007章：Tokens as the First Structured Representation <007-tokens-as-the-first-structured-representation.rst>`_；
+* `第008章：Lexical Rules, Keywords, Identifiers, and Literals <008-lexical-rules-keywords-identifiers-and-literals.rst>`_；
+* `第009章：Whitespace, Comments, Newlines, and Layout-Sensitive Syntax <009-whitespace-comments-newlines-and-layout-sensitive-syntax.rst>`_；
+* `第010章：Lexer Errors, Diagnostics, and Source Locations <010-lexer-errors-diagnostics-and-source-locations.rst>`_。
+
 阅读方式
 --------
 
