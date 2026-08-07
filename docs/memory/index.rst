@@ -10,19 +10,18 @@
 * ``docs/tracks/`` 保留 techBook 原有学习内容；
 * ``docs/memory/`` 只保存稳定、可信、可以直接背诵的结论。
 
-每章固定提供“本章必须记住”“必背路径”“必须区分”“一句话结论”和来源。这里不设置提问、
-练习或互动步骤。
+每章固定提供“核心知识点”“关键路径”“概念辨析”和“本章结论”。这里不设置提问、练习、互动步骤或来源章节。
 
 已建立书籍
 ----------
 
-* `Linux Kernel 必背课本 <linux-kernel/index.rst>`_。
+* `Linux Kernel 必背课本 <linux-kernel/index.rst>`_；
+* `Python 必背课本 <python/index.rst>`_。
 
 与 AIBook 对应的后续书籍
 -----------------------
 
 * C++；
-* Python；
 * Graphics；
 * Compiler；
 * Mobile OS；
