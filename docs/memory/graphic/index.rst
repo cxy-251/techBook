@@ -194,7 +194,16 @@ Part 21：游戏引擎渲染架构
 * `第106章：Scriptable Render Pipelines <106-scriptable-render-pipelines.rst>`_；
 * `第107章：引擎集成 <107-engine-integration.rst>`_。
 
+Part 22：GPU Compute for Graphics
+---------------------------------
+
+* `第108章：CUDA 图形计算执行模型 <108-cuda-execution-model-for-graphics-compute.rst>`_；
+* `第109章：OpenCL 基础 <109-opencl-fundamentals.rst>`_；
+* `第110章：Compute Shader 模式 <110-compute-shader-patterns.rst>`_；
+* `第111章：Compute-Driven Rendering <111-compute-driven-rendering.rst>`_；
+* `第112章：Hybrid Compute 技术 <112-hybrid-compute-techniques.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 frame/pass/resource graph、Forward 灯光与透明路径、Deferred G-buffer/带宽、SRP feature/pass/resource graph，还是引擎 frame boundary、snapshot、streaming 与多线程集成，再沿 scene input、visibility/LOD、render queue、pass/resource declaration、backend command、resource lifetime 与 CPU/GPU timeline 寻找第一处失配，最后用 debug view、frame capture、GPU timestamp、job/queue timeline 和 frame percentile 验证结论。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 CUDA/OpenCL runtime、Compute Shader 线程与内存模式、GPU-driven culling/indirect，还是 CPU/graphics/compute/copy 多执行域同步，再沿 device/profile、buffer/image、kernel/dispatch、compaction/indirect、barrier/fence、frame version 与 queue timeline 寻找第一处失配，最后用 kernel profiler、frame capture、GPU timestamp、CPU/GPU queue timeline 和 readback/带宽指标验证结论。
