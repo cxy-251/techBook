@@ -138,7 +138,16 @@ Part 15：离线渲染与生产管线
 * `第074章：色彩管理 <074-color-management.rst>`_；
 * `第075章：生产工作流集成 <075-production-workflow-integration.rst>`_。
 
+Part 16：动画与运动系统
+----------------------
+
+* `第076章：运动学与 Rig 基础 <076-kinematics-and-rigging-fundamentals.rst>`_；
+* `第077章：动画混合与状态机 <077-animation-blending-and-state-machines.rst>`_；
+* `第078章：物理驱动动画集成 <078-physics-driven-animation-integration.rst>`_；
+* `第079章：骨骼动画数据路径与 GPU Skinning <079-skeletal-animation-data-path-and-gpu-skinning.rst>`_；
+* `第080章：动画压缩、重定向与运行时流式加载 <080-animation-compression-retargeting-and-runtime-streaming.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定问题属于 Farm 调度、光路采样、去噪重建、色彩链还是生产交付接口，再沿关键路径复盘 job/task、ray/AOV、feature/history、scene-linear/view transform 与 render package/QC，最后用队列状态、渲染日志、EXR/AOV、reference 与生产 manifest 定位最早失效的阶段。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 skeleton/rig、state/blend、physics writeback、skinning data path 还是 compression/retarget/streaming，再沿 local pose、global pose、palette、root motion、constraint、buffer 与 cache 路径寻找第一处失真，最后用骨架调试、pose A/B、GPU binding、stream/cache 与动画预算指标验证结果。
