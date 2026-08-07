@@ -26,6 +26,16 @@ Part 2：Python 对象系统
 * `第014章：继承与 MRO <014-inheritance-and-mro.rst>`_；
 * `第015章：元类系统 <015-metaclass-system.rst>`_。
 
+Part 3：内置能力与核心协议
+--------------------------
+
+* `第016章：内置函数 <016-built-in-functions.rst>`_；
+* `第017章：内置异常 <017-built-in-exceptions.rst>`_；
+* `第018章：核心协议 <018-core-protocols.rst>`_；
+* `第019章：迭代、序列与映射协议 <019-iteration-sequence-mapping-protocols.rst>`_；
+* `第020章：数值、比较与哈希协议 <020-numeric-comparison-hashing-protocols.rst>`_；
+* `第021章：调用、上下文、异步与缓冲区协议 <021-callable-context-async-buffer-protocols.rst>`_。
+
 阅读方式
 --------
 
