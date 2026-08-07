@@ -12,7 +12,16 @@ Part 1：GPU 架构与硬件
 * `第004章：GPU 命令处理与调度 <004-command-processing-and-scheduling.rst>`_；
 * `第005章：GPU 性能约束 <005-gpu-performance-constraints.rst>`_。
 
+Part 2：图形学数学基础
+---------------------
+
+* `第006章：线性代数基础 <006-linear-algebra-essentials.rst>`_；
+* `第007章：坐标系与变换 <007-coordinate-systems-and-transformations.rst>`_；
+* `第008章：几何与向量分析 <008-geometry-and-vector-calculus.rst>`_；
+* `第009章：数值方法与精度 <009-numerical-methods-and-precision.rst>`_；
+* `第010章：插值与采样 <010-interpolation-and-sampling.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先建立硬件对象与资源关系，再沿关键路径复盘执行和状态变化，最后用概念边界检查性能判断是否准确。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定对象、坐标空间与数据来源，再沿关键路径复盘变换、计算和状态变化，最后用概念边界检查图形判断是否准确。
