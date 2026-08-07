@@ -39,6 +39,15 @@ Part 4：Semantic Analysis, Symbol Tables, and Scopes
 * `第019章：Modules, Imports, and Visibility Rules <019-modules-imports-and-visibility-rules.rst>`_；
 * `第020章：Semantic Errors Beyond Syntax <020-semantic-errors-beyond-syntax.rst>`_。
 
+Part 5：Type Systems, Type Checking, and Type Inference
+-------------------------------------------------------
+
+* `第021章：Types as Compile-Time Program Facts <021-types-as-compile-time-program-facts.rst>`_；
+* `第022章：Static Typing, Dynamic Typing, and Gradual Typing <022-static-typing-dynamic-typing-and-gradual-typing.rst>`_；
+* `第023章：Type Checking Expressions, Statements, and Functions <023-type-checking-expressions-statements-and-functions.rst>`_；
+* `第024章：Generics, Templates, and Parametric Polymorphism <024-generics-templates-and-parametric-polymorphism.rst>`_；
+* `第025章：Type Inference and Constraint Solving <025-type-inference-and-constraint-solving.rst>`_。
+
 阅读方式
 --------
 
