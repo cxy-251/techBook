@@ -260,7 +260,16 @@ Part 28：虚拟现实与增强现实图形
 * `第144章：Stereo 与 Multi-View Rendering <144-stereo-and-multi-view-rendering.rst>`_；
 * `第145章：VR 与 AR 平台图形 <145-vr-and-ar-platform-graphics.rst>`_。
 
+Part 29：未来趋势与新兴技术
+--------------------------
+
+* `第146章：实时光线追踪进展 <146-real-time-ray-tracing-advances.rst>`_；
+* `第147章：AI 加速渲染 <147-ai-accelerated-rendering.rst>`_；
+* `第148章：GPU 硬件路线图 <148-gpu-hardware-roadmap.rst>`_；
+* `第149章：云端与远程图形 <149-cloud-and-remote-graphics.rst>`_；
+* `第150章：扩展现实与未来显示 <150-extended-reality-and-beyond.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 XR runtime/frame timing 与 predicted pose、per-eye stereo/view resource、gaze/foveated rate map、prediction/late latching/reprojection 延迟链、multi-view sharing/viewIndex，还是 passthrough/anchor/input/composition layer 的平台集成，再沿 predicted display time、eye pose/FOV、swapchain layer、depth/motion、gaze age、GPU/compositor timing、capability/fallback 与 thermal profile 寻找第一处失配，最后用 stereo debug scene、rate-map overlay、motion-to-photon/reprojection/dropped-frame 指标、frame capture 和跨平台 A/B 验证结论。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 BLAS/TLAS、ray budget、hit/denoise/history 的实时 RT 路径，feature/history/model contract/inference 的 AI 加速路径，shader/RT/AI/memory/copy/display capability 的硬件路线，input/render/encode/network/decode 的远程图形链，还是 sensor/tracking/render/runtime/display/thermal 的 XR 闭环，再沿 resource lifetime、queue/sync、temporal validity、capability tier、fallback、end-to-end latency 与 power budget 寻找第一处失配，最后用 frame capture、GPU timestamp、history/debug overlay、telemetry、P95/P99、visual A/B 和端到端交互证据验证结论。
