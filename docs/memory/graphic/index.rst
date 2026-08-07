@@ -59,7 +59,16 @@ Part 6：光照与材质模型
 * `第031章：阴影技术 <031-shadowing-techniques.rst>`_；
 * `第032章：高级材质模型与微表面 BRDF <032-advanced-material-models-and-microfacet-brdf.rst>`_。
 
+Part 7：Ray Tracing 与真实感渲染
+-------------------------------
+
+* `第033章：Ray Casting 基础 <033-ray-casting-fundamentals.rst>`_；
+* `第034章：基础 Ray Tracing 算法 <034-basic-ray-tracing-algorithms.rst>`_；
+* `第035章：递归反射与折射 <035-recursive-reflection-and-refraction.rst>`_；
+* `第036章：Monte Carlo 积分 <036-monte-carlo-integration.rst>`_；
+* `第037章：Ray Tracing 优化 <037-ray-tracing-optimization.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定材质输入、光照方向、能量路径、颜色空间与资源阶段，再沿关键路径复盘直接光、反射、散射、阴影和材质分层，最后用概念边界检查光照判断是否准确。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定 ray 类型、命中语义、采样分布、能量权重和加速结构，再沿关键路径复盘 generation、intersection、shading、递归与 traversal，最后用概念边界检查真实感渲染判断是否准确。
