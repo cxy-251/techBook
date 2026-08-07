@@ -129,7 +129,16 @@ Part 14：图形物理模拟
 * `第069章：碰撞检测 <069-collision-detection.rst>`_；
 * `第070章：模拟驱动渲染 <070-simulation-driven-rendering.rst>`_。
 
+Part 15：离线渲染与生产管线
+--------------------------
+
+* `第071章：Render Farm 架构 <071-render-farm-architecture.rst>`_；
+* `第072章：高质量渲染器 <072-high-quality-renderers.rst>`_；
+* `第073章：去噪与重建 <073-denoising-and-reconstruction.rst>`_；
+* `第074章：色彩管理 <074-color-management.rst>`_；
+* `第075章：生产工作流集成 <075-production-workflow-integration.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定问题属于刚体状态、软体约束、流体场、碰撞管线还是 simulation-to-render 数据边界，再沿关键路径复盘 timestep、solver、collision、buffer、barrier 与 render payload，最后用中间状态、debug draw 和 pass/step 指标定位最早失效的阶段。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定问题属于 Farm 调度、光路采样、去噪重建、色彩链还是生产交付接口，再沿关键路径复盘 job/task、ray/AOV、feature/history、scene-linear/view transform 与 render package/QC，最后用队列状态、渲染日志、EXR/AOV、reference 与生产 manifest 定位最早失效的阶段。
