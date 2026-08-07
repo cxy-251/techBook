@@ -21,7 +21,17 @@ Part 2：图形学数学基础
 * `第009章：数值方法与精度 <009-numerical-methods-and-precision.rst>`_；
 * `第010章：插值与采样 <010-interpolation-and-sampling.rst>`_。
 
+Part 3：几何表示与处理
+---------------------
+
+* `第011章：网格拓扑与数据结构 <011-mesh-topology-and-data-structures.rst>`_；
+* `第012章：曲线与曲面表示 <012-surface-and-curve-representations.rst>`_；
+* `第013章：网格属性与格式 <013-mesh-attributes-and-formats.rst>`_；
+* `第014章：细节层次与网格简化 <014-level-of-detail-and-simplification.rst>`_；
+* `第015章：程序化几何 <015-procedural-geometry.rst>`_；
+* `第016章：GPU 并行程序化生成 <016-gpu-parallel-procedural-generation.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定对象、坐标空间与数据来源，再沿关键路径复盘变换、计算和状态变化，最后用概念边界检查图形判断是否准确。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定对象、数据结构、空间与资源阶段，再沿关键路径复盘转换、生成和运行时消费，最后用概念边界检查图形判断是否准确。
