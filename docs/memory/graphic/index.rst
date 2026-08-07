@@ -165,7 +165,17 @@ Part 18：Direct3D 与 HLSL 图形 API 生态
 * `第089章：HLSL Shader 系统 <089-hlsl-shader-system.rst>`_；
 * `第090章：多线程渲染 <090-multi-threaded-rendering.rst>`_。
 
+Part 19：Vulkan 与 Metal 图形 API 生态
+-------------------------------------
+
+* `第091章：Vulkan 架构 <091-vulkan-architecture.rst>`_；
+* `第092章：Metal 架构 <092-metal-architecture.rst>`_；
+* `第093章：显式 Pipeline 管理 <093-explicit-pipeline-management.rst>`_；
+* `第094章：Descriptor Set 与资源 <094-descriptor-sets-and-resources.rst>`_；
+* `第095章：同步与内存 <095-synchronization-and-memory.rst>`_；
+* `第096章：高级 Pipeline 特性——Ray Tracing 与 Mesh Shading <096-advanced-pipeline-features-ray-tracing-and-mesh-shading.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 device/swap-chain 对象链、PSO 与 draw state、descriptor/root binding、HLSL 编译契约还是多线程 ownership，再沿 adapter、resource/view、command list、barrier、descriptor、DXIL、queue 与 fence 路径寻找第一处失配，最后用 debug layer、PIX/RenderDoc、shader reflection、resource history 和 CPU/GPU timeline 验证结论。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 Vulkan/Metal 设备与提交对象链、pipeline key/cache、shader resource table、资源同步/内存，还是 RT/Mesh Shading 高级路径，再沿 device、queue、command buffer、pipeline、descriptor/argument table、barrier/layout/ownership、AS/meshlet 与 frame fence 寻找第一处失配，最后用 validation/debug layer、RenderDoc/Xcode GPU Capture、资源历史和 CPU/GPU timeline 验证结论。
