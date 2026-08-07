@@ -102,6 +102,15 @@ Part 11：Mini STL Implementation
 * `第054章：Mini Hash Table <054-mini-hash-table.rst>`_；
 * `第055章：Mini Algorithm <055-mini-algorithm.rst>`_。
 
+Part 12：Engineering Practice and Source Reading
+------------------------------------------------
+
+* `第056章：STL Performance Model <056-stl-performance-model.rst>`_；
+* `第057章：Container Selection Principles <057-container-selection-principles.rst>`_；
+* `第058章：Common STL Mistakes <058-common-stl-mistakes.rst>`_；
+* `第059章：STL Source Reading Method <059-stl-source-reading-method.rst>`_；
+* `第060章：STL Synthesis <060-stl-synthesis.rst>`_。
+
 阅读方式
 --------
 
