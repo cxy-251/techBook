@@ -93,7 +93,16 @@ Part 10：Optimization Passes and Transformation Pipelines
 * `第049章：Pass Ordering and Optimization Pipelines <049-pass-ordering-and-optimization-pipelines.rst>`_；
 * `第050章：Miscompilation as the Dark Side of Optimization <050-miscompilation-as-the-dark-side-of-optimization.rst>`_。
 
+Part 11：Memory, Alias Analysis, and Side Effects
+-------------------------------------------------
+
+* `第051章：Memory as the Hard Part of Program Analysis <051-memory-as-the-hard-part-of-program-analysis.rst>`_；
+* `第052章：Pointers, References, and Aliasing <052-pointers-references-and-aliasing.rst>`_；
+* `第053章：Escape Analysis and Object Lifetime <053-escape-analysis-and-object-lifetime.rst>`_；
+* `第054章：Side Effects, Volatile, and Observable Behavior <054-side-effects-volatile-and-observable-behavior.rst>`_；
+* `第055章：Optimization Under Memory Uncertainty <055-optimization-under-memory-uncertainty.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先定位当前 representation、analysis fact 与 transform precondition，再沿 observable behavior、value/CFG rewrite、analysis preservation、pass ordering 和 pipeline interaction 复盘优化证明链，最后用 verifier、UB/effect boundary、IR diff 与最小反例检查改写是否合法。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先区分 SSA value 与 memory state，再沿 address/range、alias、MemorySSA/clobber、escape/lifetime、effect/observable behavior 和 memory ordering 复盘内存事实，最后用 no-alias、effect contract、volatile/atomic、异常与并发语义检查优化是否合法。
