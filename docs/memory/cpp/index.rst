@@ -1,0 +1,18 @@
+C++ 必背课本
+============
+
+本目录与 AIBook 的 ``docs/C++`` 一一对应。AIBook 保留完整讲解、案例、源码和练习，这里只保留每章稳定、必须掌握、可以直接复习的知识模型。
+
+Part 1：C++ Low-Level Foundations
+---------------------------------
+
+* `第001章：C++ Object Model <001-cpp-object-model.rst>`_；
+* `第002章：Object Lifetime <002-object-lifetime.rst>`_；
+* `第003章：Move Semantics and Rvalue References <003-move-semantics-rvalue-references.rst>`_；
+* `第004章：Memory Management <004-memory-management.rst>`_；
+* `第005章：Template Foundations <005-template-foundations.rst>`_。
+
+阅读方式
+--------
+
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先建立对象与状态模型，再沿关键路径复盘执行顺序，最后用概念边界检查判断是否准确。
