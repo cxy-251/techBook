@@ -203,7 +203,17 @@ Part 22：GPU Compute for Graphics
 * `第111章：Compute-Driven Rendering <111-compute-driven-rendering.rst>`_；
 * `第112章：Hybrid Compute 技术 <112-hybrid-compute-techniques.rst>`_。
 
+Part 23：优化与 GPU Profiling
+----------------------------
+
+* `第113章：CPU-GPU 成本分析 <113-cpu-gpu-cost-analysis.rst>`_；
+* `第114章：Draw Call Batching <114-draw-call-batching.rst>`_；
+* `第115章：内存带宽优化 <115-memory-bandwidth-optimization.rst>`_；
+* `第116章：Profiling 工具与技术 <116-profiling-tools-and-techniques.rst>`_；
+* `第117章：实时性能约束 <117-real-time-performance-constraints.rst>`_；
+* `第118章：多 GPU 与分布式渲染优化 <118-multi-gpu-and-distributed-rendering-optimization.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 CUDA/OpenCL runtime、Compute Shader 线程与内存模式、GPU-driven culling/indirect，还是 CPU/graphics/compute/copy 多执行域同步，再沿 device/profile、buffer/image、kernel/dispatch、compaction/indirect、barrier/fence、frame version 与 queue timeline 寻找第一处失配，最后用 kernel profiler、frame capture、GPU timestamp、CPU/GPU queue timeline 和 readback/带宽指标验证结论。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 CPU/GPU/present 成本分界、draw/state 提交、memory bandwidth、profiling 证据链、实时 frame budget，还是 multi-GPU/distributed work split，再沿 marker/timestamp、pass/event、resource format/layout、counter、queue wait、frame pacing、peer transfer 与 merge timeline 寻找第一处超预算或失配，最后用 frame capture、GPU profiler、P95/P99、带宽与端到端关键路径复测结论。
