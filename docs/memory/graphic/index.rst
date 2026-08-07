@@ -80,7 +80,7 @@ Part 8：全局光照技术
 Part 9：纹理映射与采样
 ---------------------
 
-* `第043章：纹理坐标、Texel 与采样数据 <043-texture-coordinates-texels-and-sampling-data.rst>`_；
+* `第043章：纹理坐标、Texel 与采样数据 <043-texture-coordinates-and-sampling-data.rst>`_；
 * `第044章：过滤与 Mipmapping <044-filtering-and-mipmapping.rst>`_；
 * `第045章：纹理压缩 <045-texture-compression.rst>`_；
 * `第046章：高级纹理技术 <046-advanced-texture-techniques.rst>`_。
@@ -213,7 +213,16 @@ Part 23：优化与 GPU Profiling
 * `第117章：实时性能约束 <117-real-time-performance-constraints.rst>`_；
 * `第118章：多 GPU 与分布式渲染优化 <118-multi-gpu-and-distributed-rendering-optimization.rst>`_。
 
+Part 24：跨 API 抽象与统一框架
+-----------------------------
+
+* `第119章：抽象原则 <119-abstraction-principles.rst>`_；
+* `第120章：API 无关渲染层 <120-api-agnostic-rendering-layer.rst>`_；
+* `第121章：Shader 抽象模型 <121-shader-abstraction-models.rst>`_；
+* `第122章：GPU 资源抽象与生命周期模型 <122-gpu-resource-abstraction-and-lifetime-model.rst>`_；
+* `第123章：框架集成策略 <123-framework-integration-strategies.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 CPU/GPU/present 成本分界、draw/state 提交、memory bandwidth、profiling 证据链、实时 frame budget，还是 multi-GPU/distributed work split，再沿 marker/timestamp、pass/event、resource format/layout、counter、queue wait、frame pacing、peer transfer 与 merge timeline 寻找第一处超预算或失配，最后用 frame capture、GPU profiler、P95/P99、带宽与端到端关键路径复测结论。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 RHI/Backend 抽象边界、resource usage/state/view、Shader source/reflection/binding/variant、GPU resource lifetime/aliasing，还是 capability/fallback 与框架模块集成，再沿 device profile、resource/pipeline handle、pass dependency、barrier/queue、shader identity、frame fence 与 backend diagnostics 寻找第一处失配，最后用 validation、frame capture、pipeline/cache statistics、GPU timestamp 和跨 backend A/B 结果验证结论。
