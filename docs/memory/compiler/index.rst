@@ -75,7 +75,16 @@ Part 8：Data Flow Analysis, Def-Use Chains, and Program Facts
 * `第039章：Forward vs Backward Data Flow Analysis <039-forward-vs-backward-data-flow-analysis.rst>`_；
 * `第040章：Data Flow as the Basis of Optimization <040-data-flow-as-the-basis-of-optimization.rst>`_。
 
+Part 9：SSA Form and Modern IR Design
+-------------------------------------
+
+* `第041章：Static Single Assignment and Value Identity <041-static-single-assignment-and-value-identity.rst>`_；
+* `第042章：Phi Nodes, Block Arguments, and Value Merging <042-phi-nodes-block-arguments-and-value-merging.rst>`_；
+* `第043章：SSA Construction and Destruction <043-ssa-construction-and-destruction.rst>`_；
+* `第044章：SSA-Based Optimizations <044-ssa-based-optimizations.rst>`_；
+* `第045章：SSA as the Language of Modern Optimizers <045-ssa-as-the-language-of-modern-optimizers.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先定位当前 representation、CFG 与 value identity，再沿 predecessor/successor、fact merge、transfer function、forward/backward propagation、use-def/def-use 和 fixed point 复盘事实如何形成，最后用 liveness、constant/availability、side-effect 与 conservative proof 检查优化是否合法。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先定位当前 representation、CFG 与 value identity，再沿 predecessor/successor、fact merge、transfer function、SSA definition/use、phi/block argument、dominance 和 memory/effect boundary 复盘事实如何形成，最后用 verifier、reachability、side-effect 与 conservative proof 检查优化是否合法。
