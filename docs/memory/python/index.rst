@@ -79,6 +79,14 @@ Part 8：导入系统
 * `第043章：Packages、Namespace Packages 与 Resource Loading <043-packages-namespace-packages-resource-loading.rst>`_；
 * `第044章：Import Failure、Finder/Loader Contracts 与 Diagnostics <044-import-failure-finder-loader-diagnostics.rst>`_。
 
+Part 9：并发运行时
+-----------------
+
+* `第045章：GIL Internals <045-gil-internals.rst>`_；
+* `第046章：Async Runtime Architecture <046-async-runtime-architecture.rst>`_；
+* `第047章：Subinterpreters（PEP 684） <047-subinterpreters-pep-684.rst>`_；
+* `第048章：Free-Threaded Python <048-free-threaded-python.rst>`_。
+
 阅读方式
 --------
 
