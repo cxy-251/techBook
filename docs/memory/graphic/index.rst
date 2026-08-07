@@ -232,7 +232,17 @@ Part 25：科学可视化
 * `第128章：交互模型 <128-interaction-models.rst>`_；
 * `第129章：交互式可视化与 UX 设计 <129-interactive-visualization-and-ux-design.rst>`_。
 
+Part 26：交互式可视化与 UX
+-------------------------
+
+* `第130章：图形工具的 UI 与 UX <130-ui-and-ux-for-graphics-tools.rst>`_；
+* `第131章：实时交互模式 <131-real-time-interaction-patterns.rst>`_；
+* `第132章：反馈与视觉沟通 <132-feedback-and-visual-communication.rst>`_；
+* `第133章：选择、Picking 与直接操作 <133-selection-picking-and-direct-manipulation.rst>`_；
+* `第134章：延迟、渐进反馈与交互性能 <134-latency-progressive-feedback-and-interaction-performance.rst>`_；
+* `第135章：视觉系统中的可访问性与可读性 <135-accessibility-and-readability-in-visual-systems.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于科学数据的字段/单位/坐标与视觉映射、volume ray marching/transfer function、vector field/streamline integration、Out-of-Core/LOD/streaming，还是 interaction state/versioning/multi-view UX，再沿 dataset metadata、mapping、GPU resource、sampling/LOD、cache/upload、semantic state、dirty/invalidation 与 frame feedback 寻找第一处失配，最后用数值抽样、legend/selection 检查、resident/cache/IO 指标、GPU timestamp、input-to-feedback latency 和任务完成准确率验证结论。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先判断问题位于 tool/selection state 与 UI 控件映射、event/intent/preview/commit 实时交互、feedback/loading/error 状态、screen-to-scene picking 与 gizmo 约束、input-to-photon/progressive refinement，还是视觉编码/对比/label/navigation 可读性，再沿 viewport/DPI/camera、hit record、dirty scheduling、resource version、GPU pass、present、legend/overlay 与 task metric 寻找第一处失配，最后用 interaction timeline、P95/P99、selection/debug overlay、capture/HUD、对比与任务完成准确率验证结论。
