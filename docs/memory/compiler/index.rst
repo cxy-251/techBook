@@ -30,6 +30,15 @@ Part 3：Grammar, Parsing, and Abstract Syntax Trees
 * `第014章：Operator Precedence, Associativity, and Ambiguity <014-operator-precedence-associativity-and-ambiguity.rst>`_；
 * `第015章：Parser Error Recovery and Developer Feedback <015-parser-error-recovery-and-developer-feedback.rst>`_。
 
+Part 4：Semantic Analysis, Symbol Tables, and Scopes
+----------------------------------------------------
+
+* `第016章：Names, Bindings, and Program Meaning <016-names-bindings-and-program-meaning.rst>`_；
+* `第017章：Symbol Tables and Scope Chains <017-symbol-tables-and-scope-chains.rst>`_；
+* `第018章：Declarations, Definitions, and Resolution <018-declarations-definitions-and-resolution.rst>`_；
+* `第019章：Modules, Imports, and Visibility Rules <019-modules-imports-and-visibility-rules.rst>`_；
+* `第020章：Semantic Errors Beyond Syntax <020-semantic-errors-beyond-syntax.rst>`_。
+
 阅读方式
 --------
 
