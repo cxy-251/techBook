@@ -80,7 +80,7 @@ Part 8：全局光照技术
 Part 9：纹理映射与采样
 ---------------------
 
-* `第043章：纹理坐标、Texel 与采样数据 <043-texture-coordinates-and-sampling-data.rst>`_；
+* `第043章：纹理坐标、Texel 与采样数据 <043-texture-coordinates-texels-and-sampling-data.rst>`_；
 * `第044章：过滤与 Mipmapping <044-filtering-and-mipmapping.rst>`_；
 * `第045章：纹理压缩 <045-texture-compression.rst>`_；
 * `第046章：高级纹理技术 <046-advanced-texture-techniques.rst>`_。
