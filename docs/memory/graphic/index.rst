@@ -39,7 +39,17 @@ Part 4：光栅化管线
 * `第019章：裁剪与剔除 <019-clipping-and-culling.rst>`_；
 * `第020章：光栅化算法 <020-raster-algorithms.rst>`_。
 
+Part 5：Shader 系统与编程
+------------------------
+
+* `第021章：Shader Model 演进 <021-shader-model-evolution.rst>`_；
+* `第022章：Vertex Shader 深入 <022-vertex-shaders-in-depth.rst>`_；
+* `第023章：Fragment 与 Pixel Shader <023-fragment-and-pixel-shaders.rst>`_；
+* `第024章：Geometry 与 Tessellation Shader <024-geometry-and-tessellation-shaders.rst>`_；
+* `第025章：Compute Shader <025-compute-shaders.rst>`_；
+* `第026章：动态 Shader 生成与热更新 <026-dynamic-shader-generation-and-hot-reloading.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定对象、坐标空间、资源状态与管线阶段，再沿关键路径复盘转换、筛选和消费，最后用概念边界检查图形判断是否准确。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定对象、数据输入、资源绑定、执行粒度与管线阶段，再沿关键路径复盘编译、执行、同步和输出，最后用概念边界检查 Shader 判断是否准确。
