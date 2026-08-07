@@ -57,6 +57,15 @@ Part 6：Intermediate Representation and Program Lowering
 * `第029章：IR Verification and Structural Invariants <029-ir-verification-and-structural-invariants.rst>`_；
 * `第030章：Designing IR for Analysis and Transformation <030-designing-ir-for-analysis-and-transformation.rst>`_。
 
+Part 7：Control Flow Graphs, Basic Blocks, and Program Structure
+---------------------------------------------------------------
+
+* `第031章：Basic Blocks as Straight-Line Code Regions <031-basic-blocks-as-straight-line-code-regions.rst>`_；
+* `第032章：Control Flow Graphs and Branch Structure <032-control-flow-graphs-and-branch-structure.rst>`_；
+* `第033章：Dominators, Loops, and Reachability <033-dominators-loops-and-reachability.rst>`_；
+* `第034章：Structured Control Flow vs Unstructured Jumps <034-structured-control-flow-vs-unstructured-jumps.rst>`_；
+* `第035章：Control Flow Evidence in Real Compiler Pipelines <035-control-flow-evidence-in-real-compiler-pipelines.rst>`_。
+
 阅读方式
 --------
 
