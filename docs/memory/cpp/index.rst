@@ -51,6 +51,18 @@ Part 6：Container Adaptors
 * `第023章：Queue <023-queue.rst>`_；
 * `第024章：Priority Queue <024-priority-queue.rst>`_。
 
+Part 7：STL Algorithms
+----------------------
+
+* `第025章：Algorithm Design Principles <025-algorithm-design-principles.rst>`_；
+* `第026章：Search Algorithms <026-search-algorithms.rst>`_；
+* `第027章：Modifying Algorithms <027-modifying-algorithms.rst>`_；
+* `第028章：Sorting Algorithms <028-sorting-algorithms.rst>`_；
+* `第029章：Binary Search Algorithms <029-binary-search-algorithms.rst>`_；
+* `第030章：Set Algorithms <030-set-algorithms.rst>`_；
+* `第031章：Heap Algorithms <031-heap-algorithms.rst>`_；
+* `第032章：Numeric Algorithms <032-numeric-algorithms.rst>`_。
+
 阅读方式
 --------
 
