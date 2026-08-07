@@ -71,6 +71,15 @@ Part 8：Callable Objects and Invocation
 * `第035章：Std Function <035-std-function.rst>`_；
 * `第036章：Bind Mem Fn and Invoke <036-bind-mem-fn-and-invoke.rst>`_。
 
+Part 9：Traits and Template Metaprogramming
+-------------------------------------------
+
+* `第037章：Traits Design <037-traits-design.rst>`_；
+* `第038章：Iterator Traits <038-iterator-traits.rst>`_；
+* `第039章：Type Traits <039-type-traits.rst>`_；
+* `第040章：SFINAE <040-sfinae.rst>`_；
+* `第041章：Concepts <041-concepts.rst>`_。
+
 阅读方式
 --------
 
