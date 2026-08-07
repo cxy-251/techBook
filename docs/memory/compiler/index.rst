@@ -21,6 +21,15 @@ Part 2：Source Text, Tokens, and Lexical Analysis
 * `第009章：Whitespace, Comments, Newlines, and Layout-Sensitive Syntax <009-whitespace-comments-newlines-and-layout-sensitive-syntax.rst>`_；
 * `第010章：Lexer Errors, Diagnostics, and Source Locations <010-lexer-errors-diagnostics-and-source-locations.rst>`_。
 
+Part 3：Grammar, Parsing, and Abstract Syntax Trees
+---------------------------------------------------
+
+* `第011章：Grammar as the Shape of Valid Programs <011-grammar-as-the-shape-of-valid-programs.rst>`_；
+* `第012章：Parsing Token Streams into Structure <012-parsing-token-streams-into-structure.rst>`_；
+* `第013章：Parse Trees vs Abstract Syntax Trees <013-parse-trees-vs-abstract-syntax-trees.rst>`_；
+* `第014章：Operator Precedence, Associativity, and Ambiguity <014-operator-precedence-associativity-and-ambiguity.rst>`_；
+* `第015章：Parser Error Recovery and Developer Feedback <015-parser-error-recovery-and-developer-feedback.rst>`_。
+
 阅读方式
 --------
 
