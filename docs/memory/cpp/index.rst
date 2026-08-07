@@ -30,6 +30,13 @@ Part 3：Sequence Containers
 * `第014章：Forward List <014-forward-list.rst>`_；
 * `第015章：String <015-string.rst>`_。
 
+Part 4：Ordered Associative Containers
+--------------------------------------
+
+* `第016章：Red-Black Tree Foundations <016-red-black-tree-foundations.rst>`_；
+* `第017章：Map and Set <017-map-and-set.rst>`_；
+* `第018章：Multimap and Multiset <018-multimap-and-multiset.rst>`_。
+
 阅读方式
 --------
 
