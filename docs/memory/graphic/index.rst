@@ -102,7 +102,16 @@ Part 11：图像处理与视觉感知
 * `第054章：感知指标、Gamma 与显示校准 <054-perceptual-metrics-gamma-and-display-calibration.rst>`_；
 * `第055章：后处理管线与图像质量调试 <055-post-processing-pipeline-and-image-quality-debugging.rst>`_。
 
+Part 12：空间数据结构
+--------------------
+
+* `第056章：Bounding Volume Hierarchy <056-bounding-volume-hierarchies.rst>`_；
+* `第057章：KD-Tree <057-kd-trees.rst>`_；
+* `第058章：Octree 与 Grid 结构 <058-octree-and-grid-structures.rst>`_；
+* `第059章：Scene Graph <059-scene-graphs.rst>`_；
+* `第060章：空间加速策略对比 <060-acceleration-strategy-comparison.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定图像当前处于 scene-linear、temporal reconstruction 还是 display output 阶段，再沿关键路径复盘颜色空间、filter footprint、HDR/曝光、history、显示校准与 frame graph 资源边界，最后用中间纹理和连续帧证据定位最早出错的图像处理阶段。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先确定结构按对象还是按空间组织，再沿关键路径复盘构建、更新、遍历、payload 与 Scene Graph/空间索引边界，最后用 build、update、query、memory 和 bandwidth 指标验证空间结构是否真正降低了当前查询成本。
