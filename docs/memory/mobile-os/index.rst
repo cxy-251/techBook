@@ -114,6 +114,18 @@ Part 9：IPC and System Service Access
 * `第074章：IPC Performance Copy, Shared Memory, Latency, Blocking <074-ipc-performance-copy-shared-memory-latency-blocking.rst>`_；
 * `第075章：Deep Path Location Request and Camera Request <075-deep-path-location-request-and-camera-request.rst>`_。
 
+Part 10：Security, Sandbox, Permission, Signature, Entitlement, and Trust
+------------------------------------------------------------------------
+
+* `第076章：Mobile Platform Security Model <076-mobile-platform-security-model.rst>`_；
+* `第077章：Process Isolation, File Isolation, User Data Protection <077-process-isolation-file-isolation-user-data-protection.rst>`_；
+* `第078章：Camera, Microphone, Location, Photos, Bluetooth, Notification Permission <078-camera-microphone-location-photos-bluetooth-notification-permission.rst>`_；
+* `第079章：Code Signing and App Identity <079-code-signing-and-app-identity.rst>`_；
+* `第080章：Android UID, Permission, SELinux, Keystore, Verified Boot <080-android-uid-permission-selinux-keystore-verified-boot.rst>`_；
+* `第081章：Apple Code Signing, Entitlement, Sandbox, Keychain, Secure Enclave <081-apple-code-signing-entitlement-sandbox-keychain-secure-enclave.rst>`_；
+* `第082章：App Store, Certificate, Installation Policy, Platform Trust <082-app-store-certificate-installation-policy-platform-trust.rst>`_；
+* `第083章：Over-Permission, Background Abuse, Data Leakage <083-over-permission-background-abuse-data-leakage.rst>`_。
+
 阅读方式
 --------
 
