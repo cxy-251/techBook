@@ -201,7 +201,16 @@ Part 22：Shader Compilers, SPIR-V, and GPU Code Generation
 * `第109章：Driver Compilers and GPU Machine Code <109-driver-compilers-and-gpu-machine-code.rst>`_；
 * `第110章：Graphics Pipeline State and Shader Optimization <110-graphics-pipeline-state-and-shader-optimization.rst>`_。
 
+Part 23：AI Graph Compilers, Tensor IR, and Operator Fusion
+----------------------------------------------------------
+
+* `第111章：Neural Networks as Computation Graphs <111-neural-networks-as-computation-graphs.rst>`_；
+* `第112章：Tensor Shapes, Layouts, and Type-Like Information <112-tensor-shapes-layouts-and-type-like-information.rst>`_；
+* `第113章：Graph Optimization and Operator Fusion <113-graph-optimization-and-operator-fusion.rst>`_；
+* `第114章：Lowering Tensor IR to Kernels <114-lowering-tensor-ir-to-kernels.rst>`_；
+* `第115章：Runtime Scheduling, Memory Planning, and Hardware Backends <115-runtime-scheduling-memory-planning-and-hardware-backends.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时沿 ``shader source → stage/interface/resource contract → frontend normalization → SPIR-V → API validation → driver internal IR → target lowering/register allocation/scheduling → GPU ISA`` 复盘 shader 编译链；重点区分 shader source 与完整 pipeline context、标准 GPU IR 与真实机器码，以及 register pressure、occupancy、divergence、texture/derivative 和 pipeline cache 如何共同决定最终性能。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时沿 ``framework calls → typed computation graph → shape/dtype/layout/quantization facts → graph optimization/fusion → structured Tensor IR → bufferization/scheduling → runtime guards/cache/memory plan → CPU/GPU/NPU backend`` 复盘 AI 编译链；重点区分图节点与真实 kernel、逻辑 tensor 与物理 buffer、fusion legality 与 profitability，以及动态 shape、fallback、数据搬运和硬件布局如何共同决定端到端性能。
