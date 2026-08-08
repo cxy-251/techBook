@@ -69,6 +69,17 @@ Part 6：Document Model, HTML Semantics, Accessibility, and Public Web Discovery
 * `第041章：Internationalization, Locale, Direction, Unicode, and Semantic Presentation <041-internationalization-locale-direction-unicode-and-semantic-presentation.rst>`_；
 * `第042章：Crawling, Sitemap, Open Graph, Structured Data, and Public Web Discovery <042-crawling-sitemap-open-graph-structured-data-and-public-web-discovery.rst>`_。
 
+Part 7：CSS Cascade, Layout, Visual Formatting, and Rendering Cost
+-----------------------------------------------------------------
+
+* `第043章：Cascade, Specificity, Inheritance, and Computed Value <043-cascade-specificity-inheritance-and-computed-value.rst>`_；
+* `第044章：Box Model, Normal Flow, Formatting Context, and Overflow <044-box-model-normal-flow-formatting-context-and-overflow.rst>`_；
+* `第045章：Flexbox, Grid, Alignment, and Modern Layout Systems <045-flexbox-grid-alignment-and-modern-layout-systems.rst>`_；
+* `第046章：Positioning, Containing Block, Stacking Context, and Layering <046-positioning-containing-block-stacking-context-and-layering.rst>`_；
+* `第047章：Responsive Design, Media Query, Container Query, and Adaptive Conditions <047-responsive-design-media-query-container-query-and-adaptive-conditions.rst>`_；
+* `第048章：CSS Containment, Layout Invalidation, and Layout Shift <048-css-containment-layout-invalidation-and-layout-shift.rst>`_；
+* `第049章：Animation Cost Across Layout, Paint, and Composite <049-animation-cost-across-layout-paint-and-composite.rst>`_。
+
 阅读方式
 --------
 
