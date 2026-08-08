@@ -20,12 +20,8 @@
 * `Graphic 必背课本 <graphic/index.rst>`_；
 * `C++ 必背课本 <cpp/index.rst>`_；
 * `Compiler 必背课本 <compiler/index.rst>`_；
-* `Mobile OS 必背课本 <mobile-os/index.rst>`_。
-
-与 AIBook 对应的后续书籍
------------------------
-
-* Web Architecture。
+* `Mobile OS 必背课本 <mobile-os/index.rst>`_；
+* `Web Architecture 必背课本 <web-architecture/index.rst>`_。
 
 生产规则
 --------
