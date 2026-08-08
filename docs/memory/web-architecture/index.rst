@@ -287,7 +287,19 @@ Part 25：Offline, Embedded Web, Extensions, and Specialized Execution Environme
 * `第183章：Realtime Collaboration, Presence, CRDT, OT, and Conflict Resolution <183-realtime-collaboration-presence-crdt-ot-and-conflict-resolution.rst>`_；
 * `第184章：Product-Specific Web Architecture Patterns and System Constraints <184-product-specific-web-architecture-patterns-and-system-constraints.rst>`_。
 
+Part 26：Framework and Toolchain Mapping Across System Paths
+-----------------------------------------------------------
+
+* `第185章：How to Map Any Framework onto the Web System Model <185-how-to-map-any-framework-onto-the-web-system-model.rst>`_；
+* `第186章：UI Runtime Mapping React, Vue, Svelte, Solid, and Compiler-Driven UI <186-ui-runtime-mapping-react-vue-svelte-solid-and-compiler-driven-ui.rst>`_；
+* `第187章：Routing and Rendering Framework Mapping <187-routing-and-rendering-framework-mapping.rst>`_；
+* `第188章：Data Read and Mutation Mapping Across Modern Full-Stack Frameworks <188-data-read-and-mutation-mapping-across-modern-full-stack-frameworks.rst>`_；
+* `第189章：API and Server Runtime Framework Mapping <189-api-and-server-runtime-framework-mapping.rst>`_；
+* `第190章：Data Layer Tooling and Query Boundary Mapping <190-data-layer-tooling-and-query-boundary-mapping.rst>`_；
+* `第191章：Build and Deployment Toolchain Mapping <191-build-and-deployment-toolchain-mapping.rst>`_；
+* `第192章：Framework Comparison as Boundary Comparison <192-framework-comparison-as-boundary-comparison.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时优先沿 ``Offline/Embedded Product Intent → Local State/Runtime → Permission/Bridge/IPC → Sync/Native Capability → Durable State → Version/Conflict Recovery`` 追踪特殊运行环境路径，并始终标出 local-vs-remote authority、Service Worker/PWA lifecycle、extension permission、host/native trust boundary、IPC/bridge contract、collaboration convergence 与 product constraint。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时优先沿 ``Product Path → Framework Abstraction → Runtime Boundary → Data/Mutation → Build Artifact → Deployment Target → Failure/Observability`` 追踪框架与工具链映射，并始终标出 framework default、state/cache ownership、server/client/edge runtime、artifact graph、deployment constraint、escape hatch 与 boundary observability。
