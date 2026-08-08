@@ -90,6 +90,18 @@ Part 7：Runtime Layer and Application Execution
 * `第058章：Startup Cost, Memory Sharing, Launch Performance <058-startup-cost-memory-sharing-launch-performance.rst>`_；
 * `第059章：Runtime Design, Battery, Memory, Responsiveness <059-runtime-design-battery-memory-responsiveness.rst>`_。
 
+Part 8：App Process Model and Lifecycle Policy
+----------------------------------------------
+
+* `第060章：App Process as a Managed System Entity <060-app-process-as-a-managed-system-entity.rst>`_；
+* `第061章：Foreground, Background, Suspended, Cached, Killed <061-foreground-background-suspended-cached-killed.rst>`_；
+* `第062章：Lifecycle Policy and System Resource Management <062-lifecycle-policy-and-system-resource-management.rst>`_；
+* `第063章：Android App Component Process Model <063-android-app-component-process-model.rst>`_；
+* `第064章：Apple App Lifecycle Process Model <064-apple-app-lifecycle-process-model.rst>`_；
+* `第065章：Background Process Reclamation <065-background-process-reclamation.rst>`_；
+* `第066章：Cold Start, Warm Start, Resume Path <066-cold-start-warm-start-resume-path.rst>`_；
+* `第067章：State Restoration Under Process Death <067-state-restoration-under-process-death.rst>`_。
+
 阅读方式
 --------
 
