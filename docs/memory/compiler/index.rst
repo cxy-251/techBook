@@ -138,7 +138,16 @@ Part 15：Object Files, Relocation, Linking, and Debug Information
 * `第074章：ELF, Mach-O, COFF, and Platform Formats <074-elf-macho-coff-and-platform-formats.rst>`_；
 * `第075章：Debug Information and Source-Level Observability <075-debug-information-and-source-level-observability.rst>`_。
 
+Part 16：Runtime Systems, ABI, Exceptions, and Garbage Collection
+-----------------------------------------------------------------
+
+* `第076章：What the Compiler Leaves to the Runtime <076-what-the-compiler-leaves-to-the-runtime.rst>`_；
+* `第077章：ABI, Runtime Helpers, and Language Support Libraries <077-abi-runtime-helpers-and-language-support-libraries.rst>`_；
+* `第078章：Exception Handling and Stack Unwinding <078-exception-handling-and-stack-unwinding.rst>`_；
+* `第079章：Garbage Collection and Memory Safety Support <079-garbage-collection-and-memory-safety-support.rst>`_；
+* `第080章：Runtime Systems as Execution Partners <080-runtime-systems-as-execution-partners.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先把机器代码放回 object-file container，沿 section、symbol、relocation、link layout 和 loader mapping 复盘独立编译单元如何闭合成真实进程映像，再用 ELF/Mach-O/COFF 平台格式与 debug information 检查二进制 ABI 如何写入磁盘，以及 debugger 如何从地址、寄存器和栈状态重建源码级可观察性。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先区分 compile-time structure 与 runtime state，再沿 ABI、compiler-inserted helper、language support library、exception unwind、GC safepoint/root map/barrier 追踪生成代码如何把动态语义交给运行时，最后把 generated code、runtime metadata、library、ABI 与 OS 放回一条完整执行链检查契约是否一致。
