@@ -129,7 +129,16 @@ Part 14：Register Allocation, Stack Frames, and Calling Conventions
 * `第069章：Stack Frames, Prologues, and Epilogues <069-stack-frames-prologues-and-epilogues.rst>`_；
 * `第070章：Calling Conventions as Binary-Level Contracts <070-calling-conventions-as-binary-level-contracts.rst>`_。
 
+Part 15：Object Files, Relocation, Linking, and Debug Information
+----------------------------------------------------------------
+
+* `第071章：Object Files as Partially Built Programs <071-object-files-as-partially-built-programs.rst>`_；
+* `第072章：Symbols, Sections, and Relocation Records <072-symbols-sections-and-relocation-records.rst>`_；
+* `第073章：Static Linking, Dynamic Linking, and Loaders <073-static-linking-dynamic-linking-and-loaders.rst>`_；
+* `第074章：ELF, Mach-O, COFF, and Platform Formats <074-elf-macho-coff-and-platform-formats.rst>`_；
+* `第075章：Debug Information and Source-Level Observability <075-debug-information-and-source-level-observability.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先定位 virtual/physical register、register class 与 liveness，再沿 interference、allocation、spill/reload、stack frame、prologue/epilogue 和 calling convention 复盘机器值如何被压入有限寄存器与栈空间，最后用 caller/callee-saved responsibility、stack alignment、aggregate return 和 ABI boundary 检查函数调用是否满足二进制协议。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先把机器代码放回 object-file container，沿 section、symbol、relocation、link layout 和 loader mapping 复盘独立编译单元如何闭合成真实进程映像，再用 ELF/Mach-O/COFF 平台格式与 debug information 检查二进制 ABI 如何写入磁盘，以及 debugger 如何从地址、寄存器和栈状态重建源码级可观察性。
