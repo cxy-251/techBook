@@ -182,6 +182,17 @@ Part 16：Data Read Path, Loading Coordination, and Server-State Boundaries
 * `第114章：Streaming Data, Deferred Data, Placeholder UI, and Progressive Rendering <114-streaming-data-deferred-data-placeholder-ui-and-progressive-rendering.rst>`_；
 * `第115章：Read Path Failure Modes: Loading Hole, Overfetch, Underfetch, and Stale Data <115-read-path-failure-modes-loading-hole-overfetch-underfetch-and-stale-data.rst>`_。
 
+Part 17：Mutation Write Path, Consistency, Retry, and Failure Recovery
+---------------------------------------------------------------------
+
+* `第116章：Mutation Write Path from User Action to Durable State <116-mutation-write-path-from-user-action-to-durable-state.rst>`_；
+* `第117章：REST, RPC, GraphQL, and Server Function Mutation Paths <117-rest-rpc-graphql-and-server-function-mutation-paths.rst>`_；
+* `第118章：Client Validation, Server Validation, and Runtime Schema Enforcement <118-client-validation-server-validation-and-runtime-schema-enforcement.rst>`_；
+* `第119章：Optimistic UI, Pending State, Rollback, and Conflict Resolution <119-optimistic-ui-pending-state-rollback-and-conflict-resolution.rst>`_；
+* `第120章：Idempotency, Retry, Race Condition, and Double Write Prevention <120-idempotency-retry-race-condition-and-double-write-prevention.rst>`_；
+* `第121章：Mutation Result, Cache Invalidation, and UI Consistency <121-mutation-result-cache-invalidation-and-ui-consistency.rst>`_；
+* `第122章：Write Path Failure Modes and Recovery Design <122-write-path-failure-modes-and-recovery-design.rst>`_。
+
 阅读方式
 --------
 
