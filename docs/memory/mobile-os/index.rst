@@ -217,6 +217,17 @@ Part 18：Network Stack, Cellular, Wi-Fi, TLS, and VPN
 * `第141章：Background Networking, Push, Power, Data Saver <141-background-networking-push-power-data-saver.rst>`_；
 * `第142章：Network Access as Power and Privacy Surface <142-network-access-as-power-and-privacy-surface.rst>`_。
 
+Part 19：Power, Thermal, Background Execution, and Notifications
+----------------------------------------------------------------
+
+* `第143章：Power as First-Class System Resource <143-power-as-first-class-system-resource.rst>`_；
+* `第144章：CPU and GPU Frequency, Sleep State, Wake Lock, Thermal Throttling <144-cpu-and-gpu-frequency-sleep-state-wake-lock-thermal-throttling.rst>`_；
+* `第145章：Background Execution Policy <145-background-execution-policy.rst>`_；
+* `第146章：Android Doze, App Standby, JobScheduler, WorkManager, WakeLock <146-android-doze-app-standby-jobscheduler-workmanager-wakelock.rst>`_；
+* `第147章：Apple Background Modes, BGTaskScheduler, Push, Suspension, Thermal State <147-apple-background-modes-bgtaskscheduler-push-suspension-thermal-state.rst>`_；
+* `第148章：Notification Delivery, Permission, Priority, User Attention <148-notification-delivery-permission-priority-user-attention.rst>`_；
+* `第149章：OEM Background Policy and Notification Behavior <149-oem-background-policy-and-notification-behavior.rst>`_。
+
 阅读方式
 --------
 
