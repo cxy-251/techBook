@@ -29,6 +29,18 @@ Part 2：Smartphone Hardware Platform
 * `第017章：Wireless Hardware Wi-Fi, Bluetooth, NFC, GPS, Cellular Modem <017-wireless-hardware-wifi-bluetooth-nfc-gps-cellular-modem.rst>`_；
 * `第018章：Battery, Charging, Thermal Sensors, and Power Hardware <018-battery-charging-thermal-sensors-and-power-hardware.rst>`_。
 
+Part 3：Boot Chain and System Startup
+------------------------------------
+
+* `第019章：Power-On Sequence and Boot Entry <019-power-on-sequence-and-boot-entry.rst>`_；
+* `第020章：Boot ROM, Bootloader, Firmware, Kernel Image, Verified Boot <020-boot-rom-bootloader-firmware-kernel-image-verified-boot.rst>`_；
+* `第021章：Secure Boot and Trust Chain <021-secure-boot-and-trust-chain.rst>`_；
+* `第022章：Signature Verification and System Integrity <022-signature-verification-and-system-integrity.rst>`_；
+* `第023章：System Partitions, Recovery, OTA Update, Rollback Protection <023-system-partitions-recovery-ota-update-rollback-protection.rst>`_；
+* `第024章：Android Startup Path Bootloader, Kernel, init, Zygote, system_server <024-android-startup-path-bootloader-kernel-init-zygote-system-server.rst>`_；
+* `第025章：Apple Startup Path Secure Boot, XNU, launchd, System Services <025-apple-startup-path-secure-boot-xnu-launchd-system-services.rst>`_；
+* `第026章：Startup Security and Platform Trust Establishment <026-startup-security-and-platform-trust-establishment.rst>`_。
+
 阅读方式
 --------
 
