@@ -91,6 +91,17 @@ Part 8：JavaScript Engine, Event Loop, Memory, and Host Runtime Coordination
 * `第055章：DOM Binding, Web API Callback, and Host Runtime Integration <055-dom-binding-web-api-callback-and-host-runtime-integration.rst>`_；
 * `第056章：Long Task, Main Thread Pressure, Responsiveness, and Input Delay <056-long-task-main-thread-pressure-responsiveness-and-input-delay.rst>`_。
 
+Part 9：Web Platform APIs and Cross-Boundary Capability Paths
+-------------------------------------------------------------
+
+* `第057章：Fetch, Request, Response, Body, and Streams <057-fetch-request-response-body-and-streams.rst>`_；
+* `第058章：URL, History, Navigation, Location, and Browser State <058-url-history-navigation-location-and-browser-state.rst>`_；
+* `第059章：Cookie, Local Storage, Session Storage, IndexedDB, and Storage Lifetime <059-cookie-local-storage-session-storage-indexeddb-and-storage-lifetime.rst>`_；
+* `第060章：Service Worker, Cache Storage, Offline Path, and Request Interception <060-service-worker-cache-storage-offline-path-and-request-interception.rst>`_；
+* `第061章：Web Worker, Shared Worker, Worklet, and Off-Main-Thread Execution <061-web-worker-shared-worker-worklet-and-off-main-thread-execution.rst>`_；
+* `第062章：WebSocket, Server-Sent Events, WebRTC, and WebTransport <062-websocket-server-sent-events-webrtc-and-webtransport.rst>`_；
+* `第063章：File, Clipboard, Notification, Permission, and Device-Facing APIs <063-file-clipboard-notification-permission-and-device-facing-apis.rst>`_。
+
 阅读方式
 --------
 
