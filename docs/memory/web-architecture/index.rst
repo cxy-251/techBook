@@ -240,7 +240,19 @@ Part 21：Cache Topology, Revalidation, Freshness, and Consistency Failure
 * `第152章：Cache Key, Vary, Credential, Locale, and Personalization Boundary <152-cache-key-vary-credential-locale-and-personalization-boundary.rst>`_；
 * `第153章：Stale Data, Split Brain UI, and Cache Consistency Failure <153-stale-data-split-brain-ui-and-cache-consistency-failure.rst>`_。
 
+Part 22：Source Transformation, Package Graph, Bundling, and Build Artifacts
+---------------------------------------------------------------------------
+
+* `第154章：Source to Artifact Transformation Path <154-source-to-artifact-transformation-path.rst>`_；
+* `第155章：ESM, CJS, Module Graph, and Package Boundary <155-esm-cjs-module-graph-and-package-boundary.rst>`_；
+* `第156章：Package Manager, Lockfile, Workspace, and Monorepo Dependency Graph <156-package-manager-lockfile-workspace-and-monorepo-dependency-graph.rst>`_；
+* `第157章：TypeScript, JSX, Babel, SWC, and Language Lowering <157-typescript-jsx-babel-swc-and-language-lowering.rst>`_；
+* `第158章：Bundler Architecture, Code Splitting, Tree Shaking, and Chunk Graph <158-bundler-architecture-code-splitting-tree-shaking-and-chunk-graph.rst>`_；
+* `第159章：Client Bundle, Server Bundle, Edge Bundle, and Output Target <159-client-bundle-server-bundle-edge-bundle-and-output-target.rst>`_；
+* `第160章：Asset CSS Font and Static Resource Pipeline <160-asset-css-font-and-static-resource-pipeline.rst>`_；
+* `第161章：Source Map, Debug Output, and Production Diagnostics <161-source-map-debug-output-and-production-diagnostics.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时优先沿 ``User Intent → Browser/Client Cache → CDN/Edge Cache → Server/Framework Cache → Source of Truth → Invalidation/Revalidation → Response → UI Reconciliation`` 追踪副本路径，并始终标出 cache key、freshness、owner、credential/tenant boundary、resource version 与 failure recovery；遇到框架缓存 API 时，先还原成真实缓存对象、共享范围和失效责任。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时优先沿 ``Source Intent → Package/Module Graph → Language Transform → Bundler/Chunk Graph → Client/Server/Edge Output → Asset/Manifest → Deployment → Runtime Diagnostics`` 追踪构建路径，并始终标出 target runtime、dependency graph、artifact identity、cache/version boundary 与 source-map/release linkage；遇到构建工具术语时，先还原成输入、转换、产物和运行位置。
