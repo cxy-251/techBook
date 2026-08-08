@@ -219,7 +219,16 @@ Part 24：Database Query Optimizers as Compiler Systems
 * `第119章：Physical Operators and Execution Plans <119-physical-operators-and-execution-plans.rst>`_；
 * `第120章：Query Compilation, JIT, and Vectorized Execution <120-query-compilation-jit-and-vectorized-execution.rst>`_。
 
+Part 25：Compiler Diagnostics, Error Recovery, and Developer Experience
+-----------------------------------------------------------------------
+
+* `第121章：Diagnostics as a Compiler User Interface <121-diagnostics-as-a-compiler-user-interface.rst>`_；
+* `第122章：Source Ranges, Notes, Hints, and Fix-Its <122-source-ranges-notes-hints-and-fix-its.rst>`_；
+* `第123章：Syntax Error Recovery <123-syntax-error-recovery.rst>`_；
+* `第124章：Semantic Error Reporting <124-semantic-error-reporting.rst>`_；
+* `第125章：Designing Diagnostics for Human Understanding <125-designing-diagnostics-for-human-understanding.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时沿 ``SQL text → parse/bind/rewrite → logical plan → statistics/cardinality/cost → physical plan → scan/join/aggregate operators → interpreted/JIT/vectorized execution → runtime feedback`` 复盘数据库查询编译链；重点区分查询语义与执行策略、估算成本与真实运行证据，以及计划质量和 executor machinery 如何共同决定 SQL 性能。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时沿 ``compiler facts → structured diagnostic → source ranges/notes/fix-its → syntax recovery/partial AST → semantic candidate/constraint explanation → human-centered wording/actionability → IDE/CI tooling`` 复盘诊断与开发体验链；重点区分错误事实与构建策略、检测点与原因点、help 与安全 fix-it，以及恢复后的局部可信结构与级联伪错误。
