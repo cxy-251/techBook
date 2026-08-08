@@ -148,6 +148,18 @@ Part 13：Routing, Navigation State, and Application Flow
 * `第092章：Navigation Prefetch, Restoration, and Experience <092-navigation-prefetch-restoration-and-experience.rst>`_；
 * `第093章：Route State, Form State, and Data State Coordination <093-route-state-form-state-and-data-state-coordination.rst>`_。
 
+Part 14：Rendering Models, Hydration Architecture, Streaming, and Server-Client Boundaries
+-----------------------------------------------------------------------------------------
+
+* `第094章：CSR, SSR, SSG, ISR, and Hybrid Rendering Models <094-csr-ssr-ssg-isr-and-hybrid-rendering-models.rst>`_；
+* `第095章：Build-Time and Request-Time Rendering Output <095-build-time-and-request-time-rendering-output.rst>`_；
+* `第096章：Streaming HTML, Suspense Boundary, and Incremental UI Delivery <096-streaming-html-suspense-boundary-and-incremental-ui-delivery.rst>`_；
+* `第097章：Hydration, Partial Hydration, Islands, and Client Activation <097-hydration-partial-hydration-islands-and-client-activation.rst>`_；
+* `第098章：React Server Components and Server-Client Component Boundary <098-react-server-components-and-server-client-component-boundary.rst>`_；
+* `第099章：Resumability and Alternative Interactivity Models <099-resumability-and-alternative-interactivity-models.rst>`_；
+* `第100章：HTML Payload, Data Payload, JavaScript Payload, and Rendering Tradeoffs <100-html-payload-data-payload-javascript-payload-and-rendering-tradeoffs.rst>`_；
+* `第101章：Choosing a Rendering Model from User Experience and System Constraints <101-choosing-a-rendering-model-from-user-experience-and-system-constraints.rst>`_。
+
 阅读方式
 --------
 
