@@ -186,7 +186,7 @@ Part 17：Mutation Write Path, Consistency, Retry, and Failure Recovery
 ---------------------------------------------------------------------
 
 * `第116章：Mutation Write Path from User Action to Durable State <116-mutation-write-path-from-user-action-to-durable-state.rst>`_；
-* `第117章：REST, RPC, GraphQL, and Server Function Mutation Paths <117-rest-rpc-graphql-and-server-function-mutation-paths.rst>`_；
+* `第117章：REST, RPC, GraphQL, and Server Function Mutation Paths <117-rest-rpc-graphql-server-function-and-type-safe-call-boundary.rst>`_；
 * `第118章：Client Validation, Server Validation, and Runtime Schema Enforcement <118-client-validation-server-validation-and-runtime-schema-enforcement.rst>`_；
 * `第119章：Optimistic UI, Pending State, Rollback, and Conflict Resolution <119-optimistic-ui-pending-state-rollback-and-conflict-resolution.rst>`_；
 * `第120章：Idempotency, Retry, Race Condition, and Double Write Prevention <120-idempotency-retry-race-condition-and-double-write-prevention.rst>`_；
@@ -252,7 +252,19 @@ Part 22：Source Transformation, Package Graph, Bundling, and Build Artifacts
 * `第160章：Asset CSS Font and Static Resource Pipeline <160-asset-css-font-and-static-resource-pipeline.rst>`_；
 * `第161章：Source Map, Debug Output, and Production Diagnostics <161-source-map-debug-output-and-production-diagnostics.rst>`_。
 
+Part 23：Server Runtime, Edge Runtime, Serverless, and Deployment Boundaries
+---------------------------------------------------------------------------
+
+* `第162章：JavaScript Server Runtime Node.js, Bun, Deno, and Host Capability <162-javascript-server-runtime-nodejs-bun-deno-and-host-capability.rst>`_；
+* `第163章：Request Handler, Middleware Chain, Response Stream, and Runtime Context <163-request-handler-middleware-chain-response-stream-and-runtime-context.rst>`_；
+* `第164章：Serverless Lifecycle and Resource Limits <164-serverless-lifecycle-and-resource-limits.rst>`_；
+* `第165章：Edge Runtime, Worker Model, Region, Latency, and Isolation Boundary <165-edge-runtime-worker-model-region-latency-and-isolation-boundary.rst>`_；
+* `第166章：Environment Variable, Secret, Runtime Config, and Deployment Scope <166-environment-variable-secret-runtime-config-and-deployment-scope.rst>`_；
+* `第167章：Deployment Artifact, Preview Deployment, Rollback, and Release Boundary <167-deployment-artifact-preview-deployment-rollback-and-release-boundary.rst>`_；
+* `第168章：Streaming Response Across Node, Edge, Serverless, CDN, and Browser <168-streaming-response-across-node-edge-serverless-cdn-and-browser.rst>`_；
+* `第169章：Runtime Failure, Timeout, Retry, Backpressure, and Graceful Degradation <169-runtime-failure-timeout-retry-backpressure-and-graceful-degradation.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时优先沿 ``Source Intent → Package/Module Graph → Language Transform → Bundler/Chunk Graph → Client/Server/Edge Output → Asset/Manifest → Deployment → Runtime Diagnostics`` 追踪构建路径，并始终标出 target runtime、dependency graph、artifact identity、cache/version boundary 与 source-map/release linkage；遇到构建工具术语时，先还原成输入、转换、产物和运行位置。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时优先沿 ``Browser Request → CDN/Edge → Runtime Entry → Middleware/Handler → External State → Response/Stream → Deployment/Release → Failure Recovery`` 追踪运行时路径，并始终标出 host capability、runtime lifecycle、region/data location、secret/config scope、artifact/release identity、timeout/retry/backpressure 与 graceful degradation。
