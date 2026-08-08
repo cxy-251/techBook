@@ -264,7 +264,19 @@ Part 23：Server Runtime, Edge Runtime, Serverless, and Deployment Boundaries
 * `第168章：Streaming Response Across Node, Edge, Serverless, CDN, and Browser <168-streaming-response-across-node-edge-serverless-cdn-and-browser.rst>`_；
 * `第169章：Runtime Failure, Timeout, Retry, Backpressure, and Graceful Degradation <169-runtime-failure-timeout-retry-backpressure-and-graceful-degradation.rst>`_。
 
+Part 24：Testing, Debugging, Observability, and Performance Verification
+----------------------------------------------------------------------
+
+* `第170章：Testing as Evidence Across Web System Boundaries <170-testing-as-evidence-across-web-system-boundaries.rst>`_；
+* `第171章：Unit Test, Component Test, Integration Test, and E2E Test <171-unit-test-component-test-integration-test-and-e2e-test.rst>`_；
+* `第172章：Contract Test, API Test, Schema Test, and Compatibility Test <172-contract-test-api-test-schema-test-and-compatibility-test.rst>`_；
+* `第173章：Visual Accessibility and Cross-Browser Test Matrix <173-visual-accessibility-and-cross-browser-test-matrix.rst>`_；
+* `第174章：Browser DevTools, Network Panel, Performance Panel, and Memory Panel <174-browser-devtools-network-panel-performance-panel-and-memory-panel.rst>`_；
+* `第175章：Logs, Metrics, Traces, Error Tracking, and Distributed Request Evidence <175-logs-metrics-traces-error-tracking-and-distributed-request-evidence.rst>`_；
+* `第176章：Core Web Vitals, Real User Monitoring, and User-Visible Performance <176-core-web-vitals-real-user-monitoring-and-user-visible-performance.rst>`_；
+* `第177章：Debugging Full-Stack Failures from Browser Symptom to Server Cause <177-debugging-full-stack-failures-from-browser-symptom-to-server-cause.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时优先沿 ``Browser Request → CDN/Edge → Runtime Entry → Middleware/Handler → External State → Response/Stream → Deployment/Release → Failure Recovery`` 追踪运行时路径，并始终标出 host capability、runtime lifecycle、region/data location、secret/config scope、artifact/release identity、timeout/retry/backpressure 与 graceful degradation。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时优先沿 ``User Symptom → Test Evidence → Browser/Network Evidence → Trace/Logs/Metrics → RUM/Performance → Root Cause → Release Feedback`` 追踪验证与调试路径，并始终标出 test scope、runtime boundary、request/trace/release identity、browser reality、compatibility/version skew、user-visible performance 与 recovery evidence。
