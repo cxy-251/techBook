@@ -237,7 +237,16 @@ Part 26：Compiler Testing, Fuzzing, Verification, and Miscompilation Debugging
 * `第129章：Differential Testing and Miscompilation Detection <129-differential-testing-and-miscompilation-detection.rst>`_；
 * `第130章：Reducing and Debugging Compiler Bugs <130-reducing-and-debugging-compiler-bugs.rst>`_。
 
+Part 27：Building a Small Compiler from Scratch
+-----------------------------------------------
+
+* `第131章：Designing a Tiny Language <131-designing-a-tiny-language.rst>`_；
+* `第132章：Implementing Lexer, Parser, and AST <132-implementing-lexer-parser-and-ast.rst>`_；
+* `第133章：Building Semantic Analysis and IR <133-building-semantic-analysis-and-ir.rst>`_；
+* `第134章：Adding Optimizations and Bytecode Execution <134-adding-optimizations-and-bytecode-execution.rst>`_；
+* `第135章：Generating LLVM IR or WebAssembly <135-generating-llvm-ir-or-webassembly.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时沿 ``local/unit evidence → golden/pattern tests → IR/pass isolation + verifier → fuzzing and failure oracles → differential/metamorphic miscompilation detection → testcase reduction → pass/commit bisection → regression test`` 复盘编译器质量链；重点区分结构合法与语义正确、coverage 与 correctness oracle、差分信号与真正 wrong-code 证据，以及 reduction、root-cause analysis 与 regression protection 的不同职责。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时沿 ``language contract → source/tokens → parser/AST → symbol/type semantics → simple IR/CFG → proven optimizations → bytecode chunk → frame/operand-stack VM → LLVM IR or Wasm lowering → verifier/validator → linker/runtime/toolchain`` 复盘一门小语言从设计到真实后端的完整闭环；重点区分源语言语义与目标表示、AST 与 IR、优化事实与运行时动作、自制 VM 与外部后端，以及 runtime helper/ABI/host import 如何连接语言和平台。
