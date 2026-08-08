@@ -276,7 +276,18 @@ Part 24：Testing, Debugging, Observability, and Performance Verification
 * `第176章：Core Web Vitals, Real User Monitoring, and User-Visible Performance <176-core-web-vitals-real-user-monitoring-and-user-visible-performance.rst>`_；
 * `第177章：Debugging Full-Stack Failures from Browser Symptom to Server Cause <177-debugging-full-stack-failures-from-browser-symptom-to-server-cause.rst>`_。
 
+Part 25：Offline, Embedded Web, Extensions, and Specialized Execution Environments
+---------------------------------------------------------------------------------
+
+* `第178章：Offline-First Architecture and Local-Remote State Coordination <178-offline-first-architecture-and-local-remote-state-coordination.rst>`_；
+* `第179章：PWA Installability, Manifest, Service Worker Update, and App Shell <179-pwa-installability-manifest-service-worker-update-and-app-shell.rst>`_；
+* `第180章：Browser Extension Execution Model and Permission Boundary <180-browser-extension-execution-model-and-permission-boundary.rst>`_；
+* `第181章：WebView, Hybrid Container, Mini-App, and Embedded Web Runtime <181-webview-hybrid-container-mini-app-and-embedded-web-runtime.rst>`_；
+* `第182章：Electron, Tauri, Desktop Web Runtime, and Native Boundary <182-electron-tauri-desktop-web-runtime-and-native-boundary.rst>`_；
+* `第183章：Realtime Collaboration, Presence, CRDT, OT, and Conflict Resolution <183-realtime-collaboration-presence-crdt-ot-and-conflict-resolution.rst>`_；
+* `第184章：Product-Specific Web Architecture Patterns and System Constraints <184-product-specific-web-architecture-patterns-and-system-constraints.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时优先沿 ``User Symptom → Test Evidence → Browser/Network Evidence → Trace/Logs/Metrics → RUM/Performance → Root Cause → Release Feedback`` 追踪验证与调试路径，并始终标出 test scope、runtime boundary、request/trace/release identity、browser reality、compatibility/version skew、user-visible performance 与 recovery evidence。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时优先沿 ``Offline/Embedded Product Intent → Local State/Runtime → Permission/Bridge/IPC → Sync/Native Capability → Durable State → Version/Conflict Recovery`` 追踪特殊运行环境路径，并始终标出 local-vs-remote authority、Service Worker/PWA lifecycle、extension permission、host/native trust boundary、IPC/bridge contract、collaboration convergence 与 product constraint。
