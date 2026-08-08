@@ -216,7 +216,19 @@ Part 19：Identity, Session, Authorization, and Application Security
 * `第136章：Secret Boundary Across Browser, Server, Edge, Build Time, and Deployment <136-secret-boundary-across-browser-server-edge-build-time-and-deployment.rst>`_；
 * `第137章：Auth Failure, Session Expiry, Reauthentication, and Recovery Experience <137-auth-failure-session-expiry-reauthentication-and-recovery-experience.rst>`_。
 
+Part 20：Persistence, Domain Logic, File Storage, and Data Stability
+-------------------------------------------------------------------
+
+* `第138章：Database Boundary in Web Applications <138-database-boundary-in-web-applications.rst>`_；
+* `第139章：SQL, NoSQL, ORM, Query Builder, and Type-Safe Data Access <139-sql-nosql-orm-query-builder-and-type-safe-data-access.rst>`_；
+* `第140章：Schema, Migration, Data Evolution, and Application Compatibility <140-schema-migration-data-evolution-and-application-compatibility.rst>`_；
+* `第141章：Transaction, Connection Pool, Isolation, and Consistency Guarantees <141-transaction-connection-pool-isolation-and-consistency-guarantees.rst>`_；
+* `第142章：Domain Logic, Service Layer, Repository, and Use Case Boundary <142-domain-logic-service-layer-repository-and-use-case-boundary.rst>`_；
+* `第143章：Serialization, Data Validation, and Persistence Contract <143-serialization-data-validation-and-persistence-contract.rst>`_；
+* `第144章：File Upload, Object Storage, Media Asset, and Large Data Path <144-file-upload-object-storage-media-asset-and-large-data-path.rst>`_；
+* `第145章：Serverless Database, Edge Data, and Connection Lifecycle Constraints <145-serverless-database-edge-data-and-connection-lifecycle-constraints.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时优先沿 ``User Intent → Browser → Credential / Session → Trusted Identity → Authorization Policy → Tenant-Scoped Data → Response → Browser State`` 追踪身份与请求路径，并始终标出 runtime、state owner、cache copy、trust boundary、secret scope 与 failure recovery；遇到框架术语时，先还原成 browser/server/edge/build/database 等真实系统边界。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时优先沿 ``User Intent → Trusted Use Case → Domain/Validation → Repository/Data Access → Transaction/Database/Object Storage → Derived Cache/Replica → Response → Browser State`` 追踪数据路径，并始终标出 source of truth、transaction boundary、runtime lifecycle、cache copy、tenant/security boundary 与 failure recovery；遇到 ORM、serverless、edge 等抽象时，先还原成真实数据所有者和连接/一致性路径。
