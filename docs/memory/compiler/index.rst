@@ -156,7 +156,16 @@ Part 17：Interpreters, Bytecode VMs, and JIT Compilation
 * `第084章：JIT Compilation and Runtime Specialization <084-jit-compilation-and-runtime-specialization.rst>`_；
 * `第085章：Deoptimization, Inline Caches, and Dynamic Feedback <085-deoptimization-inline-caches-and-dynamic-feedback.rst>`_。
 
+Part 18：LLVM Infrastructure and Pass Engineering
+-------------------------------------------------
+
+* `第086章：LLVM as a Modular Compiler Infrastructure <086-llvm-as-a-modular-compiler-infrastructure.rst>`_；
+* `第087章：LLVM IR, Modules, Functions, and Basic Blocks <087-llvm-ir-modules-functions-and-basic-blocks.rst>`_；
+* `第088章：The LLVM Pass Manager and Analysis Preservation <088-the-llvm-pass-manager-and-analysis-preservation.rst>`_；
+* `第089章：Building and Testing LLVM Passes <089-building-and-testing-llvm-passes.rst>`_；
+* `第090章：Reading Optimized LLVM IR <090-reading-optimized-llvm-ir.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先沿 AST direct execution、environment/closure 和 bytecode linearization 建立解释执行模型，再进入 VM frame、operand stack、dispatch loop 与 call/exception transition，最后沿 runtime profile、tiered JIT、inline cache、guard 和 deoptimization 复盘动态执行如何在可撤回假设下逐步专门化。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先沿 LLVM infrastructure、module/function/basic block 与 SSA/use-def 建立 IR 层级模型，再沿 analysis manager、transform pass、PreservedAnalyses 和 PassBuilder 理解优化管线的事实生命周期，最后通过最小 pass、opt/FileCheck 和优化前后 IR 对比，把 transformation legality、analysis invalidation 与 compiler proof chain 串成一条工程路径。
