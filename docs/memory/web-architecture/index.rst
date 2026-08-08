@@ -137,6 +137,17 @@ Part 12：UI Runtime, Component Model, State, and Interaction Feedback
 * `第085章：Event Handling, Feedback Loop, and Interaction Recovery <085-event-handling-feedback-loop-and-interaction-recovery.rst>`_；
 * `第086章：Startup Interactivity, Client JavaScript Budget, and UI Activation Cost <086-startup-interactivity-client-javascript-budget-and-ui-activation-cost.rst>`_。
 
+Part 13：Routing, Navigation State, and Application Flow
+--------------------------------------------------------
+
+* `第087章：URL as Application State and Public Interface <087-url-as-application-state-and-public-interface.rst>`_；
+* `第088章：Route Match, Nested Route, Layout, and Segment Boundary <088-route-match-nested-route-layout-and-segment-boundary.rst>`_；
+* `第089章：File-Based Routing, Route Module, and Framework Routing Contracts <089-file-based-routing-route-module-and-framework-routing-contracts.rst>`_；
+* `第090章：Client Navigation, History API, and Transition Semantics <090-client-navigation-history-api-and-transition-semantics.rst>`_；
+* `第091章：Loading Boundary, Error Boundary, Redirect, and Missing Routes <091-loading-boundary-error-boundary-redirect-and-missing-routes.rst>`_；
+* `第092章：Navigation Prefetch, Restoration, and Experience <092-navigation-prefetch-restoration-and-experience.rst>`_；
+* `第093章：Route State, Form State, and Data State Coordination <093-route-state-form-state-and-data-state-coordination.rst>`_。
+
 阅读方式
 --------
 
