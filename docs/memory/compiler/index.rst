@@ -174,7 +174,16 @@ Part 19：MLIR, Dialects, and Multi-Level Compiler Infrastructure
 * `第094章：Dialect Conversion and Progressive Lowering <094-dialect-conversion-and-progressive-lowering.rst>`_；
 * `第095章：MLIR in Heterogeneous and Domain-Specific Compilation <095-mlir-in-heterogeneous-and-domain-specific-compilation.rst>`_。
 
+Part 20：CPython Compilation Pipeline and Bytecode VM
+-----------------------------------------------------
+
+* `第096章：From Python Source to Tokens <096-from-python-source-to-tokens.rst>`_；
+* `第097章：Parsing Python into AST <097-parsing-python-into-ast.rst>`_；
+* `第098章：Symbol Table, Scopes, and Code Objects <098-symbol-table-scopes-and-code-objects.rst>`_；
+* `第099章：AST to CFG to Bytecode <099-ast-to-cfg-to-bytecode.rst>`_；
+* `第100章：Evaluation Loop and Runtime Objects <100-evaluation-loop-and-runtime-objects.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先沿 multi-level IR 与 dialect composition 判断每层保留的语义，再用 operation/region/SSA/type/attribute 模型读取混合 IR，随后沿 ConversionTarget、rewrite pattern、TypeConverter 与 partial/full conversion 复盘 progressive lowering，最后把 tensor/linalg/affine/scf/vector/gpu/LLVM 等层级放回异构编译链，检查高层领域事实何时消费、低层硬件约束何时进入。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时沿 ``source bytes → Unicode text → tokens → AST → symbol table → code object → CFG/bytecode → frame/evaluation loop → runtime objects`` 复盘 CPython 的完整编译执行链；重点区分词法/语法结构、编译期名字作用域、code object 静态元数据和 frame/object 动态状态，避免把 Python 的动态对象语义误解为所有工作都推迟到运行时。
