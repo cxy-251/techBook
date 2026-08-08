@@ -228,6 +228,17 @@ Part 19：Power, Thermal, Background Execution, and Notifications
 * `第148章：Notification Delivery, Permission, Priority, User Attention <148-notification-delivery-permission-priority-user-attention.rst>`_；
 * `第149章：OEM Background Policy and Notification Behavior <149-oem-background-policy-and-notification-behavior.rst>`_。
 
+Part 20：Debugging and Observability
+------------------------------------
+
+* `第150章：Mobile System Debugging Surface <150-mobile-system-debugging-surface.rst>`_；
+* `第151章：Logs, Crash Reports, ANR, Watchdog, System Diagnostics <151-logs-crash-reports-anr-watchdog-system-diagnostics.rst>`_；
+* `第152章：Android logcat, dumpsys, bugreport, Perfetto, systrace, tombstone <152-android-logcat-dumpsys-bugreport-perfetto-systrace-tombstone.rst>`_；
+* `第153章：Apple Console, Instruments, MetricKit, sysdiagnose, Crash Logs <153-apple-console-instruments-metrickit-sysdiagnose-crash-logs.rst>`_；
+* `第154章：Graphics Debugging for Frame Drop Overdraw Surface Layer and GPU Tool <154-graphics-debugging-for-frame-drop-overdraw-surface-layer-and-gpu-tool.rst>`_；
+* `第155章：Energy and Thermal Debugging <155-energy-and-thermal-debugging.rst>`_；
+* `第156章：Trace Reading App to Service to Kernel to Hardware <156-trace-reading-app-to-service-to-kernel-to-hardware.rst>`_。
+
 阅读方式
 --------
 
