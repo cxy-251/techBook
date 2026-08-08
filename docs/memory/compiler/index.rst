@@ -192,7 +192,16 @@ Part 21：WebAssembly and Portable Runtime Targets
 * `第104章：WASI and Host Environment Interfaces <104-wasi-and-host-environment-interfaces.rst>`_；
 * `第105章：JIT, AOT, and Runtime Embedding <105-jit-aot-and-runtime-embedding.rst>`_。
 
+Part 22：Shader Compilers, SPIR-V, and GPU Code Generation
+----------------------------------------------------------
+
+* `第106章：Shader Source as a Specialized Program <106-shader-source-as-a-specialized-program.rst>`_；
+* `第107章：GLSL, HLSL, WGSL, and Frontend Differences <107-glsl-hlsl-wgsl-and-frontend-differences.rst>`_；
+* `第108章：SPIR-V and GPU-Oriented Intermediate Representation <108-spir-v-and-gpu-oriented-intermediate-representation.rst>`_；
+* `第109章：Driver Compilers and GPU Machine Code <109-driver-compilers-and-gpu-machine-code.rst>`_；
+* `第110章：Graphics Pipeline State and Shader Optimization <110-graphics-pipeline-state-and-shader-optimization.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时沿 ``source/IR → Wasm module → typed operand stack / linear memory / table → validation → instantiation → WASI/host capabilities → interpreter/JIT/AOT`` 复盘可移植运行目标；重点区分 module 与 instance、validation error 与 runtime trap、linear-memory sandbox 与源语言对象安全，以及核心 Wasm 计算语义和宿主系统能力之间的接口边界。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时沿 ``shader source → stage/interface/resource contract → frontend normalization → SPIR-V → API validation → driver internal IR → target lowering/register allocation/scheduling → GPU ISA`` 复盘 shader 编译链；重点区分 shader source 与完整 pipeline context、标准 GPU IR 与真实机器码，以及 register pressure、occupancy、divergence、texture/derivative 和 pipeline cache 如何共同决定最终性能。
