@@ -252,6 +252,19 @@ Part 21：Android Architecture Mapping
 * `第164章：Android Deep Path Touch Event <164-android-deep-path-touch-event.rst>`_；
 * `第165章：Android Deep Path Frame Rendering <165-android-deep-path-frame-rendering.rst>`_。
 
+Part 22：Apple Architecture Mapping
+-----------------------------------
+
+* `第166章：Apple Full Stack Capability Path <166-apple-full-stack-capability-path.rst>`_；
+* `第167章：Darwin and XNU Mach, BSD Layer, IOKit, Driver Boundary <167-darwin-and-xnu-mach-bsd-layer-iokit-driver-boundary.rst>`_；
+* `第168章：launchd, XPC, System Daemon, Service Access <168-launchd-xpc-system-daemon-service-access.rst>`_；
+* `第169章：Frameworks as Public Frontends to System Capabilities <169-frameworks-as-public-frontends-to-system-capabilities.rst>`_；
+* `第170章：Code Signing, Entitlement, Sandbox, Keychain, Secure Enclave <170-code-signing-entitlement-sandbox-keychain-secure-enclave.rst>`_；
+* `第171章：Mach-O, dyld, Swift Runtime, Objective-C Runtime, Framework Loading <171-mach-o-dyld-swift-runtime-objective-c-runtime-framework-loading.rst>`_；
+* `第172章：Apple Deep Path Camera Request <172-apple-deep-path-camera-request.rst>`_；
+* `第173章：Apple Deep Path Touch Event <173-apple-deep-path-touch-event.rst>`_；
+* `第174章：Apple Deep Path Frame Rendering <174-apple-deep-path-frame-rendering.rst>`_。
+
 阅读方式
 --------
 
