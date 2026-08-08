@@ -228,7 +228,16 @@ Part 25：Compiler Diagnostics, Error Recovery, and Developer Experience
 * `第124章：Semantic Error Reporting <124-semantic-error-reporting.rst>`_；
 * `第125章：Designing Diagnostics for Human Understanding <125-designing-diagnostics-for-human-understanding.rst>`_。
 
+Part 26：Compiler Testing, Fuzzing, Verification, and Miscompilation Debugging
+------------------------------------------------------------------------------
+
+* `第126章：Golden Tests, Unit Tests, and Integration Tests <126-golden-tests-unit-tests-and-integration-tests.rst>`_；
+* `第127章：IR Tests and Pass-Level Verification <127-ir-tests-and-pass-level-verification.rst>`_；
+* `第128章：Fuzzing Parsers, Optimizers, and Code Generators <128-fuzzing-parsers-optimizers-and-code-generators.rst>`_；
+* `第129章：Differential Testing and Miscompilation Detection <129-differential-testing-and-miscompilation-detection.rst>`_；
+* `第130章：Reducing and Debugging Compiler Bugs <130-reducing-and-debugging-compiler-bugs.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时沿 ``compiler facts → structured diagnostic → source ranges/notes/fix-its → syntax recovery/partial AST → semantic candidate/constraint explanation → human-centered wording/actionability → IDE/CI tooling`` 复盘诊断与开发体验链；重点区分错误事实与构建策略、检测点与原因点、help 与安全 fix-it，以及恢复后的局部可信结构与级联伪错误。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时沿 ``local/unit evidence → golden/pattern tests → IR/pass isolation + verifier → fuzzing and failure oracles → differential/metamorphic miscompilation detection → testcase reduction → pass/commit bisection → regression test`` 复盘编译器质量链；重点区分结构合法与语义正确、coverage 与 correctness oracle、差分信号与真正 wrong-code 证据，以及 reduction、root-cause analysis 与 regression protection 的不同职责。
