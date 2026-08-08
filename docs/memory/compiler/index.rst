@@ -147,7 +147,16 @@ Part 16：Runtime Systems, ABI, Exceptions, and Garbage Collection
 * `第079章：Garbage Collection and Memory Safety Support <079-garbage-collection-and-memory-safety-support.rst>`_；
 * `第080章：Runtime Systems as Execution Partners <080-runtime-systems-as-execution-partners.rst>`_。
 
+Part 17：Interpreters, Bytecode VMs, and JIT Compilation
+--------------------------------------------------------
+
+* `第081章：AST Interpreters and Direct Execution <081-ast-interpreters-and-direct-execution.rst>`_；
+* `第082章：Bytecode as a Compact Execution Format <082-bytecode-as-a-compact-execution-format.rst>`_；
+* `第083章：Virtual Machines and Evaluation Loops <083-virtual-machines-and-evaluation-loops.rst>`_；
+* `第084章：JIT Compilation and Runtime Specialization <084-jit-compilation-and-runtime-specialization.rst>`_；
+* `第085章：Deoptimization, Inline Caches, and Dynamic Feedback <085-deoptimization-inline-caches-and-dynamic-feedback.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先区分 compile-time structure 与 runtime state，再沿 ABI、compiler-inserted helper、language support library、exception unwind、GC safepoint/root map/barrier 追踪生成代码如何把动态语义交给运行时，最后把 generated code、runtime metadata、library、ABI 与 OS 放回一条完整执行链检查契约是否一致。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先沿 AST direct execution、environment/closure 和 bytecode linearization 建立解释执行模型，再进入 VM frame、operand stack、dispatch loop 与 call/exception transition，最后沿 runtime profile、tiered JIT、inline cache、guard 和 deoptimization 复盘动态执行如何在可撤回假设下逐步专门化。
