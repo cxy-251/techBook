@@ -22,6 +22,17 @@ Part 2：Web Standards, Compatibility, and Platform Contracts
 * `第010章：Progressive Enhancement as an Architectural Principle <010-progressive-enhancement-as-an-architectural-principle.rst>`_；
 * `第011章：Browser Baseline, Feature Detection, Polyfill, and Transpilation Boundaries <011-browser-baseline-feature-detection-polyfill-and-transpilation-boundaries.rst>`_。
 
+Part 3：URL, HTTP, Network, and Resource Delivery
+-------------------------------------------------
+
+* `第012章：URL as Address, State, Capability, and Routing Input <012-url-as-address-state-capability-and-routing-input.rst>`_；
+* `第013章：DNS, TCP, TLS, QUIC, and Connection Establishment <013-dns-tcp-tls-quic-and-connection-establishment.rst>`_；
+* `第014章：HTTP Request and Response Semantics <014-http-request-and-response-semantics.rst>`_；
+* `第015章：HTTP 1.1, HTTP 2, HTTP 3, and Multiplexed Resource Loading <015-http-1-1-http-2-http-3-and-multiplexed-resource-loading.rst>`_；
+* `第016章：Header, Cookie, Cache-Control, Content Negotiation, and Cross-Layer Meaning <016-header-cookie-cache-control-content-negotiation-and-cross-layer-meaning.rst>`_；
+* `第017章：Resource Discovery, Preload, Prefetch, Priority, and Critical Path <017-resource-discovery-preload-prefetch-priority-and-critical-path.rst>`_；
+* `第018章：Compression, Streaming, Incremental Delivery, and Progressive Response <018-compression-streaming-incremental-delivery-and-progressive-response.rst>`_。
+
 阅读方式
 --------
 
