@@ -120,7 +120,16 @@ Part 13：Backend Fundamentals and Instruction Selection
 * `第064章：Machine IR and Target-Specific Lowering <064-machine-ir-and-target-specific-lowering.rst>`_；
 * `第065章：Backend Correctness and Target Semantics <065-backend-correctness-and-target-semantics.rst>`_。
 
+Part 14：Register Allocation, Stack Frames, and Calling Conventions
+-------------------------------------------------------------------
+
+* `第066章：Registers as Scarce Execution Resources <066-registers-as-scarce-execution-resources.rst>`_；
+* `第067章：Liveness, Interference, and Register Allocation <067-liveness-interference-and-register-allocation.rst>`_；
+* `第068章：Spilling, Reloading, and Stack Slot Management <068-spilling-reloading-and-stack-slot-management.rst>`_；
+* `第069章：Stack Frames, Prologues, and Epilogues <069-stack-frames-prologues-and-epilogues.rst>`_；
+* `第070章：Calling Conventions as Binary-Level Contracts <070-calling-conventions-as-binary-level-contracts.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先定位 IR operation semantics 与 target description，再沿 legality、pattern matching、instruction selection、Machine IR、virtual/physical register 与 ABI boundary 复盘抽象语义如何逐步服从硬件约束，最后用 flags、memory effects、target semantics 和执行测试检查后端转换是否保持正确性。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先定位 virtual/physical register、register class 与 liveness，再沿 interference、allocation、spill/reload、stack frame、prologue/epilogue 和 calling convention 复盘机器值如何被压入有限寄存器与栈空间，最后用 caller/callee-saved responsibility、stack alignment、aggregate return 和 ABI boundary 检查函数调用是否满足二进制协议。
