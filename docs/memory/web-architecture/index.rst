@@ -126,6 +126,17 @@ Part 11：High-Performance Web Capabilities Across GPU, Media, Worker, and Realt
 * `第078章：Capture, WebRTC Media Path, and Privacy Boundary <078-capture-webrtc-media-path-and-privacy-boundary.rst>`_；
 * `第079章：Worker, WASM, GPU, and Media Coordination for High-Performance Web Apps <079-worker-wasm-gpu-and-media-coordination-for-high-performance-web-apps.rst>`_。
 
+Part 12：UI Runtime, Component Model, State, and Interaction Feedback
+---------------------------------------------------------------------
+
+* `第080章：UI Runtime as the Bridge Between State and DOM <080-ui-runtime-as-the-bridge-between-state-and-dom.rst>`_；
+* `第081章：Component Model, Composition, Props, and Local Responsibility <081-component-model-composition-props-and-local-responsibility.rst>`_；
+* `第082章：Client State, Server State, URL State, Form State, and Cache State <082-client-state-server-state-url-state-form-state-and-cache-state.rst>`_；
+* `第083章：Virtual DOM, Fine-Grained Reactivity, Signals, and Compiler-Driven UI <083-virtual-dom-fine-grained-reactivity-signals-and-compiler-driven-ui.rst>`_；
+* `第084章：Scheduling, Priority, Batching, and User-Perceived Responsiveness <084-scheduling-priority-batching-and-user-perceived-responsiveness.rst>`_；
+* `第085章：Event Handling, Feedback Loop, and Interaction Recovery <085-event-handling-feedback-loop-and-interaction-recovery.rst>`_；
+* `第086章：Startup Interactivity, Client JavaScript Budget, and UI Activation Cost <086-startup-interactivity-client-javascript-budget-and-ui-activation-cost.rst>`_。
+
 阅读方式
 --------
 
