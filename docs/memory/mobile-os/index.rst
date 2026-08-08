@@ -61,7 +61,7 @@ Part 5：Driver Model, Hardware Abstraction, and Vendor Boundary
 * `第037章：Hardware Event Translation and Driver Interface <037-hardware-event-translation-and-driver-interface.rst>`_；
 * `第038章：Capability Interface Instead of Raw Device Access <038-capability-interface-instead-of-raw-device-access.rst>`_；
 * `第039章：Android HAL and Vendor Boundary <039-android-hal-and-vendor-boundary.rst>`_；
-* `第040章：Camera HAL, Audio HAL, Sensors HAL, Bluetooth HAL, Graphics HAL <040-camera-hal-audio-hal-sensors-hal-bluetooth-hal-graphics-hal.rst>`_；
+* `第040章：Camera HAL, Audio HAL, Sensors HAL, Bluetooth HAL, Graphics HAL <040-camera-hal-audio-hal-sensors-bluetooth-hal-graphics-hal.rst>`_；
 * `第041章：Vendor Partition, Device Tree, Firmware, Board Support <041-vendor-partition-device-tree-firmware-board-support.rst>`_；
 * `第042章：Apple IOKit, DriverKit, and Controlled Driver Access <042-apple-iokit-driverkit-and-controlled-driver-access.rst>`_；
 * `第043章：Hardware Abstraction, Platform Update, Device Fragmentation <043-hardware-abstraction-platform-update-device-fragmentation.rst>`_。
@@ -101,6 +101,18 @@ Part 8：App Process Model and Lifecycle Policy
 * `第065章：Background Process Reclamation <065-background-process-reclamation.rst>`_；
 * `第066章：Cold Start, Warm Start, Resume Path <066-cold-start-warm-start-resume-path.rst>`_；
 * `第067章：State Restoration Under Process Death <067-state-restoration-under-process-death.rst>`_。
+
+Part 9：IPC and System Service Access
+-------------------------------------
+
+* `第068章：IPC as the Mobile OS Service Spine <068-ipc-as-the-mobile-os-service-spine.rst>`_；
+* `第069章：IPC Concepts Handle, Message, Transaction, Port, Object Reference <069-ipc-concepts-handle-message-transaction-port-object-reference.rst>`_；
+* `第070章：Android Binder Service Access Path <070-android-binder-service-access-path.rst>`_；
+* `第071章：Binder Driver, Service Manager, AIDL, Parcelable <071-binder-driver-service-manager-aidl-parcelable.rst>`_；
+* `第072章：Apple Mach Port, XPC, launchd, System Daemon <072-apple-mach-port-xpc-launchd-system-daemon.rst>`_；
+* `第073章：Caller Identity, Permission Check, Capability Boundary <073-caller-identity-permission-check-capability-boundary.rst>`_；
+* `第074章：IPC Performance Copy, Shared Memory, Latency, Blocking <074-ipc-performance-copy-shared-memory-latency-blocking.rst>`_；
+* `第075章：Deep Path Location Request and Camera Request <075-deep-path-location-request-and-camera-request.rst>`_。
 
 阅读方式
 --------
