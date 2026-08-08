@@ -57,6 +57,18 @@ Part 5：Browser Loading, Document Construction, Rendering, and Compositing Pipe
 * `第033章：Browser Cache, Resource Lifetime, and Reload Semantics <033-browser-cache-resource-lifetime-and-reload-semantics.rst>`_；
 * `第034章：DevTools as the Browser Observability Surface <034-devtools-as-the-browser-observability-surface.rst>`_。
 
+Part 6：Document Model, HTML Semantics, Accessibility, and Public Web Discovery
+-------------------------------------------------------------------------------
+
+* `第035章：HTML as Semantic Document and Runtime Input <035-html-as-semantic-document-and-runtime-input.rst>`_；
+* `第036章：DOM Tree, Node, Element, Attribute, and Mutation <036-dom-tree-node-element-attribute-and-mutation.rst>`_；
+* `第037章：Head Elements, Resource Hints, Script, Style, and Loading Influence <037-head-elements-resource-hints-script-style-and-loading-influence.rst>`_；
+* `第038章：Native Forms, Inputs, Constraint Validation, and Submission Semantics <038-native-forms-inputs-constraint-validation-and-submission-semantics.rst>`_；
+* `第039章：Custom Elements, Shadow DOM, Template, and Encapsulation Boundary <039-custom-elements-shadow-dom-template-and-encapsulation-boundary.rst>`_；
+* `第040章：Accessibility Tree, Semantic Mapping, Focus, and Keyboard Navigation <040-accessibility-tree-semantic-mapping-focus-and-keyboard-navigation.rst>`_；
+* `第041章：Internationalization, Locale, Direction, Unicode, and Semantic Presentation <041-internationalization-locale-direction-unicode-and-semantic-presentation.rst>`_；
+* `第042章：Crawling, Sitemap, Open Graph, Structured Data, and Public Web Discovery <042-crawling-sitemap-open-graph-structured-data-and-public-web-discovery.rst>`_。
+
 阅读方式
 --------
 
