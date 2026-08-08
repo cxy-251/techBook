@@ -78,6 +78,18 @@ Part 6：System Services and Capability Mediation
 * `第050章：Apple Daemons, Framework Frontends, Service Backends <050-apple-daemons-framework-frontends-service-backends.rst>`_；
 * `第051章：Service Isolation and Failure Containment <051-service-isolation-and-failure-containment.rst>`_。
 
+Part 7：Runtime Layer and Application Execution
+-----------------------------------------------
+
+* `第052章：Runtime Responsibilities in Mobile Platforms <052-runtime-responsibilities-in-mobile-platforms.rst>`_；
+* `第053章：Android Runtime DEX, ART, Class Loading, JIT, AOT, GC <053-android-runtime-dex-art-class-loading-jit-aot-gc.rst>`_；
+* `第054章：Zygote Preload, Fork Model, App Process Startup <054-zygote-preload-fork-model-app-process-startup.rst>`_；
+* `第055章：Apple Runtime Mach-O, dyld, Swift Runtime, Objective-C Runtime <055-apple-runtime-mach-o-dyld-swift-runtime-objective-c-runtime.rst>`_；
+* `第056章：Native Libraries, Frameworks, ABI Boundary <056-native-libraries-frameworks-abi-boundary.rst>`_；
+* `第057章：Dynamic Linking, Shared Libraries, Framework Loading <057-dynamic-linking-shared-libraries-framework-loading.rst>`_；
+* `第058章：Startup Cost, Memory Sharing, Launch Performance <058-startup-cost-memory-sharing-launch-performance.rst>`_；
+* `第059章：Runtime Design, Battery, Memory, Responsiveness <059-runtime-design-battery-memory-responsiveness.rst>`_。
+
 阅读方式
 --------
 
