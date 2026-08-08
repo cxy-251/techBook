@@ -61,7 +61,7 @@ Part 5：Driver Model, Hardware Abstraction, and Vendor Boundary
 * `第037章：Hardware Event Translation and Driver Interface <037-hardware-event-translation-and-driver-interface.rst>`_；
 * `第038章：Capability Interface Instead of Raw Device Access <038-capability-interface-instead-of-raw-device-access.rst>`_；
 * `第039章：Android HAL and Vendor Boundary <039-android-hal-and-vendor-boundary.rst>`_；
-* `第040章：Camera HAL, Audio HAL, Sensors HAL, Bluetooth HAL, Graphics HAL <040-camera-hal-audio-hal-sensors-hal-bluetooth-hal-graphics-hal.rst>`_；
+* `第040章：Camera HAL, Audio HAL, Sensors HAL, Bluetooth HAL, Graphics HAL <040-camera-hal-audio-hal-sensors-bluetooth-hal-graphics-hal.rst>`_；
 * `第041章：Vendor Partition, Device Tree, Firmware, Board Support <041-vendor-partition-device-tree-firmware-board-support.rst>`_；
 * `第042章：Apple IOKit, DriverKit, and Controlled Driver Access <042-apple-iokit-driverkit-and-controlled-driver-access.rst>`_；
 * `第043章：Hardware Abstraction, Platform Update, Device Fragmentation <043-hardware-abstraction-platform-update-device-fragmentation.rst>`_。
@@ -137,6 +137,18 @@ Part 11：File System, App Container, Storage, and User Data
 * `第089章：SQLite, Preferences, Key-Value Storage, Local Database <089-sqlite-preferences-key-value-storage-local-database.rst>`_；
 * `第090章：Backup, Restore, Cloud Sync, Data Migration <090-backup-restore-cloud-sync-data-migration.rst>`_；
 * `第091章：File Access as Security Boundary <091-file-access-as-security-boundary.rst>`_。
+
+Part 12：Graphics and Display Pipeline
+--------------------------------------
+
+* `第092章：App Drawing to Screen Pixel Pipeline <092-app-drawing-to-screen-pixel-pipeline.rst>`_；
+* `第093章：View Tree, Layer Tree, Surface, Buffer, Frame <093-view-tree-layer-tree-surface-buffer-frame.rst>`_；
+* `第094章：GPU Rendering, Composition, VSync, Buffering, Frame Deadline <094-gpu-rendering-composition-vsync-buffering-frame-deadline.rst>`_；
+* `第095章：Android Graphics Pipeline <095-android-graphics-pipeline.rst>`_；
+* `第096章：Apple Graphics View, Layer, Core Animation, Metal, WindowServer, Display <096-apple-graphics-view-layer-core-animation-metal-windowserver-display.rst>`_；
+* `第097章：Jank, Main Thread, Render Thread, GPU, Missed Frame <097-jank-main-thread-render-thread-gpu-missed-frame.rst>`_；
+* `第098章：High Refresh Rate, Display Power, Smoothness <098-high-refresh-rate-display-power-smoothness.rst>`_；
+* `第099章：GPU Composition, Overlay Plane, Display System Policy <099-gpu-composition-overlay-plane-display-system-policy.rst>`_。
 
 阅读方式
 --------
