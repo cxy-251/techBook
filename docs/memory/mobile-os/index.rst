@@ -41,6 +41,19 @@ Part 3：Boot Chain and System Startup
 * `第025章：Apple Startup Path Secure Boot, XNU, launchd, System Services <025-apple-startup-path-secure-boot-xnu-launchd-system-services.rst>`_；
 * `第026章：Startup Security and Platform Trust Establishment <026-startup-security-and-platform-trust-establishment.rst>`_。
 
+Part 4：Mobile Kernel Foundations
+---------------------------------
+
+* `第027章：Kernel Responsibilities in a Mobile Platform <027-kernel-responsibilities-in-a-mobile-platform.rst>`_；
+* `第028章：Process, Thread, Scheduler, Foreground Responsiveness <028-process-thread-scheduler-foreground-responsiveness.rst>`_；
+* `第029章：Virtual Memory, Physical Memory, OOM, Memory Pressure <029-virtual-memory-physical-memory-oom-memory-pressure.rst>`_；
+* `第030章：System Call Boundary and Kernel Object Model <030-system-call-boundary-and-kernel-object-model.rst>`_；
+* `第031章：Interrupt, DMA, Device Driver, Hardware Event <031-interrupt-dma-device-driver-hardware-event.rst>`_；
+* `第032章：Timer, Wakeup, Scheduling Latency, Power Sensitivity <032-timer-wakeup-scheduling-latency-power-sensitivity.rst>`_；
+* `第033章：Sleep, Wakeup, Thermal Control, Power State Management <033-sleep-wakeup-thermal-control-power-state-management.rst>`_；
+* `第034章：Kernel Isolation, Access Control, Attack Surface <034-kernel-isolation-access-control-attack-surface.rst>`_；
+* `第035章：Android Linux Kernel and Apple XNU <035-android-linux-kernel-and-apple-xnu.rst>`_。
+
 阅读方式
 --------
 
