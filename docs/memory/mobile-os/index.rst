@@ -150,6 +150,17 @@ Part 12：Graphics and Display Pipeline
 * `第098章：High Refresh Rate, Display Power, Smoothness <098-high-refresh-rate-display-power-smoothness.rst>`_；
 * `第099章：GPU Composition, Overlay Plane, Display System Policy <099-gpu-composition-overlay-plane-display-system-policy.rst>`_。
 
+Part 13：Input System and Event Dispatch
+----------------------------------------
+
+* `第100章：Touch Hardware to App Event Pipeline <100-touch-hardware-to-app-event-pipeline.rst>`_；
+* `第101章：Touch Controller, Driver, Input Queue, Event Dispatch <101-touch-controller-driver-input-queue-event-dispatch.rst>`_；
+* `第102章：Gesture Recognition and Raw Touch Translation <102-gesture-recognition-and-raw-touch-translation.rst>`_；
+* `第103章：Android InputReader, InputDispatcher, Window Target, View Dispatch <103-android-inputreader-inputdispatcher-window-target-view-dispatch.rst>`_；
+* `第104章：Apple Touch Event, RunLoop, Responder Chain, Gesture Recognizer <104-apple-touch-event-runloop-responder-chain-gesture-recognizer.rst>`_；
+* `第105章：Main Thread, Event Loop, Looper, RunLoop <105-main-thread-event-loop-looper-runloop.rst>`_；
+* `第106章：Input Latency and Touch Responsiveness <106-input-latency-and-touch-responsiveness.rst>`_。
+
 阅读方式
 --------
 
