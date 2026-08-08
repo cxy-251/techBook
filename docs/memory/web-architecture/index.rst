@@ -204,7 +204,19 @@ Part 18：API Contracts, RPC, Schema, and Interoperability Boundaries
 * `第128章：BFF, Route Handler, Middleware, and Frontend-Specific Backend <128-bff-route-handler-middleware-and-frontend-specific-backend.rst>`_；
 * `第129章：Contract Drift, Versioning, Backward Compatibility, and Migration <129-contract-drift-versioning-backward-compatibility-and-migration.rst>`_。
 
+Part 19：Identity, Session, Authorization, and Application Security
+------------------------------------------------------------------
+
+* `第130章：Web Identity Model and Authentication Boundary <130-web-identity-model-and-authentication-boundary.rst>`_；
+* `第131章：Cookie, Session, Token, JWT, and Session Refresh Path <131-cookie-session-token-jwt-and-session-refresh-path.rst>`_；
+* `第132章：OAuth, OIDC, Third-Party Login, and Redirect-Based Identity Flow <132-oauth-oidc-third-party-login-and-redirect-based-identity-flow.rst>`_；
+* `第133章：CSRF, XSS, CORS, SameSite, Secure, and HttpOnly in Application Context <133-csrf-xss-cors-samesite-secure-and-httponly-in-application-context.rst>`_；
+* `第134章：Middleware, Route Guard, API Guard, and Request Authorization <134-middleware-route-guard-api-guard-and-request-authorization.rst>`_；
+* `第135章：Role, Permission, Tenant, Organization, and Feature Flag Boundary <135-role-permission-tenant-organization-and-feature-flag-boundary.rst>`_；
+* `第136章：Secret Boundary Across Browser, Server, Edge, Build Time, and Deployment <136-secret-boundary-across-browser-server-edge-build-time-and-deployment.rst>`_；
+* `第137章：Auth Failure, Session Expiry, Reauthentication, and Recovery Experience <137-auth-failure-session-expiry-reauthentication-and-recovery-experience.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时优先沿 ``User Intent → Browser → Network/CDN/Edge → Server → Database/Storage → Response → Browser State`` 追踪请求路径，并始终标出 runtime、state owner、cache copy、trust boundary 与 failure recovery；遇到框架术语时，先还原成 browser/server/edge/build/database 等真实系统边界。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时优先沿 ``User Intent → Browser → Credential / Session → Trusted Identity → Authorization Policy → Tenant-Scoped Data → Response → Browser State`` 追踪身份与请求路径，并始终标出 runtime、state owner、cache copy、trust boundary、secret scope 与 failure recovery；遇到框架术语时，先还原成 browser/server/edge/build/database 等真实系统边界。
