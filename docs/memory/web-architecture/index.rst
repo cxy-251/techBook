@@ -44,6 +44,19 @@ Part 4：Browser Engine Process Model, Navigation Ownership, and Page Lifecycle
 * `第024章：SPA Navigation vs Document Navigation <024-spa-navigation-vs-document-navigation.rst>`_；
 * `第025章：Page Lifecycle, Visibility, Freeze, Resume, and Recovery Paths <025-page-lifecycle-visibility-freeze-resume-and-recovery-paths.rst>`_。
 
+Part 5：Browser Loading, Document Construction, Rendering, and Compositing Pipeline
+----------------------------------------------------------------------------------
+
+* `第026章：Browser Network Loading and Resource Scheduling <026-browser-network-loading-and-resource-scheduling.rst>`_；
+* `第027章：HTML Tokenization, Parsing, and DOM Construction <027-html-tokenization-parsing-and-dom-construction.rst>`_；
+* `第028章：Parser Blocking, Script Execution, and Streaming HTML <028-parser-blocking-script-execution-and-streaming-html.rst>`_；
+* `第029章：CSS Parsing, CSSOM Construction, and Style Input <029-css-parsing-cssom-construction-and-style-input.rst>`_；
+* `第030章：Style Calculation and Render Tree Construction <030-style-calculation-and-render-tree-construction.rst>`_；
+* `第031章：Layout, Paint, Rasterization, and Compositing <031-layout-paint-rasterization-and-compositing.rst>`_；
+* `第032章：GPU Acceleration, Layer Promotion, and Compositor Pipeline <032-gpu-acceleration-layer-promotion-and-compositor-pipeline.rst>`_；
+* `第033章：Browser Cache, Resource Lifetime, and Reload Semantics <033-browser-cache-resource-lifetime-and-reload-semantics.rst>`_；
+* `第034章：DevTools as the Browser Observability Surface <034-devtools-as-the-browser-observability-surface.rst>`_。
+
 阅读方式
 --------
 
