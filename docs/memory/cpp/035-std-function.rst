@@ -4,43 +4,81 @@
 核心知识点
 ----------
 
-* ``std::function<R(Args...)>`` 固定调用签名，擦除具体 callable 类型，把函数指针、捕获 lambda、函数对象和 bind expression 统一成同一种运行时对象。
+* ``std::function<R(Args...)>`` 固定调用签名，擦除具体 callable 类型，把函数指针、捕获 lambda、函数对象和 bind expression 统一成同一种拥有型运行时对象。
 * type erasure 的核心是“固定外部接口 + 隐藏内部目标类型”；wrapper 内部仍必须保存目标对象、调用入口和生命周期管理入口。
-* 调用路径可抽象为 ``wrapper -> invoker -> concrete callable``；调用方不再知道目标具体类型，因此会形成一次运行时间接调用边界。
+* 调用路径可抽象为 ``wrapper → invoker → concrete callable``；调用方不再知道目标具体类型，因此会形成一次运行时间接调用边界。
 * ``std::function`` 具有空状态；``operator bool`` 可检查是否保存目标，调用空对象会抛出 ``std::bad_function_call``。
-* 普通 ``std::function`` 使用值语义保存并复制目标；目标必须满足其复制模型，move-only callable 不适合直接存入普通 ``std::function``。
-* 常见实现提供 small object optimization，把足够小且满足条件的目标内联存入 wrapper；目标过大时通常需要动态分配。
-* SBO 的容量、对齐和启用条件属于实现细节，不能把“某个捕获一定不分配”当作跨标准库保证。
-* 构造成本来自目标构造和可能分配；复制成本来自目标复制和可能分配；调用成本来自间接派发和较弱的内联机会。
-* ``std::function`` 只管理 callable 对象本身，不自动延长 callable 内部引用、裸指针或 ``this`` 所指对象的生命周期。
-* 捕获大状态时，可把状态移到独立对象并捕获智能指针，以换取更可预测的 wrapper 大小；同时要考虑引用计数和额外间接访问成本。
-* 引用返回的 ``std::function`` 签名必须准确表达返回类别，并确认被引用对象生命周期覆盖调用结果使用期。
-* 模板参数保留 callable 具体类型，适合即时调用和热路径；函数指针适合无状态调用；``std::function`` 适合需要长期保存、同构容器或稳定 API 边界的异构 callable。
-* ``std::function`` 的统一调用能力不等于线程安全；目标状态、回调容器的替换和并发发布仍需要外层同步设计。
+* ``std::function`` 是 **copyable owning wrapper**。目标必须满足其复制模型，因此 move-only callable 不适合直接存入普通 ``std::function``。
+* C++23 的 ``std::move_only_function`` 是标准 move-only owning wrapper，适合保存只能移动的 lambda、任务和独占资源所有者；它还支持 cv/ref/noexcept 限定进入调用签名。
+* C++26 的 ``std::copyable_function`` 继续提供可复制 owning wrapper，同时补齐更完整的 cv/ref/noexcept 调用限定模型，可视为比传统 ``std::function`` 更精确的复制型调用包装器。
+* C++26 的 ``std::function_ref`` 是 **non-owning callable view**：它不拥有目标，也不延长目标生命周期，适合短期同步调用边界，不能当长期 callback storage 使用。
+* ``std::move_only_function`` 的空对象调用与 ``std::function`` 不同：空 ``std::move_only_function`` 的调用没有 ``bad_function_call`` 保障，使用前必须建立非空不变量或检查状态。
+* 常见 owning wrapper 实现会提供 small object optimization，把满足条件的小目标内联存入 wrapper；目标过大时通常需要动态分配。
+* SBO 的容量、对齐和一般启用条件属于实现细节，不能把“某个捕获一定不分配”当作跨标准库保证。
+* 构造成本来自目标构造和可能分配；复制型 wrapper 还承担目标复制成本；调用成本来自间接派发和较弱的内联机会。
+* owning wrapper 只管理 callable 对象本身，不自动延长 callable 内部引用、裸指针或 ``this`` 所指对象的生命周期；non-owning ``function_ref`` 的生命周期约束更强。
+* 模板参数保留 callable 具体类型，适合即时调用和热路径；函数指针适合无状态调用；type-erased wrapper 适合 ABI/API 边界、异构回调槽位或运行时存储。
+* 所有这些 callable wrapper 都不自动提供业务线程安全；目标状态、回调集合的替换和并发发布仍需要外层同步。
 
 关键路径
 --------
 
-1. 先判断是否真的需要在运行时保存多种不同具体类型的 callable；不需要时优先保留具体类型。
-2. 确定统一签名 ``R(Args...)``，检查参数绑定、返回值转换和引用生命周期是否准确。
-3. 构造 wrapper 时识别目标是函数指针、小闭包、大闭包还是引用包装，估计对象大小和复制语义。
-4. 检查目标内部捕获状态的所有权；长期保存时避免悬垂引用、裸 ``this`` 和失效外部对象。
-5. wrapper 被复制时，确认目标复制成本和共享状态语义是否符合预期；move-only 目标改用 move-only wrapper 或专用任务模型。
-6. 性能敏感路径分别测量构造、复制和调用频率，再判断 SBO、外部状态和具体 callable 类型是否值得调整。
-7. 并发场景中，把 ``std::function`` 视为普通对象，另外设计回调集合、目标共享状态和替换操作的同步。
+选择 callable 表达：
+
+::
+
+   need runtime type erasure ?
+      ├─ no  → template / concrete callable / function pointer
+      └─ yes
+          → need wrapper to own callable ?
+             ├─ no  → function_ref (C++26), lifetime must outlive call
+             └─ yes
+                 → callable must be copied ?
+                    ├─ no  → move_only_function (C++23)
+                    └─ yes
+                        → std::function
+                        → or copyable_function (C++26) when qualifiers matter
+
+拥有型 wrapper：
+
+::
+
+   choose call signature
+   → construct erased target
+   → inline storage or allocation
+   → copy/move according to wrapper contract
+   → indirect invoke
+   → destroy target
+
+生命周期检查：
+
+::
+
+   wrapper stores callable
+   → inspect captured references / this / pointers
+   → owning wrapper owns closure object only
+   → referenced external object still alive ?
+      ├─ yes → invoke
+      └─ no  → dangling access
+
+   function_ref
+   → target must already exist
+   → view must not outlive target
 
 概念辨析
 --------
 
-* **type erasure 与虚函数**：二者都可形成运行时间接派发；``std::function`` 擦除的是一次 callable 调用协议，不要求目标继承共同基类。
+* **``std::function`` 与 ``std::move_only_function``**：前者要求复制型值语义；后者是 C++23 的 move-only owning wrapper，适合独占状态 callable。
+* **``std::function`` 与 ``std::copyable_function``**：两者都拥有并复制目标；C++26 ``copyable_function`` 能在签名中更完整表达 cv/ref/noexcept 限定。
+* **Owning wrapper 与 ``std::function_ref``**：owning wrapper 保存目标对象；``function_ref`` 只借用 callable，目标必须覆盖整个使用期。
 * **``std::function`` 与模板 callable 参数**：前者统一运行时类型并牺牲部分优化信息，后者保留具体类型并产生模板实例化。
-* **``std::function`` 与函数指针**：函数指针只表示无状态代码入口；``std::function`` 可拥有带状态目标。
+* **``std::function`` 与函数指针**：函数指针只表示无状态代码入口；type-erased owning wrapper 可以持有带状态目标。
 * **SBO 与零开销**：SBO 只可能避免动态分配，仍存在类型擦除管理和间接调用边界。
-* **wrapper 生命周期与目标引用生命周期**：wrapper 可继续存活并不意味着闭包内部引用仍然有效。
-* **可复制 wrapper 与 move-only callable**：普通 ``std::function`` 的值语义要求目标适配复制模型；只移动任务应使用其他 wrapper。
-* **接口稳定性与热路径性能**：长期回调/API 边界更看重统一存储；高频小调用更适合具体 lambda、函数对象或函数指针。
+* **wrapper 生命周期与目标引用生命周期**：wrapper 可继续存活并不意味着闭包内部引用仍然有效；``function_ref`` 更不会延长目标生命周期。
+* **空状态语义**：空 ``std::function`` 调用抛 ``bad_function_call``；其它 wrapper 的空调用合同不能机械套用 ``std::function``。
+* **标准存在与工具链可用**：C++23/26 标准已定义这些 wrapper，不代表所有当前编译器和标准库版本都完整实现；工程代码仍需检查 feature-test macro 与工具链支持。
 
 本章结论
 --------
 
-``std::function`` 应按“是否需要运行时存储 → 调用签名与生命周期 → 复制语义 → 分配、复制和调用成本”分析。它最适合回调槽位、事件系统和需要统一 callable 类型的 API 边界；热路径或无需类型擦除的局部算法应优先保留具体 callable 类型。
+2026 年不应再把“运行时 callable type erasure”只理解为 ``std::function``。正确选择顺序是 ``是否需要 type erasure → 是否拥有目标 → 是否需要复制 → 是否需要 cv/ref/noexcept 精确签名 → 生命周期与成本``：``std::function`` 负责经典可复制 owning 场景，``std::move_only_function`` 负责 move-only owning 场景，C++26 ``std::copyable_function`` 提供更精确的可复制包装，``std::function_ref`` 则负责非拥有短期调用视图。
