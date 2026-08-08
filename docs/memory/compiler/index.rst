@@ -183,7 +183,16 @@ Part 20：CPython Compilation Pipeline and Bytecode VM
 * `第099章：AST to CFG to Bytecode <099-ast-to-cfg-to-bytecode.rst>`_；
 * `第100章：Evaluation Loop and Runtime Objects <100-evaluation-loop-and-runtime-objects.rst>`_。
 
+Part 21：WebAssembly and Portable Runtime Targets
+-------------------------------------------------
+
+* `第101章：WebAssembly as a Portable Compilation Target <101-webassembly-as-a-portable-compilation-target.rst>`_；
+* `第102章：Stack Machine, Linear Memory, Tables, and Modules <102-stack-machine-linear-memory-tables-and-modules.rst>`_；
+* `第103章：Validation, Security, and Sandboxing <103-validation-security-and-sandboxing.rst>`_；
+* `第104章：WASI and Host Environment Interfaces <104-wasi-and-host-environment-interfaces.rst>`_；
+* `第105章：JIT, AOT, and Runtime Embedding <105-jit-aot-and-runtime-embedding.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时沿 ``source bytes → Unicode text → tokens → AST → symbol table → code object → CFG/bytecode → frame/evaluation loop → runtime objects`` 复盘 CPython 的完整编译执行链；重点区分词法/语法结构、编译期名字作用域、code object 静态元数据和 frame/object 动态状态，避免把 Python 的动态对象语义误解为所有工作都推迟到运行时。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时沿 ``source/IR → Wasm module → typed operand stack / linear memory / table → validation → instantiation → WASI/host capabilities → interpreter/JIT/AOT`` 复盘可移植运行目标；重点区分 module 与 instance、validation error 与 runtime trap、linear-memory sandbox 与源语言对象安全，以及核心 Wasm 计算语义和宿主系统能力之间的接口边界。
