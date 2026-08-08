@@ -210,7 +210,16 @@ Part 23：AI Graph Compilers, Tensor IR, and Operator Fusion
 * `第114章：Lowering Tensor IR to Kernels <114-lowering-tensor-ir-to-kernels.rst>`_；
 * `第115章：Runtime Scheduling, Memory Planning, and Hardware Backends <115-runtime-scheduling-memory-planning-and-hardware-backends.rst>`_。
 
+Part 24：Database Query Optimizers as Compiler Systems
+------------------------------------------------------
+
+* `第116章：SQL as a Declarative Source Language <116-sql-as-a-declarative-source-language.rst>`_；
+* `第117章：Parsing, Binding, and Logical Query Plans <117-parsing-binding-and-logical-query-plans.rst>`_；
+* `第118章：Cost-Based Optimization and Plan Search <118-cost-based-optimization-and-plan-search.rst>`_；
+* `第119章：Physical Operators and Execution Plans <119-physical-operators-and-execution-plans.rst>`_；
+* `第120章：Query Compilation, JIT, and Vectorized Execution <120-query-compilation-jit-and-vectorized-execution.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时沿 ``framework calls → typed computation graph → shape/dtype/layout/quantization facts → graph optimization/fusion → structured Tensor IR → bufferization/scheduling → runtime guards/cache/memory plan → CPU/GPU/NPU backend`` 复盘 AI 编译链；重点区分图节点与真实 kernel、逻辑 tensor 与物理 buffer、fusion legality 与 profitability，以及动态 shape、fallback、数据搬运和硬件布局如何共同决定端到端性能。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时沿 ``SQL text → parse/bind/rewrite → logical plan → statistics/cardinality/cost → physical plan → scan/join/aggregate operators → interpreted/JIT/vectorized execution → runtime feedback`` 复盘数据库查询编译链；重点区分查询语义与执行策略、估算成本与真实运行证据，以及计划质量和 executor machinery 如何共同决定 SQL 性能。
