@@ -161,6 +161,17 @@ Part 13：Input System and Event Dispatch
 * `第105章：Main Thread, Event Loop, Looper, RunLoop <105-main-thread-event-loop-looper-runloop.rst>`_；
 * `第106章：Input Latency and Touch Responsiveness <106-input-latency-and-touch-responsiveness.rst>`_。
 
+Part 14：Audio System Pipeline
+------------------------------
+
+* `第107章：Audio Hardware, Codec, Microphone, Speaker, Audio Route <107-audio-hardware-codec-microphone-speaker-audio-route.rst>`_；
+* `第108章：Capture, Playback, Mixing, Resampling, Latency <108-capture-playback-mixing-resampling-latency.rst>`_；
+* `第109章：Android AudioRecord, AudioTrack, AudioFlinger, Audio HAL, Driver <109-android-audiorecord-audiotrack-audioflinger-audio-hal-driver.rst>`_；
+* `第110章：Apple AVAudioEngine, Core Audio, Audio Unit, Audio Session <110-apple-avaudioengine-core-audio-audio-unit-audio-session.rst>`_；
+* `第111章：Audio Focus, Interruption, Background Audio, Permission <111-audio-focus-interruption-background-audio-permission.rst>`_；
+* `第112章：Low-Latency Audio and Real-Time Constraint <112-low-latency-audio-and-real-time-constraint.rst>`_；
+* `第113章：Audio Routing as System Policy <113-audio-routing-as-system-policy.rst>`_。
+
 阅读方式
 --------
 
