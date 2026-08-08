@@ -66,6 +66,18 @@ Part 5：Driver Model, Hardware Abstraction, and Vendor Boundary
 * `第042章：Apple IOKit, DriverKit, and Controlled Driver Access <042-apple-iokit-driverkit-and-controlled-driver-access.rst>`_；
 * `第043章：Hardware Abstraction, Platform Update, Device Fragmentation <043-hardware-abstraction-platform-update-device-fragmentation.rst>`_。
 
+Part 6：System Services and Capability Mediation
+------------------------------------------------
+
+* `第044章：System Service Model <044-system-service-model.rst>`_；
+* `第045章：System Service as Hardware Proxy <045-system-service-as-hardware-proxy.rst>`_；
+* `第046章：Resource Arbitration Camera, Audio, Location, Display, Sensor <046-resource-arbitration-camera-audio-location-display-sensor.rst>`_；
+* `第047章：Permission Enforcement in System Services <047-permission-enforcement-in-system-services.rst>`_；
+* `第048章：Service State, Resource Ownership, Client Tracking <048-service-state-resource-ownership-client-tracking.rst>`_；
+* `第049章：Android system_server, Native Services, Service Manager <049-android-system-server-native-services-service-manager.rst>`_；
+* `第050章：Apple Daemons, Framework Frontends, Service Backends <050-apple-daemons-framework-frontends-service-backends.rst>`_；
+* `第051章：Service Isolation and Failure Containment <051-service-isolation-and-failure-containment.rst>`_。
+
 阅读方式
 --------
 
