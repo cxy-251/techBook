@@ -80,6 +80,17 @@ Part 7：CSS Cascade, Layout, Visual Formatting, and Rendering Cost
 * `第048章：CSS Containment, Layout Invalidation, and Layout Shift <048-css-containment-layout-invalidation-and-layout-shift.rst>`_；
 * `第049章：Animation Cost Across Layout, Paint, and Composite <049-animation-cost-across-layout-paint-and-composite.rst>`_。
 
+Part 8：JavaScript Engine, Event Loop, Memory, and Host Runtime Coordination
+---------------------------------------------------------------------------
+
+* `第050章：JavaScript Source to Execution <050-javascript-source-to-execution.rst>`_；
+* `第051章：Parser, Bytecode, Baseline Compilation, and Optimizing Compilation <051-parser-bytecode-baseline-compilation-and-optimizing-compilation.rst>`_；
+* `第052章：Call Stack, Heap, Object Allocation, and Garbage Collection <052-call-stack-heap-object-allocation-and-garbage-collection.rst>`_；
+* `第053章：Event Loop, Task Queue, Microtask Queue, and Rendering Coordination <053-event-loop-task-queue-microtask-queue-and-rendering-coordination.rst>`_；
+* `第054章：Promise, Timer, Event Callback, and Asynchronous Continuation <054-promise-timer-event-callback-and-asynchronous-continuation.rst>`_；
+* `第055章：DOM Binding, Web API Callback, and Host Runtime Integration <055-dom-binding-web-api-callback-and-host-runtime-integration.rst>`_；
+* `第056章：Long Task, Main Thread Pressure, Responsiveness, and Input Delay <056-long-task-main-thread-pressure-responsiveness-and-input-delay.rst>`_。
+
 阅读方式
 --------
 
