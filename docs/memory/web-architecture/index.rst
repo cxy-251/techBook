@@ -193,6 +193,17 @@ Part 17：Mutation Write Path, Consistency, Retry, and Failure Recovery
 * `第121章：Mutation Result, Cache Invalidation, and UI Consistency <121-mutation-result-cache-invalidation-and-ui-consistency.rst>`_；
 * `第122章：Write Path Failure Modes and Recovery Design <122-write-path-failure-modes-and-recovery-design.rst>`_。
 
+Part 18：API Contracts, RPC, Schema, and Interoperability Boundaries
+-------------------------------------------------------------------
+
+* `第123章：API Boundary as a Contract Between Independent Runtimes <123-api-boundary-as-a-contract-between-independent-runtimes.rst>`_；
+* `第124章：REST Resource Semantics and HTTP-Aligned Interface Design <124-rest-resource-semantics-and-http-aligned-interface-design.rst>`_；
+* `第125章：GraphQL Query Shape, Schema, Resolver, and Execution Boundary <125-graphql-query-shape-schema-resolver-and-execution-boundary.rst>`_；
+* `第126章：RPC, tRPC, Server Function, and Type-Safe Call Boundary <126-rpc-trpc-server-function-and-type-safe-call-boundary.rst>`_；
+* `第127章：OpenAPI, Schema-First Contract, Runtime Validation, and Client Generation <127-openapi-schema-first-contract-runtime-validation-and-client-generation.rst>`_；
+* `第128章：BFF, Route Handler, Middleware, and Frontend-Specific Backend <128-bff-route-handler-middleware-and-frontend-specific-backend.rst>`_；
+* `第129章：Contract Drift, Versioning, Backward Compatibility, and Migration <129-contract-drift-versioning-backward-compatibility-and-migration.rst>`_。
+
 阅读方式
 --------
 
