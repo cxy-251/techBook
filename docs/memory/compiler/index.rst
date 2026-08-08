@@ -165,7 +165,16 @@ Part 18：LLVM Infrastructure and Pass Engineering
 * `第089章：Building and Testing LLVM Passes <089-building-and-testing-llvm-passes.rst>`_；
 * `第090章：Reading Optimized LLVM IR <090-reading-optimized-llvm-ir.rst>`_。
 
+Part 19：MLIR, Dialects, and Multi-Level Compiler Infrastructure
+----------------------------------------------------------------
+
+* `第091章：Multi-Level IR and Progressive Lowering <091-multi-level-ir-and-progressive-lowering.rst>`_；
+* `第092章：Dialects as Domain-Specific Compiler Languages <092-dialects-as-domain-specific-compiler-languages.rst>`_；
+* `第093章：Operations, Regions, Attributes, and Types <093-operations-regions-attributes-and-types.rst>`_；
+* `第094章：Dialect Conversion and Progressive Lowering <094-dialect-conversion-and-progressive-lowering.rst>`_；
+* `第095章：MLIR in Heterogeneous and Domain-Specific Compilation <095-mlir-in-heterogeneous-and-domain-specific-compilation.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先沿 LLVM infrastructure、module/function/basic block 与 SSA/use-def 建立 IR 层级模型，再沿 analysis manager、transform pass、PreservedAnalyses 和 PassBuilder 理解优化管线的事实生命周期，最后通过最小 pass、opt/FileCheck 和优化前后 IR 对比，把 transformation legality、analysis invalidation 与 compiler proof chain 串成一条工程路径。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时先沿 multi-level IR 与 dialect composition 判断每层保留的语义，再用 operation/region/SSA/type/attribute 模型读取混合 IR，随后沿 ConversionTarget、rewrite pattern、TypeConverter 与 partial/full conversion 复盘 progressive lowering，最后把 tensor/linalg/affine/scf/vector/gpu/LLVM 等层级放回异构编译链，检查高层领域事实何时消费、低层硬件约束何时进入。
