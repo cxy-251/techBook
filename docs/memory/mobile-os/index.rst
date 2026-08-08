@@ -289,6 +289,17 @@ Part 24：Android OEM Customization
 * `第189章：System Update, Vendor Partition, Driver Maintenance, Long-Term Support <189-system-update-vendor-partition-driver-maintenance-long-term-support.rst>`_；
 * `第190章：Technical Evaluation of Android OEM Systems <190-technical-evaluation-of-android-oem-systems.rst>`_。
 
+Part 25：Mobile System Analysis Method
+--------------------------------------
+
+* `第191章：Tracing a Capability from App API to Hardware <191-tracing-a-capability-from-app-api-to-hardware.rst>`_；
+* `第192章：Reading Android Source with State and Context in AOSP <192-reading-android-source-with-state-and-context-in-aosp.rst>`_；
+* `第193章：Reading Apple Documentation with Public Materials <193-reading-apple-documentation-with-public-materials.rst>`_；
+* `第194章：Comparative Analysis Method for Mobile Systems <194-comparative-analysis-method-for-mobile-systems.rst>`_；
+* `第195章：Mobile OS Misreading Patterns <195-mobile-os-misreading-patterns.rst>`_；
+* `第196章：Mobile Architecture Map Hardware to App <196-mobile-architecture-map-hardware-to-app.rst>`_；
+* `第197章：Mobile Architecture Extension Paths <197-mobile-architecture-extension-paths.rst>`_。
+
 阅读方式
 --------
 
