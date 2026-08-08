@@ -33,6 +33,17 @@ Part 3：URL, HTTP, Network, and Resource Delivery
 * `第017章：Resource Discovery, Preload, Prefetch, Priority, and Critical Path <017-resource-discovery-preload-prefetch-priority-and-critical-path.rst>`_；
 * `第018章：Compression, Streaming, Incremental Delivery, and Progressive Response <018-compression-streaming-incremental-delivery-and-progressive-response.rst>`_。
 
+Part 4：Browser Engine Process Model, Navigation Ownership, and Page Lifecycle
+-----------------------------------------------------------------------------
+
+* `第019章：Browser as a Multi-Process Application Runtime <019-browser-as-a-multi-process-application-runtime.rst>`_；
+* `第020章：Browser Process, Renderer Process, GPU Process, and Network Process <020-browser-process-renderer-process-gpu-process-and-network-process.rst>`_；
+* `第021章：Frame, Tab, Site Instance, and Isolation Boundary <021-frame-tab-site-instance-and-isolation-boundary.rst>`_；
+* `第022章：Navigation Ownership from URL to Document Commit <022-navigation-ownership-from-url-to-document-commit.rst>`_；
+* `第023章：Redirect, Response Commit, History Entry, and BFCache <023-redirect-response-commit-history-entry-and-bfcache.rst>`_；
+* `第024章：SPA Navigation vs Document Navigation <024-spa-navigation-vs-document-navigation.rst>`_；
+* `第025章：Page Lifecycle, Visibility, Freeze, Resume, and Recovery Paths <025-page-lifecycle-visibility-freeze-resume-and-recovery-paths.rst>`_。
+
 阅读方式
 --------
 
