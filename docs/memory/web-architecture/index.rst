@@ -102,6 +102,18 @@ Part 9：Web Platform APIs and Cross-Boundary Capability Paths
 * `第062章：WebSocket, Server-Sent Events, WebRTC, and WebTransport <062-websocket-server-sent-events-webrtc-and-webtransport.rst>`_；
 * `第063章：File, Clipboard, Notification, Permission, and Device-Facing APIs <063-file-clipboard-notification-permission-and-device-facing-apis.rst>`_。
 
+Part 10：Browser-Enforced Security, Permission, Isolation, and Trust Boundaries
+-------------------------------------------------------------------------------
+
+* `第064章：Same-Origin Policy and Cross-Origin Constraints <064-same-origin-policy-and-cross-origin-constraints.rst>`_；
+* `第065章：CORS, Fetch Credentials, Preflight, and Resource Sharing <065-cors-fetch-credentials-preflight-and-resource-sharing.rst>`_；
+* `第066章：CSP, Trusted Types, Script Execution, and Injection Defense <066-csp-trusted-types-script-execution-and-injection-defense.rst>`_；
+* `第067章：Secure Context, HTTPS, Mixed Content, and Powerful Features <067-secure-context-https-mixed-content-and-powerful-features.rst>`_；
+* `第068章：Cookie Security, Storage Partitioning, and Tracking Prevention <068-cookie-security-storage-partitioning-and-tracking-prevention.rst>`_；
+* `第069章：iframe Sandbox, COOP, COEP, CORP, and Cross-Origin Isolation <069-iframe-sandbox-coop-coep-corp-and-cross-origin-isolation.rst>`_；
+* `第070章：Permission Prompt, User Consent, and Capability Access Boundary <070-permission-prompt-user-consent-and-capability-access-boundary.rst>`_；
+* `第071章：Extension, WebView, Embedded Browser, and Trust Boundary Risk <071-extension-webview-embedded-browser-and-trust-boundary-risk.rst>`_。
+
 阅读方式
 --------
 
