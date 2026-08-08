@@ -206,6 +206,17 @@ Part 17：Sensors, Location, Bluetooth, NFC, and Device Capabilities
 * `第134章：Android Capability Path Framework API, Service, HAL, Driver <134-android-capability-path-framework-api-service-hal-driver.rst>`_；
 * `第135章：Apple Capability Path Framework, Entitlement, Daemon, Driver <135-apple-capability-path-framework-entitlement-daemon-driver.rst>`_。
 
+Part 18：Network Stack, Cellular, Wi-Fi, TLS, and VPN
+-----------------------------------------------------
+
+* `第136章：Network Hardware, Modem, Wi-Fi Chip, Network Interface <136-network-hardware-modem-wi-fi-chip-network-interface.rst>`_；
+* `第137章：TCP IP, DNS, TLS, HTTP, Proxy, VPN <137-tcp-ip-dns-tls-http-proxy-vpn.rst>`_；
+* `第138章：Android Network Connectivity Stack <138-android-network-connectivity-stack.rst>`_；
+* `第139章：Apple URLSession, Network.framework, NEProvider, TLS, System Policy <139-apple-urlsession-networkframework-neprovider-tls-system-policy.rst>`_；
+* `第140章：Cellular, SIM eSIM, Carrier Policy, Modem Boundary <140-cellular-sim-esim-carrier-policy-modem-boundary.rst>`_；
+* `第141章：Background Networking, Push, Power, Data Saver <141-background-networking-push-power-data-saver.rst>`_；
+* `第142章：Network Access as Power and Privacy Surface <142-network-access-as-power-and-privacy-surface.rst>`_。
+
 阅读方式
 --------
 
