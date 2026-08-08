@@ -239,6 +239,19 @@ Part 20：Debugging and Observability
 * `第155章：Energy and Thermal Debugging <155-energy-and-thermal-debugging.rst>`_；
 * `第156章：Trace Reading App to Service to Kernel to Hardware <156-trace-reading-app-to-service-to-kernel-to-hardware.rst>`_。
 
+Part 21：Android Architecture Mapping
+-------------------------------------
+
+* `第157章：Android Full Stack Capability Path <157-android-full-stack-capability-path.rst>`_；
+* `第158章：Android Linux Kernel Standard Kernel Role and Mobile Extensions <158-android-linux-kernel-standard-kernel-role-and-mobile-extensions.rst>`_；
+* `第159章：AOSP, GMS, Vendor Partition, Project Treble, Device Adaptation <159-aosp-gms-vendor-partition-project-treble-device-adaptation.rst>`_；
+* `第160章：Android system_server Service Map <160-android-system-server-service-map.rst>`_；
+* `第161章：Android Native Service Map <161-android-native-service-map.rst>`_；
+* `第162章：ART, Zygote, DEX, JIT, AOT, App Startup <162-art-zygote-dex-jit-aot-app-startup.rst>`_；
+* `第163章：Android Deep Path Camera Request <163-android-deep-path-camera-request.rst>`_；
+* `第164章：Android Deep Path Touch Event <164-android-deep-path-touch-event.rst>`_；
+* `第165章：Android Deep Path Frame Rendering <165-android-deep-path-frame-rendering.rst>`_。
+
 阅读方式
 --------
 
