@@ -265,6 +265,18 @@ Part 22：Apple Architecture Mapping
 * `第173章：Apple Deep Path Touch Event <173-apple-deep-path-touch-event.rst>`_；
 * `第174章：Apple Deep Path Frame Rendering <174-apple-deep-path-frame-rendering.rst>`_。
 
+Part 23：Android vs Apple Architecture Comparison
+-------------------------------------------------
+
+* `第175章：Open Ecosystem and Integrated Ecosystem <175-open-ecosystem-and-integrated-ecosystem.rst>`_；
+* `第176章：Linux Kernel + HAL and XNU + Apple-Controlled Driver Framework <176-linux-kernel-hal-and-xnu-apple-controlled-driver-framework.rst>`_；
+* `第177章：Binder system_server and XPC Daemons <177-binder-system-server-and-xpc-daemons.rst>`_；
+* `第178章：Permission + SELinux and Entitlement + Sandbox <178-permission-selinux-and-entitlement-sandbox.rst>`_；
+* `第179章：ART Zygote and dyld Swift Objective-C Runtime <179-art-zygote-and-dyld-swift-objective-c-runtime.rst>`_；
+* `第180章：SurfaceFlinger Skia Vulkan and Core Animation Metal <180-surfaceflinger-skia-vulkan-and-core-animation-metal.rst>`_；
+* `第181章：MediaCodec Camera HAL and AVFoundation Core Media VideoToolbox <181-mediacodec-camera-hal-and-avfoundation-core-media-videotoolbox.rst>`_；
+* `第182章：OEM Fragmentation and Platform Uniformity <182-oem-fragmentation-and-platform-uniformity.rst>`_。
+
 阅读方式
 --------
 
