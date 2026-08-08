@@ -183,6 +183,18 @@ Part 15：Video and Media Pipeline
 * `第119章：Recording Pipeline Capture, Encode, Mux, Save, Metadata <119-recording-pipeline-capture-encode-mux-save-metadata.rst>`_；
 * `第120章：Media as Cross-Layer System Pipeline <120-media-as-cross-layer-system-pipeline.rst>`_。
 
+Part 16：Camera System Pipeline
+-------------------------------
+
+* `第121章：Camera as a Cross-Layer Mobile Subsystem <121-camera-as-a-cross-layer-mobile-subsystem.rst>`_；
+* `第122章：Camera Sensor, Lens, ISP, Buffer, Exposure, Focus, Image Pipeline <122-camera-sensor-lens-isp-buffer-exposure-focus-image-pipeline.rst>`_；
+* `第123章：Preview, Capture, Burst, HDR, Night Mode, Computational Photography <123-preview-capture-burst-hdr-night-mode-computational-photography.rst>`_；
+* `第124章：Android Camera2, CameraService, Camera HAL, Driver, ISP, Sensor <124-android-camera2-cameraservice-camera-hal-driver-isp-sensor.rst>`_；
+* `第125章：Apple Camera Capture Pipeline <125-apple-camera-capture-pipeline.rst>`_；
+* `第126章：Camera Privacy and Resource Arbitration <126-camera-privacy-and-resource-arbitration.rst>`_；
+* `第127章：Device-Level Imaging Differences <127-device-level-imaging-differences.rst>`_；
+* `第128章：Camera Hardware, Algorithm, Media, Privacy, UX Integration <128-camera-hardware-algorithm-media-privacy-ux-integration.rst>`_。
+
 阅读方式
 --------
 
