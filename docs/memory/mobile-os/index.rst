@@ -84,7 +84,7 @@ Part 7：Runtime Layer and Application Execution
 * `第052章：Runtime Responsibilities in Mobile Platforms <052-runtime-responsibilities-in-mobile-platforms.rst>`_；
 * `第053章：Android Runtime DEX, ART, Class Loading, JIT, AOT, GC <053-android-runtime-dex-art-class-loading-jit-aot-gc.rst>`_；
 * `第054章：Zygote Preload, Fork Model, App Process Startup <054-zygote-preload-fork-model-app-process-startup.rst>`_；
-* `第055章：Apple Runtime Mach-O, dyld, Swift Runtime, Objective-C Runtime <055-apple-runtime-mach-o-dyld-swift-runtime-objective-c-runtime.rst>`_；
+* `第055章：Apple Runtime Mach-O, dyld, Swift Runtime, Objective-C Runtime <055-apple-runtime-macho-dyld-swift-runtime-objective-c-runtime.rst>`_；
 * `第056章：Native Libraries, Frameworks, ABI Boundary <056-native-libraries-frameworks-abi-boundary.rst>`_；
 * `第057章：Dynamic Linking, Shared Libraries, Framework Loading <057-dynamic-linking-shared-libraries-framework-loading.rst>`_；
 * `第058章：Startup Cost, Memory Sharing, Launch Performance <058-startup-cost-memory-sharing-launch-performance.rst>`_；
@@ -195,7 +195,18 @@ Part 16：Camera System Pipeline
 * `第127章：Device-Level Imaging Differences <127-device-level-imaging-differences.rst>`_；
 * `第128章：Camera Hardware, Algorithm, Media, Privacy, UX Integration <128-camera-hardware-algorithm-media-privacy-ux-integration.rst>`_。
 
+Part 17：Sensors, Location, Bluetooth, NFC, and Device Capabilities
+-------------------------------------------------------------------
+
+* `第129章：Sensor Hardware and Sensor Fusion <129-sensor-hardware-and-sensor-fusion.rst>`_；
+* `第130章：Core Mobile Sensors <130-core-mobile-sensors.rst>`_；
+* `第131章：Location Stack GPS, Wi-Fi, Cellular, Bluetooth, Permission, Power <131-location-stack-gps-wi-fi-cellular-bluetooth-permission-power.rst>`_；
+* `第132章：Bluetooth and BLE Device, GATT, Pairing, Background Limit <132-bluetooth-and-ble-device-gatt-pairing-background-limit.rst>`_；
+* `第133章：NFC, Secure Element, Wallet, Payment Boundary <133-nfc-secure-element-wallet-payment-boundary.rst>`_；
+* `第134章：Android Capability Path Framework API, Service, HAL, Driver <134-android-capability-path-framework-api-service-hal-driver.rst>`_；
+* `第135章：Apple Capability Path Framework, Entitlement, Daemon, Driver <135-apple-capability-path-framework-entitlement-daemon-driver.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时优先沿 ``App → Framework → IPC → System Service / Daemon → HAL / Driver → Kernel → Hardware`` 定位能力所有者，再把 permission、lifecycle、power、thermal、privacy、sandbox 和 distribution policy 放回对应边界。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时优先沿 ``App → Framework → IPC / System Service / Daemon → Policy → HAL / Driver → Kernel → Hardware`` 定位能力所有者；对 sensor、location、Bluetooth、NFC 等设备能力，再把 sampling、fusion、permission、lifecycle、background、power、privacy、entitlement 和 secure-element / controller 路由放回对应边界。
