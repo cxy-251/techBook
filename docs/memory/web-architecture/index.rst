@@ -299,7 +299,19 @@ Part 26：Framework and Toolchain Mapping Across System Paths
 * `第191章：Build and Deployment Toolchain Mapping <191-build-and-deployment-toolchain-mapping.rst>`_；
 * `第192章：Framework Comparison as Boundary Comparison <192-framework-comparison-as-boundary-comparison.rst>`_。
 
+Part 27：Web Architecture Decision Framework and Engineering Tradeoffs
+-----------------------------------------------------------------------
+
+* `第193章：Architecture Decision as Boundary Selection <193-architecture-decision-as-boundary-selection.rst>`_；
+* `第194章：Choosing CSR, SSR, SSG, ISR, Streaming, Islands, or RSC <194-choosing-csr-ssr-ssg-isr-streaming-islands-or-rsc.rst>`_；
+* `第195章：Choosing REST, GraphQL, RPC, Server Function, or BFF <195-choosing-rest-graphql-rpc-server-function-or-bff.rst>`_；
+* `第196章：Choosing Client Cache, Server Cache, CDN Cache, or Framework Cache <196-choosing-client-cache-server-cache-cdn-cache-or-framework-cache.rst>`_；
+* `第197章：Choosing Node Runtime, Edge Runtime, Serverless, or Static Hosting <197-choosing-node-runtime-edge-runtime-serverless-or-static-hosting.rst>`_；
+* `第198章：Choosing Auth, Session, Token, Tenant, and Permission Strategies <198-choosing-auth-session-token-tenant-and-permission-strategies.rst>`_；
+* `第199章：Choosing Data Access, Mutation, Transaction, and Consistency Strategies <199-choosing-data-access-mutation-transaction-and-consistency-strategies.rst>`_；
+* `第200章：How to Evaluate a New Web Framework Through Boundary Questions <200-how-to-evaluate-a-new-web-framework-through-boundary-questions.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时优先沿 ``Product Path → Framework Abstraction → Runtime Boundary → Data/Mutation → Build Artifact → Deployment Target → Failure/Observability`` 追踪框架与工具链映射，并始终标出 framework default、state/cache ownership、server/client/edge runtime、artifact graph、deployment constraint、escape hatch 与 boundary observability。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。全书最终应沿 ``User/Product Constraint → Boundary Selection → Rendering/API/Cache/Runtime Choice → Identity/Data Consistency → Build/Deployment → Failure/Observability → Recovery/Escape Route`` 阅读，并始终标出 state authority、runtime capability、cache identity、permission/tenant boundary、consistency promise、deployment artifact、production evidence 与可逆性。
