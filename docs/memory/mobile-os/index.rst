@@ -126,6 +126,18 @@ Part 10：Security, Sandbox, Permission, Signature, Entitlement, and Trust
 * `第082章：App Store, Certificate, Installation Policy, Platform Trust <082-app-store-certificate-installation-policy-platform-trust.rst>`_；
 * `第083章：Over-Permission, Background Abuse, Data Leakage <083-over-permission-background-abuse-data-leakage.rst>`_。
 
+Part 11：File System, App Container, Storage, and User Data
+----------------------------------------------------------
+
+* `第084章：Mobile File System Model <084-mobile-file-system-model.rst>`_；
+* `第085章：App Container and Private Storage <085-app-container-and-private-storage.rst>`_；
+* `第086章：Shared Storage, Media Library, Photos, Documents, User Consent <086-shared-storage-media-library-photos-documents-user-consent.rst>`_；
+* `第087章：Android Storage Access Model <087-android-storage-access-model.rst>`_；
+* `第088章：Apple Storage Access Model <088-apple-storage-access-model.rst>`_；
+* `第089章：SQLite, Preferences, Key-Value Storage, Local Database <089-sqlite-preferences-key-value-storage-local-database.rst>`_；
+* `第090章：Backup, Restore, Cloud Sync, Data Migration <090-backup-restore-cloud-sync-data-migration.rst>`_；
+* `第091章：File Access as Security Boundary <091-file-access-as-security-boundary.rst>`_。
+
 阅读方式
 --------
 
