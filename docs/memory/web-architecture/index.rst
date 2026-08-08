@@ -186,7 +186,7 @@ Part 17：Mutation Write Path, Consistency, Retry, and Failure Recovery
 ---------------------------------------------------------------------
 
 * `第116章：Mutation Write Path from User Action to Durable State <116-mutation-write-path-from-user-action-to-durable-state.rst>`_；
-* `第117章：REST, RPC, GraphQL, and Server Function Mutation Paths <117-rest-rpc-graphql-server-function-and-type-safe-call-boundary.rst>`_；
+* `第117章：REST, RPC, GraphQL, and Server Function Mutation Paths <117-rest-rpc-graphql-and-server-function-mutation-paths.rst>`_；
 * `第118章：Client Validation, Server Validation, and Runtime Schema Enforcement <118-client-validation-server-validation-and-runtime-schema-enforcement.rst>`_；
 * `第119章：Optimistic UI, Pending State, Rollback, and Conflict Resolution <119-optimistic-ui-pending-state-rollback-and-conflict-resolution.rst>`_；
 * `第120章：Idempotency, Retry, Race Condition, and Double Write Prevention <120-idempotency-retry-race-condition-and-double-write-prevention.rst>`_；
