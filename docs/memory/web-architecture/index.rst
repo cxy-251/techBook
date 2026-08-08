@@ -228,7 +228,19 @@ Part 20：Persistence, Domain Logic, File Storage, and Data Stability
 * `第144章：File Upload, Object Storage, Media Asset, and Large Data Path <144-file-upload-object-storage-media-asset-and-large-data-path.rst>`_；
 * `第145章：Serverless Database, Edge Data, and Connection Lifecycle Constraints <145-serverless-database-edge-data-and-connection-lifecycle-constraints.rst>`_。
 
+Part 21：Cache Topology, Revalidation, Freshness, and Consistency Failure
+------------------------------------------------------------------------
+
+* `第146章：Cache as a Multi-Layer Web System <146-cache-as-a-multi-layer-web-system.rst>`_；
+* `第147章：Browser Cache, HTTP Cache, Validation, and Resource Freshness <147-browser-cache-http-cache-validation-and-resource-freshness.rst>`_；
+* `第148章：CDN Cache, Edge Cache, Region, and Global Delivery <148-cdn-cache-edge-cache-region-and-global-delivery.rst>`_；
+* `第149章：Server Framework and Runtime Cache Layers <149-server-framework-and-runtime-cache-layers.rst>`_；
+* `第150章：Client Query Cache, Server State, and UI Freshness <150-client-query-cache-server-state-and-ui-freshness.rst>`_；
+* `第151章：Revalidation, Invalidation, Purge, and Stale-While-Revalidate <151-revalidation-invalidation-purge-stale-while-revalidate.rst>`_；
+* `第152章：Cache Key, Vary, Credential, Locale, and Personalization Boundary <152-cache-key-vary-credential-locale-and-personalization-boundary.rst>`_；
+* `第153章：Stale Data, Split Brain UI, and Cache Consistency Failure <153-stale-data-split-brain-ui-and-cache-consistency-failure.rst>`_。
+
 阅读方式
 --------
 
-每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时优先沿 ``User Intent → Trusted Use Case → Domain/Validation → Repository/Data Access → Transaction/Database/Object Storage → Derived Cache/Replica → Response → Browser State`` 追踪数据路径，并始终标出 source of truth、transaction boundary、runtime lifecycle、cache copy、tenant/security boundary 与 failure recovery；遇到 ORM、serverless、edge 等抽象时，先还原成真实数据所有者和连接/一致性路径。
+每章依次保留“核心知识点”“关键路径”“概念辨析”和“本章结论”。阅读时优先沿 ``User Intent → Browser/Client Cache → CDN/Edge Cache → Server/Framework Cache → Source of Truth → Invalidation/Revalidation → Response → UI Reconciliation`` 追踪副本路径，并始终标出 cache key、freshness、owner、credential/tenant boundary、resource version 与 failure recovery；遇到框架缓存 API 时，先还原成真实缓存对象、共享范围和失效责任。
