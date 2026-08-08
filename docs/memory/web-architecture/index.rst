@@ -114,6 +114,18 @@ Part 10：Browser-Enforced Security, Permission, Isolation, and Trust Boundaries
 * `第070章：Permission Prompt, User Consent, and Capability Access Boundary <070-permission-prompt-user-consent-and-capability-access-boundary.rst>`_；
 * `第071章：Extension, WebView, Embedded Browser, and Trust Boundary Risk <071-extension-webview-embedded-browser-and-trust-boundary-risk.rst>`_。
 
+Part 11：High-Performance Web Capabilities Across GPU, Media, Worker, and Realtime Paths
+---------------------------------------------------------------------------------------
+
+* `第072章：Canvas and SVG Drawing Paths in the Document Runtime <072-canvas-and-svg-drawing-paths-in-the-document-runtime.rst>`_；
+* `第073章：WebGL Rendering Path Through Browser and GPU <073-webgl-rendering-path-through-browser-and-gpu.rst>`_；
+* `第074章：WebGPU as a Web Platform Capability Boundary <074-webgpu-as-a-web-platform-capability-boundary.rst>`_；
+* `第075章：WebGPU Resource, Queue, Shader, and Security Execution Path <075-webgpu-resource-queue-shader-and-security-execution-path.rst>`_；
+* `第076章：WebCodecs and Media Source as Browser Media Pipeline <076-webcodecs-and-media-source-as-browser-media-pipeline.rst>`_；
+* `第077章：Web Audio Graph, Timing, and Real-Time Scheduling <077-web-audio-graph-timing-and-real-time-scheduling.rst>`_；
+* `第078章：Capture, WebRTC Media Path, and Privacy Boundary <078-capture-webrtc-media-path-and-privacy-boundary.rst>`_；
+* `第079章：Worker, WASM, GPU, and Media Coordination for High-Performance Web Apps <079-worker-wasm-gpu-and-media-coordination-for-high-performance-web-apps.rst>`_。
+
 阅读方式
 --------
 
