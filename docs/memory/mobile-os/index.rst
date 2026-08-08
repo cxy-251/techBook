@@ -277,6 +277,18 @@ Part 23：Android vs Apple Architecture Comparison
 * `第181章：MediaCodec Camera HAL and AVFoundation Core Media VideoToolbox <181-mediacodec-camera-hal-and-avfoundation-core-media-videotoolbox.rst>`_；
 * `第182章：OEM Fragmentation and Platform Uniformity <182-oem-fragmentation-and-platform-uniformity.rst>`_。
 
+Part 24：Android OEM Customization
+----------------------------------
+
+* `第183章：Android OEM Customization Surface <183-android-oem-customization-surface.rst>`_；
+* `第184章：UI Skin, System Services, Policy, Power, Camera, App Store <184-ui-skin-system-services-policy-power-camera-app-store.rst>`_；
+* `第185章：Background Process Policy and Notification Delivery <185-background-process-policy-and-notification-delivery.rst>`_；
+* `第186章：Camera Pipeline, ISP Tuning, Computational Photography <186-camera-pipeline-isp-tuning-computational-photography.rst>`_；
+* `第187章：Permission Center, Security Center, Cleaner, App Lock, Privacy Dashboard <187-permission-center-security-center-cleaner-app-lock-privacy-dashboard.rst>`_；
+* `第188章：Vendor Cloud, Account, Push, Theme, Payment, Device Link <188-vendor-cloud-account-push-theme-payment-device-link.rst>`_；
+* `第189章：System Update, Vendor Partition, Driver Maintenance, Long-Term Support <189-system-update-vendor-partition-driver-maintenance-long-term-support.rst>`_；
+* `第190章：Technical Evaluation of Android OEM Systems <190-technical-evaluation-of-android-oem-systems.rst>`_。
+
 阅读方式
 --------
 
