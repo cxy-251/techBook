@@ -1,20 +1,33 @@
-techBook 学习内容
-================
+========
+techBook
+========
 
-这里保存面向程序员的 reStructuredText 学习资料。仓库同时保留完整源码学习轨道和可以直接记忆的
-必背课本，两种内容互不替代。
+techBook 使用 Sphinx 构建，`reStructuredText` 与 `Markdown`（经 MyST 解析）文件可以在同一个站点中共同渲染，参见 :doc:`about`。
 
-入口
-----
+.. toctree::
+   :maxdepth: 1
+   :caption: 说明
 
-* `必背课本 <memory/index.rst>`_；
-* `Linux Kernel 必背课本 <memory/linux-kernel/index.rst>`_；
-* `学习系统架构 <architecture.rst>`_；
-* `原有学习路径 <tracks/index.rst>`_；
-* `原有 Linux Kernel 学习路径 <tracks/linux-kernel/index.rst>`_。
+   about
 
-阅读说明
---------
+.. toctree::
+   :maxdepth: 2
+   :caption: 技术专著
 
-``docs/memory/`` 用于直接记忆稳定知识；``docs/tracks/`` 保留原有完整学习内容。RST 文件本身就是
-最终内容，仓库不使用 Sphinx、HTML 构建或文档站点，文件之间使用普通相对链接导航。
+   tracks/compiler_engineering_core/index
+   tracks/cpp_stl_engineering_core/index
+   tracks/cpython_internals_core/index
+   tracks/operating_systems_core/index
+   tracks/mobile_os_architecture_core/index
+   tracks/graphic_universe_core/index
+   tracks/web_system_architecture_core/index
+   tracks/flutter_cross_platform_core/index
+   tracks/comfyui_internals_core/index
+   tracks/rustdesk_internals_core/index
+   tracks/ytdlp_internals_core/index
+
+索引与搜索
+==========
+
+* :ref:`genindex`
+* :ref:`search`
